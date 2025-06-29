@@ -1,0 +1,410 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{11BEA565-3857-3502-8363-519B8BA81386}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>absl_synchronization</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">absl_synchronization.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">absl_synchronization</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">absl_synchronization.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">absl_synchronization</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">absl_synchronization.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">absl_synchronization</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.lib</TargetExt>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">absl_synchronization.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">absl_synchronization</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.lib</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4005;4068;4180;4244;4267;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4005;4068;4180;4244;4267;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4005;4068;4180;4244;4267;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /bigobj</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4005;4068;4180;4244;4267;4503;4800</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Lib>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/synchronization/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/abseil/absl/synchronization/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/synchronization/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/abseil/absl/synchronization/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/synchronization/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/abseil/absl/synchronization/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/synchronization/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/abseil/absl/synchronization/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\barrier.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\blocking_counter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\create_thread_identity.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\futex_waiter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\per_thread_sem.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\pthread_waiter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\sem_waiter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\stdcpp_waiter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\waiter_base.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\win32_waiter.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\notification.cc" />
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\mutex.cc" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\barrier.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\blocking_counter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\create_thread_identity.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\futex.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\futex_waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\per_thread_sem.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\pthread_waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\sem_waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\stdcpp_waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\waiter_base.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\internal\win32_waiter.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\mutex.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\abseil-cpp\absl\synchronization\notification.h" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\ZERO_CHECK.vcxproj">
+      <Project>{6731F556-010E-31F5-AEE4-69F074B03328}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_base.vcxproj">
+      <Project>{84F29E09-B588-33DB-908D-73EE5BB76ADC}</Project>
+      <Name>absl_base</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\time\absl_civil_time.vcxproj">
+      <Project>{4E416CBD-20E2-34A5-8722-476B39D3090C}</Project>
+      <Name>absl_civil_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\debugging\absl_debugging_internal.vcxproj">
+      <Project>{E8486EA5-2EDB-351E-B3B9-A174D83E0E65}</Project>
+      <Name>absl_debugging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\debugging\absl_demangle_internal.vcxproj">
+      <Project>{4A0CD18F-361E-3CB5-A856-CE27BB34F1E4}</Project>
+      <Name>absl_demangle_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\absl_graphcycles_internal.vcxproj">
+      <Project>{0E78D29B-F42C-3650-A847-436F1B92BBB6}</Project>
+      <Name>absl_graphcycles_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\numeric\absl_int128.vcxproj">
+      <Project>{5EF39BF3-E0F1-39D6-93D9-1CAF026C56CC}</Project>
+      <Name>absl_int128</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\synchronization\absl_kernel_timeout_internal.vcxproj">
+      <Project>{FBEA775E-3FE2-33CC-9494-1B4C0D763DD4}</Project>
+      <Name>absl_kernel_timeout_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_log_severity.vcxproj">
+      <Project>{590F10E2-F49A-3AF0-BAC8-F694D697DEBB}</Project>
+      <Name>absl_log_severity</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_malloc_internal.vcxproj">
+      <Project>{99D47920-7F3B-303F-9E21-668419DAF5E8}</Project>
+      <Name>absl_malloc_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_raw_logging_internal.vcxproj">
+      <Project>{AD59C38A-ACA9-338E-B453-48E4109B3CB8}</Project>
+      <Name>absl_raw_logging_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_spinlock_wait.vcxproj">
+      <Project>{E3D3E39F-979B-335E-B67F-3CEEC1765C0E}</Project>
+      <Name>absl_spinlock_wait</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\debugging\absl_stacktrace.vcxproj">
+      <Project>{4B6CE75F-B6C1-3E6A-8719-FED80355832D}</Project>
+      <Name>absl_stacktrace</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\strings\absl_string_view.vcxproj">
+      <Project>{A13D9639-DEBC-3736-8317-A804AE96AFE3}</Project>
+      <Name>absl_string_view</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\strings\absl_strings.vcxproj">
+      <Project>{FA1DFFD7-656A-3EBE-A113-06EE15B69CBA}</Project>
+      <Name>absl_strings</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\strings\absl_strings_internal.vcxproj">
+      <Project>{050EA18C-CD34-3780-BDD5-057BA9A49669}</Project>
+      <Name>absl_strings_internal</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\debugging\absl_symbolize.vcxproj">
+      <Project>{AC559670-D441-3BAC-8F6D-35D461AE9752}</Project>
+      <Name>absl_symbolize</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\base\absl_throw_delegate.vcxproj">
+      <Project>{2A1581DF-9DDE-32AD-8470-FCB5519CD8C4}</Project>
+      <Name>absl_throw_delegate</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\time\absl_time.vcxproj">
+      <Project>{595CD344-B1AA-3EFD-B68F-C1F5A89CDC53}</Project>
+      <Name>absl_time</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\abseil\absl\time\absl_time_zone.vcxproj">
+      <Project>{9457E94C-2DA8-3391-A90E-A8EB7B21238D}</Project>
+      <Name>absl_time_zone</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

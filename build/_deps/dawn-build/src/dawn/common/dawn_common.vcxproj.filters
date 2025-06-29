@@ -1,0 +1,273 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\src\dawn\common\GPUInfo_autogen.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\AlignedAlloc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Assert.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\DynamicLib.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\FutureUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\GPUInfo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Log.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Math.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Mutex.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\RefCounted.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Result.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SlabAllocator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SystemUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WeakRefSupport.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WindowsUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\src\dawn\common\Version_autogen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\src\dawn\common\GPUInfo_autogen.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\AlignedAlloc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Alloc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Assert.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\BitSetIterator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Compiler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Constants.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ContentLessObjectCache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ContentLessObjectCacheable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\CoreFoundationRef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\DynamicLib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Enumerator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\FutureUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\GPUInfo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\HashUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\IOKitRef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\LinkedList.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\MatchVariant.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Math.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Mutex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\MutexProtected.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\NSRef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\NonCopyable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\NonMovable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Numeric.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\PlacementAllocated.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Preprocessor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Range.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Ref.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\RefBase.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\RefCounted.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\Result.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SerialMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SerialQueue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SerialStorage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SlabAllocator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\StackAllocated.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\SystemUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\TypeTraits.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\TypedInteger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\UnderlyingType.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WGSLFeatureMapping.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WeakRef.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WeakRefSupport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\egl_platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ityp_array.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ityp_bitset.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ityp_span.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ityp_stack_vec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\ityp_vector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\vulkan_platform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\xlib_with_undefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\WindowsUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\windows_with_undefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu_enum_class_bitmasks.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\wire\client\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu_cpp_print.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\webgpu\webgpu_cpp_chained_struct.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\wire\client\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\dawn_proc_table.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\CMakeFiles\857ba26c57452aa9d6932811cef12f86\Version_autogen.h.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\CMakeFiles\857ba26c57452aa9d6932811cef12f86\GPUInfo_autogen.h.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\common\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{D62F0C8A-8A21-3329-88E3-4828E1D8BE75}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{140C900D-993F-3695-8371-8C856774AE3C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{09D7A7E6-DB98-3129-B0D0-E48CFC0A5C7B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

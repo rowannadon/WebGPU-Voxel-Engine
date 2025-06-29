@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/dawn-populate"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/fe5ac8abc8836bd2b484e7394f6df246/dawn-populate.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/f414a2532880670ff22ee0704423089c/dawn-populate-complete.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-build.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-configure.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-download.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-install.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-patch.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-test.rule"
+		},
+		{
+			"file" : "C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/CMakeFiles/ff3f8ef9e504fbead0fe9b0222a17df9/dawn-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"dawn-populate"
+		],
+		"name" : "dawn-populate"
+	}
+}

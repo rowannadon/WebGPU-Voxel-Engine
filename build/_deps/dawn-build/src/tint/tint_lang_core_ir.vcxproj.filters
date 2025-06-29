@@ -1,0 +1,333 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\access.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\binary.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\bitcast.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\block.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\block_param.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\break_if.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\builder.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\builtin_call.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\call.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\clone_context.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\constant.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\construct.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\continue.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\control_instruction.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\convert.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_binary.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_builtin_call.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_unary.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\disassembler.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\discard.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_if.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_loop.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_switch.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\function.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\function_param.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\if.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\instruction.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\instruction_result.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\let.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\load.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\load_vector_element.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\loop.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\member_builtin_call.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\module.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\multi_in_block.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\next_iteration.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\operand_instruction.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\return.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\store.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\store_vector_element.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\switch.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\swizzle.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\terminate_invocation.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\terminator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\unary.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\unreachable.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\user_call.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\validator.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\value.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\var.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\access.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\binary.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\bitcast.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\block.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\block_param.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\break_if.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\builder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\builtin_call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\clone_context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\constant.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\construct.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\continue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\control_instruction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\convert.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_binary.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_builtin_call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\core_unary.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\disassembler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\discard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_if.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_loop.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\exit_switch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\function.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\function_param.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\ice.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\if.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\instruction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\instruction_result.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\let.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\load.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\load_vector_element.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\location.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\loop.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\member_builtin_call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\module.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\multi_in_block.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\next_iteration.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\operand_instruction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\return.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\store.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\store_vector_element.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\switch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\swizzle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\terminate_invocation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\terminator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\traverse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\unary.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\unreachable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\user_call.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\validator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\value.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\lang\core\ir\var.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\tint\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{140C900D-993F-3695-8371-8C856774AE3C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{09D7A7E6-DB98-3129-B0D0-E48CFC0A5C7B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

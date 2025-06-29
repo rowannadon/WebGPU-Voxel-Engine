@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\ff3f8ef9e504fbead0fe9b0222a17df9\dawn-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\f414a2532880670ff22ee0704423089c\dawn-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\fe5ac8abc8836bd2b484e7394f6df246\dawn-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-subbuild\CMakeFiles\dawn-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E74BB515-4C14-3630-A4F3-2ACE0D572F23}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

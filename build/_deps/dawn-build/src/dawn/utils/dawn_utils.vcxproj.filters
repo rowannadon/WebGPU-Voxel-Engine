@@ -1,0 +1,141 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\BinarySemaphore.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\ComboRenderBundleEncoderDescriptor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\ComboRenderPipelineDescriptor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\SystemUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TerribleCommandBuffer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TestUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TextureUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WGPUHelpers.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WireHelper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WindowsDebugLogger.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WindowsTimer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\BinarySemaphore.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\ComboRenderBundleEncoderDescriptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\ComboRenderPipelineDescriptor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\PlatformDebugLogger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\SystemUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TerribleCommandBuffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TestUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\TextureUtils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\Timer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WGPUHelpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\WireHelper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu_enum_class_bitmasks.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\wire\client\webgpu_cpp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu_cpp_print.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\webgpu\webgpu_cpp_chained_struct.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\webgpu\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\wire\client\webgpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\gen\include\dawn\dawn_proc_table.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\native\DawnNative.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\native\dawn_native_export.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\native\VulkanBackend.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\dawn_thread_dispatch_proc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\dawn_proc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\wire\Wire.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\wire\WireClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\wire\WireServer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\include\dawn\wire\dawn_wire_export.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\utils\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{140C900D-993F-3695-8371-8C856774AE3C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{09D7A7E6-DB98-3129-B0D0-E48CFC0A5C7B}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

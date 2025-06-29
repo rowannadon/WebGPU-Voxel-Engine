@@ -1,0 +1,9 @@
+# CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDependentOption.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CMakePackageConfigHelpers.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/WriteBasicConfigVersionFile.cmake
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/CHANGES.md
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/CMakeLists.txt
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/build_info.h.tmpl
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/parse_version.cmake

@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GlslangToSpv.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\InReadableOrder.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\Logger.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\SpvBuilder.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\SpvPostProcess.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\doc.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\SpvTools.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\disassemble.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\CInterface\spirv_c_interface.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\bitutils.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\spirv.hpp">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.std.450.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.EXT.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.KHR.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GlslangToSpv.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\hex_float.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\Logger.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\SpvBuilder.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\spvIR.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\doc.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\SpvTools.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\disassemble.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.AMD.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.NV.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.ARM.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\GLSL.ext.QCOM.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\NonSemanticDebugPrintf.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\NonSemanticShaderDebugInfo100.h">
+      <Filter>Source</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{1825DC79-539F-31B7-AC0E-3DE546BD59FB}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

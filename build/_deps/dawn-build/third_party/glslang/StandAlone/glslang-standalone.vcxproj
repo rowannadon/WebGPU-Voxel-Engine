@@ -1,0 +1,495 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{C28A3F06-D9D9-3F8F-9B69-FAB6A21D9F12}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>glslang-standalone</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslang-standalone.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">glslang</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">glslang-standalone.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">glslang</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">glslang-standalone.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">glslang</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">glslang-standalone.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">glslang</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message></Message>
+      <Command>setlocal
+cd C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\Debug
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different glslang.exe glslangValidator.exe
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>..\glslang\Debug\glslangd.lib;..\glslang\OSDependent\Windows\Debug\OSDependentd.lib;..\SPIRV\Debug\SPIRVd.lib;..\glslang\Debug\glslang-default-resource-limitsd.lib;psapi.lib;..\glslang\Debug\MachineIndependentd.lib;..\glslang\OSDependent\Windows\Debug\OSDependentd.lib;..\glslang\Debug\GenericCodeGend.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImportLibrary>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/Debug/glslang.lib</ImportLibrary>
+      <ProgramDataBaseFile>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/Debug/glslang.pdb</ProgramDataBaseFile>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message></Message>
+      <Command>setlocal
+cd C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\Release
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different glslang.exe glslangValidator.exe
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>..\glslang\Release\glslang.lib;..\glslang\OSDependent\Windows\Release\OSDependent.lib;..\SPIRV\Release\SPIRV.lib;..\glslang\Release\glslang-default-resource-limits.lib;psapi.lib;..\glslang\Release\MachineIndependent.lib;..\glslang\OSDependent\Windows\Release\OSDependent.lib;..\glslang\Release\GenericCodeGen.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImportLibrary>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/Release/glslang.lib</ImportLibrary>
+      <ProgramDataBaseFile>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/Release/glslang.pdb</ProgramDataBaseFile>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message></Message>
+      <Command>setlocal
+cd C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\MinSizeRel
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different glslang.exe glslangValidator.exe
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>..\glslang\MinSizeRel\glslang.lib;..\glslang\OSDependent\Windows\MinSizeRel\OSDependent.lib;..\SPIRV\MinSizeRel\SPIRV.lib;..\glslang\MinSizeRel\glslang-default-resource-limits.lib;psapi.lib;..\glslang\MinSizeRel\MachineIndependent.lib;..\glslang\OSDependent\Windows\MinSizeRel\OSDependent.lib;..\glslang\MinSizeRel\GenericCodeGen.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImportLibrary>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/MinSizeRel/glslang.lib</ImportLibrary>
+      <ProgramDataBaseFile>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/MinSizeRel/glslang.pdb</ProgramDataBaseFile>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>
+      </ExceptionHandling>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode></SupportJustMyCode>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;_HAS_EXCEPTIONS=0;ENABLE_HLSL;GLSLANG_OSINCLUDE_WIN32;ENABLE_OPT=0;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\..\External;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\glslang\..;C:\Users\alder\WebGPU-Voxel-Engine\build\include;C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\SPIRV\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message></Message>
+      <Command>setlocal
+cd C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\RelWithDebInfo
+if %errorlevel% neq 0 goto :cmEnd
+C:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different glslang.exe glslangValidator.exe
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>..\glslang\RelWithDebInfo\glslang.lib;..\glslang\OSDependent\Windows\RelWithDebInfo\OSDependent.lib;..\SPIRV\RelWithDebInfo\SPIRV.lib;..\glslang\RelWithDebInfo\glslang-default-resource-limits.lib;psapi.lib;..\glslang\RelWithDebInfo\MachineIndependent.lib;..\glslang\OSDependent\Windows\RelWithDebInfo\OSDependent.lib;..\glslang\RelWithDebInfo\GenericCodeGen.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImportLibrary>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/RelWithDebInfo/glslang.lib</ImportLibrary>
+      <ProgramDataBaseFile>C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/RelWithDebInfo/glslang.pdb</ProgramDataBaseFile>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\CMakeFiles\407bfe546deafac400fa0f5767352f97\glsl_intrinsic_header.h.rule">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\Python311\python.exe C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../gen_extension_headers.py -i C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../glslang/ExtensionHeaders -o C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\gen_extension_headers.py;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\include\glslang\glsl_intrinsic_header.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\Python311\python.exe C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../gen_extension_headers.py -i C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../glslang/ExtensionHeaders -o C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\gen_extension_headers.py;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\include\glslang\glsl_intrinsic_header.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\Python311\python.exe C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../gen_extension_headers.py -i C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../glslang/ExtensionHeaders -o C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\gen_extension_headers.py;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\include\glslang\glsl_intrinsic_header.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\Python311\python.exe C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../gen_extension_headers.py -i C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/../glslang/ExtensionHeaders -o C:/Users/alder/WebGPU-Voxel-Engine/build/include/glslang/glsl_intrinsic_header.h
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\gen_extension_headers.py;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\include\glslang\glsl_intrinsic_header.h</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython\Support.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython3.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\StandAlone\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython\Support.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython3.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\StandAlone\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython\Support.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython3.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\StandAlone\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/glslang/src/StandAlone/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/alder/WebGPU-Voxel-Engine -BC:/Users/alder/WebGPU-Voxel-Engine/build --check-stamp-file C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-build/third_party/glslang/StandAlone/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython\Support.cmake;C:\Program Files\CMake\share\cmake-4.0\Modules\FindPython3.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\StandAlone\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\StandAlone.cpp" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\third_party\glslang\src\StandAlone\DirStackFileIncluder.h" />
+    <ClInclude Include="C:\Users\alder\WebGPU-Voxel-Engine\build\include\glslang\glsl_intrinsic_header.h" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\ZERO_CHECK.vcxproj">
+      <Project>{6731F556-010E-31F5-AEE4-69F074B03328}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\glslang\GenericCodeGen.vcxproj">
+      <Project>{D4D8C705-C715-35E5-B6FB-18EA08507365}</Project>
+      <Name>GenericCodeGen</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\glslang\MachineIndependent.vcxproj">
+      <Project>{5088D343-1B24-35EB-A994-8716139FB506}</Project>
+      <Name>MachineIndependent</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\glslang\OSDependent\Windows\OSDependent.vcxproj">
+      <Project>{3F8C8ACB-94AF-3E90-84FA-A2B46AC39F48}</Project>
+      <Name>OSDependent</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\SPIRV\SPIRV.vcxproj">
+      <Project>{83423073-46E8-3143-853F-D808FD8D556A}</Project>
+      <Name>SPIRV</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\glslang\glslang.vcxproj">
+      <Project>{612EC47D-7A0E-37B8-95B7-1FB8E727E4D5}</Project>
+      <Name>glslang</Name>
+    </ProjectReference>
+    <ProjectReference Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\third_party\glslang\glslang\glslang-default-resource-limits.vcxproj">
+      <Project>{0798D89B-838F-3112-B876-69169AF4EDFD}</Project>
+      <Name>glslang-default-resource-limits</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
