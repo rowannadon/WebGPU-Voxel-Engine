@@ -346,7 +346,7 @@ void Application::MainLoop() {
     frameTime = static_cast<float>(glfwGetTime()) - currentFrame;
 
     // IMPROVED: Less aggressive frame rate limiting
-    constexpr float TARGET_FRAME_TIME = 1.0f / 120.0f; 
+    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
     if (frameTime < TARGET_FRAME_TIME) {
         float sleepTime = (TARGET_FRAME_TIME - frameTime); // Only sleep for half the remaining time
         std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
