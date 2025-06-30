@@ -55,7 +55,7 @@ private:
 
     int renderDistance = 24;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 

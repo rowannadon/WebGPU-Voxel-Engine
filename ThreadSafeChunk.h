@@ -6,8 +6,8 @@
 #include <mutex>
 #include <chrono>
 #include "ResourceManager.h"
-#include "WorldGenerator.h"
 #include <array>
+#include "WorldGenerator.h"
 
 using glm::ivec3;
 using glm::vec3;
@@ -38,6 +38,8 @@ public:
 
 private:
     uint32_t lod = 0;
+
+    WorldGenerator worldGen;
 
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
@@ -82,8 +84,6 @@ private:
     };
 
     static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
-
-    WorldGenerator worldGen;
 
 public:
     ThreadSafeChunk(const ivec3& pos = ivec3(0), uint32_t lodlevel = 0)
@@ -325,58 +325,6 @@ public:
         }
     }
 
-    bool isEmptyVoxel(ivec3 pos, int faceIndex = -1, const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        // Check if position is within current chunk bounds
-        if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
-            pos.y >= 0 && pos.y < CHUNK_SIZE &&
-            pos.z >= 0 && pos.z < CHUNK_SIZE) {
-            return !getVoxel(pos);
-        }
-
-        // Position is outside current chunk - check neighbor chunks
-        if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
-            // Check if neighbor is still valid (not being destroyed)
-            if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
-                return true; // Treat as empty if neighbor is being unloaded
-            }
-
-            ivec3 neighborPos = pos;
-
-            switch (faceIndex) {
-            case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
-                if (pos.x >= CHUNK_SIZE) neighborPos.x = pos.x - CHUNK_SIZE;
-                break;
-            case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
-                if (pos.x < 0) neighborPos.x = CHUNK_SIZE - pos.x;
-                break;
-            case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
-                if (pos.y >= CHUNK_SIZE) neighborPos.y = pos.y - CHUNK_SIZE;
-                break;
-            case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
-                if (pos.y < 0) neighborPos.y = CHUNK_SIZE - pos.y;
-                break;
-            case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
-                if (pos.z >= CHUNK_SIZE) neighborPos.z = pos.z - CHUNK_SIZE;
-                break;
-            case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
-                if (pos.z < 0) neighborPos.z = CHUNK_SIZE - pos.z;
-                break;
-            }
-
-            // Validate neighbor position and check voxel
-            if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
-                neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
-
-                bool neighborHasVoxel = neighbors[faceIndex]->getVoxel(neighborPos);
-                return !neighborHasVoxel;
-            }
-        }
-
-        // No neighbor available - consider it empty (exposed to air)
-        return true;
-    }
-
     void generateTerrain() {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
@@ -385,7 +333,6 @@ public:
                     float noiseValue = worldGen.sample3D(vec3(worldPos.x, worldPos.z, worldPos.y));
                     if (noiseValue > -0.4) {
                         setVoxel(vec3(x, y, z), true);
-
                     }
                     //f/*loat height = worldGen.sample2D(vec2(x + position.x, y + position.y));
                     //int targetHeight = static_cast<int>(height * 116.0f);
@@ -500,7 +447,7 @@ public:
                 for (int z = 0; z < CHUNK_SIZE; z++) {
                     if (getVoxel(ivec3(x, y, z))) {
                         vec3 pos = vec3(position + ivec3(x, y, z));
-						float noiseValue = worldGen.sample3D2(pos);
+                        float noiseValue = worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = 3; // stone
@@ -513,7 +460,7 @@ public:
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
                             material.materialType = 5; // deepslate
-						}
+                        }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
                             material.materialType = 6; // tuff
                         }
@@ -535,7 +482,7 @@ public:
                         else {
                             material.materialType = 5; // stone by default
                         }
-                        
+
                         setMaterial(ivec3(x, y, z), material);
 
                         // Check if this voxel has air above it (surface detection)
@@ -1124,9 +1071,9 @@ public:
 
             for (int i = 0; i < CHUNK_SIZE; ++i) {
                 for (int j = 0; j < CHUNK_SIZE; ++j) {
-                    ivec3 voxelPos;
-                    ivec3 checkPos;
-                    int faceIndex;
+                    ivec3 voxelPos = ivec3(0,0,0);
+                    ivec3 checkPos = ivec3(0,0,0);
+                    int faceIndex = 0;
 
                     switch (axis) {
                     case 0: // X-axis slice

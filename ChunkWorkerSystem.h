@@ -6,6 +6,8 @@
 #include <atomic>
 #include <functional>
 #include "glm/glm.hpp"
+//#include "WorldGenerator.h"
+//#include "ThreadSafeChunk.h"
 
 using glm::ivec3;
 
@@ -57,12 +59,16 @@ private:
     static constexpr int HIGH_PRIORITY = 100;
     static constexpr int NORMAL_PRIORITY = 0;
 
+    //WorldGenerator worldGen;
+
 public:
     ChunkWorkerSystem() {
         // Create worker threads
         for (int i = 0; i < NUM_WORKER_THREADS; ++i) {
             workers.emplace_back(&ChunkWorkerSystem::workerThreadFunction, this);
         }
+
+        //worldGen.initialize(1234);
     }
 
     ~ChunkWorkerSystem() {
@@ -204,6 +210,7 @@ private:
 
             workItem.chunk->setState(ChunkState::GeneratingTerrain);
             workItem.chunk->generateTerrain();
+            //worldGen.generateTerrain(workItem.chunk);
 			workItem.chunk->setState(ChunkState::TerrainReady);
         }
         catch (const std::exception& e) {
@@ -232,6 +239,7 @@ private:
 
             workItem.chunk->setState(ChunkState::GeneratingTopsoil);
             workItem.chunk->generateTopsoil(workItem.neighbors);
+            //worldGen.generateTopsoil(workItem.chunk, workItem.neighbors);
             workItem.chunk->setState(ChunkState::TopsoilReady);
         }
         catch (const std::exception& e) {

@@ -15,7 +15,7 @@ add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
 # add_subdirectory(glm)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h webgpu-utils.h webgpu-utils.cpp "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "ImageUpscaler.h")
+add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h webgpu-utils.h webgpu-utils.cpp "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.
