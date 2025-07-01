@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\CMakeFiles\29a39c2003668118706023237b1cbee5\webgpu.h.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\CMakeFiles\bee686644ead122ec2bfde1a3a2cb283\emscripten_bits_gen.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-src\src\dawn\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\alder\WebGPU-Voxel-Engine\build\_deps\dawn-build\src\dawn\CMakeFiles\emscripten_bits_gen" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{D62F0C8A-8A21-3329-88E3-4828E1D8BE75}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

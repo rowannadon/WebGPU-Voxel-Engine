@@ -1,0 +1,21 @@
+# CMake generation dependency list for this directory.
+C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeDependentOption.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CMakePackageConfigHelpers.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CMakeParseArguments.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CTest.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CTestUseLaunchers.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CheckCSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CheckCXXSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CheckIncludeFile.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/CheckLibraryExists.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/FindPackageHandleStandardArgs.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/FindPackageMessage.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/FindThreads.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/Internal/CheckSourceCompiles.cmake
+C:/Program Files/CMake/share/cmake-4.0/Modules/WriteBasicConfigVersionFile.cmake
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/CMake/AbseilDll.cmake
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/CMake/AbseilHelpers.cmake
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/CMakeLists.txt
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/copts/AbseilConfigureCopts.cmake
+C:/Users/alder/WebGPU-Voxel-Engine/build/_deps/dawn-src/third_party/abseil-cpp/absl/copts/GENERATED_AbseilCopts.cmake
