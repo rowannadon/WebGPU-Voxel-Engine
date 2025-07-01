@@ -29,10 +29,6 @@ private:
 public:
     bool initialize();
 
-    ~WebGPURenderer() {
-        terminate();
-    }
-
     void registerMovementCallbacks();
 
     bool initMultiSampleTexture();
@@ -46,7 +42,6 @@ public:
     BufferManager* getBufferManager();
     TextureManager* getTextureManager();
     WebGPUContext* getContext();
-
     GLFWwindow* getWindow();
 
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();

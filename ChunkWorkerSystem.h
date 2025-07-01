@@ -6,20 +6,16 @@
 #include <atomic>
 #include <functional>
 #include "glm/glm.hpp"
-//#include "WorldGenerator.h"
-//#include "ThreadSafeChunk.h"
+#include "ThreadSafeChunk.h"
 
 using glm::ivec3;
-
-// Forward declaration
-class ThreadSafeChunk;
 
 struct ChunkWorkItem {
     enum Type {
         GenerateTerrain,
         GenerateMesh,
         GenerateTopsoil,
-        RegenerateMesh,  // NEW: High priority mesh regeneration
+        RegenerateMesh,
     };
 
     Type type;
@@ -54,12 +50,10 @@ private:
     std::condition_variable queueCondition;
     std::atomic<bool> shouldStop{ false };
 
-    static constexpr int NUM_WORKER_THREADS = 4;
+    static constexpr int NUM_WORKER_THREADS = 6;
     static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr int HIGH_PRIORITY = 100;
     static constexpr int NORMAL_PRIORITY = 0;
-
-    //WorldGenerator worldGen;
 
 public:
     ChunkWorkerSystem() {
@@ -67,8 +61,6 @@ public:
         for (int i = 0; i < NUM_WORKER_THREADS; ++i) {
             workers.emplace_back(&ChunkWorkerSystem::workerThreadFunction, this);
         }
-
-        //worldGen.initialize(1234);
     }
 
     ~ChunkWorkerSystem() {
@@ -124,7 +116,7 @@ public:
             if (workQueue.size() >= MAX_QUEUE_SIZE) {
                 return;
             }
-            workQueue.emplace(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, NORMAL_PRIORITY);
+            workQueue.emplace(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, HIGH_PRIORITY);
         }
         queueCondition.notify_one();
     }
@@ -138,7 +130,7 @@ public:
             if (workQueue.size() >= MAX_QUEUE_SIZE) {
                 return;
             }
-            workQueue.emplace(ChunkWorkItem::GenerateMesh, chunk, position, neighbors, NORMAL_PRIORITY);
+            workQueue.emplace(ChunkWorkItem::GenerateMesh, chunk, position, neighbors, HIGH_PRIORITY);
         }
         queueCondition.notify_one();
     }
@@ -199,19 +191,16 @@ private:
                 return;
             }
 
-            ChunkState currentState = workItem.chunk->getState();
+            /*ChunkState currentState = workItem.chunk->getState();
             if (currentState != ChunkState::Empty) {
                 return;
             }
 
             if (currentState == ChunkState::Unloading) {
                 return;
-            }
+            }*/
 
-            workItem.chunk->setState(ChunkState::GeneratingTerrain);
             workItem.chunk->generateTerrain();
-            //worldGen.generateTerrain(workItem.chunk);
-			workItem.chunk->setState(ChunkState::TerrainReady);
         }
         catch (const std::exception& e) {
             std::cerr << "Terrain generation error: " << e.what() << std::endl;
@@ -227,20 +216,17 @@ private:
                 return;
             }
 
-            ChunkState currentState = workItem.chunk->getState();
+            /*ChunkState currentState = workItem.chunk->getState();
 
-            if (currentState != ChunkState::GeneratingTopsoil) {
+            if (currentState != ChunkState::TerrainReady) {
                 return;
             }
 
             if (currentState == ChunkState::Unloading) {
                 return;
-            }
+            }*/
 
-            workItem.chunk->setState(ChunkState::GeneratingTopsoil);
             workItem.chunk->generateTopsoil(workItem.neighbors);
-            //worldGen.generateTopsoil(workItem.chunk, workItem.neighbors);
-            workItem.chunk->setState(ChunkState::TopsoilReady);
         }
         catch (const std::exception& e) {
             std::cerr << "Topsoil generation error: " << e.what() << std::endl;
@@ -257,22 +243,20 @@ private:
             }
 
             ChunkState currentState = workItem.chunk->getState();
-            if (currentState != ChunkState::GeneratingMesh && currentState != ChunkState::RegeneratingMesh) {
+            /*if (currentState != ChunkState::GeneratingMesh && currentState != ChunkState::RegeneratingMesh) {
                 return;
             }
 
             if (currentState == ChunkState::Unloading) {
                 return;
-            }
+            }*/
 
             if (workItem.chunk->getSolidVoxels() == 0) {
                 workItem.chunk->setState(ChunkState::MeshReady);
                 return;
             }
 
-            workItem.chunk->setState(ChunkState::GeneratingMesh);
             workItem.chunk->generateMesh(workItem.neighbors);
-            workItem.chunk->setState(ChunkState::MeshReady);
         }
         catch (const std::exception& e) {
             std::cerr << "Mesh generation error: " << e.what() << std::endl;

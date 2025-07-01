@@ -29,6 +29,9 @@ public:
     Sampler getSampler(const std::string samplerName);
     void writeTexture(const ImageCopyTexture& destination, const void* data, size_t size, const TextureDataLayout& source, const Extent3D& writeSize);
 
+    void removeTextureView(const std::string& name);
+    void removeTexture(const std::string& name);
+
     void terminate();
 
 private:

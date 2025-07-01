@@ -169,3 +169,20 @@ void TextureManager::writeMipMaps(
     }
 
 }
+
+void TextureManager::removeTexture(const std::string& name) {
+    auto it = textures.find(name);
+    if (it != textures.end()) {
+        it->second.destroy();
+        it->second.release();
+        textures.erase(it);
+    }
+}
+
+void TextureManager::removeTextureView(const std::string& name) {
+    auto it = textureViews.find(name);
+    if (it != textureViews.end()) {
+        it->second.release();
+        textureViews.erase(it);
+    }
+}

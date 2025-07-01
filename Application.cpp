@@ -33,6 +33,9 @@ bool Application::Initialize() {
 
 void Application::Terminate() {
     stopChunkUpdateThread();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
     gpu.terminate();
 }
 
@@ -146,7 +149,7 @@ void Application::placeBlock() {
     // Add the voxel
     chunk->setVoxel(localChunkPos, true);
     VoxelMaterial material;
-    material.materialType = 3;
+    material.materialType = 4;
     chunk->setMaterial(localChunkPos, material);
 
     // Check if the broken block is on a chunk boundary
@@ -181,8 +184,6 @@ void Application::placeBlock() {
         std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
         chunksNeedingBindGroupUpdate.insert(chunkWorldPos);
     }
-
-    //chunkManager.requestMeshRegeneration(chunkWorldPos, localChunkPos);
 }
 
 void Application::registerMovementCallbacks() {
@@ -230,7 +231,7 @@ void Application::MainLoop() {
         placeBlockPos = result.adjacentVoxelPos;
     }
     else {
-        lookingAtBlockPos = ivec3(1e30, 1e30, 1e30);
+        lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
     }
 
     if (shouldBreakBlock) {
@@ -339,7 +340,7 @@ void Application::processGPUUploads() {
     std::lock_guard<std::mutex> lock(gpuUploadMutex);
 
     // Limit uploads per frame to prevent stutter
-    const int MAX_UPLOADS_PER_FRAME = 512;
+    const int MAX_UPLOADS_PER_FRAME = 128;
     int uploadsThisFrame = 0;
 
     while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {
@@ -350,10 +351,10 @@ void Application::processGPUUploads() {
             item.chunk->uploadToGPU(tex, buf, pip);
 
             // Mark for bind group update
-            if (item.chunk->getState() == ChunkState::Active) {
+            /*if (item.chunk->getState() == ChunkState::Active) {
                 std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
                 chunksNeedingBindGroupUpdate.insert(item.chunkPos);
-            }
+            }*/
         }
 
         uploadsThisFrame++;
@@ -380,11 +381,11 @@ void Application::processBindGroupUpdates() {
 
 void Application::onResize() {
     // Terminate
-    tex->getTexture("multisample_texture").release();
-    tex->getTextureView("multisample_view").release();
+    tex->removeTexture("multisample_texture");
+    tex->removeTextureView("multisample_view");
 
-    tex->getTexture("depth_texture").release();
-    tex->getTextureView("depth_view").release();
+    tex->removeTexture("depth_texture");
+    tex->removeTextureView("depth_view");
 
     gpu.getContext()->unconfigureSurface();
     gpu.getContext()->configureSurface();

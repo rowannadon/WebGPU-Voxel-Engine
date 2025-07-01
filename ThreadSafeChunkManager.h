@@ -52,7 +52,7 @@ private:
 
     int renderDistance = 24;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -68,6 +68,16 @@ public:
     }
 
     void updateChunksAsync(vec3 playerPos) {
+        playerChunkPos = ivec3(0, 0, 0); // glm::floor(playerPos / 32.0f));
+
+        removeDistantChunks(playerChunkPos);
+        queueNewChunks(playerChunkPos);
+        queueChunkBatchForGeneration(playerChunkPos);
+        generateTopsoil();
+        generateMeshes();
+    }
+
+    void updateChunks(vec3 playerPos, TextureManager *tex, PipelineManager *pip, BufferManager *buf) {
         playerChunkPos = ivec3(glm::floor(playerPos / 32.0f));
 
         removeDistantChunks(playerChunkPos);
@@ -75,7 +85,6 @@ public:
         queueChunkBatchForGeneration(playerChunkPos);
         generateTopsoil();
         generateMeshes();
-
     }
 
     // Get chunks ready for GPU upload
@@ -84,8 +93,7 @@ public:
 
         for (const auto& pair : chunks) {
             if (pair.second &&
-                pair.second->getState() == ChunkState::MeshReady &&
-                pair.second->getSolidVoxels() > 0) {
+                pair.second->getState() == ChunkState::MeshReady) {
                 readyChunks.push_back({ pair.first, pair.second });
             }
         }
@@ -312,11 +320,11 @@ public:
         std::cout << "TerrainReady=" << stateCounts[ChunkState::TerrainReady] << " ";
         std::cout << "GenTopsoil=" << stateCounts[ChunkState::GeneratingTopsoil] << " ";
         std::cout << "TopsoilReady=" << stateCounts[ChunkState::TopsoilReady] << " ";
-        std::cout << "ReGenMesh=" << stateCounts[ChunkState::RegeneratingMesh] << " ";
         std::cout << "GenMesh=" << stateCounts[ChunkState::GeneratingMesh] << " ";
         std::cout << "MeshReady=" << stateCounts[ChunkState::MeshReady] << " ";
         std::cout << "Upload=" << stateCounts[ChunkState::UploadingToGPU] << " ";
         std::cout << "Active=" << stateCounts[ChunkState::Active] << " ";
+        std::cout << "Air=" << stateCounts[ChunkState::Air] << " ";
         std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
 
         std::cout << std::endl;

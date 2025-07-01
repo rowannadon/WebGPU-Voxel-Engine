@@ -11,6 +11,7 @@
 #include "VertexAttributes.h"
 #include <array>
 #include <optional>
+#include <string>
 #include "WorldGenerator.h"
 #include "Rendering/TextureManager.h"
 #include "Rendering/BufferManager.h"
@@ -44,6 +45,7 @@ enum class ChunkState {
     UploadingToGPU,     // Main thread uploading to GPU
     Active,             // Ready for rendering
     Unloading,           // Being removed
+    Air,
     RegeneratingMesh,
 };
 
@@ -125,9 +127,7 @@ public:
             materialData.resize(TOTAL_VOXELS);
         }
 
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%d_%d_%d", id.x, id.y, id.z);
-        resourceId = std::string(buffer);
+        resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
     }
 
     ~ThreadSafeChunk() {
@@ -398,6 +398,7 @@ public:
     }
 
     void generateTerrain() {
+        setState(ChunkState::GeneratingMesh);
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < CHUNK_SIZE; z++) {
@@ -414,9 +415,17 @@ public:
                 }
             }
         }
+
+        if (getSolidVoxels() > 0) {
+            setState(ChunkState::TerrainReady);
+        }
+        else {
+            setState(ChunkState::Air);
+        }
     }
 
     void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        setState(ChunkState::GeneratingTopsoil);
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
             // Check if position is within current chunk bounds
@@ -623,9 +632,12 @@ public:
                 }
             }
         }
+
+        setState(ChunkState::TopsoilReady);
     }
 
     bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        setState(ChunkState::GeneratingMesh);
         if (lod > 0) {
             return generateMeshLod(neighbors);
 		}
@@ -863,20 +875,10 @@ public:
         }
 
         setState(ChunkState::MeshReady);
-
         return true;
     }
 
     bool generateMeshLod(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        if (state.load() == ChunkState::Unloading) {
-            return false;
-        }
-
-        if (solidVoxels.load() == 0) {
-            setState(ChunkState::MeshReady);
-            return true;
-        }
-
         // Pack data function (same as regular mesh)
         auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
             uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
@@ -1301,6 +1303,7 @@ public:
             return false;
         }
 
+        setState(ChunkState::MeshReady);
         return true;
     }
 
@@ -1341,16 +1344,16 @@ public:
             buf->deleteBuffer(indexBufferName);
         }
 
-        if (vertexData.empty() || indexData.empty()) {
-            // For empty chunks, we still need to clean up old buffers
-            buf->deleteBuffer(vertexBufferName);
-            buf->deleteBuffer(indexBufferName);
-            indexCount = 0;
-            indexBufferSize = 0;
-            vertexBufferSize = 0;
-            //setState(ChunkState::Active);
-            return;
-        }
+        //if (vertexData.empty() || indexData.empty()) {
+        //    // For empty chunks, we still need to clean up old buffers
+        //    buf->deleteBuffer(vertexBufferName);
+        //    buf->deleteBuffer(indexBufferName);
+        //    indexCount = 0;
+        //    indexBufferSize = 0;
+        //    vertexBufferSize = 0;
+        //    setState(ChunkState::Air);
+        //    return;
+        //}
 
         std::string resourceId = getResourceId();
 

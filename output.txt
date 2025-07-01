@@ -1,0 +1,4272 @@
+// Application.h
+#include "webgpu/webgpu.hpp"
+#include <GLFW/glfw3.h>
+#include "glm/glm.hpp"
+#include "glm/ext.hpp"
+#include <glfw3webgpu.h>
+#include "webgpu-utils.h"
+#include "ThreadSafeChunkManager.h"
+#include "Ray.h"
+#include "Rendering/WebGPURenderer.h"
+
+//#include "magic_enum.hpp"
+
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <chrono>
+#include <array>
+#include <thread>
+
+using namespace wgpu;
+
+using glm::mat4x4;
+using glm::vec4;
+using glm::vec3;
+
+class Application {
+public:
+    bool Initialize();
+    void Terminate();
+    void MainLoop();
+    bool IsRunning();
+
+private:
+    void startChunkUpdateThread();
+    void stopChunkUpdateThread();
+    void chunkUpdateThreadFunction();
+    void processGPUUploads();
+    void processBindGroupUpdates();
+
+    // Event handlers
+    void registerMovementCallbacks();
+    void onResize();
+    void onMouseMove(double xpos, double ypos);
+    void onMouseButton(int button, int action, int mods);
+    void onScroll(double xoffset, double yoffset);
+    void onKey(int key, int scancode, int action, int mods);
+
+    void updateProjectionMatrix(int zoom);
+    void updateViewMatrix();
+    void processInput();
+    void breakBlock();
+	void placeBlock();
+
+private:
+    struct FirstPersonCamera {
+        vec3 position = vec3(5.0f, 0.0f, 150.0f);  // Camera position in world space
+        vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
+        vec3 up = vec3(0.0f, 0.0f, 1.0f);        // Up vector
+        vec3 right = vec3(0.0f, 1.0f, 0.0f);     // Right vector (corrected)
+        vec3 worldUp = vec3(0.0f, 0.0f, 1.0f);   // World up vector
+
+        // Euler angles
+        float yaw = 180.0f;  // Rotation around Z axis (left/right) - corrected initial value
+        float pitch = 0.0f;  // Rotation around X axis (up/down)
+
+        // Camera options
+        float movementSpeed = 40.0f;
+        float mouseSensitivity = 0.1f;
+        float zoom = 85.f;
+
+        vec3 velocity = vec3(0.0f);  // Current velocity vector
+        vec3 acceleration = vec3(0.0f);  // Current acceleration vector
+
+        void updateCameraVectors() {
+            // Calculate the new front vector for Z+ up coordinate system
+            vec3 newFront;
+            newFront.x = cos(glm::radians(pitch)) * cos(glm::radians(yaw));
+            newFront.y = cos(glm::radians(pitch)) * sin(glm::radians(-yaw));
+            newFront.z = sin(glm::radians(pitch));
+            front = glm::normalize(newFront);
+
+            // Re-calculate the right and up vector
+            right = glm::normalize(glm::cross(front, worldUp));
+            up = glm::normalize(glm::cross(right, front));
+        }
+    };
+
+    // Mouse state for first person look
+    struct MouseState {
+        bool firstMouse = true;
+        bool leftMousePressed = false;
+        bool rightMousePressed = false;
+        float lastX = 640.0f;  // Half of initial window width
+        float lastY = 360.0f;  // Half of initial window height
+    };
+
+    // Key states for WASD movement
+    struct KeyStates {
+        bool W = false;
+        bool A = false;
+        bool S = false;
+        bool D = false;
+        bool Space = false;   // Move up
+        bool Shift = false;   // Move down
+    };
+
+    WebGPURenderer gpu;
+    PipelineManager *pip;
+    TextureManager *tex;
+    BufferManager *buf;
+    GLFWwindow* window;
+
+    FirstPersonCamera camera;
+    MouseState mouseState;
+    KeyStates keyStates;
+
+    float deltaTime = 0.0f;
+    float lastFrame = 0.0f;
+    float frameTime = 0.0f;
+
+    ThreadSafeChunkManager chunkManager;
+    ivec3 chunkPosition;
+    ivec3 pastChunkPosition;
+
+    ivec3 lookingAtBlockPos;
+    bool shouldBreakBlock = false;
+
+    ivec3 placeBlockPos;
+	bool shouldPlaceBlock = false;
+
+    std::thread chunkUpdateThread;
+    std::atomic<bool> chunkUpdateThreadRunning{ false };
+    std::atomic<bool> shouldStopChunkThread{ false };
+
+    // Thread-safe communication between main and chunk update threads
+    std::mutex chunkUpdateMutex;
+    std::atomic<bool> hasPendingChunkUpdates{ false };
+
+    // Camera position for chunk updates (thread-safe)
+    std::atomic<glm::vec3> lastChunkUpdateCameraPos{ glm::vec3(0.0f) };
+
+    // Timing control for chunk updates
+    std::atomic<float> lastChunkUpdateTime{ 0.0f };
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.02f; // 50Hz chunk updates
+
+    // GPU upload queue (main thread only)
+    struct GPUUploadItem {
+        ivec3 chunkPos;
+        std::shared_ptr<ThreadSafeChunk> chunk;
+    };
+    std::queue<GPUUploadItem> pendingGPUUploads;
+    std::mutex gpuUploadMutex;
+
+    // Bind group update tracking
+    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> chunksNeedingBindGroupUpdate;
+    std::mutex bindGroupUpdateMutex;
+
+    MyUniforms uniforms;
+};
+
+// Application.cpp
+
+#define WEBGPU_CPP_IMPLEMENTATION
+
+#include "Application.h"
+
+constexpr float PI = 3.14159265358979323846f;
+
+bool Application::Initialize() {
+    gpu.initialize();
+    pip = gpu.getPipelineManager();
+    buf = gpu.getBufferManager();
+    tex = gpu.getTextureManager();
+    window = gpu.getWindow();
+
+    registerMovementCallbacks();
+
+    // initialize uniforms
+    uniforms.time = 1.0f;
+    uniforms.highlightedVoxelPos = { 0, 0, 0 };
+    uniforms.modelMatrix = mat4x4(1.0);
+    uniforms.projectionMatrix = glm::perspective(85 * PI / 180, 1280.0f / 720.0f, 0.01f, 1000.0f);
+    buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
+
+    camera.updateCameraVectors();
+    updateViewMatrix();
+    
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    startChunkUpdateThread();
+    return true;
+}
+
+void Application::Terminate() {
+    stopChunkUpdateThread();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    gpu.terminate();
+}
+
+void Application::breakBlock() {
+    //std::cout << "breaking block" << "\n";
+    // Early exit if no block is being looked at
+    if (lookingAtBlockPos.x == 0 && lookingAtBlockPos.y == 0 && lookingAtBlockPos.z == 0) {
+        return; // No valid block position
+    }
+    vec3 lookingAtBlockPosf = vec3(lookingAtBlockPos.x, lookingAtBlockPos.y, lookingAtBlockPos.z);
+    // Calculate which chunk contains the block
+    ivec3 chunkWorldPos = ivec3(glm::floor(lookingAtBlockPosf / 32.0f));
+    std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
+
+    // Check if chunk exists and is active
+    if (!chunk || chunk->getState() != ChunkState::Active) {
+        std::cout << "chunk not found or not active" << std::endl;
+        return;
+    }
+
+    // Calculate local position within the chunk
+    ivec3 localChunkPos = lookingAtBlockPos - (chunkWorldPos * 32);
+
+    //std::cout << "localChunkPos: " << localChunkPos.x << " " << localChunkPos.y << " " << localChunkPos.z << std::endl;
+
+    // Ensure local position is within chunk bounds
+    if (localChunkPos.x < 0 || localChunkPos.x >= 32 ||
+        localChunkPos.y < 0 || localChunkPos.y >= 32 ||
+        localChunkPos.z < 0 || localChunkPos.z >= 32) {
+
+        return;
+    }
+
+    // Check if there's actually a voxel to break
+    if (!chunk->getVoxel(localChunkPos)) {
+        std::cout << "not solid" << "\n";
+
+        return; // No voxel at this position
+    }
+
+    // Remove the voxel
+    chunk->setVoxel(localChunkPos, false);
+    VoxelMaterial material;
+    material.materialType = 0;
+    chunk->setMaterial(localChunkPos, material);
+    
+
+    // Check if the broken block is on a chunk boundary
+    // If so, regenerate neighboring chunks that might be affected
+    std::vector<ivec3> neighborsToUpdate;
+
+    // Check each face of the chunk
+    if (localChunkPos.x == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(-1, 0, 0));
+    if (localChunkPos.x == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(1, 0, 0));
+    if (localChunkPos.y == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, -1, 0));
+    if (localChunkPos.y == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 1, 0));
+    if (localChunkPos.z == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, -1));
+    if (localChunkPos.z == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, 1));
+
+    // Regenerate neighboring chunks
+    for (const auto& neighborPos : neighborsToUpdate) {
+        auto neighborChunk = chunkManager.getChunk(neighborPos);
+        //std::cout << "localPos:    " << chunkWorldPos.x << " " << chunkWorldPos.y << " " << chunkWorldPos.z << std::endl;
+		//std::cout << "neighborPos: " << neighborPos.x << " " << neighborPos.y << " " << neighborPos.z << std::endl;
+        if (neighborChunk && neighborChunk->getState() == ChunkState::Active) {
+            neighborChunk->generateMesh(chunkManager.getNeighbors(neighborPos));
+            neighborChunk->uploadToGPU(tex, buf, pip);
+        }
+    }
+
+    chunk->generateMesh(chunkManager.getNeighbors(chunkWorldPos));
+    chunk->uploadToGPU(tex, buf, pip);
+}
+
+void Application::placeBlock() {
+    //std::cout << "placing block" << "\n";
+    // Early exit if no block is being looked at
+    if (placeBlockPos.x == 0 && placeBlockPos.y == 0 && placeBlockPos.z == 0) {
+        return; // No valid block position
+    }
+    vec3 placeBlockPosf = vec3(placeBlockPos.x, placeBlockPos.y, placeBlockPos.z);
+    // Calculate which chunk contains the block
+    ivec3 chunkWorldPos = ivec3(glm::floor(placeBlockPosf / 32.0f));
+    std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
+
+    // Check if chunk exists and is active
+    if (!chunk || chunk->getState() != ChunkState::Active) {
+        std::cout << "chunk not found or not active" << std::endl;
+		chunk->setState(ChunkState::Active);
+    }
+
+    // Calculate local position within the chunk
+    ivec3 localChunkPos = placeBlockPos - (chunkWorldPos * 32);
+
+    //std::cout << "localChunkPos: " << localChunkPos.x << " " << localChunkPos.y << " " << localChunkPos.z << std::endl;
+
+    // Ensure local position is within chunk bounds
+    if (localChunkPos.x < 0 || localChunkPos.x >= 32 ||
+        localChunkPos.y < 0 || localChunkPos.y >= 32 ||
+        localChunkPos.z < 0 || localChunkPos.z >= 32) {
+
+        return;
+    }
+
+	// Check if the area is empty (no voxel at this position)
+    if (chunk->getVoxel(localChunkPos)) {
+        std::cout << "solid" << "\n";
+        return;
+    }
+
+    // Add the voxel
+    chunk->setVoxel(localChunkPos, true);
+    VoxelMaterial material;
+    material.materialType = 4;
+    chunk->setMaterial(localChunkPos, material);
+
+    // Check if the broken block is on a chunk boundary
+    // If so, regenerate neighboring chunks that might be affected
+    std::vector<ivec3> neighborsToUpdate;
+
+    bool wasEmpty = (chunk->getSolidVoxels() == 1);
+
+    // Check each face of the chunk
+    if (localChunkPos.x == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(-1, 0, 0));
+    if (localChunkPos.x == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(1, 0, 0));
+    if (localChunkPos.y == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, -1, 0));
+    if (localChunkPos.y == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 1, 0));
+    if (localChunkPos.z == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, -1));
+    if (localChunkPos.z == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, 1));
+
+    // Regenerate neighboring chunks
+    for (const auto& neighborPos : neighborsToUpdate) {
+        auto neighborChunk = chunkManager.getChunk(neighborPos);
+        //std::cout << "localPos:    " << chunkWorldPos.x << " " << chunkWorldPos.y << " " << chunkWorldPos.z << std::endl;
+        //std::cout << "neighborPos: " << neighborPos.x << " " << neighborPos.y << " " << neighborPos.z << std::endl;
+        if (neighborChunk && neighborChunk->getState() == ChunkState::Active) {
+            neighborChunk->generateMesh(chunkManager.getNeighbors(neighborPos));
+            neighborChunk->uploadToGPU(tex, buf, pip);
+        }
+    }
+
+    chunk->generateMesh(chunkManager.getNeighbors(chunkWorldPos));
+    chunk->uploadToGPU(tex, buf, pip);
+
+    if (wasEmpty) {
+        std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
+        chunksNeedingBindGroupUpdate.insert(chunkWorldPos);
+    }
+}
+
+void Application::registerMovementCallbacks() {
+    // Set the user pointer to be "this"
+    glfwSetWindowUserPointer(window, this);
+    // Use a non-capturing lambda as resize callback
+    glfwSetFramebufferSizeCallback(window, [](GLFWwindow* window, int, int) {
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onResize();
+        });
+    glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onMouseMove(xpos, ypos);
+        });
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onMouseButton(button, action, mods);
+        });
+    glfwSetScrollCallback(window, [](GLFWwindow* window, double xoffset, double yoffset) {
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onScroll(xoffset, yoffset);
+        });
+    glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onKey(key, scancode, action, mods);
+        });
+}
+
+void Application::MainLoop() {
+    float currentFrame = static_cast<float>(glfwGetTime());
+    deltaTime = currentFrame - lastFrame;
+    lastFrame = currentFrame;
+
+    glfwPollEvents();
+    processInput();
+
+    // Update camera position for chunk thread (atomic operation)
+    lastChunkUpdateCameraPos.store(camera.position);
+
+    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> { return chunkManager.getChunk(c); };
+
+    RayIntersectionResult result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+    if (result.hit) {
+        lookingAtBlockPos = result.hitVoxelPos;
+        placeBlockPos = result.adjacentVoxelPos;
+    }
+    else {
+        lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+    }
+
+    if (shouldBreakBlock) {
+        breakBlock();
+        shouldBreakBlock = false;
+    }
+
+    if (shouldPlaceBlock) {
+        placeBlock();
+        shouldPlaceBlock = false;
+    }
+
+    uniforms.highlightedVoxelPos = lookingAtBlockPos;
+
+    uniforms.cameraWorldPos = camera.position;
+    
+    static float lastDebugTime = 0.0f;
+    if (currentFrame - lastDebugTime > 1.0f) {
+        chunkManager.printChunkStates();
+        lastDebugTime = currentFrame;
+    }
+
+    static float lastChunkUpdate = 0.0f;
+    const float CHUNK_UPDATE_INTERVAL = 0.02f;
+
+    bool timeForUpdate = (currentFrame - lastChunkUpdate) > CHUNK_UPDATE_INTERVAL;
+
+    // Update chunks with adaptive frequency
+    /*if (timeForUpdate) {
+        chunkManager.updateChunks(camera.position, tex, buf, pip);
+        lastChunkUpdate = currentFrame;
+    }*/
+
+    // Process GPU uploads from chunk thread(main thread only)
+    processGPUUploads();
+
+    // Process bind group updates (main thread only)
+    processBindGroupUpdates();
+
+    std::vector<ChunkRenderData> renderData = chunkManager.getChunkRenderData();
+
+    if (!renderData.empty())
+        gpu.renderChunks(uniforms, renderData);
+
+    frameTime = static_cast<float>(glfwGetTime()) - currentFrame;
+
+    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
+    if (frameTime < TARGET_FRAME_TIME) {
+        float sleepTime = (TARGET_FRAME_TIME - frameTime);
+        std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
+    }
+}
+
+void Application::startChunkUpdateThread() {
+    if (chunkUpdateThreadRunning.load()) {
+        return; // Already running
+    }
+
+    shouldStopChunkThread.store(false);
+    chunkUpdateThreadRunning.store(true);
+    chunkUpdateThread = std::thread(&Application::chunkUpdateThreadFunction, this);
+}
+
+void Application::stopChunkUpdateThread() {
+    if (!chunkUpdateThreadRunning.load()) {
+        return; // Not running
+    }
+
+    shouldStopChunkThread.store(true);
+    if (chunkUpdateThread.joinable()) {
+        chunkUpdateThread.join();
+    }
+    chunkUpdateThreadRunning.store(false);
+}
+
+void Application::chunkUpdateThreadFunction() {
+    float lastUpdateTime = 0.0f;
+
+    while (!shouldStopChunkThread.load()) {
+        float currentTime = static_cast<float>(glfwGetTime());
+
+        if (currentTime - lastUpdateTime >= CHUNK_UPDATE_INTERVAL) {
+            vec3 cameraPos = lastChunkUpdateCameraPos.load();
+
+            chunkManager.updateChunksAsync(cameraPos);
+
+            // Collect chunks that need GPU upload
+            {
+                std::lock_guard<std::mutex> lock(gpuUploadMutex);
+
+                auto readyChunks = chunkManager.getChunksReadyForGPU();
+                for (const auto& pair : readyChunks) {
+                    pendingGPUUploads.push({ pair.first, pair.second });
+                }
+            }
+
+            lastUpdateTime = currentTime;
+            hasPendingChunkUpdates.store(true);
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+}
+
+void Application::processGPUUploads() {
+    std::lock_guard<std::mutex> lock(gpuUploadMutex);
+
+    // Limit uploads per frame to prevent stutter
+    const int MAX_UPLOADS_PER_FRAME = 128;
+    int uploadsThisFrame = 0;
+
+    while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {
+        GPUUploadItem item = pendingGPUUploads.front();
+        pendingGPUUploads.pop();
+
+        if (item.chunk && item.chunk->getState() == ChunkState::MeshReady) {
+            item.chunk->uploadToGPU(tex, buf, pip);
+
+            // Mark for bind group update
+            /*if (item.chunk->getState() == ChunkState::Active) {
+                std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
+                chunksNeedingBindGroupUpdate.insert(item.chunkPos);
+            }*/
+        }
+
+        uploadsThisFrame++;
+    }
+}
+
+void Application::processBindGroupUpdates() {
+    std::lock_guard<std::mutex> lock(bindGroupUpdateMutex);
+
+    for (const auto& chunkPos : chunksNeedingBindGroupUpdate) {
+        auto chunk = chunkManager.getChunk(chunkPos);
+        if (chunk && chunk->getState() == ChunkState::Active) {
+            if (chunk->hasMaterialTexture()) {
+                chunk->updateMaterialBindGroup(pip, tex);
+            }
+            if (chunk->hasChunkDataBuffer()) {
+                chunk->updateChunkDataBindGroup(pip, buf);
+            }
+        }
+    }
+
+    chunksNeedingBindGroupUpdate.clear();
+}
+
+void Application::onResize() {
+    // Terminate
+    tex->removeTexture("multisample_texture");
+    tex->removeTextureView("multisample_view");
+
+    tex->removeTexture("depth_texture");
+    tex->removeTextureView("depth_view");
+
+    gpu.getContext()->unconfigureSurface();
+    gpu.getContext()->configureSurface();
+
+    //// Re-init
+    gpu.initMultiSampleTexture();
+    gpu.initDepthTexture();
+
+    updateProjectionMatrix(camera.zoom);
+}
+
+void Application::processInput() {
+    float velocity = camera.movementSpeed * deltaTime;
+
+    // WASD movement
+    if (keyStates.W)
+        camera.position += camera.front * velocity;
+    if (keyStates.S)
+        camera.position -= camera.front * velocity;
+    if (keyStates.A)
+        camera.position -= camera.right * velocity;
+    if (keyStates.D)
+        camera.position += camera.right * velocity;
+
+    // Vertical movement
+    if (keyStates.Space)
+        camera.position += camera.worldUp * velocity;
+    if (keyStates.Shift)
+        camera.position -= camera.worldUp * velocity;
+
+    // Update view matrix if camera position changed
+    updateViewMatrix();
+}
+
+void Application::updateProjectionMatrix(int zoom) {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+    float ratio = width / (float)height;
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 1000.0f);
+
+    buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
+}
+
+void Application::updateViewMatrix() {
+    uniforms.viewMatrix = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
+
+    buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, viewMatrix), &uniforms.viewMatrix, sizeof(MyUniforms::viewMatrix));
+}
+
+void Application::onMouseMove(double xpos, double ypos) {
+    // Only handle mouse movement if window is focused (cursor is disabled)
+    if (glfwGetInputMode(window, GLFW_CURSOR) != GLFW_CURSOR_DISABLED) return;
+
+    if (mouseState.firstMouse) {
+        mouseState.lastX = static_cast<float>(xpos);
+        mouseState.lastY = static_cast<float>(ypos);
+        mouseState.firstMouse = false;
+    }
+
+    float xoffset = static_cast<float>(xpos) - mouseState.lastX;
+    float yoffset = mouseState.lastY - static_cast<float>(ypos); // Reversed since y-coordinates go from bottom to top
+
+    mouseState.lastX = static_cast<float>(xpos);
+    mouseState.lastY = static_cast<float>(ypos);
+
+    xoffset *= camera.mouseSensitivity;
+    yoffset *= camera.mouseSensitivity;
+
+    camera.yaw += xoffset;
+    camera.pitch += yoffset;
+
+    // Constrain pitch to avoid screen flipping
+    if (camera.pitch > 89.0f)
+        camera.pitch = 89.0f;
+    if (camera.pitch < -89.0f)
+        camera.pitch = -89.0f;
+
+    camera.updateCameraVectors();
+    updateViewMatrix();
+}
+
+void Application::onMouseButton(int button, int action, int /* modifiers */) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            // Left click focuses the window and enables camera control
+            mouseState.firstMouse = true;
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            glfwSetCursorPos(window, mouseState.lastX, mouseState.lastY);
+			shouldBreakBlock = true;
+        }
+    }
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            mouseState.rightMousePressed = true;
+            shouldPlaceBlock = true;
+        }
+        else if (action == GLFW_RELEASE) {
+            mouseState.rightMousePressed = false;
+        }
+    }
+}
+
+void Application::onScroll(double /* xoffset */, double yoffset) {
+    camera.zoom -= 10 * static_cast<float>(yoffset);
+    if (camera.zoom < 1.0f)
+        camera.zoom = 1.0f;
+    if (camera.zoom > 120.0f)
+        camera.zoom = 120.0f;
+    updateProjectionMatrix(camera.zoom);
+}
+
+void Application::onKey(int key, int scancode, int action, int mods) {
+    bool keyPressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
+    bool keyReleased = (action == GLFW_RELEASE);
+
+    switch (key) {
+    case GLFW_KEY_W:
+        if (keyPressed) keyStates.W = true;
+        if (keyReleased) keyStates.W = false;
+        break;
+    case GLFW_KEY_S:
+        if (keyPressed) keyStates.S = true;
+        if (keyReleased) keyStates.S = false;
+        break;
+    case GLFW_KEY_A:
+        if (keyPressed) keyStates.A = true;
+        if (keyReleased) keyStates.A = false;
+        break;
+    case GLFW_KEY_D:
+        if (keyPressed) keyStates.D = true;
+        if (keyReleased) keyStates.D = false;
+        break;
+    case GLFW_KEY_SPACE:
+        if (keyPressed) keyStates.Space = true;
+        if (keyReleased) keyStates.Space = false;
+        break;
+    case GLFW_KEY_LEFT_SHIFT:
+        if (keyPressed) keyStates.Shift = true;
+        if (keyReleased) keyStates.Shift = false;
+        break;
+    case GLFW_KEY_ESCAPE:
+        if (keyPressed) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+        break;
+    }
+}
+
+bool Application::IsRunning() {
+    return !glfwWindowShouldClose(window);
+}#include <webgpu/webgpu.hpp>
+#include <GLFW/glfw3.h>
+#include <glfw3webgpu.h>
+#include <unordered_map>
+#include "../glm/glm.hpp"
+#include "../glm/ext.hpp"
+#include "PipelineManager.h"
+#include "BufferManager.h"
+#include "TextureManager.h"
+#include "WebGPUContext.h"
+#include "../ThreadSafeChunk.h"
+
+using namespace wgpu;
+using glm::mat4x4;
+using glm::vec4;
+using glm::vec3;
+using glm::ivec3;
+
+class WebGPURenderer {
+private:
+    std::unique_ptr<WebGPUContext> context;
+    std::unique_ptr<PipelineManager> pipelineManager;
+    std::unique_ptr<BufferManager> bufferManager;
+    std::unique_ptr<TextureManager> textureManager;
+
+    const float PI = 3.14159265358979323846f;
+    MyUniforms uniforms;
+
+public:
+    bool initialize();
+
+    void registerMovementCallbacks();
+
+    bool initMultiSampleTexture();
+    bool initDepthTexture();
+    bool initRenderPipeline();
+    bool initTextures();
+    bool initUniformBuffers();
+    bool initBindGroup();
+
+    PipelineManager* getPipelineManager();
+    BufferManager* getBufferManager();
+    TextureManager* getTextureManager();
+    WebGPUContext* getContext();
+    GLFWwindow* getWindow();
+
+    std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
+
+    void renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderData> chunkRenderData);
+    void terminate();
+};
+
+#include "WebGPURenderer.h"
+
+bool WebGPURenderer::initialize() {
+	RenderConfig config;
+	
+	context = std::make_unique<WebGPUContext>();
+	if (!context->initialize(config)) {
+		return false;
+	}
+
+	pipelineManager = std::make_unique<PipelineManager>(context->getDevice(), context->getSurfaceFormat());
+	bufferManager = std::make_unique<BufferManager>(context->getDevice(), context->getQueue());
+	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
+
+	initMultiSampleTexture();
+	initDepthTexture();
+	initRenderPipeline();
+	initUniformBuffers();
+	initTextures();
+	initBindGroup();
+
+	return true;
+}
+
+WebGPUContext* WebGPURenderer::getContext() {
+	return context.get();
+}
+
+PipelineManager* WebGPURenderer::getPipelineManager() {
+	return pipelineManager.get();
+}
+
+TextureManager* WebGPURenderer::getTextureManager() {
+	return textureManager.get();
+}
+
+BufferManager* WebGPURenderer::getBufferManager() {
+	return bufferManager.get();
+}
+
+void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderData> chunkRenderData) {
+	// write frame uniforms
+	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
+
+	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
+	if (!targetView) return;
+
+	CommandEncoderDescriptor encoderDesc = Default;
+	encoderDesc.label = "My command encoder";
+	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
+
+	RenderPassDescriptor renderPassDesc = {};
+	RenderPassColorAttachment renderPassColorAttachment = {};
+	renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
+	renderPassColorAttachment.resolveTarget = targetView;
+	renderPassColorAttachment.loadOp = LoadOp::Clear;
+	renderPassColorAttachment.storeOp = StoreOp::Store;
+	renderPassColorAttachment.clearValue = Color{ 0.7, 0.8, 0.9, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+	 
+	renderPassDesc.colorAttachmentCount = 1;
+	renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+	RenderPassDepthStencilAttachment depthStencilAttachment;
+	depthStencilAttachment.view = textureManager->getTextureView("depth_view");
+	depthStencilAttachment.depthClearValue = 1.0f;
+	depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+	depthStencilAttachment.depthStoreOp = StoreOp::Store;
+	depthStencilAttachment.depthReadOnly = false;
+	depthStencilAttachment.stencilClearValue = 0;
+	depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+	depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+	depthStencilAttachment.stencilReadOnly = true;
+
+	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+
+	renderPassDesc.timestampWrites = nullptr;
+
+	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
+
+	renderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
+
+	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
+
+	for (ChunkRenderData data : chunkRenderData) {
+		renderPass.setBindGroup(1, pipelineManager->getBindGroup(data.materialBindGroupName), 0, nullptr);
+		renderPass.setBindGroup(2, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
+
+		renderPass.setVertexBuffer(0, bufferManager->getBuffer(data.vertexBufferName), 0, data.vertexBufferSize);
+		renderPass.setIndexBuffer(bufferManager->getBuffer(data.indexBufferName), IndexFormat::Uint16, 0, data.indexBufferSize);
+		renderPass.drawIndexed(data.indexCount, 1, 0, 0, 0);
+	}
+
+	renderPass.end();
+	renderPass.release();
+
+	CommandBufferDescriptor cmdBufferDescriptor = {};
+	cmdBufferDescriptor.label = "Command buffer";
+	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
+	encoder.release();
+
+	context->getQueue().submit(1, &command);
+	command.release();
+	targetView.release();
+	context->getSurface().present();
+	context->getDevice().tick();
+}
+
+bool WebGPURenderer::initMultiSampleTexture() {
+	int width, height;
+	glfwGetFramebufferSize(context->getWindow(), &width, &height);
+
+	TextureFormat multiSampleTextureFormat = context->getSurfaceFormat();
+
+	TextureDescriptor multiSampleTextureDesc;
+	multiSampleTextureDesc.dimension = TextureDimension::_2D;
+	multiSampleTextureDesc.format = multiSampleTextureFormat;
+	multiSampleTextureDesc.mipLevelCount = 1;
+	multiSampleTextureDesc.sampleCount = 4;
+	multiSampleTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+	multiSampleTextureDesc.usage = TextureUsage::RenderAttachment;
+	multiSampleTextureDesc.viewFormatCount = 0;
+	multiSampleTextureDesc.viewFormats = nullptr;
+	Texture multiSampleTexture = textureManager->createTexture("multisample_texture", multiSampleTextureDesc);
+
+	TextureViewDescriptor multiSampleTextureViewDesc;
+	multiSampleTextureViewDesc.aspect = TextureAspect::All;
+	multiSampleTextureViewDesc.baseArrayLayer = 0;
+	multiSampleTextureViewDesc.arrayLayerCount = 1;
+	multiSampleTextureViewDesc.baseMipLevel = 0;
+	multiSampleTextureViewDesc.mipLevelCount = 1;
+	multiSampleTextureViewDesc.dimension = TextureViewDimension::_2D;
+	multiSampleTextureViewDesc.format = multiSampleTextureFormat;
+	TextureView multiSampleTextureView = textureManager->createTextureView("multisample_texture", "multisample_view", multiSampleTextureViewDesc);
+
+	return multiSampleTextureView != nullptr;
+}
+
+bool WebGPURenderer::initDepthTexture() {
+	int width, height;
+	glfwGetFramebufferSize(context->getWindow(), &width, &height);
+
+	TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
+	TextureDescriptor depthTextureDesc;
+	depthTextureDesc.dimension = TextureDimension::_2D;
+	depthTextureDesc.format = depthTextureFormat;
+	depthTextureDesc.mipLevelCount = 1;
+	depthTextureDesc.sampleCount = 4;
+	depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
+	depthTextureDesc.usage = TextureUsage::RenderAttachment;
+	depthTextureDesc.viewFormatCount = 0;
+	depthTextureDesc.viewFormats = nullptr;
+	Texture depthTexture = textureManager->createTexture("depth_texture", depthTextureDesc);
+
+	TextureViewDescriptor depthTextureViewDesc;
+	depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
+	depthTextureViewDesc.baseArrayLayer = 0;
+	depthTextureViewDesc.arrayLayerCount = 1;
+	depthTextureViewDesc.baseMipLevel = 0;
+	depthTextureViewDesc.mipLevelCount = 1;
+	depthTextureViewDesc.dimension = TextureViewDimension::_2D;
+	depthTextureViewDesc.format = depthTextureFormat;
+	TextureView depthTextureView = textureManager->createTextureView("depth_texture", "depth_view", depthTextureViewDesc);
+
+	return depthTextureView != nullptr;
+}
+
+bool WebGPURenderer::initRenderPipeline() {
+	PipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/shader.wgsl";
+	config.colorFormat = TextureFormat::BGRA8Unorm;
+	config.depthFormat = TextureFormat::Depth24Plus;
+	config.sampleCount = 4;
+	config.cullMode = CullMode::Back;
+	config.depthWriteEnabled = true;
+	config.depthCompare = CompareFunction::Less;
+
+	// vertex attributes
+	std::vector<VertexAttribute> vertexAttribs(1);
+	// data attribute
+	vertexAttribs[0].shaderLocation = 0;
+	vertexAttribs[0].format = VertexFormat::Uint32;
+	vertexAttribs[0].offset = 0;
+	config.vertexAttributes = vertexAttribs;
+
+	// uniforms binding
+	std::vector<BindGroupLayoutEntry> globalUniforms(3, Default);
+	globalUniforms[0].binding = 0;
+	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
+	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
+
+	// The texture atlas binding and sampler
+	globalUniforms[1].binding = 1;
+	globalUniforms[1].visibility = ShaderStage::Fragment;
+	globalUniforms[1].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[1].texture.viewDimension = TextureViewDimension::_2D;
+
+	// The texture sampler binding
+	globalUniforms[2].binding = 2;
+	globalUniforms[2].visibility = ShaderStage::Fragment;
+	globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
+	);
+
+	std::vector<BindGroupLayoutEntry> materialUniforms(2, Default);
+	materialUniforms[0].binding = 0;
+	materialUniforms[0].visibility = ShaderStage::Fragment;
+	materialUniforms[0].texture.sampleType = TextureSampleType::Float;
+	materialUniforms[0].texture.viewDimension = TextureViewDimension::_3D;
+
+	materialUniforms[1].binding = 1;
+	materialUniforms[1].visibility = ShaderStage::Fragment;
+	materialUniforms[1].sampler.type = SamplerBindingType::Filtering;
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("material_uniforms", materialUniforms)
+	);
+
+	std::vector<BindGroupLayoutEntry> chunkDataUniforms(1, Default);
+	chunkDataUniforms[0].binding = 0;
+	chunkDataUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	chunkDataUniforms[0].buffer.type = BufferBindingType::Uniform;
+	chunkDataUniforms[0].buffer.minBindingSize = 16; // sizeof(ChunkData)
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("chunkdata_uniforms", chunkDataUniforms)
+	);
+
+	pipelineManager->createRenderPipeline("voxel_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initUniformBuffers() {
+	BufferDescriptor bufferDesc;
+	bufferDesc.size = sizeof(MyUniforms);
+	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	bufferDesc.mappedAtCreation = false;
+	Buffer uniformBuffer = bufferManager->createBuffer("uniform_buffer", bufferDesc);
+
+	return uniformBuffer != nullptr;
+}
+
+bool WebGPURenderer::initTextures() {
+	SamplerDescriptor samplerDesc;
+	samplerDesc.addressModeU = AddressMode::Repeat;
+	samplerDesc.addressModeV = AddressMode::Repeat;
+	samplerDesc.addressModeW = AddressMode::Repeat;
+	samplerDesc.magFilter = FilterMode::Nearest;
+	samplerDesc.minFilter = FilterMode::Nearest;
+	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
+	samplerDesc.lodMinClamp = 0.0f;
+	samplerDesc.lodMaxClamp = 8.0f;
+	samplerDesc.compare = CompareFunction::Undefined;
+	samplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("atlas_sampler", samplerDesc);
+
+	SamplerDescriptor materialSamplerDesc;
+	materialSamplerDesc.addressModeU = AddressMode::ClampToEdge;
+	materialSamplerDesc.addressModeV = AddressMode::ClampToEdge;
+	materialSamplerDesc.addressModeW = AddressMode::ClampToEdge;
+	materialSamplerDesc.magFilter = FilterMode::Nearest; // Use nearest for discrete material data
+	materialSamplerDesc.minFilter = FilterMode::Nearest;
+	materialSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
+	materialSamplerDesc.lodMinClamp = 0.0f;
+	materialSamplerDesc.lodMaxClamp = 8.0f;
+	materialSamplerDesc.compare = CompareFunction::Undefined;
+	materialSamplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("material_sampler", materialSamplerDesc);
+
+	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
+
+	return textureManager->getTextureView("atlas_view") != nullptr;
+}
+
+bool WebGPURenderer::initBindGroup() {
+	std::vector<BindGroupEntry> bindings(3);
+
+	bindings[0].binding = 0;
+	bindings[0].buffer = bufferManager->getBuffer("uniform_buffer");
+	bindings[0].offset = 0;
+	bindings[0].size = sizeof(MyUniforms);
+
+	bindings[1].binding = 1;
+	bindings[1].textureView = textureManager->getTextureView("atlas_view");
+
+	bindings[2].binding = 2;
+	bindings[2].sampler = textureManager->getSampler("atlas_sampler");
+
+	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
+
+	return bindGroup != nullptr;
+}
+
+GLFWwindow* WebGPURenderer::getWindow() {
+	return context->getWindow();
+}
+
+std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() {
+	SurfaceTexture surfaceTexture;
+	context->getSurface().getCurrentTexture(&surfaceTexture);
+	Texture texture = surfaceTexture.texture;
+
+	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::Success) {
+		return { surfaceTexture, nullptr };
+	}
+
+	TextureViewDescriptor viewDescriptor;
+	viewDescriptor.nextInChain = nullptr;
+	viewDescriptor.label = "Surface texture view";
+	viewDescriptor.format = texture.getFormat();
+	viewDescriptor.dimension = TextureViewDimension::_2D;
+	viewDescriptor.baseMipLevel = 0;
+	viewDescriptor.mipLevelCount = 1;
+	viewDescriptor.baseArrayLayer = 0;
+	viewDescriptor.arrayLayerCount = 1;
+	viewDescriptor.aspect = TextureAspect::All;
+	TextureView targetView = texture.createView(viewDescriptor);
+
+#ifndef WEBGPU_BACKEND_WGPU
+	// We no longer need the texture, only its view
+	// (NB: with wgpu-native, surface textures must be release after the call to wgpuSurfacePresent)
+	texture.release();
+#endif // WEBGPU_BACKEND_WGPU
+
+	return { surfaceTexture, targetView };
+}
+
+void WebGPURenderer::terminate() {
+	textureManager->terminate();
+	pipelineManager->terminate();
+	bufferManager->terminate();
+}
+
+
+#include <webgpu/webgpu.hpp>
+#include <GLFW/glfw3.h>
+#include <glfw3webgpu.h>
+#include "../VertexAttributes.h"
+#include "../glm/glm.hpp"
+#include "../glm/ext.hpp"
+#include "../magic_enum.hpp"
+
+using namespace wgpu;
+using glm::mat4x4;
+using glm::vec4;
+using glm::vec3;
+using glm::ivec3;
+
+struct RenderConfig {
+    int width = 1280;
+    int height = 720;
+
+    const char* title = "Voxel Engine";
+};
+
+struct MyUniforms {
+    mat4x4 projectionMatrix;
+    mat4x4 viewMatrix;
+    mat4x4 modelMatrix;
+    ivec3 highlightedVoxelPos;
+    float time;
+    vec3 cameraWorldPos;
+    float _pad[1];
+};
+
+static_assert(sizeof(MyUniforms) % 16 == 0);
+
+class WebGPUContext {
+public:
+    Device device;
+    Queue queue;
+    Surface surface;
+    Adapter adapter;
+    GLFWwindow* window;
+
+    int width;
+    int height;
+
+    TextureFormat surfaceFormat = TextureFormat::Undefined;
+
+    uint32_t uniformStride = 0;
+    std::unique_ptr<ErrorCallback> uncapturedErrorCallbackHandle;
+
+    Device getDevice() { return device; }
+    Queue getQueue() { return queue; }
+    GLFWwindow* getWindow() { return window; }
+    Surface getSurface() { return surface; }
+    TextureFormat getSurfaceFormat() { return surfaceFormat;  }
+
+    bool initialize(const RenderConfig& config);
+
+    bool configureSurface();
+    void unconfigureSurface();
+
+    RequiredLimits GetRequiredLimits(Adapter adapter) const;
+    uint32_t ceilToNextMultiple(uint32_t value, uint32_t step) const;
+
+    void terminate();
+};
+ 
+#include "WebGPUContext.h"
+
+bool WebGPUContext::initialize(const RenderConfig& config) {
+    // Create instance descriptor
+    InstanceDescriptor desc = {};
+    desc.nextInChain = nullptr;
+
+    // Make sure the uncaptured error callback is called as soon as an error
+    // occurs rather than at the next call to "wgpuDeviceTick".
+    DawnTogglesDescriptor toggles;
+    toggles.chain.next = nullptr;
+    toggles.chain.sType = SType::DawnTogglesDescriptor;
+    toggles.disabledToggleCount = 0;
+    toggles.enabledToggleCount = 1;
+    const char* toggleName = "enable_immediate_error_handling";
+    toggles.enabledToggles = &toggleName;
+    desc.nextInChain = &toggles.chain;
+
+    // Create the webgpu instance
+    Instance instance = wgpuCreateInstance(&desc);
+
+    // We can check whether there is actually an instance created
+    if (!instance) {
+        std::cerr << "Could not initialize WebGPU!" << std::endl;
+        return false;
+    }
+
+    // initialize GLFW
+    if (!glfwInit()) {
+        std::cerr << "Could not initialize GLFW!" << std::endl;
+        return false;
+    }
+
+    // create the window
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    window = glfwCreateWindow(config.width, config.height, config.title, nullptr, nullptr);
+
+    if (!window) {
+        std::cerr << "Could not open window!" << std::endl;
+        glfwTerminate();
+        return 1;
+    }
+
+    surface = glfwGetWGPUSurface(instance, window);
+
+    std::cout << "Requesting adapter..." << std::endl;
+
+    RequestAdapterOptions adapterOpts = {};
+    adapterOpts.nextInChain = nullptr;
+    adapterOpts.compatibleSurface = surface;
+    adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
+    adapter = instance.requestAdapter(adapterOpts);
+
+    std::cout << "Got adapter: " << adapter << std::endl;
+
+    instance.release();
+
+    SupportedLimits supportedLimits;
+    adapter.getLimits(&supportedLimits);
+
+    std::cout << "Requesting device..." << std::endl;
+
+    DeviceDescriptor deviceDesc = {};
+    RequiredLimits requiredLimits = GetRequiredLimits(adapter);
+    deviceDesc.nextInChain = nullptr;
+    deviceDesc.label = "My Device"; // anything works here, that's your call
+    deviceDesc.requiredFeatureCount = 0; // we do not require any specific feature
+    deviceDesc.requiredLimits = &requiredLimits;
+    deviceDesc.defaultQueue.nextInChain = nullptr;
+    deviceDesc.defaultQueue.label = "The default queue";
+
+    // A function that is invoked whenever the device stops being available.
+    deviceDesc.deviceLostCallback = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
+        std::cout << "Device lost: reason " << reason;
+        if (message) std::cout << " (" << message << ")";
+        std::cout << std::endl;
+        };
+
+    device = adapter.requestDevice(deviceDesc);
+    std::cout << "Got device: " << device << std::endl;
+
+    uncapturedErrorCallbackHandle = device.setUncapturedErrorCallback([](ErrorType type, char const* message) {
+        std::cout << "Uncaptured device error: type " << type;
+        if (message) std::cout << " (" << message << ")";
+        std::cout << std::endl;
+        });
+
+    queue = device.getQueue();
+
+    configureSurface();
+
+    return true;
+}
+
+void WebGPUContext::terminate() {
+    unconfigureSurface();
+    queue.release();
+    device.release();
+    surface.release();
+    adapter.release();
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+}
+
+bool WebGPUContext::configureSurface() {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
+    SurfaceConfiguration config = {};
+    config.nextInChain = nullptr;
+    config.width = static_cast<uint32_t>(width);
+    config.height = static_cast<uint32_t>(height);
+
+    surfaceFormat = surface.getPreferredFormat(adapter);
+    config.format = surfaceFormat;
+
+    std::cout << "Surface format: " << magic_enum::enum_name<WGPUTextureFormat>(surfaceFormat) << std::endl;
+
+    // And we do not need any particular view format:
+    config.viewFormatCount = 0;
+    config.viewFormats = nullptr;
+    config.usage = TextureUsage::RenderAttachment;
+    config.device = device;
+    config.presentMode = PresentMode::Fifo;
+    config.alphaMode = CompositeAlphaMode::Auto;
+
+    surface.configure(config);
+
+    return true;
+}
+
+void WebGPUContext::unconfigureSurface() {
+    surface.unconfigure();
+}
+
+RequiredLimits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
+    // Get adapter supported limits, in case we need them
+    SupportedLimits supportedLimits;
+    adapter.getLimits(&supportedLimits);
+    Limits deviceLimits = supportedLimits.limits;
+
+    // Subtlety
+    const_cast<WebGPUContext*>(this)->uniformStride = ceilToNextMultiple(
+        (uint32_t)sizeof(MyUniforms),
+        (uint32_t)deviceLimits.minUniformBufferOffsetAlignment
+    );
+
+    // Don't forget to = Default
+    RequiredLimits requiredLimits = Default;
+
+    // We use at most 1 vertex attribute for now
+    requiredLimits.limits.maxVertexAttributes = 1;
+    // We should also tell that we use 1 vertex buffers
+    requiredLimits.limits.maxVertexBuffers = 1;
+    // Maximum size of a buffer is 6 vertices of 2 float each
+    requiredLimits.limits.maxBufferSize = 15000000 * sizeof(VertexAttributes);
+    // Maximum stride between 2 consecutive vertices in the vertex buffer
+    requiredLimits.limits.maxVertexBufferArrayStride = sizeof(VertexAttributes);
+
+    // These two limits are different because they are "minimum" limits,
+    // they are the only ones we may forward from the adapter's supported
+    // limits.
+    requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
+    requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
+
+    // There is a maximum of 3 float forwarded from vertex to fragment shader
+    requiredLimits.limits.maxInterStageShaderComponents = 8;
+
+    // We use at most 1 bind group for now
+    requiredLimits.limits.maxBindGroups = 3;
+    // We use at most 1 uniform buffer per stage
+    requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
+    // Add the possibility to sample a texture in a shader
+    requiredLimits.limits.maxSampledTexturesPerShaderStage = 1;
+    // Uniform structs have a size of maximum 16 float (more than what we need)
+    requiredLimits.limits.maxUniformBufferBindingSize = 16 * 4 * sizeof(float);
+    // Extra limit requirement
+    requiredLimits.limits.maxDynamicUniformBuffersPerPipelineLayout = 1;
+
+    requiredLimits.limits.maxSamplersPerShaderStage = 1;
+
+    // For the depth buffer, we enable textures (up to the size of the window):
+    requiredLimits.limits.maxTextureDimension1D = 2048;
+    requiredLimits.limits.maxTextureDimension2D = 2048;
+    requiredLimits.limits.maxTextureArrayLayers = 1;
+
+
+    return requiredLimits;
+}
+
+uint32_t WebGPUContext::ceilToNextMultiple(uint32_t value, uint32_t step) const {
+    uint32_t divide_and_ceil = value / step + (value % step == 0 ? 0 : 1);
+    return step * divide_and_ceil;
+}
+
+#ifndef PIPELINE_MANAGER
+#define PIPELINE_MANAGER
+
+#include <unordered_map>
+#include <webgpu/webgpu.hpp>
+#include <filesystem>
+#include <fstream> 
+#include <vector>
+#include "../VertexAttributes.h"
+
+using namespace wgpu;
+
+struct PipelineConfig {
+    std::string shaderPath;
+    std::vector<VertexAttribute> vertexAttributes;
+    std::vector<BindGroupLayout> bindGroupLayouts;
+    TextureFormat colorFormat = TextureFormat::BGRA8Unorm;
+    TextureFormat depthFormat = TextureFormat::Depth24Plus;
+    uint32_t sampleCount = 4;
+    PrimitiveTopology topology = PrimitiveTopology::TriangleList;
+    CullMode cullMode = CullMode::Back;
+    bool depthWriteEnabled = true;
+    CompareFunction depthCompare = CompareFunction::Less;
+};
+
+class PipelineManager {
+    std::unordered_map<std::string, RenderPipeline> pipelines;
+    std::unordered_map<std::string, BindGroupLayout> bindGroupLayouts;
+    std::unordered_map<std::string, BindGroup> bindGroups;
+    Device device;
+    TextureFormat surfaceFormat;
+
+public:
+    PipelineManager(Device d, TextureFormat sf) : device(d), surfaceFormat(sf) {}
+
+    RenderPipeline createRenderPipeline(const std::string pipelineName, PipelineConfig & config);
+    BindGroupLayout createBindGroupLayout(const std::string bindGroupLayoutName, const std::vector<BindGroupLayoutEntry>& entries);
+    BindGroup createBindGroup(const std::string bindGroupName, const std::string bindGroupLayoutName, const std::vector<BindGroupEntry>& bindings);
+    RenderPipeline getPipeline(std::string pipelineName);
+    BindGroupLayout getBindGroupLayout(std::string bindGroupLayoutName);
+    BindGroup getBindGroup(std::string bindGroupName);
+    void deleteBindGroup(std::string bindGroupName);
+
+    void terminate();
+private:
+    ShaderModule loadShaderModule(const std::filesystem::path& path, Device device);
+};
+
+#endif#include "PipelineManager.h"
+
+
+RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineName, PipelineConfig& config) {
+    std::cout << "Creating shader module..." << std::endl;
+    ShaderModule shaderModule = loadShaderModule(config.shaderPath, device);
+    std::cout << "Shader module: " << shaderModule << std::endl;
+
+    RenderPipelineDescriptor pipelineDesc;
+    pipelineDesc.nextInChain = nullptr;
+
+    // vertex buffer layout
+    VertexBufferLayout vertexBufferLayout;
+    vertexBufferLayout.attributeCount = static_cast<uint32_t>(config.vertexAttributes.size());
+    vertexBufferLayout.attributes = config.vertexAttributes.data();
+    vertexBufferLayout.arrayStride = sizeof(VertexAttributes);
+    vertexBufferLayout.stepMode = VertexStepMode::Vertex;
+
+    pipelineDesc.vertex.bufferCount = 1;
+    pipelineDesc.vertex.buffers = &vertexBufferLayout;
+    pipelineDesc.vertex.module = shaderModule;
+    pipelineDesc.vertex.entryPoint = "vs_main"; // vertex shader entry point
+    pipelineDesc.vertex.constantCount = 0;
+    pipelineDesc.vertex.constants = nullptr;
+    pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
+    pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined;
+    pipelineDesc.primitive.frontFace = FrontFace::CCW;
+    pipelineDesc.primitive.cullMode = CullMode::Back;
+    pipelineDesc.multisample.count = 4;
+    pipelineDesc.multisample.mask = ~0u;
+    pipelineDesc.multisample.alphaToCoverageEnabled = false;
+
+    FragmentState fragmentState;
+    pipelineDesc.fragment = &fragmentState;
+    fragmentState.module = shaderModule;
+    fragmentState.entryPoint = "fs_main"; // fragment shader entry point
+    fragmentState.constantCount = 0;
+    fragmentState.constants = nullptr;
+
+    BlendState blendState;
+    blendState.color.srcFactor = BlendFactor::SrcAlpha;
+    blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
+    blendState.color.operation = BlendOperation::Add;
+    blendState.alpha.srcFactor = BlendFactor::Zero;
+    blendState.alpha.dstFactor = BlendFactor::One;
+    blendState.alpha.operation = BlendOperation::Add;
+
+    ColorTargetState colorTarget;
+    colorTarget.format = surfaceFormat;
+    colorTarget.blend = &blendState;
+    colorTarget.writeMask = ColorWriteMask::All;
+
+    // We have only one target because our render pass has only one output color
+    // attachment.
+    fragmentState.targetCount = 1;
+    fragmentState.targets = &colorTarget;
+
+    MultisampleState multisampleState = Default;
+    multisampleState.count = 4;
+
+    pipelineDesc.multisample = multisampleState;
+
+    DepthStencilState depthStencilState = Default;
+    // Setup depth state
+    depthStencilState.depthCompare = CompareFunction::Less;
+    depthStencilState.depthWriteEnabled = true;
+    // Store the format in a variable as later parts of the code depend on it
+    depthStencilState.format = config.depthFormat;
+    // Deactivate the stencil alltogether
+    depthStencilState.stencilReadMask = 0;
+    depthStencilState.stencilWriteMask = 0;
+
+    pipelineDesc.depthStencil = &depthStencilState;
+
+    PipelineLayoutDescriptor layoutDesc{};
+    layoutDesc.bindGroupLayoutCount = (uint32_t)config.bindGroupLayouts.size();
+    layoutDesc.bindGroupLayouts = reinterpret_cast<WGPUBindGroupLayout*>(config.bindGroupLayouts.data());
+    PipelineLayout layout = device.createPipelineLayout(layoutDesc);
+
+    pipelineDesc.layout = layout;
+
+    RenderPipeline pipeline = device.createRenderPipeline(pipelineDesc);
+    std::cout << "Render pipeline: " << pipeline << std::endl;
+
+    pipelines[pipelineName] = pipeline;
+
+    // We no longer need to access the shader module
+    shaderModule.release();
+
+    return pipeline;
+}
+
+BindGroupLayout PipelineManager::createBindGroupLayout(const std::string bindGroupLayoutName, const std::vector<BindGroupLayoutEntry>& entries) {
+    BindGroupLayoutDescriptor chunkDataBindGroupLayoutDesc{};
+    chunkDataBindGroupLayoutDesc.entryCount = (uint32_t)entries.size();
+    chunkDataBindGroupLayoutDesc.entries = entries.data();
+
+    BindGroupLayout layout = device.createBindGroupLayout(chunkDataBindGroupLayoutDesc);
+    bindGroupLayouts[bindGroupLayoutName] = layout;
+    return layout;
+}
+
+void PipelineManager::deleteBindGroup(std::string bindGroupName) {
+    BindGroup group = getBindGroup(bindGroupName);
+    if (group) {
+        group.release();
+        bindGroups.erase(bindGroupName);
+    }
+}
+
+BindGroup PipelineManager::createBindGroup(const std::string bindGroupName, const std::string bindGroupLayoutName, const std::vector<BindGroupEntry>& bindings) {
+    BindGroupLayout layout = bindGroupLayouts.find(bindGroupLayoutName)->second;
+
+    BindGroupDescriptor bindGroupDesc;
+    bindGroupDesc.layout = layout;
+    bindGroupDesc.entryCount = (uint32_t)bindings.size();
+    bindGroupDesc.entries = bindings.data();
+
+    BindGroup bindGroup = device.createBindGroup(bindGroupDesc);
+    bindGroups[bindGroupName] = bindGroup;
+    return bindGroup;
+}
+
+RenderPipeline PipelineManager::getPipeline(std::string pipelineName) {
+    auto pipeline = pipelines.find(pipelineName);
+    if (pipeline != pipelines.end()) {
+        return pipeline->second;
+    }
+    return nullptr;
+}
+
+BindGroupLayout PipelineManager::getBindGroupLayout(std::string bindGroupLayoutName) {
+    auto layout = bindGroupLayouts.find(bindGroupLayoutName);
+    if (layout != bindGroupLayouts.end()) {
+        return layout->second;
+    }
+    return nullptr;
+}
+
+BindGroup PipelineManager::getBindGroup(std::string bindGroupLayoutName) {
+    auto bindGroup = bindGroups.find(bindGroupLayoutName);
+    if (bindGroup != bindGroups.end()) {
+        return bindGroup->second;
+    }
+    return nullptr;
+}
+
+void PipelineManager::terminate() {
+    for (auto pair : pipelines) {
+        if (pair.second) {
+            pair.second.release();
+        }
+    }
+
+    for (auto pair : bindGroupLayouts) {
+        if (pair.second) {
+            pair.second.release();
+        }
+    }
+
+    for (auto pair : bindGroups) {
+        if (pair.second) {
+            pair.second.release();
+        }
+    }
+}
+
+ShaderModule PipelineManager::loadShaderModule(const std::filesystem::path& path, Device device) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        return nullptr;
+    }
+    file.seekg(0, std::ios::end);
+    size_t size = file.tellg();
+    std::string shaderSource(size, ' ');
+    file.seekg(0);
+    file.read(shaderSource.data(), size);
+
+    ShaderModuleWGSLDescriptor shaderCodeDesc{};
+    shaderCodeDesc.chain.next = nullptr;
+    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
+    shaderCodeDesc.code = shaderSource.c_str();
+
+    ShaderModuleDescriptor shaderDesc{};
+#ifdef WEBGPU_BACKEND_WGPU
+    shaderDesc.hintCount = 0;
+    shaderDesc.hints = nullptr;
+#endif
+    shaderDesc.nextInChain = &shaderCodeDesc.chain;
+    return device.createShaderModule(shaderDesc);
+}
+#ifndef TEXTURE_MANAGER
+#define TEXTURE_MANAGER
+
+
+#include <unordered_map>
+#include <webgpu/webgpu.hpp>
+#include <filesystem>
+
+using namespace wgpu;
+
+class TextureManager {
+    std::unordered_map<std::string, Texture> textures;
+    std::unordered_map<std::string, TextureView> textureViews;
+    std::unordered_map<std::string, Sampler> samplers;
+    Device device;
+    Queue queue;
+
+public:
+    TextureManager(Device d, Queue q) : device(d), queue(q) {}
+
+    Texture createTexture(const std::string& name, const TextureDescriptor& config);
+    TextureView createTextureView(const std::string& textureName, const std::string& viewName, const TextureViewDescriptor& config);
+    Sampler createSampler(const std::string& samplerName, const SamplerDescriptor& config);
+    
+    Texture loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path);
+
+    Texture getTexture(const std::string textureName);
+    TextureView getTextureView(const std::string viewName);
+    Sampler getSampler(const std::string samplerName);
+    void writeTexture(const ImageCopyTexture& destination, const void* data, size_t size, const TextureDataLayout& source, const Extent3D& writeSize);
+
+    void removeTextureView(const std::string& name);
+    void removeTexture(const std::string& name);
+
+    void terminate();
+
+private:
+    uint32_t bit_width(uint32_t m);
+    void TextureManager::writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
+};
+
+#endif#include "TextureManager.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "../stb_image.h"
+
+void TextureManager::writeTexture(const ImageCopyTexture& destination,
+    const void* data, size_t size,
+    const TextureDataLayout& source,
+    const Extent3D& writeSize) {
+
+    queue.writeTexture(destination, data, size, source, writeSize);
+}
+
+Texture TextureManager::getTexture(const std::string textureName) {
+    auto texture = textures.find(textureName);
+    if (texture != textures.end()) {
+        return texture->second;
+    }
+    return nullptr;
+}
+
+TextureView TextureManager::getTextureView(const std::string viewName) {
+    auto textureView = textureViews.find(viewName);
+    if (textureView != textureViews.end()) {
+        return textureView->second;
+    }
+    return nullptr;
+}
+
+Sampler TextureManager::getSampler(const std::string samplerName) {
+    auto sampler = samplers.find(samplerName);
+    if (sampler != samplers.end()) {
+        return sampler->second;
+    }
+    return nullptr;
+}
+
+Texture TextureManager::createTexture(const std::string& name, const TextureDescriptor& config) {
+    Texture texture = device.createTexture(config);
+    textures[name] = texture;
+
+    return texture;
+}
+
+TextureView TextureManager::createTextureView(const std::string& textureName, const std::string& viewName, const TextureViewDescriptor& config) {
+    auto texture = textures.find(textureName);
+    if (texture == textures.end()) {
+        return nullptr;
+    }
+
+    TextureView view = texture->second.createView(config);
+    textureViews[viewName] = view;
+    return view;
+}
+
+Sampler TextureManager::createSampler(const std::string& samplerName, const SamplerDescriptor& config) {
+    Sampler sampler = device.createSampler(config);
+    samplers[samplerName] = sampler;
+    return sampler;
+}
+
+void TextureManager::terminate() {
+    for (auto it : textures) {
+        if (it.second) {
+            it.second.destroy();
+            it.second.release();
+        }
+    }
+}
+
+uint32_t TextureManager::bit_width(uint32_t m) {
+    if (m == 0) return 0;
+    else { uint32_t w = 0; while (m >>= 1) ++w; return w; }
+}
+
+Texture TextureManager::loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path) {
+    int width, height, channels;
+    unsigned char* pixelData = stbi_load(path.string().c_str(), &width, &height, &channels, 4 /* force 4 channels */);
+    if (nullptr == pixelData) return nullptr;
+
+    TextureDescriptor textureDesc;
+    textureDesc.dimension = TextureDimension::_2D;
+    textureDesc.format = TextureFormat::RGBA8Unorm; // by convention for bmp, png and jpg file. Be careful with other formats.
+    textureDesc.sampleCount = 1;
+    textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
+    textureDesc.mipLevelCount = bit_width(std::max(textureDesc.size.width, textureDesc.size.height));
+
+    textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+    textureDesc.viewFormatCount = 0;
+    textureDesc.viewFormats = nullptr;
+    Texture texture = createTexture(name, textureDesc);
+
+    writeMipMaps(texture, textureDesc.size, textureDesc.mipLevelCount, pixelData);
+
+    stbi_image_free(pixelData);
+
+    if (textureViewName.length() > 0) {
+        TextureViewDescriptor textureViewDesc;
+        textureViewDesc.aspect = TextureAspect::All;
+        textureViewDesc.baseArrayLayer = 0;
+        textureViewDesc.arrayLayerCount = 1;
+        textureViewDesc.baseMipLevel = 0;
+        textureViewDesc.mipLevelCount = textureDesc.mipLevelCount;
+        textureViewDesc.dimension = TextureViewDimension::_2D;
+        textureViewDesc.format = textureDesc.format;
+        TextureView view = createTextureView(name, textureViewName, textureViewDesc);
+    }
+
+    return texture;
+}
+
+void TextureManager::writeMipMaps(
+    Texture texture,
+    Extent3D textureSize,
+    uint32_t mipLevelCount,
+    const unsigned char* pixelData)
+{
+
+    // Arguments telling which part of the texture we upload to
+    ImageCopyTexture destination;
+    destination.texture = texture;
+    destination.origin = { 0, 0, 0 };
+    destination.aspect = TextureAspect::All;
+
+    // Arguments telling how the C++ side pixel memory is laid out
+    TextureDataLayout source;
+    source.offset = 0;
+
+    // Create image data
+    Extent3D mipLevelSize = textureSize;
+    std::vector<unsigned char> previousLevelPixels;
+    Extent3D previousMipLevelSize;
+    for (uint32_t level = 0; level < mipLevelCount; ++level) {
+        // Pixel data for the current level
+        std::vector<unsigned char> pixels(4 * mipLevelSize.width * mipLevelSize.height);
+        if (level == 0) {
+            // We cannot really avoid this copy since we need this
+            // in previousLevelPixels at the next iteration
+            memcpy(pixels.data(), pixelData, pixels.size());
+        }
+        else {
+            // Create mip level data
+            for (uint32_t i = 0; i < mipLevelSize.width; ++i) {
+                for (uint32_t j = 0; j < mipLevelSize.height; ++j) {
+                    unsigned char* p = &pixels[4 * (j * mipLevelSize.width + i)];
+                    // Get the corresponding 4 pixels from the previous level
+                    unsigned char* p00 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 0))];
+                    unsigned char* p01 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 1))];
+                    unsigned char* p10 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 0))];
+                    unsigned char* p11 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 1))];
+                    // Average
+                    p[0] = (p00[0] + p01[0] + p10[0] + p11[0]) / 4;
+                    p[1] = (p00[1] + p01[1] + p10[1] + p11[1]) / 4;
+                    p[2] = (p00[2] + p01[2] + p10[2] + p11[2]) / 4;
+                    p[3] = (p00[3] + p01[3] + p10[3] + p11[3]) / 4;
+                }
+            }
+        }
+
+        // Upload data to the GPU texture
+        destination.mipLevel = level;
+        source.bytesPerRow = 4 * mipLevelSize.width;
+        source.rowsPerImage = mipLevelSize.height;
+        queue.writeTexture(destination, pixels.data(), pixels.size(), source, mipLevelSize);
+
+        previousLevelPixels = std::move(pixels);
+        previousMipLevelSize = mipLevelSize;
+        mipLevelSize.width /= 2;
+        mipLevelSize.height /= 2;
+    }
+
+}
+
+void TextureManager::removeTexture(const std::string& name) {
+    auto it = textures.find(name);
+    if (it != textures.end()) {
+        it->second.destroy();
+        it->second.release();
+        textures.erase(it);
+    }
+}
+
+void TextureManager::removeTextureView(const std::string& name) {
+    auto it = textureViews.find(name);
+    if (it != textureViews.end()) {
+        it->second.release();
+        textureViews.erase(it);
+    }
+}#ifndef BUFFER_MANAGER
+#define BUFFER_MANAGER
+
+
+#include <unordered_map>
+#include <webgpu/webgpu.hpp>
+
+using namespace wgpu;
+
+class BufferManager {
+    std::unordered_map<std::string, Buffer> buffers;
+    Device device;
+    Queue queue;
+
+public:
+    BufferManager(Device d, Queue q) : device(d), queue(q) {}
+
+    Buffer createBuffer(std::string bufferName, BufferDescriptor config);
+    Buffer getBuffer(std::string bufferName);
+    void writeBuffer(const std::string bufferName, uint64_t bufferOffset, void* data, size_t size);
+
+    void deleteBuffer(std::string bufferName);
+
+    void terminate();
+};
+
+#endif#include "BufferManager.h"
+
+void BufferManager::deleteBuffer(std::string bufferName) {
+    Buffer buffer = getBuffer(bufferName);
+    if (buffer) {
+        buffer.destroy();
+        buffer.release();
+        buffers.erase(bufferName);
+    }
+}
+
+void BufferManager::writeBuffer(const std::string bufferName, uint64_t bufferOffset, void* data, size_t size) {
+    Buffer buffer = getBuffer(bufferName);
+    if (buffer) {
+        queue.writeBuffer(buffer, bufferOffset, data, size);
+    }
+}
+
+Buffer BufferManager::createBuffer(std::string bufferName, BufferDescriptor config) {
+    Buffer buffer = device.createBuffer(config);
+    buffers[bufferName] = buffer;
+
+    return buffer;
+}
+
+Buffer BufferManager::getBuffer(std::string bufferName) {
+    auto buffer = buffers.find(bufferName);
+    if (buffer != buffers.end()) {
+        return buffer->second;
+    }
+    return nullptr;
+}
+
+void BufferManager::terminate() {
+    for (auto pair : buffers) {
+        if (pair.second) {
+            pair.second.destroy();
+            pair.second.release();
+        }
+    }
+}// ChunkWorkerSystem.h - Fixed version to reduce stuttering
+#include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <functional>
+#include "glm/glm.hpp"
+#include "ThreadSafeChunk.h"
+
+using glm::ivec3;
+
+struct ChunkWorkItem {
+    enum Type {
+        GenerateTerrain,
+        GenerateMesh,
+        GenerateTopsoil,
+        RegenerateMesh,
+    };
+
+    Type type;
+    std::shared_ptr<ThreadSafeChunk> chunk;
+    ivec3 position;
+    std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors;
+    int priority; // NEW: Priority level (higher = more urgent)
+
+    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos, int prio = 0)
+        : type(t), chunk(c), position(pos), neighbors{}, priority(prio) {
+    }
+
+    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighs, int prio = 0)
+        : type(t), chunk(c), position(pos), neighbors(neighs), priority(prio) {
+    }
+
+    bool operator<(const ChunkWorkItem& other) const {
+        return priority < other.priority;
+    }
+
+};
+
+class ChunkWorkerSystem {
+private:
+    std::vector<std::thread> workers;
+
+    std::priority_queue<ChunkWorkItem> workQueue;
+    //std::queue<ChunkWorkItem> normalWorkQueue;
+
+    mutable std::mutex queueMutex;
+    std::condition_variable queueCondition;
+    std::atomic<bool> shouldStop{ false };
+
+    static constexpr int NUM_WORKER_THREADS = 6;
+    static constexpr size_t MAX_QUEUE_SIZE = 10000;
+    static constexpr int HIGH_PRIORITY = 100;
+    static constexpr int NORMAL_PRIORITY = 0;
+
+public:
+    ChunkWorkerSystem() {
+        // Create worker threads
+        for (int i = 0; i < NUM_WORKER_THREADS; ++i) {
+            workers.emplace_back(&ChunkWorkerSystem::workerThreadFunction, this);
+        }
+    }
+
+    ~ChunkWorkerSystem() {
+        shutdown();
+    }
+
+    void shutdown() {
+        shouldStop.store(true);
+        queueCondition.notify_all();
+
+        for (auto& worker : workers) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+        workers.clear();
+    }
+
+    void queueMeshRegeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+        if (!chunk) return;
+
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (workQueue.size() >= MAX_QUEUE_SIZE) {
+                return;
+            }
+            workQueue.emplace(ChunkWorkItem::RegenerateMesh, chunk, position, neighbors, HIGH_PRIORITY);
+        }
+        queueCondition.notify_all();
+    }
+
+    void queueTerrainGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position) {
+        if (!chunk) return;
+
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (workQueue.size() >= MAX_QUEUE_SIZE) {
+                return;
+            }
+
+            workQueue.emplace(ChunkWorkItem::GenerateTerrain, chunk, position, NORMAL_PRIORITY);
+        }
+        queueCondition.notify_one();
+    }
+
+    void queueTopsoilGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+        if (!chunk) return;
+
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (workQueue.size() >= MAX_QUEUE_SIZE) {
+                return;
+            }
+            workQueue.emplace(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, HIGH_PRIORITY);
+        }
+        queueCondition.notify_one();
+    }
+
+    void queueMeshGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+        if (!chunk) return;
+
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (workQueue.size() >= MAX_QUEUE_SIZE) {
+                return;
+            }
+            workQueue.emplace(ChunkWorkItem::GenerateMesh, chunk, position, neighbors, HIGH_PRIORITY);
+        }
+        queueCondition.notify_one();
+    }
+
+    size_t getQueueSize() const {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        return workQueue.size();
+    }
+
+private:
+    void workerThreadFunction() {
+        while (!shouldStop.load()) {
+            ChunkWorkItem workItem{ ChunkWorkItem::GenerateTerrain, nullptr, ivec3(0) };
+            bool hasWork = false;
+
+            {
+                std::unique_lock<std::mutex> lock(queueMutex);
+                if (queueCondition.wait_for(lock, std::chrono::milliseconds(100),
+                    [this] { return !workQueue.empty() || shouldStop.load(); })) {
+
+                    if (shouldStop.load()) {
+                        break;
+                    }
+
+                    if (!workQueue.empty()) {
+                        workItem = workQueue.top();
+                        workQueue.pop();
+                        hasWork = true;
+                    }
+                }
+            }
+
+            if (hasWork && workItem.chunk) {
+                try {
+                    switch (workItem.type) {
+                    case ChunkWorkItem::GenerateTerrain:
+                        processTerrainGeneration(workItem);
+                        break;
+                    case ChunkWorkItem::GenerateTopsoil:
+                        processTopsoilGeneration(workItem);
+                        break;
+                    case ChunkWorkItem::GenerateMesh:
+                    case ChunkWorkItem::RegenerateMesh:
+                        processMeshGeneration(workItem);
+                        break;
+                    }
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "Worker thread error: " << e.what() << std::endl;
+                }
+            }
+        }
+    }
+
+    void processTerrainGeneration(const ChunkWorkItem& workItem) {
+        try {
+            if (!workItem.chunk) {
+                return;
+            }
+
+            /*ChunkState currentState = workItem.chunk->getState();
+            if (currentState != ChunkState::Empty) {
+                return;
+            }
+
+            if (currentState == ChunkState::Unloading) {
+                return;
+            }*/
+
+            workItem.chunk->generateTerrain();
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Terrain generation error: " << e.what() << std::endl;
+            if (workItem.chunk && workItem.chunk->getState() != ChunkState::Unloading) {
+                workItem.chunk->setState(ChunkState::TerrainReady);
+            }
+        }
+    }
+
+    void processTopsoilGeneration(const ChunkWorkItem& workItem) {
+        try {
+            if (!workItem.chunk) {
+                return;
+            }
+
+            /*ChunkState currentState = workItem.chunk->getState();
+
+            if (currentState != ChunkState::TerrainReady) {
+                return;
+            }
+
+            if (currentState == ChunkState::Unloading) {
+                return;
+            }*/
+
+            workItem.chunk->generateTopsoil(workItem.neighbors);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Topsoil generation error: " << e.what() << std::endl;
+            if (workItem.chunk && workItem.chunk->getState() != ChunkState::Unloading) {
+                workItem.chunk->setState(ChunkState::TopsoilReady);
+            }
+        }
+    }
+
+    void processMeshGeneration(const ChunkWorkItem& workItem) {
+        try {
+            if (!workItem.chunk) {
+                return;
+            }
+
+            ChunkState currentState = workItem.chunk->getState();
+            /*if (currentState != ChunkState::GeneratingMesh && currentState != ChunkState::RegeneratingMesh) {
+                return;
+            }
+
+            if (currentState == ChunkState::Unloading) {
+                return;
+            }*/
+
+            if (workItem.chunk->getSolidVoxels() == 0) {
+                workItem.chunk->setState(ChunkState::MeshReady);
+                return;
+            }
+
+            workItem.chunk->generateMesh(workItem.neighbors);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Mesh generation error: " << e.what() << std::endl;
+            if (workItem.chunk && workItem.chunk->getState() != ChunkState::Unloading) {
+                workItem.chunk->setState(ChunkState::MeshReady);
+            }
+        }
+    }
+};#ifndef CHUNK
+#define CHUNK
+
+// ThreadSafeChunk.h
+#include "glm/glm.hpp"
+#include <webgpu/webgpu.hpp>
+#include <vector>
+#include <atomic>
+#include <mutex>
+#include <chrono>
+#include "VertexAttributes.h"
+#include <array>
+#include <optional>
+#include <string>
+#include "WorldGenerator.h"
+#include "Rendering/TextureManager.h"
+#include "Rendering/BufferManager.h"
+#include "Rendering/PipelineManager.h"
+
+
+using glm::ivec3;
+using glm::vec3;
+using glm::vec2;
+
+struct ChunkRenderData {
+    std::string chunkDataBindGroupName;
+    std::string materialBindGroupName;
+
+    std::string indexBufferName;
+    std::string vertexBufferName;
+
+    uint32_t indexBufferSize;
+    uint32_t vertexBufferSize;
+    uint16_t indexCount;
+};
+
+enum class ChunkState {
+    Empty,              // Just created, no data
+    GeneratingTerrain,  // Background thread generating voxel data
+    TerrainReady,       // Voxel data ready, needs meshing
+    GeneratingTopsoil,  // Background thread generating topsoil data
+    TopsoilReady,       // Topsoil data ready, needs meshing
+    GeneratingMesh,     // Background thread calculating mesh
+    MeshReady,          // Mesh data ready, needs GPU upload
+    UploadingToGPU,     // Main thread uploading to GPU
+    Active,             // Ready for rendering
+    Unloading,           // Being removed
+    Air,
+    RegeneratingMesh,
+};
+
+struct VoxelMaterial {
+    uint16_t materialType;  // 0=air, 1=stone, 2=dirt, 3=grass, etc.
+};
+
+class ThreadSafeChunk {
+public:
+    std::atomic<ChunkState> state{ ChunkState::Empty };
+    std::atomic<int> solidVoxels{ 0 };
+
+private:
+    uint32_t lod = 0;
+
+    WorldGenerator worldGen;
+
+    static constexpr int CHUNK_SIZE = 32;
+    static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+    static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
+
+    Texture material;
+    ivec3 position;
+    ivec3 id;
+    std::string resourceId;
+
+    // voxel data
+    std::vector<uint8_t> voxelData;
+    mutable std::mutex voxelDataMutex;
+
+    // material data
+    std::vector<VoxelMaterial> materialData;
+    mutable std::mutex materialDataMutex;
+
+    // mesh data
+    std::vector<VertexAttributes> vertexData;
+    std::vector<uint16_t> indexData;
+    mutable std::mutex meshDataMutex;
+
+    std::string vertexBufferName;
+    std::string indexBufferName;
+    uint32_t indexCount = 0;
+    bool meshBufferInitialized = false;
+
+    std::string chunkDataBufferName;
+    bool chunkDataBufferInitialized = false;
+    std::string chunkDataBindGroupName;
+    bool chunkDataBindGroupInitialized = false;
+
+    std::string materialTextureName;
+    std::string materialTextureViewName;
+    bool materialInitialized = false;
+    std::string materialBindGroupName;
+    bool materialBindGroupInitialized = false;
+
+    uint32_t vertexBufferSize;
+    uint32_t indexBufferSize;
+
+    struct ChunkData {
+        glm::ivec3 worldPosition;
+        uint32_t lod;
+        //float _pad; // Padding for 16-byte alignment
+    };
+
+    static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
+
+public:
+    ThreadSafeChunk(const ivec3& pos = ivec3(0), const ivec3& i = ivec3(0), uint32_t lodlevel = 0)
+        : position(pos), id(i), lod(lodlevel), voxelData(BYTES_NEEDED, 0) {
+        worldGen.initialize(1234);
+
+        // initialize voxel data
+        if (voxelData.size() != BYTES_NEEDED) {
+            voxelData.resize(BYTES_NEEDED, 0);
+        }
+
+        // initialize material data
+        if (materialData.size() != TOTAL_VOXELS) {
+            materialData.resize(TOTAL_VOXELS);
+        }
+
+        resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
+    }
+
+    ~ThreadSafeChunk() {
+        cleanup();
+    }
+
+    ChunkState getState() const { return state.load(); }
+    void setState(ChunkState newState) { state.store(newState); }
+
+    int getSolidVoxels() const { return solidVoxels.load(); }
+    const ivec3& getPosition() const { return position; }
+    void setPosition(const ivec3& pos) { position = pos; }
+    std::string getResourceId() { return resourceId; }
+
+    void initialize3DTexture(TextureManager *tex) {
+        if (materialInitialized) {
+            return; // Already initialized
+        }
+
+        try {
+            // Create 3D texture descriptor
+            TextureDescriptor textureDesc = {};
+            textureDesc.dimension = TextureDimension::_3D;
+            textureDesc.format = TextureFormat::RG8Unorm; // 2 bytes per voxel (VoxelMaterial)
+            textureDesc.mipLevelCount = 1;
+            textureDesc.sampleCount = 1;
+            textureDesc.size = { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE };
+            textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+            textureDesc.viewFormatCount = 0;
+            textureDesc.viewFormats = nullptr;
+            textureDesc.label = "Chunk 3D Material Texture";
+
+            materialTextureName = getResourceId().append("-tex");
+            tex->createTexture(materialTextureName, textureDesc);
+
+            // Create texture view
+            TextureViewDescriptor viewDesc = {};
+            viewDesc.aspect = TextureAspect::All;
+            viewDesc.baseArrayLayer = 0;
+            viewDesc.arrayLayerCount = 1;
+            viewDesc.baseMipLevel = 0;
+            viewDesc.mipLevelCount = 1;
+            viewDesc.dimension = TextureViewDimension::_3D;
+            viewDesc.format = TextureFormat::RG8Unorm;
+            viewDesc.label = "Chunk 3D Material Texture View";
+
+            materialTextureViewName = getResourceId().append("-view");
+            tex->createTextureView(materialTextureName, materialTextureViewName, viewDesc);
+
+            materialInitialized = true;
+
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to create 3D material texture: " << e.what() << std::endl;
+            materialInitialized = false;
+        }
+    }
+
+    void uploadMaterialTexture(TextureManager* tex) {
+        if (!materialInitialized || materialData.empty()) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+
+        try {
+            // Set up the destination for the texture write
+            ImageCopyTexture destination = {};
+            destination.texture = tex->getTexture(materialTextureName);
+            destination.mipLevel = 0;
+            destination.origin = { 0, 0, 0 };
+            destination.aspect = TextureAspect::All;
+
+            // Set up the source data layout
+            TextureDataLayout source = {};
+            source.offset = 0;
+            source.bytesPerRow = CHUNK_SIZE * sizeof(VoxelMaterial);
+            source.rowsPerImage = CHUNK_SIZE;
+
+            tex->writeTexture(
+                destination,
+                materialData.data(),
+                materialData.size() * sizeof(VoxelMaterial),
+                source,
+                { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE });
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to upload material texture: " << e.what() << std::endl;
+        }
+    }
+
+    void initializeChunkDataBuffer(BufferManager* buf) {
+        if (chunkDataBufferInitialized) {
+            return; // Already initialized
+        }
+
+        try {
+            // Create buffer for chunk data
+            BufferDescriptor chunkDataBufferDesc;
+            chunkDataBufferDesc.size = sizeof(ChunkData);
+            chunkDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+            chunkDataBufferDesc.mappedAtCreation = false;
+            chunkDataBufferDesc.label = "Chunk Data Buffer";
+
+            chunkDataBufferName = getResourceId().append("-data");
+            buf->createBuffer(chunkDataBufferName, chunkDataBufferDesc);
+            chunkDataBufferInitialized = true;
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to create chunk data buffer: " << e.what() << std::endl;
+            chunkDataBufferInitialized = false;
+        }
+    }
+
+    void updateChunkDataBuffer(BufferManager* buf) {
+        if (!chunkDataBufferInitialized) {
+            return;
+        }
+
+        ChunkData chunkData;
+        chunkData.worldPosition = position;
+        chunkData.lod = lod;
+
+        buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
+    }
+
+    void updateMaterialBindGroup(PipelineManager* pip, TextureManager *tex) {
+        if (!materialInitialized) {
+            return;
+        }
+        
+        if (materialBindGroupInitialized) {
+            pip->deleteBindGroup(materialBindGroupName);
+        }
+
+
+        std::vector<BindGroupEntry> materialBindings(2);
+
+        // 3D Material texture binding
+        materialBindings[0].binding = 0;
+        materialBindings[0].textureView = tex->getTextureView(materialTextureViewName);
+
+        // 3D Material sampler binding
+        materialBindings[1].binding = 1;
+        materialBindings[1].sampler = tex->getSampler("material_sampler");
+
+        materialBindGroupName = getResourceId().append("-mbind");
+        BindGroup materialBindGroup = pip->createBindGroup(materialBindGroupName, "material_uniforms", materialBindings);
+    }
+
+    void updateChunkDataBindGroup(PipelineManager* pip, BufferManager *buf) {
+        if (!chunkDataBufferInitialized) {
+            return;
+        }
+
+        if (chunkDataBindGroupInitialized) {
+            pip->deleteBindGroup(chunkDataBindGroupName);
+        }
+
+        std::vector<BindGroupEntry> chunkDataBindings(1);
+
+        // Chunk data buffer binding
+        chunkDataBindings[0].binding = 0;
+        chunkDataBindings[0].buffer = buf->getBuffer(chunkDataBufferName);
+        chunkDataBindings[0].offset = 0;
+        chunkDataBindings[0].size = 16; // sizeof(ChunkData)
+
+        chunkDataBindGroupName = getResourceId().append("-dbind");
+        pip->createBindGroup(chunkDataBindGroupName, "chunkdata_uniforms", chunkDataBindings);
+
+    }
+
+    std::string getChunkDataBuffer() const {
+        if (chunkDataBufferInitialized) {
+            return chunkDataBufferName;
+        }
+        return "";
+    }
+
+    bool hasChunkDataBuffer() const {
+        return chunkDataBufferInitialized;
+    }
+
+    VoxelMaterial getMaterial(ivec3 pos) const {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            return { 0 }; // Air material
+        }
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+        if (index >= 0 && index < static_cast<int>(materialData.size())) {
+            return materialData[index];
+        }
+        return { 0 }; // Air material
+    }
+
+    void setMaterial(ivec3 pos, const VoxelMaterial& material) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+        if (index >= 0 && index < static_cast<int>(materialData.size())) {
+            materialData[index] = material;
+        }
+    }
+
+    bool getVoxel(vec3 pos) const {
+        int x = pos.x, y = pos.y, z = pos.z;
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+            return false;
+        }
+
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(voxelDataMutex);
+
+        if (voxelData.empty()) {
+            return false;
+        }
+
+        int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+
+        // Bounds check the calculated index
+        if (index < 0 || index >= TOTAL_VOXELS) {
+            return false;
+        }
+
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
+
+        // Final bounds check on the byte array
+        if (byteIndex < 0 || byteIndex >= static_cast<int>(voxelData.size())) {
+            return false;
+        }
+
+        return (voxelData[byteIndex] & (1 << bitIndex)) != 0;
+    }
+
+    void setVoxel(vec3 pos, bool value) {
+        int x = pos.x, y = pos.y, z = pos.z;
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(voxelDataMutex);
+        int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
+
+        bool currentValue = (voxelData[byteIndex] & (1 << bitIndex)) != 0;
+
+        if (value && !currentValue) {
+            solidVoxels.fetch_add(1);
+            voxelData[byteIndex] |= (1 << bitIndex);
+        }
+        else if (!value && currentValue) {
+            solidVoxels.fetch_sub(1);
+            voxelData[byteIndex] &= ~(1 << bitIndex);
+        }
+    }
+
+    void generateTerrain() {
+        setState(ChunkState::GeneratingMesh);
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                for (int z = 0; z < CHUNK_SIZE; z++) {
+                    ivec3 worldPos = ivec3(x, y, z) + position;
+                    float noiseValue = worldGen.sample3D(vec3(worldPos.x, worldPos.z, worldPos.y));
+                    if (noiseValue > -0.4) {
+                        setVoxel(vec3(x, y, z), true);
+                    }
+                    //f/*loat height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+                    //int targetHeight = static_cast<int>(height * 116.0f);
+                    //for (int z = 0; z < targetHeight - position.z; z++) {
+                    //    setVoxel(vec3(x, y, z), true);
+                    //}*/
+                }
+            }
+        }
+
+        if (getSolidVoxels() > 0) {
+            setState(ChunkState::TerrainReady);
+        }
+        else {
+            setState(ChunkState::Air);
+        }
+    }
+
+    void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        setState(ChunkState::GeneratingTopsoil);
+        // Lambda to safely check voxels including cross-chunk positions
+        auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
+            // Check if position is within current chunk bounds
+            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+                pos.y >= 0 && pos.y < CHUNK_SIZE &&
+                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                return getVoxel(pos);
+            }
+
+            // Position is outside current chunk - check neighbor chunks
+            int faceIndex = -1;
+            ivec3 neighborPos = pos;
+
+            // Determine which neighbor chunk to check
+            if (pos.x >= CHUNK_SIZE) {
+                faceIndex = 0; // Right neighbor
+                neighborPos.x = pos.x - CHUNK_SIZE;
+            }
+            else if (pos.x < 0) {
+                faceIndex = 1; // Left neighbor
+                neighborPos.x = CHUNK_SIZE + pos.x;
+            }
+            else if (pos.y >= CHUNK_SIZE) {
+                faceIndex = 2; // Front neighbor
+                neighborPos.y = pos.y - CHUNK_SIZE;
+            }
+            else if (pos.y < 0) {
+                faceIndex = 3; // Back neighbor
+                neighborPos.y = CHUNK_SIZE + pos.y;
+            }
+            else if (pos.z >= CHUNK_SIZE) {
+                faceIndex = 4; // Top neighbor
+                neighborPos.z = pos.z - CHUNK_SIZE;
+            }
+            else if (pos.z < 0) {
+                faceIndex = 5; // Bottom neighbor
+                neighborPos.z = CHUNK_SIZE + pos.z;
+            }
+
+            // Check neighbor chunk if available
+            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
+                // Check if neighbor is still valid
+                if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
+                    return false; // Treat as empty if neighbor is being unloaded
+                }
+
+                // Validate neighbor position and check voxel
+                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
+                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                    return neighbors[faceIndex]->getVoxel(neighborPos);
+                }
+            }
+
+            // No neighbor available or position out of bounds - consider it empty
+            return false;
+            };
+
+        // Lambda to find the highest solid block in a column
+        auto findTopSolidBlock = [&](int x, int y) -> int {
+            // Search from top to bottom for the highest solid block
+            for (int z = CHUNK_SIZE - 1; z >= -CHUNK_SIZE; z--) {
+                if (isVoxelSolid(ivec3(x, y, z))) {
+                    return z;
+                }
+            }
+            return -1; // No solid blocks found in this column
+            };
+
+        // Lambda to calculate steepness
+        auto calculateSteepness = [&](int x, int y, int z) -> int {
+            int currentHeight = z;
+            int maxHeightDifference = 0;
+
+            // Check all 8 surrounding positions
+            const int offsets[8][2] = {
+                {-1, -1}, {-1, 0}, {-1, 1},
+                { 0, -1},          { 0, 1},
+                { 1, -1}, { 1, 0}, { 1, 1}
+            };
+
+            for (int i = 0; i < 8; i++) {
+                int neighborX = x + offsets[i][0];
+                int neighborY = y + offsets[i][1];
+
+                // Find the highest solid block in this neighboring column
+                int neighborHeight = findTopSolidBlock(neighborX, neighborY);
+
+                if (neighborHeight != -1) { // -1 means no solid blocks found
+                    int heightDifference = abs(currentHeight - neighborHeight);
+                    maxHeightDifference = std::max(maxHeightDifference, heightDifference);
+                }
+            }
+
+            return maxHeightDifference;
+            };
+
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                for (int z = 0; z < CHUNK_SIZE; z++) {
+                    if (getVoxel(ivec3(x, y, z))) {
+                        vec3 pos = vec3(position + ivec3(x, y, z));
+                        float noiseValue = worldGen.sample3D2(pos);
+                        VoxelMaterial material;
+                        if (noiseValue > -1 && noiseValue < -0.8) {
+                            material.materialType = 3; // stone
+                        }
+                        else if (noiseValue > -0.8 && noiseValue < -0.6) {
+                            material.materialType = 7; // andesite
+                        }
+                        else if (noiseValue > -0.6 && noiseValue < -0.4) {
+                            material.materialType = 6; // tuff
+                        }
+                        else if (noiseValue > -0.4 && noiseValue < -0.2) {
+                            material.materialType = 5; // deepslate
+                        }
+                        else if (noiseValue > -0.2 && noiseValue < 0) {
+                            material.materialType = 6; // tuff
+                        }
+                        else if (noiseValue > 0 && noiseValue < 0.2) {
+                            material.materialType = 7; // andesite
+                        }
+                        else if (noiseValue > 0.2 && noiseValue < 0.4) {
+                            material.materialType = 3; // stone
+                        }
+                        else if (noiseValue > 0.4 && noiseValue < 0.6) {
+                            material.materialType = 7; // andesite
+                        }
+                        else if (noiseValue > 0.6 && noiseValue < 0.8) {
+                            material.materialType = 6; // tuff
+                        }
+                        else if (noiseValue > 0.8 && noiseValue < 1) {
+                            material.materialType = 5; // deepslate
+                        }
+                        else {
+                            material.materialType = 5; // stone by default
+                        }
+
+                        setMaterial(ivec3(x, y, z), material);
+
+                        // Check if this voxel has air above it (surface detection)
+                        ivec3 positionAbove = ivec3(x, y, z + 1);
+                        bool isAtSurface = !isVoxelSolid(positionAbove);
+
+                        if (isAtSurface) {
+                            // Calculate steepness by checking the 8 surrounding columns
+                            int maxHeightDifference = calculateSteepness(x, y, z);
+
+                            // Determine material type based on steepness
+                            int materialType;
+                            switch (maxHeightDifference) {
+                            case 0:
+                            case 1:
+                                materialType = 2; // grass
+                                break;
+                            case 2:
+                                materialType = 1; // dirt
+                                break;
+                            default: // 3 or more
+                                //materialType = 3; // stone
+                                break;
+                            }
+
+                            // Apply materials to multiple layers
+                            if (materialType == 2) { // grass terrain
+                                // Top 2 layers: grass
+                                for (int layer = 0; layer < 2; layer++) {
+                                    ivec3 layerPos = ivec3(x, y, z - layer);
+                                    if (layerPos.z >= 0 && getVoxel(layerPos)) {
+                                        VoxelMaterial material;
+                                        material.materialType = 2; // grass
+                                        setMaterial(layerPos, material);
+                                    }
+                                }
+                                // Next 3 layers: dirt
+                                for (int layer = 2; layer < 5; layer++) {
+                                    ivec3 layerPos = ivec3(x, y, z - layer);
+                                    if (layerPos.z >= 0 && getVoxel(layerPos)) {
+                                        VoxelMaterial material;
+                                        material.materialType = 1; // dirt
+                                        setMaterial(layerPos, material);
+                                    }
+                                }
+                            }
+                            else if (materialType == 1) { // dirt terrain
+                                // Top 3 layers: dirt
+                                for (int layer = 0; layer < 3; layer++) {
+                                    ivec3 layerPos = ivec3(x, y, z - layer);
+                                    if (layerPos.z >= 0 && getVoxel(layerPos)) {
+                                        VoxelMaterial material;
+                                        material.materialType = 1; // dirt
+                                        setMaterial(layerPos, material);
+                                    }
+                                }
+                            }
+                            else { // stone terrain
+                                // Just set the surface block to stone
+                                VoxelMaterial material;
+                                material.materialType = 3; // stone
+                                setMaterial(ivec3(x, y, z), material);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        setState(ChunkState::TopsoilReady);
+    }
+
+    bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        setState(ChunkState::GeneratingMesh);
+        if (lod > 0) {
+            return generateMeshLod(neighbors);
+		}
+        
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        if (solidVoxels.load() == 0) {
+            setState(ChunkState::MeshReady);
+            return true;
+        }
+
+        ivec3 aoStates[6][4][3] = {
+            {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
+            {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
+            {ivec3(1, 1, 0),ivec3(1, 0, 1),ivec3(1, 1, 1),},
+            {ivec3(1, -1, 0),ivec3(1, 0, 1),ivec3(1, -1, 1),}},
+
+            {{ivec3(-1, -1, 0), ivec3(-1, 0, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, 1), ivec3(-1, 1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, -1, 0), ivec3(-1, 0, -1), ivec3(-1, -1, -1)}},
+
+            {{ivec3(-1, 1, 0), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, 1, 0), ivec3(0, 1, 1), ivec3(-1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, -1), ivec3(1, 1, -1)}},
+
+            {{ivec3(-1, -1, 0), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, -1, 0), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, 1), ivec3(1, -1, 1)}},
+
+            {{ivec3(-1, 0, 1), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, -1, 1), ivec3(1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(-1, 0, 1), ivec3(0, 1, 1), ivec3(-1, 1, 1)}},
+
+            {{ivec3(1, 0, -1), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(1, 0, -1) ,ivec3(0, 1, -1), ivec3(1, 1, -1)}},
+        };
+
+        ivec3 neighborOffsets[6] = {
+            ivec3(1, 0, 0),   // Right
+            ivec3(-1, 0, 0),  // Left
+            ivec3(0, 1, 0),   // Front
+            ivec3(0, -1, 0),  // Back
+            ivec3(0, 0, 1),   // Top
+            ivec3(0, 0, -1)   // Bottom
+        };
+
+        auto isEmptyVoxel = [this, &neighbors](ivec3 pos, int faceIndex = -1) -> bool {
+            // Check if position is within current chunk bounds
+            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+                pos.y >= 0 && pos.y < CHUNK_SIZE &&
+                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                return !getVoxel(pos);
+            }
+
+            // Position is outside current chunk - check neighbor chunks
+            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
+                // Check if neighbor is still valid (not being destroyed)
+                if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
+                    return true; // Treat as empty if neighbor is being unloaded
+                }
+
+                ivec3 neighborPos = pos;
+
+                // CRITICAL: Map out-of-bounds coordinates to neighbor chunk space
+                switch (faceIndex) {
+                case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
+                    if (pos.x == CHUNK_SIZE) neighborPos.x = 0;
+                    break;
+                case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
+                    if (pos.x == -1) neighborPos.x = CHUNK_SIZE - 1;
+                    break;
+                case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
+                    if (pos.y == CHUNK_SIZE) neighborPos.y = 0;
+                    break;
+                case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
+                    if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
+                    break;
+                case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
+                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
+                    break;
+                case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
+                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
+                    break;
+                }
+
+                // Validate neighbor position and check voxel
+                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
+                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+
+                    bool neighborHasVoxel = neighbors[faceIndex]->getVoxel(neighborPos);
+                    return !neighborHasVoxel;
+                }
+            }
+
+            // No neighbor available - consider it empty (exposed to air)
+            return true;
+            };
+
+        auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
+            ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
+            ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
+            ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
+
+            auto getNeighborFaceIndex = [](ivec3 offset) -> int {
+                if (offset.x >= CHUNK_SIZE) return 0;
+                if (offset.x < 0) return 1;
+                if (offset.y >= CHUNK_SIZE) return 2;
+                if (offset.y < 0) return 3;
+                if (offset.z >= CHUNK_SIZE) return 4;
+                if (offset.z < 0) return 5;
+                return -1;
+                };
+
+            bool side1 = !isEmptyVoxel(side1Pos, getNeighborFaceIndex(side1Pos));
+            bool side2 = !isEmptyVoxel(side2Pos, getNeighborFaceIndex(side2Pos));
+            bool corner = !isEmptyVoxel(cornerPos, getNeighborFaceIndex(cornerPos));
+
+            if (side1 && side2) {
+                return 0;
+            }
+            return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
+            };
+
+        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+            uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
+                // Validate input ranges
+                // normal_index should be 0-7 (3 bits)
+                // vertex_index should be 0-3 (2 bits)
+                normal_index &= 0x7;   // Mask to 3 bits
+                vertex_index &= 0x3;   // Mask to 2 bits
+
+                uint32_t packed = 0;
+
+                // Position X: bits 0-7
+                packed |= static_cast<uint32_t>(position_x);
+
+                // Position Y: bits 8-15
+                packed |= static_cast<uint32_t>(position_y) << 8;
+
+                // Position Z: bits 16-23
+                packed |= static_cast<uint32_t>(position_z) << 16;
+
+                // Normal Index: bits 24-26
+                packed |= static_cast<uint32_t>(normal_index) << 24;
+
+                // Vertex Index: bits 27-28
+                packed |= static_cast<uint32_t>(vertex_index) << 27;
+
+                // AO Index: bits 29-30
+                packed |= static_cast<uint32_t>(ao_index) << 29;
+
+                return packed;
+            };
+        
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        indexData.clear();
+        vertexData.clear();
+
+        try {
+            for (int x = 0; x < CHUNK_SIZE; ++x) {
+                for (int y = 0; y < CHUNK_SIZE; ++y) {
+                    for (int z = 0; z < CHUNK_SIZE; ++z) {
+                        // Check if chunk is still valid during processing
+                        if (state.load() == ChunkState::Unloading) {
+                            return false;
+                        }
+
+                        ivec3 currentPos = ivec3(x, y, z);
+
+                        if (getVoxel(currentPos)) {
+                            ivec3 voxelPos = currentPos + position;
+
+                            // Check each face for culling (including cross-chunk)
+                            for (int face = 0; face < 6; ++face) {
+                                ivec3 neighborPos = currentPos + neighborOffsets[face];
+
+                                if (isEmptyVoxel(neighborPos, face)) {
+                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                                    std::array<float, 4> aoValues;
+                                    for (int vertex = 0; vertex < 4; ++vertex) {
+                                        aoValues[vertex] = calculateAmbientOcclusion(currentPos, face, vertex);
+                                    }
+
+                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+
+                                    for (int vertex = 0; vertex < 4; ++vertex) {
+                                        uint8_t pv = static_cast<uint8_t>(vertex);
+                                        VertexAttributes vert;
+                                        vert.data = packData(x, y, z, face, vertex, aoValues[vertex]);
+                                        vertexData.push_back(vert);
+                                    }
+
+                                    if (flipQuad) {
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 3);
+
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 2);
+                                        indexData.push_back(baseIndex + 3);
+                                    }
+                                    else {
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 2);
+
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 2);
+                                        indexData.push_back(baseIndex + 3);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error during mesh generation: " << e.what() << std::endl;
+            return false;
+        }
+
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        setState(ChunkState::MeshReady);
+        return true;
+    }
+
+    bool generateMeshLod(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        // Pack data function (same as regular mesh)
+        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+            uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
+                normal_index &= 0x7;   // Mask to 3 bits
+                vertex_index &= 0x3;   // Mask to 2 bits
+
+                uint32_t packed = 0;
+                packed |= static_cast<uint32_t>(position_x);
+                packed |= static_cast<uint32_t>(position_y) << 8;
+                packed |= static_cast<uint32_t>(position_z) << 16;
+                packed |= static_cast<uint32_t>(normal_index) << 24;
+                packed |= static_cast<uint32_t>(vertex_index) << 27;
+                packed |= static_cast<uint32_t>(ao_index) << 29;
+
+                return packed;
+            };
+
+        auto isEmptyVoxel = [this, &neighbors](ivec3 pos, int faceIndex = -1) -> bool {
+            // Check if position is within current chunk bounds
+            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+                pos.y >= 0 && pos.y < CHUNK_SIZE &&
+                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                return !getVoxel(pos);
+            }
+            // Position is outside current chunk - check neighbor chunks
+            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
+                // Check if neighbor is still valid (not being destroyed)
+                if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
+                    return true; // Treat as empty if neighbor is being unloaded
+                }
+                ivec3 neighborPos = pos;
+                // CRITICAL: Map out-of-bounds coordinates to neighbor chunk space
+                switch (faceIndex) {
+                case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
+                    if (pos.x == CHUNK_SIZE) neighborPos.x = 0;
+                    break;
+                case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
+                    if (pos.x == -1) neighborPos.x = CHUNK_SIZE - 1;
+                    break;
+                case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
+                    if (pos.y == CHUNK_SIZE) neighborPos.y = 0;
+                    break;
+                case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
+                    if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
+                    break;
+                case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
+                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
+                    break;
+                case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
+                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
+                    break;
+                }
+                // Validate neighbor position and check voxel
+                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
+                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                    bool neighborHasVoxel = neighbors[faceIndex]->getVoxel(neighborPos);
+                    return !neighborHasVoxel;
+                }
+            }
+            // No neighbor available - consider it empty (exposed to air)
+            return true;
+            };
+
+        // Helper function to check if a slice has any solid voxels
+        auto sliceHasSolidVoxels = [this](int slicePos, int axis) -> bool {
+            // For boundary slices (position 0 and CHUNK_SIZE), we need to check if there are 
+            // solid voxels adjacent to the slice position
+            if (axis == 0) { // X-axis
+                if (slicePos == 0) {
+                    // Check if there are solid voxels in the first column (x=0)
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(0, i, j))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else if (slicePos == CHUNK_SIZE) {
+                    // Check if there are solid voxels in the last column (x=31)
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(CHUNK_SIZE - 1, i, j))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else {
+                    // Interior slice - check both adjacent columns
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(slicePos - 1, i, j)) || getVoxel(ivec3(slicePos, i, j))) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            }
+            else if (axis == 1) { // Y-axis
+                if (slicePos == 0) {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, 0, j))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else if (slicePos == CHUNK_SIZE) {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, CHUNK_SIZE - 1, j))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, slicePos - 1, j)) || getVoxel(ivec3(i, slicePos, j))) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            }
+            else { // Z-axis
+                if (slicePos == 0) {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, j, 0))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else if (slicePos == CHUNK_SIZE) {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, j, CHUNK_SIZE - 1))) return true;
+                        }
+                    }
+                    return false;
+                }
+                else {
+                    for (int i = 0; i < CHUNK_SIZE; ++i) {
+                        for (int j = 0; j < CHUNK_SIZE; ++j) {
+                            if (getVoxel(ivec3(i, j, slicePos - 1)) || getVoxel(ivec3(i, j, slicePos))) {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            }
+            };
+
+        // Helper function to check if a slice quad should be rendered
+        auto shouldRenderSliceQuad = [this, &isEmptyVoxel, &neighbors](int slicePos, int axis, bool positiveDirection) -> bool {
+            // For LOD rendering, we need to be more conservative about culling
+            // A slice quad should be rendered if ANY voxel on that slice face is exposed
+
+            for (int i = 0; i < CHUNK_SIZE; ++i) {
+                for (int j = 0; j < CHUNK_SIZE; ++j) {
+                    ivec3 voxelPos = ivec3(0,0,0);
+                    ivec3 checkPos = ivec3(0,0,0);
+                    int faceIndex = 0;
+
+                    switch (axis) {
+                    case 0: // X-axis slice
+                        if (positiveDirection) {
+                            // Right face - check if there's a solid voxel at slicePos-1 and air at slicePos
+                            if (slicePos == 0) continue; // No voxel to the left of slice 0
+                            voxelPos = ivec3(slicePos - 1, i, j);
+                            checkPos = ivec3(slicePos, i, j);
+                            faceIndex = 0;
+                        }
+                        else {
+                            // Left face - check if there's a solid voxel at slicePos and air at slicePos-1
+                            if (slicePos == CHUNK_SIZE) continue; // No voxel to the right of slice CHUNK_SIZE
+                            voxelPos = ivec3(slicePos, i, j);
+                            checkPos = ivec3(slicePos - 1, i, j);
+                            faceIndex = 1;
+                        }
+                        break;
+                    case 1: // Y-axis slice
+                        if (positiveDirection) {
+                            if (slicePos == 0) continue;
+                            voxelPos = ivec3(i, slicePos - 1, j);
+                            checkPos = ivec3(i, slicePos, j);
+                            faceIndex = 2;
+                        }
+                        else {
+                            if (slicePos == CHUNK_SIZE) continue;
+                            voxelPos = ivec3(i, slicePos, j);
+                            checkPos = ivec3(i, slicePos - 1, j);
+                            faceIndex = 3;
+                        }
+                        break;
+                    case 2: // Z-axis slice
+                        if (positiveDirection) {
+                            if (slicePos == 0) continue;
+                            voxelPos = ivec3(i, j, slicePos - 1);
+                            checkPos = ivec3(i, j, slicePos);
+                            faceIndex = 4;
+                        }
+                        else {
+                            if (slicePos == CHUNK_SIZE) continue;
+                            voxelPos = ivec3(i, j, slicePos);
+                            checkPos = ivec3(i, j, slicePos - 1);
+                            faceIndex = 5;
+                        }
+                        break;
+                    }
+
+                    // If there's a solid voxel and the adjacent position is empty, render the quad
+                    if (getVoxel(voxelPos) && isEmptyVoxel(checkPos, faceIndex)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+            };
+
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        indexData.clear();
+        vertexData.clear();
+
+        try {
+            // X-axis quads (YZ planes at x = 0, 1, 2, ..., 32)
+            for (int x = 0; x <= CHUNK_SIZE; ++x) {
+                if (state.load() == ChunkState::Unloading) {
+                    return false;
+                }
+
+                // Skip if this slice has no relevant solid voxels
+                if (!sliceHasSolidVoxels(x, 0)) {
+                    continue;
+                }
+
+                // Right-facing quad (normal +X, face index 0)
+                if (shouldRenderSliceQuad(x, 0, true)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            static_cast<uint8_t>(x), // X slice position (0-32)
+                            0, // Y position (not used for X-axis slices)
+                            0, // Z position (not used for X-axis slices)
+                            0, // Normal index (right face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    // Right face winding
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+
+                // Left-facing quad (normal -X, face index 1)
+                if (shouldRenderSliceQuad(x, 0, false)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            static_cast<uint8_t>(x), // X slice position
+                            0, // Y position (not used for X-axis slices)
+                            0, // Z position (not used for X-axis slices)
+                            1, // Normal index (left face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    // Left face winding
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+            }
+
+            // Y-axis quads (XZ planes at y = 0, 1, 2, ..., 32)
+            for (int y = 0; y <= CHUNK_SIZE; ++y) {
+                if (state.load() == ChunkState::Unloading) {
+                    return false;
+                }
+
+                if (!sliceHasSolidVoxels(y, 1)) {
+                    continue;
+                }
+
+                // Front-facing quad (normal +Y, face index 2)
+                if (shouldRenderSliceQuad(y, 1, true)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            0, // X position (not used for Y-axis slices)
+                            static_cast<uint8_t>(y), // Y slice position (0-32)
+                            0, // Z position (not used for Y-axis slices)
+                            2, // Normal index (front face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+
+                // Back-facing quad (normal -Y, face index 3)
+                if (shouldRenderSliceQuad(y, 1, false)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            0, // X position (not used for Y-axis slices)
+                            static_cast<uint8_t>(y), // Y slice position
+                            0, // Z position (not used for Y-axis slices)
+                            3, // Normal index (back face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+            }
+
+            // Z-axis quads (XY planes at z = 0, 1, 2, ..., 32)
+            for (int z = 0; z <= CHUNK_SIZE; ++z) {
+                if (state.load() == ChunkState::Unloading) {
+                    return false;
+                }
+
+                if (!sliceHasSolidVoxels(z, 2)) {
+                    continue;
+                }
+
+                // Top-facing quad (normal +Z, face index 4)
+                if (shouldRenderSliceQuad(z, 2, true)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            0, // X position (not used for Z-axis slices)
+                            0, // Y position (not used for Z-axis slices)
+                            static_cast<uint8_t>(z), // Z slice position (0-32)
+                            4, // Normal index (top face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+
+                // Bottom-facing quad (normal -Z, face index 5)
+                if (shouldRenderSliceQuad(z, 2, false)) {
+                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                    for (int vertex = 0; vertex < 4; ++vertex) {
+                        VertexAttributes vert;
+                        vert.data = packData(
+                            0, // X position (not used for Z-axis slices)
+                            0, // Y position (not used for Z-axis slices)
+                            static_cast<uint8_t>(z), // Z slice position
+                            5, // Normal index (bottom face)
+                            static_cast<uint8_t>(vertex),
+                            3  // Full brightness (no AO for LOD)
+                        );
+                        vertexData.push_back(vert);
+                    }
+
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 1);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 0);
+                    indexData.push_back(baseIndex + 2);
+                    indexData.push_back(baseIndex + 3);
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error during LOD mesh generation: " << e.what() << std::endl;
+            return false;
+        }
+
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        setState(ChunkState::MeshReady);
+        return true;
+    }
+
+public:
+    // Must be run on main thread only
+    void uploadToGPU(TextureManager *tex, BufferManager *buf, PipelineManager *pip) {
+        if (state.load() != ChunkState::MeshReady) return;
+
+        setState(ChunkState::UploadingToGPU);
+
+        if (!chunkDataBufferInitialized) {
+            initializeChunkDataBuffer(buf);
+        }
+
+        if (chunkDataBufferInitialized) {
+            updateChunkDataBuffer(buf);
+        }
+
+        if (!materialInitialized) {
+            initialize3DTexture(tex);
+        }
+
+        if (materialInitialized) {
+            uploadMaterialTexture(tex);
+        }
+
+        if (!materialBindGroupInitialized) {
+            updateMaterialBindGroup(pip, tex);
+        }
+
+        if (!chunkDataBindGroupInitialized) {
+            updateChunkDataBindGroup(pip, buf);
+        }
+
+        // destroy old buffers if initialized
+        if (meshBufferInitialized) {
+            buf->deleteBuffer(vertexBufferName);
+            buf->deleteBuffer(indexBufferName);
+        }
+
+        //if (vertexData.empty() || indexData.empty()) {
+        //    // For empty chunks, we still need to clean up old buffers
+        //    buf->deleteBuffer(vertexBufferName);
+        //    buf->deleteBuffer(indexBufferName);
+        //    indexCount = 0;
+        //    indexBufferSize = 0;
+        //    vertexBufferSize = 0;
+        //    setState(ChunkState::Air);
+        //    return;
+        //}
+
+        std::string resourceId = getResourceId();
+
+        // Create new buffers with new mesh data
+        BufferDescriptor vertexBufferDesc;
+        vertexBufferSize = vertexData.size() * sizeof(VertexAttributes);
+        vertexBufferDesc.size = vertexBufferSize;
+        vertexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
+        vertexBufferDesc.mappedAtCreation = false;
+        vertexBufferName = resourceId + "-vert";
+        buf->createBuffer(vertexBufferName, vertexBufferDesc);
+
+        BufferDescriptor indexBufferDesc;
+        indexBufferSize = indexData.size() * sizeof(uint16_t);
+        indexBufferDesc.size = indexBufferSize;
+        indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
+        indexBufferDesc.mappedAtCreation = false;
+        indexBufferName = resourceId + "-ind";
+        buf->createBuffer(indexBufferName, indexBufferDesc);
+
+        indexCount = static_cast<uint16_t>(indexData.size());
+
+        // Upload data to new buffers
+        buf->writeBuffer(vertexBufferName, 0, vertexData.data(), vertexBufferSize);
+        buf->writeBuffer(indexBufferName, 0, indexData.data(), indexBufferSize);
+        meshBufferInitialized = true;
+
+        setState(ChunkState::Active);
+    }
+
+    // get data about how to render the chunk
+    std::optional<ChunkRenderData> getRenderData() {
+        ChunkRenderData renderData;
+        if (state.load() == ChunkState::Active) {
+            renderData.chunkDataBindGroupName = chunkDataBindGroupName;
+            renderData.materialBindGroupName = materialBindGroupName;
+            renderData.indexBufferName = indexBufferName;
+            renderData.vertexBufferName = vertexBufferName;
+            renderData.indexBufferSize = indexBufferSize;
+            renderData.vertexBufferSize = vertexBufferSize;
+            renderData.indexCount = indexCount;
+            return renderData;
+        }
+        return std::nullopt;
+    }
+
+    size_t getVertexDataSize() const {
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        return vertexData.size();
+    }
+
+    size_t getIndexDataSize() const {
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        return indexData.size();
+    }
+
+    bool hasMaterialTexture() const {
+        return materialInitialized;
+    }
+
+    void cleanupBuffersOnly() {
+        /*if (vertexBuffer) {
+            vertexBuffer.destroy();
+            vertexBuffer.release();
+            vertexBuffer = nullptr;
+        }
+        if (indexBuffer) {
+            indexBuffer.destroy();
+            indexBuffer.release();
+            indexBuffer = nullptr;
+        }
+        if (materialTexture3D) {
+            materialTextureView3D.release();
+            materialTexture3D.destroy();
+            materialTexture3D.release();
+            materialTexture3D = nullptr;
+            materialTextureView3D = nullptr;
+        }
+        if (chunkDataBuffer) {
+            chunkDataBuffer.destroy();
+            chunkDataBuffer.release();
+            chunkDataBuffer = nullptr;
+        }*/
+        meshBufferInitialized = false;
+        materialInitialized = false;
+        chunkDataBufferInitialized = false;
+    }
+
+    void cleanup() {
+        cleanupBuffersOnly();
+
+        std::lock_guard<std::mutex> lock1(voxelDataMutex);
+        std::lock_guard<std::mutex> lock2(meshDataMutex);
+        std::lock_guard<std::mutex> lock3(materialDataMutex);
+
+        vertexData.clear();
+        indexData.clear();
+        materialData.clear();
+        solidVoxels.store(0);
+        indexCount = 0;
+    }
+};
+
+#endif// ThreadSafeChunkManager.h
+#include <unordered_map>
+#include <vector>
+#include <mutex>
+#include <shared_mutex>
+#include <memory>
+#include "glm/glm.hpp"
+#include <webgpu/webgpu.hpp>
+#include <unordered_set>
+#include "ThreadSafeChunk.h"
+#include "ChunkWorkerSystem.h"
+#include "Rendering/TextureManager.h"
+#include "Rendering/BufferManager.h"
+#include "Rendering/PipelineManager.h"
+
+using glm::vec3;
+using glm::ivec3;
+
+struct IVec3Hash {
+    std::size_t operator()(const ivec3& k) const {
+        // Simple hash combination
+        std::size_t h1 = std::hash<int>{}(k.x);
+        std::size_t h2 = std::hash<int>{}(k.y);
+        std::size_t h3 = std::hash<int>{}(k.z);
+
+        // Combine the hashes
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
+
+struct IVec3Equal {
+    bool operator()(const ivec3& lhs, const ivec3& rhs) const {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+    }
+};
+
+struct ChunkPriority {
+    ivec3 position;
+    float distanceSquared;
+
+    bool operator<(const ChunkPriority& other) const {
+        return distanceSquared > other.distanceSquared; // Min-heap (closest first)
+    }
+};
+
+class ThreadSafeChunkManager {
+private:
+    std::unordered_map<ivec3, std::shared_ptr<ThreadSafeChunk>, IVec3Hash, IVec3Equal> chunks;
+    std::unique_ptr<ChunkWorkerSystem> workerSystem;
+
+    ivec3 playerChunkPos;
+
+    int renderDistance = 24;
+    static constexpr int CHUNK_SIZE = 32;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
+
+    std::priority_queue<ChunkPriority> pendingChunkCreation;
+
+public:
+    ThreadSafeChunkManager() {
+        workerSystem = std::make_unique<ChunkWorkerSystem>();
+
+    }
+
+    ~ThreadSafeChunkManager() {
+        workerSystem.reset(); // Shutdown workers first
+        chunks.clear();
+    }
+
+    void updateChunksAsync(vec3 playerPos) {
+        playerChunkPos = ivec3(glm::floor(playerPos / 32.0f));
+
+        removeDistantChunks(playerChunkPos);
+        queueNewChunks(playerChunkPos);
+        queueChunkBatchForGeneration(playerChunkPos);
+        generateTopsoil();
+        generateMeshes();
+    }
+
+    void updateChunks(vec3 playerPos, TextureManager *tex, PipelineManager *pip, BufferManager *buf) {
+        playerChunkPos = ivec3(glm::floor(playerPos / 32.0f));
+
+        removeDistantChunks(playerChunkPos);
+        queueNewChunks(playerChunkPos);
+        queueChunkBatchForGeneration(playerChunkPos);
+        generateTopsoil();
+        generateMeshes();
+    }
+
+    // Get chunks ready for GPU upload
+    std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
+        std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
+
+        for (const auto& pair : chunks) {
+            if (pair.second &&
+                pair.second->getState() == ChunkState::MeshReady) {
+                readyChunks.push_back({ pair.first, pair.second });
+            }
+        }
+
+        return readyChunks;
+    }
+
+    std::vector<ChunkRenderData> getChunkRenderData() {
+        std::vector<ChunkRenderData> data;
+        data.reserve(chunks.size());
+        for (const auto& pair : chunks) {
+            std::optional<ChunkRenderData> rd = pair.second->getRenderData();
+            if (rd != std::nullopt)
+                data.push_back(rd.value());
+        }
+
+        return data;
+    }
+
+    void updateChunkDataBuffers(BufferManager* buf) {
+        for (const auto& pair : chunks) {
+            if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->hasChunkDataBuffer()) {
+                // Update the buffer with current chunk position
+                pair.second->updateChunkDataBuffer(buf);
+            }
+        }
+    }
+
+    std::array<std::shared_ptr<ThreadSafeChunk>, 6> getNeighbors(const ivec3& chunkPos) {
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = {};
+        ivec3 neighborPositions[6] = {
+            chunkPos + ivec3(1, 0, 0),   // Right
+            chunkPos + ivec3(-1, 0, 0),  // Left
+            chunkPos + ivec3(0, 1, 0),   // Front
+            chunkPos + ivec3(0, -1, 0),  // Back
+            chunkPos + ivec3(0, 0, 1),   // Top
+            chunkPos + ivec3(0, 0, -1)   // Bottom
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            auto it = chunks.find(neighborPositions[i]);
+            if (it != chunks.end()) {
+                neighbors[i] = it->second;
+            }
+        }
+
+        return neighbors;
+    }
+private:
+    void removeDistantChunks(ivec3 playerPos) {
+        {
+            std::vector<ivec3> chunksToRemove;
+            chunksToRemove.reserve(128);
+
+            for (const auto& pair : chunks) {
+                ivec3 chunkPos = pair.first;
+                float distanceX = glm::abs(chunkPos.x - playerPos.x);
+                float distanceY = glm::abs(chunkPos.y - playerPos.y);
+                float distanceZ = glm::abs(chunkPos.z - playerPos.z);
+
+                float maxDistance = renderDistance + 1;
+
+                if (distanceX > maxDistance || distanceY > maxDistance || distanceZ > maxDistance) {
+                    chunksToRemove.push_back(chunkPos);
+                }
+            }
+
+            for (auto chunkPos : chunksToRemove) {
+                auto it = chunks.find(chunkPos);
+                if (it != chunks.end()) {
+                    if (it->second) {
+                        it->second->setState(ChunkState::Unloading);
+                        it->second->cleanup(); // Cleanup resources
+                        it->second = nullptr; // Clear the shared pointer
+                    }
+                    chunks.erase(it->first);
+                }
+            }
+        }
+    }
+
+    void queueNewChunks(ivec3 playerChunkPos) {
+        // Clear the queue but keep its memory allocated
+        while (!pendingChunkCreation.empty()) {
+            pendingChunkCreation.pop();
+        }
+
+        for (int x = -renderDistance; x <= renderDistance; ++x) {
+            for (int y = -renderDistance; y <= renderDistance; ++y) {
+                for (int z = -renderDistance/2; z <= renderDistance/2; ++z) {
+                    ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
+
+                    if (chunks.find(chunkPos) == chunks.end()) {
+                        float distSq = x * x + y * y + z * z;
+                        pendingChunkCreation.push({ chunkPos, distSq });
+                    }
+                }
+            }
+        }
+    }
+
+    void queueChunkBatchForGeneration(ivec3 playerChunkPos) {
+        int chunksCreated = 0;
+        while (!pendingChunkCreation.empty() && chunksCreated < MAX_CHUNKS_PER_UPDATE) {
+            ChunkPriority nextChunk = pendingChunkCreation.top();
+            pendingChunkCreation.pop();
+
+            if (chunks.find(nextChunk.position) == chunks.end()) {
+                float distanceFromPlayer = glm::length(vec3(nextChunk.position) - vec3(playerChunkPos));
+                uint32_t lodlevel = 0;
+
+                if (distanceFromPlayer > 4) {
+                    lodlevel = 1;
+				}
+
+                auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
+                chunks[nextChunk.position] = newChunk;
+
+                workerSystem->queueTerrainGeneration(newChunk, nextChunk.position);
+
+                chunksCreated++;
+            }
+        }
+    }
+
+    void generateTopsoil() {
+        for (const auto& pair : chunks) {
+            if (pair.second && pair.second->getState() == ChunkState::TerrainReady) {
+                std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
+                if (chunk->getSolidVoxels() > 0) {
+                    
+                    ivec3 chunkPos = pair.first;
+                    if (!chunk) continue;
+
+                    std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
+
+                    // Check if all existing neighbors are ready
+                    bool allNeighborsReady = true;
+                    for (int i = 0; i < 6; ++i) {
+                        auto neighbor = neighbors[i];
+                        if (neighbor == nullptr) {
+                            allNeighborsReady = false;
+                            break;
+                        }
+                        else {
+                            ChunkState neighborState = neighbor->getState();
+                            if (neighborState == ChunkState::Empty ||
+                                neighborState == ChunkState::GeneratingTerrain ||
+                                neighborState == ChunkState::Unloading) {
+                                allNeighborsReady = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (allNeighborsReady) {
+                        chunk->setState(ChunkState::GeneratingTopsoil);
+                        workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
+                    }
+                }
+                else {
+                    chunk->setState(ChunkState::MeshReady);
+                }
+            }
+        }
+    }
+
+    void generateMeshes() {
+        for (const auto& pair : chunks) {
+            if (pair.second && pair.second->getState() == ChunkState::TopsoilReady) {
+                std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
+                ivec3 chunkPos = pair.first;
+                if (!chunk) continue;
+
+                std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
+
+                // Check if all existing neighbors are ready
+                bool allNeighborsReady = true;
+                for (int i = 0; i < 6; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (neighbor == nullptr) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                    else {
+                        ChunkState neighborState = neighbor->getState();
+                        if (neighborState == ChunkState::Empty ||
+                            neighborState == ChunkState::GeneratingTerrain ||
+                            neighborState == ChunkState::Unloading ||
+                            neighborState == ChunkState::GeneratingTopsoil) {
+                            allNeighborsReady = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (allNeighborsReady) {
+                    chunk->setState(ChunkState::GeneratingMesh);
+                    workerSystem->queueMeshGeneration(chunk, chunkPos, neighbors);
+                }
+            }
+        }
+    }
+
+public:
+    // Debug/monitoring functions
+    void printChunkStates() const {
+        std::unordered_map<ChunkState, int> stateCounts;
+        int totalChunks = 0;
+
+        {
+            for (const auto& pair : chunks) {
+                if (pair.second) {
+                    ChunkState state = pair.second->getState();
+                    stateCounts[state]++;
+                    totalChunks++;
+                }
+            }
+        }
+
+        std::cout << "Chunks(" << totalChunks << "): ";
+        std::cout << "Empty=" << stateCounts[ChunkState::Empty] << " ";
+        std::cout << "GenTerrain=" << stateCounts[ChunkState::GeneratingTerrain] << " ";
+        std::cout << "TerrainReady=" << stateCounts[ChunkState::TerrainReady] << " ";
+        std::cout << "GenTopsoil=" << stateCounts[ChunkState::GeneratingTopsoil] << " ";
+        std::cout << "TopsoilReady=" << stateCounts[ChunkState::TopsoilReady] << " ";
+        std::cout << "GenMesh=" << stateCounts[ChunkState::GeneratingMesh] << " ";
+        std::cout << "MeshReady=" << stateCounts[ChunkState::MeshReady] << " ";
+        std::cout << "Upload=" << stateCounts[ChunkState::UploadingToGPU] << " ";
+        std::cout << "Active=" << stateCounts[ChunkState::Active] << " ";
+        std::cout << "Air=" << stateCounts[ChunkState::Air] << " ";
+        std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
+
+        std::cout << std::endl;
+    }
+
+    size_t getChunkCount() const {
+        return chunks.size();
+    }
+
+    std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
+        auto it = chunks.find(pos);
+        return (it != chunks.end()) ? it->second : nullptr;
+    }
+};#ifndef VERTEX_ATTRIBUTES
+#define VERTEX_ATTRIBUTES
+
+struct VertexAttributes {
+    uint32_t data;
+};
+
+#endif#include "glm/glm.hpp"
+#include <FastNoise/FastNoise.h>
+
+using namespace FastNoise;
+using glm::vec3;
+using glm::vec2;
+using glm::ivec3;
+
+class WorldGenerator {
+public:
+    FastNoise::SmartNode<> fnGenerator;
+    FastNoise::SmartNode<> fnGenerator2;
+	
+	uint32_t seed = 0;
+	float noiseScale = 0.007f;
+	float noiseScale2 = 0.015f;
+    int CHUNK_SIZE = 32;
+
+public:
+	bool initialize(uint32_t s) {
+		seed = s;
+        fnGenerator = FastNoise::NewFromEncodedNodeTree("EAA9Cte+GQAbABMAAAAAPw0ABgAAAFK43j8JAACuRyE/AM3MzL0BEwAK1yM+CAABBAAAAAAA7FG4vgAAAAAAAAAAAAAAAArXIz0AAAAAAAAAAADD9Sg/");
+        fnGenerator2 = FastNoise::NewFromEncodedNodeTree("EAApXI8/JQAK1yM+cT1KQArXIz49Clc/EwC4HoU/DQAEAAAAAAAgQAkAAGZmJj8AAAAAPwDhehQ/");
+        return true;
+	}
+
+	float sample3D(vec3 position) {
+		return fnGenerator->GenSingle3D(position.x * noiseScale, position.y * noiseScale, position.z * noiseScale, seed);
+	}
+
+	float sample3D2(vec3 position) {
+		return fnGenerator2->GenSingle3D(position.x * noiseScale2, position.y * noiseScale2, position.z * noiseScale2, seed);
+	}
+
+	float sample2D(vec2 position) {
+		return fnGenerator->GenSingle2D(position.x * noiseScale, position.y * noiseScale, seed);
+	}
+
+    
+};#include "glm/glm.hpp"
+#include <functional>
+
+using glm::vec3;
+using glm::ivec3;
+
+struct RayIntersectionResult {
+    bool hit;                    // Whether an intersection was found
+    glm::ivec3 hitVoxelPos;     // Position of the voxel that was hit
+    glm::ivec3 adjacentVoxelPos; // Position of the adjacent voxel (for block placement)
+};
+
+class Ray {
+public:
+    static RayIntersectionResult rayVoxelIntersection(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance, std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
+        // Normalize the direction vector
+        glm::vec3 dir = glm::normalize(direction);
+
+        // Current position along the ray (in world coordinates)
+        glm::vec3 currentPos = cameraPos;
+
+        // Current voxel coordinates (in world coordinates)
+        glm::ivec3 worldVoxelPos = glm::ivec3(
+            static_cast<int>(glm::floor(currentPos.x)),
+            static_cast<int>(glm::floor(currentPos.y)),
+            static_cast<int>(glm::floor(currentPos.z))
+        );
+
+        // Calculate step direction for each axis
+        glm::ivec3 step = glm::ivec3(
+            dir.x > 0 ? 1 : -1,
+            dir.y > 0 ? 1 : -1,
+            dir.z > 0 ? 1 : -1
+        );
+
+        // Calculate delta distances (how far along the ray we must travel for each axis to cross one voxel)
+        glm::vec3 deltaDist = glm::vec3(
+            dir.x != 0 ? glm::abs(1.0f / dir.x) : 1e30f,
+            dir.y != 0 ? glm::abs(1.0f / dir.y) : 1e30f,
+            dir.z != 0 ? glm::abs(1.0f / dir.z) : 1e30f
+        );
+
+        // Calculate initial side distances
+        glm::vec3 sideDist;
+        if (dir.x < 0) {
+            sideDist.x = (currentPos.x - static_cast<float>(worldVoxelPos.x)) * deltaDist.x;
+        }
+        else {
+            sideDist.x = (static_cast<float>(worldVoxelPos.x) + 1.0f - currentPos.x) * deltaDist.x;
+        }
+
+        if (dir.y < 0) {
+            sideDist.y = (currentPos.y - static_cast<float>(worldVoxelPos.y)) * deltaDist.y;
+        }
+        else {
+            sideDist.y = (static_cast<float>(worldVoxelPos.y) + 1.0f - currentPos.y) * deltaDist.y;
+        }
+
+        if (dir.z < 0) {
+            sideDist.z = (currentPos.z - static_cast<float>(worldVoxelPos.z)) * deltaDist.z;
+        }
+        else {
+            sideDist.z = (static_cast<float>(worldVoxelPos.z) + 1.0f - currentPos.z) * deltaDist.z;
+        }
+
+        // Perform DDA traversal
+        int side = 0; // Which side was hit (0=x, 1=y, 2=z)
+        constexpr int CHUNK_SIZE = 32;
+        float totalDistance = 0.0f;
+
+        // Keep track of the previous voxel position for adjacency calculation
+        glm::ivec3 previousVoxelPos = worldVoxelPos;
+
+        while (totalDistance < maxDistance) {
+            // Calculate which chunk this world voxel belongs to
+            ivec3 chunkPos = ivec3(
+                worldVoxelPos.x >= 0 ? worldVoxelPos.x / CHUNK_SIZE : (worldVoxelPos.x - CHUNK_SIZE + 1) / CHUNK_SIZE,
+                worldVoxelPos.y >= 0 ? worldVoxelPos.y / CHUNK_SIZE : (worldVoxelPos.y - CHUNK_SIZE + 1) / CHUNK_SIZE,
+                worldVoxelPos.z >= 0 ? worldVoxelPos.z / CHUNK_SIZE : (worldVoxelPos.z - CHUNK_SIZE + 1) / CHUNK_SIZE
+            );
+
+            // Get the chunk at this position
+            std::shared_ptr<ThreadSafeChunk> chunk = getChunkCallback(chunkPos);
+
+            if (chunk) {
+                // Convert world voxel position to chunk-local coordinates
+                ivec3 localVoxelPos = ivec3(
+                    worldVoxelPos.x - chunkPos.x * CHUNK_SIZE,
+                    worldVoxelPos.y - chunkPos.y * CHUNK_SIZE,
+                    worldVoxelPos.z - chunkPos.z * CHUNK_SIZE
+                );
+
+                // Ensure local coordinates are within chunk bounds
+                if (localVoxelPos.x >= 0 && localVoxelPos.x < CHUNK_SIZE &&
+                    localVoxelPos.y >= 0 && localVoxelPos.y < CHUNK_SIZE &&
+                    localVoxelPos.z >= 0 && localVoxelPos.z < CHUNK_SIZE) {
+
+                    // Check if current voxel is solid
+                    if (chunk->getVoxel(localVoxelPos)) {
+                        // Calculate the adjacent voxel position based on which face we hit
+                        glm::ivec3 adjacentPos = worldVoxelPos;
+                        if (side == 0) { // Hit X face
+                            adjacentPos.x -= step.x;
+                        }
+                        else if (side == 1) { // Hit Y face
+                            adjacentPos.y -= step.y;
+                        }
+                        else { // Hit Z face
+                            adjacentPos.z -= step.z;
+                        }
+
+                        // Return the intersection result
+                        return RayIntersectionResult{
+                            true,           // hit
+                            worldVoxelPos,  // hitVoxelPos
+                            adjacentPos     // adjacentVoxelPos
+                        };
+                    }
+                }
+            }
+
+            // Store current position as previous before moving
+            previousVoxelPos = worldVoxelPos;
+
+            // Move to next voxel and track distance
+            if (sideDist.x < sideDist.y && sideDist.x < sideDist.z) {
+                // X side is closest
+                totalDistance = sideDist.x;
+                sideDist.x += deltaDist.x;
+                worldVoxelPos.x += step.x;
+                side = 0;
+            }
+            else if (sideDist.y < sideDist.z) {
+                // Y side is closest
+                totalDistance = sideDist.y;
+                sideDist.y += deltaDist.y;
+                worldVoxelPos.y += step.y;
+                side = 1;
+            }
+            else {
+                // Z side is closest
+                totalDistance = sideDist.z;
+                sideDist.z += deltaDist.z;
+                worldVoxelPos.z += step.z;
+                side = 2;
+            }
+        }
+
+        // No intersection found within max distance
+        return RayIntersectionResult{
+            false,              // hit
+            ivec3(0, 0, 0),    // hitVoxelPos (invalid)
+            ivec3(0, 0, 0)     // adjacentVoxelPos (invalid)
+        };
+    }
+
+    // Modified multi-chunk version
+    static RayIntersectionResult rayVoxelIntersectionMultiChunk(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance,
+        std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
+
+        // Normalize the direction vector
+        glm::vec3 dir = glm::normalize(direction);
+
+        // Current position along the ray
+        glm::vec3 currentPos = cameraPos;
+        glm::vec3 previousPos = currentPos;
+
+        // Step size for ray marching (smaller = more accurate, larger = faster)
+        const float stepSize = 0.1f;
+        glm::vec3 rayStep = dir * stepSize;
+
+        float totalDistance = 0.0f;
+        constexpr int CHUNK_SIZE = 32;
+
+        while (totalDistance < maxDistance) {
+            // Calculate which chunk we're currently in
+            ivec3 chunkPos = ivec3(
+                currentPos.x >= 0 ? static_cast<int>(currentPos.x) / CHUNK_SIZE : (static_cast<int>(currentPos.x) - CHUNK_SIZE + 1) / CHUNK_SIZE,
+                currentPos.y >= 0 ? static_cast<int>(currentPos.y) / CHUNK_SIZE : (static_cast<int>(currentPos.y) - CHUNK_SIZE + 1) / CHUNK_SIZE,
+                currentPos.z >= 0 ? static_cast<int>(currentPos.z) / CHUNK_SIZE : (static_cast<int>(currentPos.z) - CHUNK_SIZE + 1) / CHUNK_SIZE
+            );
+
+            // Get the chunk at this position
+            auto chunk = getChunkCallback(chunkPos);
+
+            if (chunk) {
+                // Convert to chunk-local coordinates
+                vec3 localPos = currentPos - vec3(chunkPos * CHUNK_SIZE);
+                ivec3 voxelPos = ivec3(glm::floor(localPos));
+
+                // Check bounds and voxel
+                if (voxelPos.x >= 0 && voxelPos.x < CHUNK_SIZE &&
+                    voxelPos.y >= 0 && voxelPos.y < CHUNK_SIZE &&
+                    voxelPos.z >= 0 && voxelPos.z < CHUNK_SIZE) {
+
+                    if (chunk->getVoxel(voxelPos)) {
+                        // Hit a solid voxel - calculate adjacent position
+                        glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
+                        glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));
+
+                        return RayIntersectionResult{
+                            true,           // hit
+                            hitVoxel,       // hitVoxelPos
+                            adjacentVoxel   // adjacentVoxelPos
+                        };
+                    }
+                }
+            }
+
+            // Move along the ray
+            previousPos = currentPos;
+            currentPos += rayStep;
+            totalDistance += stepSize;
+        }
+
+        // No intersection found
+        return RayIntersectionResult{
+            false,              // hit
+            ivec3(0, 0, 0),    // hitVoxelPos (invalid)
+            ivec3(0, 0, 0)     // adjacentVoxelPos (invalid)
+        };
+    }
+
+    // Helper function to get intersection point in world coordinates
+    static glm::vec3 getIntersectionPoint(const glm::vec3& cameraPos, const glm::vec3& direction, const glm::ivec3& voxelPos, int side, const glm::ivec3& step) {
+        glm::vec3 dir = glm::normalize(direction);
+        glm::vec3 intersectionPoint;
+
+        if (side == 0) { // X side
+            intersectionPoint.x = static_cast<float>(voxelPos.x) + (step.x > 0 ? 0.0f : 1.0f);
+            float t = (intersectionPoint.x - cameraPos.x) / dir.x;
+            intersectionPoint.y = cameraPos.y + t * dir.y;
+            intersectionPoint.z = cameraPos.z + t * dir.z;
+        }
+        else if (side == 1) { // Y side
+            intersectionPoint.y = static_cast<float>(voxelPos.y) + (step.y > 0 ? 0.0f : 1.0f);
+            float t = (intersectionPoint.y - cameraPos.y) / dir.y;
+            intersectionPoint.x = cameraPos.x + t * dir.x;
+            intersectionPoint.z = cameraPos.z + t * dir.z;
+        }
+        else { // Z side
+            intersectionPoint.z = static_cast<float>(voxelPos.z) + (step.z > 0 ? 0.0f : 1.0f);
+            float t = (intersectionPoint.z - cameraPos.z) / dir.z;
+            intersectionPoint.x = cameraPos.x + t * dir.x;
+            intersectionPoint.y = cameraPos.y + t * dir.y;
+        }
+
+        return intersectionPoint;
+    }
+};// In main.cpp
+#include "Application.h"
+
+int main() {
+    Application app;
+
+    if (!app.Initialize()) {
+        return 1;
+    }
+
+    // Warning: this is still not Emscripten-friendly, see below
+    while (app.IsRunning()) {
+        app.MainLoop();
+    }
+
+    app.Terminate();
+
+    return 0;
+}
+
