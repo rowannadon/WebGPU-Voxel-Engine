@@ -234,18 +234,7 @@ public:
 
             chunkDataBufferName = getResourceId().append("-data");
             buf->createBuffer(chunkDataBufferName, chunkDataBufferDesc);
-
-
-
-
-            // Upload initial chunk data (world position)
-            ChunkData chunkData;
-            chunkData.worldPosition = position; // position is the chunk's world position
-            chunkData.lod = lod;
-
-            buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
             chunkDataBufferInitialized = true;
-
         }
         catch (const std::exception& e) {
             std::cerr << "Failed to create chunk data buffer: " << e.what() << std::endl;
@@ -651,137 +640,35 @@ public:
         }
 
         ivec3 aoStates[6][4][3] = {
-            {
-                {
-                    ivec3(1, -1, 0),
-                    ivec3(1, 0, -1),
-                    ivec3(1, -1, -1)
-                },
-                {
-                    ivec3(1, 1, 0),
-                    ivec3(1, 0, -1),
-                    ivec3(1, 1, -1)
-                },
-                {
-                    ivec3(1, 1, 0),
-                    ivec3(1, 0, 1),
-                    ivec3(1, 1, 1),
-                },
-                {
-                    ivec3(1, -1, 0),
-                    ivec3(1, 0, 1),
-                    ivec3(1, -1, 1),
-                }},
-            {
-                {
-                    ivec3(-1, -1, 0),
-                    ivec3(-1, 0, 1),
-                    ivec3(-1, -1, 1)
-                },
-                {
-                    ivec3(-1, 1, 0),
-                    ivec3(-1, 0, 1),
-                    ivec3(-1, 1, 1)
-                },
-                {
-                    ivec3(-1, 1, 0),
-                    ivec3(-1, 0, -1),
-                    ivec3(-1, 1, -1)
-                },
-                {
-                    ivec3(-1, -1, 0),
-                    ivec3(-1, 0, -1),
-                    ivec3(-1, -1, -1)
-                },
-            },
-            {
-                {
-                    ivec3(-1, 1, 0),
-                    ivec3(0, 1, -1),
-                    ivec3(-1, 1, -1)
-                },
-                {
-                    ivec3(-1, 1, 0),
-                    ivec3(0, 1, 1),
-                    ivec3(-1, 1, 1)
-                },
-                {
-                    ivec3(1, 1, 0),
-                    ivec3(0, 1, 1),
-                    ivec3(1, 1, 1)
-                },
-                {
-                    ivec3(1, 1, 0),
-                    ivec3(0, 1, -1),
-                    ivec3(1, 1, -1)
-                },
-            },
-            {
-                {
-                    ivec3(-1, -1, 0),
-                    ivec3(0, -1, 1),
-                    ivec3(-1, -1, 1)
-                },
-                {
-                    ivec3(-1, -1, 0),
-                    ivec3(0, -1, -1),
-                    ivec3(-1, -1, -1)
-                },
-                {
-                    ivec3(1, -1, 0),
-                    ivec3(0, -1, -1),
-                    ivec3(1, -1, -1)
-                },
-                {
-                    ivec3(1, -1, 0),
-                    ivec3(0, -1, 1),
-                    ivec3(1, -1, 1)
-                },
-            },
-            {
-                {
-                    ivec3(-1, 0, 1),
-                    ivec3(0, -1, 1),
-                    ivec3(-1, -1, 1)
-                },
-                {
-                    ivec3(1, 0, 1),
-                    ivec3(0, -1, 1),
-                    ivec3(1, -1, 1)
-                },
-                {
-                    ivec3(1, 0, 1),
-                    ivec3(0, 1, 1),
-                    ivec3(1, 1, 1)
-                },
-                {
-                    ivec3(-1, 0, 1),
-                    ivec3(0, 1, 1),
-                    ivec3(-1, 1, 1)
-                },
-            },
-            {
-                {
-                    ivec3(1, 0, -1),
-                    ivec3(0, -1, -1),
-                    ivec3(1, -1, -1)
-                },
-                {
-                    ivec3(-1, 0, -1),
-                    ivec3(0, -1, -1),
-                    ivec3(-1, -1, -1)
-                },
-                {
-                    ivec3(-1, 0, -1),
-                    ivec3(0, 1, -1),
-                    ivec3(-1, 1, -1)
-                },
-                {
-                    ivec3(1, 0, -1),
-                    ivec3(0, 1, -1),
-                    ivec3(1, 1, -1)
-                },
-            },
+            {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
+            {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
+            {ivec3(1, 1, 0),ivec3(1, 0, 1),ivec3(1, 1, 1),},
+            {ivec3(1, -1, 0),ivec3(1, 0, 1),ivec3(1, -1, 1),}},
+
+            {{ivec3(-1, -1, 0), ivec3(-1, 0, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, 1), ivec3(-1, 1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, -1, 0), ivec3(-1, 0, -1), ivec3(-1, -1, -1)}},
+
+            {{ivec3(-1, 1, 0), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, 1, 0), ivec3(0, 1, 1), ivec3(-1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, -1), ivec3(1, 1, -1)}},
+
+            {{ivec3(-1, -1, 0), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, -1, 0), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, 1), ivec3(1, -1, 1)}},
+
+            {{ivec3(-1, 0, 1), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, -1, 1), ivec3(1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(-1, 0, 1), ivec3(0, 1, 1), ivec3(-1, 1, 1)}},
+
+            {{ivec3(1, 0, -1), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(1, 0, -1) ,ivec3(0, 1, -1), ivec3(1, 1, -1)}},
         };
 
         ivec3 neighborOffsets[6] = {
@@ -1418,6 +1305,7 @@ public:
     }
 
 public:
+    // Must be run on main thread only
     void uploadToGPU(TextureManager *tex, BufferManager *buf, PipelineManager *pip) {
         if (state.load() != ChunkState::MeshReady) return;
 
@@ -1465,6 +1353,7 @@ public:
         }
 
         std::string resourceId = getResourceId();
+
         // Create new buffers with new mesh data
         BufferDescriptor vertexBufferDesc;
         vertexBufferSize = vertexData.size() * sizeof(VertexAttributes);
@@ -1508,7 +1397,6 @@ public:
         return std::nullopt;
     }
 
-    // Thread-safe mesh data access
     size_t getVertexDataSize() const {
         std::lock_guard<std::mutex> lock(meshDataMutex);
         return vertexData.size();
