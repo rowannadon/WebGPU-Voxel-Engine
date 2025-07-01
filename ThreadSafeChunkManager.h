@@ -9,7 +9,9 @@
 #include <unordered_set>
 #include "ThreadSafeChunk.h"
 #include "ChunkWorkerSystem.h"
-#include "ImageUpscaler.h"
+#include "Rendering/TextureManager.h"
+#include "Rendering/BufferManager.h"
+#include "Rendering/PipelineManager.h"
 
 using glm::vec3;
 using glm::ivec3;
@@ -41,27 +43,18 @@ struct ChunkPriority {
     }
 };
 
-using BindGroupCreateCallback = std::function<void(const ivec3&, std::shared_ptr<ThreadSafeChunk>)>;
-using BindGroupCleanupCallback = std::function<void(const ivec3&)>;
-using BindGroupGetCallback = std::function<BindGroup(const ivec3&)>;
-
 class ThreadSafeChunkManager {
 private:
     std::unordered_map<ivec3, std::shared_ptr<ThreadSafeChunk>, IVec3Hash, IVec3Equal> chunks;
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
-    std::vector<unsigned char> upscaledData;
 
     ivec3 playerChunkPos;
 
     int renderDistance = 24;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
-
-    // NEW: Track which chunks need material bind group updates
-    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> chunksNeedingMaterialUpdate;
-    std::mutex materialUpdateMutex;
 
 public:
     ThreadSafeChunkManager() {
@@ -85,7 +78,7 @@ public:
 
     }
 
-    // Get chunks ready for GPU upload (thread-safe)
+    // Get chunks ready for GPU upload
     std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
         std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
 
@@ -100,68 +93,26 @@ public:
         return readyChunks;
     }
 
-    void updateMaterialBindGroups(Device device, Queue queue,
-        BindGroupCreateCallback createCallback,
-        BindGroupCleanupCallback cleanupCallback) {
-        std::lock_guard<std::mutex> lock(materialUpdateMutex);
-
-        for (const auto& chunkPos : chunksNeedingMaterialUpdate) {
-            auto it = chunks.find(chunkPos);
-            if (it != chunks.end() && it->second) {
-                auto chunk = it->second;
-                if (chunk->getState() == ChunkState::Active && chunk->hasMaterialTexture() && chunk->hasChunkDataBuffer()) {
-                    createCallback(chunkPos, chunk);
-                }
-            }
-        }
-
-        chunksNeedingMaterialUpdate.clear();
-    }
-
-    void renderChunksWithMaterials(RenderPassEncoder renderPass,
-        BindGroupGetCallback getMaterialBindGroupCallback, BindGroupGetCallback getChunkDataBindGroupCallback) {
+    std::vector<ChunkRenderData> getChunkRenderData() {
+        std::vector<ChunkRenderData> data;
+        data.reserve(chunks.size());
         for (const auto& pair : chunks) {
-            if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->getSolidVoxels() > 0) {
-                BindGroup materialBindGroup = getMaterialBindGroupCallback(pair.first);
-                BindGroup chunkDataBindGroup = getChunkDataBindGroupCallback(pair.first);
-
-                if (materialBindGroup && chunkDataBindGroup) {
-                    // Set the material bind group (group 1)
-                    renderPass.setBindGroup(1, materialBindGroup, 0, nullptr);
-                    // Set the chunk data bind group (group 2)
-                    renderPass.setBindGroup(2, chunkDataBindGroup, 0, nullptr);
-                    // Render the chunk
-                    pair.second->render(renderPass);
-                }
-            }
+            std::optional<ChunkRenderData> rd = pair.second->getRenderData();
+            if (rd != std::nullopt)
+                data.push_back(rd.value());
         }
+
+        return data;
     }
 
-    void uploadChunkBuffersToGPU(Device device, Queue queue) {
-        for (const auto& pair : chunks) {
-            if (pair.second && pair.second->getState() == ChunkState::MeshReady && pair.second->getSolidVoxels() > 0) {
-                if (pair.second) {
-                    pair.second->uploadToGPU(device, queue);
-
-                    // Mark chunk as needing material bind group update
-                    if (pair.second->getState() == ChunkState::Active && pair.second->hasMaterialTexture()) {
-                        std::lock_guard<std::mutex> lock(materialUpdateMutex);
-                        chunksNeedingMaterialUpdate.insert(pair.first);
-                    }
-                }
-            }
-        }
-    }
-
-    void updateChunkDataBuffers(Queue queue) {
+    void updateChunkDataBuffers(BufferManager* buf) {
         for (const auto& pair : chunks) {
             if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->hasChunkDataBuffer()) {
                 // Update the buffer with current chunk position
-                pair.second->updateChunkDataBuffer(queue);
+                pair.second->updateChunkDataBuffer(buf);
             }
         }
     }
-
 
     std::array<std::shared_ptr<ThreadSafeChunk>, 6> getNeighbors(const ivec3& chunkPos) {
         std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = {};
@@ -246,11 +197,11 @@ private:
                 float distanceFromPlayer = glm::length(vec3(nextChunk.position) - vec3(playerChunkPos));
                 uint32_t lodlevel = 0;
 
-                if (distanceFromPlayer > 8) {
+                if (distanceFromPlayer > 4) {
                     lodlevel = 1;
 				}
 
-                auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, lodlevel);
+                auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 chunks[nextChunk.position] = newChunk;
 
                 workerSystem->queueTerrainGeneration(newChunk, nextChunk.position);
@@ -368,41 +319,15 @@ public:
         std::cout << "Active=" << stateCounts[ChunkState::Active] << " ";
         std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
 
-        /*{
-            std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(materialUpdateMutex));
-            std::cout << " MaterialUpdates=" << chunksNeedingMaterialUpdate.size();
-        }*/
         std::cout << std::endl;
     }
 
-    // NEW: Get chunk count for debugging
     size_t getChunkCount() const {
         return chunks.size();
     }
 
-    // NEW: Get specific chunk for debugging/external access
     std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
-    }
-
-    // NEW: Force material bind group update for specific chunk
-    void requestMaterialUpdate(const ivec3& chunkPos) {
-        std::lock_guard<std::mutex> lock(materialUpdateMutex);
-        chunksNeedingMaterialUpdate.insert(chunkPos);
-    }
-
-    // NEW: Get all active chunk positions (useful for external systems)
-    std::vector<ivec3> getActiveChunkPositions() const {
-        std::vector<ivec3> activePositions;
-        activePositions.reserve(chunks.size());
-
-        for (const auto& pair : chunks) {
-            if (pair.second && pair.second->getState() == ChunkState::Active) {
-                activePositions.push_back(pair.first);
-            }
-        }
-
-        return activePositions;
     }
 };

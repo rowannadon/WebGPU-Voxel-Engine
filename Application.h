@@ -4,10 +4,10 @@
 #include "glm/glm.hpp"
 #include "glm/ext.hpp"
 #include <glfw3webgpu.h>
-#include "ResourceManager.h"
 #include "webgpu-utils.h"
 #include "ThreadSafeChunkManager.h"
 #include "Ray.h"
+#include "Rendering/WebGPURenderer.h"
 
 //#include "magic_enum.hpp"
 
@@ -36,30 +36,6 @@ public:
     bool IsRunning();
 
 private:
-    bool InitializeWindowAndDevice();
-    void TerminateWindowAndDevice();
-
-    bool ConfigureSurface();
-    void UnconfigureSurface();
-
-    bool InitializeMultiSampleBuffer();
-    void TerminateMultiSampleBuffer();
-
-    bool InitializeDepthBuffer();
-    void TerminateDepthBuffer();
-
-    bool InitializeRenderPipeline();
-    void TerminateRenderPipeline();
-
-    bool InitializeTexture();
-    void TerminateTexture();
-
-    bool InitializeUniforms();
-    void TerminateUniforms();
-
-    bool InitializeBindGroup();
-    void TerminateBindGroup();
-
     void startChunkUpdateThread();
     void stopChunkUpdateThread();
     void chunkUpdateThreadFunction();
@@ -67,47 +43,20 @@ private:
     void processBindGroupUpdates();
 
     // Event handlers
+    void registerMovementCallbacks();
     void onResize();
     void onMouseMove(double xpos, double ypos);
     void onMouseButton(int button, int action, int mods);
     void onScroll(double xoffset, double yoffset);
     void onKey(int key, int scancode, int action, int mods);
 
-    std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
-    RequiredLimits GetRequiredLimits(Adapter adapter) const;
     void updateProjectionMatrix(int zoom);
     void updateViewMatrix();
     void processInput();
-
     void breakBlock();
 	void placeBlock();
 
-    void updateChunkMaterialBindGroup(const ivec3& chunkPos, std::shared_ptr<ThreadSafeChunk> chunk);
-    void cleanupChunkMaterialBindGroup(const ivec3& chunkPos);
-
-    void updateChunkDataBindGroup(const ivec3& chunkPos, std::shared_ptr<ThreadSafeChunk> chunk);
-    void cleanupChunkDataBindGroup(const ivec3& chunkPos);
-
-    // Add these declarations to the private section of Application.h
-
-    //void regenerateChunkMesh(const ivec3& chunkPos);
-    //void checkAndRegenerateNeighborChunks(const ivec3& chunkPos, const ivec3& localPos);
-
-
-
 private:
-    struct MyUniforms {
-        mat4x4 projectionMatrix;
-        mat4x4 viewMatrix;
-        mat4x4 modelMatrix;
-        ivec3 highlightedVoxelPos;
-        float time;
-        vec3 cameraWorldPos;
-        float _pad[1];
-    };
-
-    static_assert(sizeof(MyUniforms) % 16 == 0);
-
     struct FirstPersonCamera {
         vec3 position = vec3(5.0f, 0.0f, 150.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
@@ -160,12 +109,20 @@ private:
         bool Shift = false;   // Move down
     };
 
+    WebGPURenderer gpu;
+    PipelineManager *pip;
+    TextureManager *tex;
+    BufferManager *buf;
+    GLFWwindow* window;
+
     FirstPersonCamera camera;
     MouseState mouseState;
     KeyStates keyStates;
+
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
     float frameTime = 0.0f;
+
     ThreadSafeChunkManager chunkManager;
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
@@ -175,13 +132,6 @@ private:
 
     ivec3 placeBlockPos;
 	bool shouldPlaceBlock = false;
-
-    BindGroupLayout materialBindGroupLayout;
-    std::unordered_map<ivec3, BindGroup, IVec3Hash, IVec3Equal> chunkMaterialBindGroups;
-    Sampler materialSampler3D;
-
-    BindGroupLayout chunkDataBindGroupLayout;
-    std::unordered_map<ivec3, BindGroup, IVec3Hash, IVec3Equal> chunkDataBindGroups;
 
     std::thread chunkUpdateThread;
     std::atomic<bool> chunkUpdateThreadRunning{ false };
@@ -211,31 +161,5 @@ private:
     std::mutex bindGroupUpdateMutex;
 
     MyUniforms uniforms;
-    Sampler sampler;
-    Texture depthTexture;
-    TextureView depthTextureView;
-    Texture multiSampleTexture;
-    TextureView multiSampleTextureView;
-    Texture myTexture;
-    TextureView myTextureView = nullptr;
-    uint32_t uniformStride = 0;
-    BindGroupLayout bindGroupLayout;
-    BindGroup bindGroup;
-    std::vector<VertexAttributes> vertexData;
-    std::vector<uint32_t> indexData;
-    Buffer vertexBuffer;
-    Buffer indexBuffer;
-    Buffer uniformBuffer;
-    uint32_t indexCount = 0;
-    RenderPipeline pipeline;
-    TextureFormat surfaceFormat = TextureFormat::Undefined;
-    TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
-    TextureFormat multiSampleTextureFormat = TextureFormat::Undefined;
-    Device device;
-    Adapter adapter;
-    Queue queue;
-    GLFWwindow* window;
-    Surface surface;
-    Instance instance;
-    std::unique_ptr<ErrorCallback> uncapturedErrorCallbackHandle;
 };
+
