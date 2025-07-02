@@ -1344,16 +1344,16 @@ public:
             buf->deleteBuffer(indexBufferName);
         }
 
-        //if (vertexData.empty() || indexData.empty()) {
-        //    // For empty chunks, we still need to clean up old buffers
-        //    buf->deleteBuffer(vertexBufferName);
-        //    buf->deleteBuffer(indexBufferName);
-        //    indexCount = 0;
-        //    indexBufferSize = 0;
-        //    vertexBufferSize = 0;
-        //    setState(ChunkState::Air);
-        //    return;
-        //}
+        if (vertexData.empty() || indexData.empty()) {
+            // For empty chunks, we still need to clean up old buffers
+            buf->deleteBuffer(vertexBufferName);
+            buf->deleteBuffer(indexBufferName);
+            indexCount = 0;
+            indexBufferSize = 0;
+            vertexBufferSize = 0;
+            setState(ChunkState::Air);
+            return;
+        }
 
         std::string resourceId = getResourceId();
 
