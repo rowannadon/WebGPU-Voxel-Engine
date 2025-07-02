@@ -412,8 +412,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         baseColor *= 1.5;
     }
 
-    let fogNear = 250.0;
-    let fogFar = 850.0;
+    let fogNear = 1900.0;
+    let fogFar = 2000.0;
     let fogColor = vec3(0.7, 0.8, 0.9);
 
     let fogFactor = pow(clamp((in.fog_distance - fogNear) / (fogFar - fogNear), 0.0, 1.0), 1.2);

@@ -1,3 +1,4 @@
+// Fixed Ray.h with proper bounds checking and null safety
 #include "glm/glm.hpp"
 #include <functional>
 
@@ -13,8 +14,22 @@ struct RayIntersectionResult {
 class Ray {
 public:
     static RayIntersectionResult rayVoxelIntersection(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance, std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
-        // Normalize the direction vector
+        // Clamp max distance to prevent infinite loops
+        maxDistance = glm::clamp(maxDistance, 0.1f, 1000.0f);
+
+        // Normalize the direction vector and validate
         glm::vec3 dir = glm::normalize(direction);
+        if (glm::length(dir) < 0.001f) {
+            return RayIntersectionResult{ false, ivec3(0), ivec3(0) };
+        }
+
+        // Bounds check camera position
+        const float MAX_WORLD_COORD = 1000000.0f;
+        if (glm::abs(cameraPos.x) > MAX_WORLD_COORD ||
+            glm::abs(cameraPos.y) > MAX_WORLD_COORD ||
+            glm::abs(cameraPos.z) > MAX_WORLD_COORD) {
+            return RayIntersectionResult{ false, ivec3(0), ivec3(0) };
+        }
 
         // Current position along the ray (in world coordinates)
         glm::vec3 currentPos = cameraPos;
@@ -67,11 +82,22 @@ public:
         int side = 0; // Which side was hit (0=x, 1=y, 2=z)
         constexpr int CHUNK_SIZE = 32;
         float totalDistance = 0.0f;
+        constexpr int MAX_ITERATIONS = 10000; // Prevent infinite loops
+        int iterations = 0;
 
         // Keep track of the previous voxel position for adjacency calculation
         glm::ivec3 previousVoxelPos = worldVoxelPos;
 
-        while (totalDistance < maxDistance) {
+        while (totalDistance < maxDistance && iterations < MAX_ITERATIONS) {
+            iterations++;
+
+            // Bounds check for world coordinates
+            if (glm::abs(worldVoxelPos.x) > MAX_WORLD_COORD ||
+                glm::abs(worldVoxelPos.y) > MAX_WORLD_COORD ||
+                glm::abs(worldVoxelPos.z) > MAX_WORLD_COORD) {
+                break;
+            }
+
             // Calculate which chunk this world voxel belongs to
             ivec3 chunkPos = ivec3(
                 worldVoxelPos.x >= 0 ? worldVoxelPos.x / CHUNK_SIZE : (worldVoxelPos.x - CHUNK_SIZE + 1) / CHUNK_SIZE,
@@ -79,8 +105,23 @@ public:
                 worldVoxelPos.z >= 0 ? worldVoxelPos.z / CHUNK_SIZE : (worldVoxelPos.z - CHUNK_SIZE + 1) / CHUNK_SIZE
             );
 
-            // Get the chunk at this position
-            std::shared_ptr<ThreadSafeChunk> chunk = getChunkCallback(chunkPos);
+            // Bounds check for chunk coordinates
+            const int MAX_CHUNK_COORD = MAX_WORLD_COORD / CHUNK_SIZE;
+            if (glm::abs(chunkPos.x) > MAX_CHUNK_COORD ||
+                glm::abs(chunkPos.y) > MAX_CHUNK_COORD ||
+                glm::abs(chunkPos.z) > MAX_CHUNK_COORD) {
+                break;
+            }
+
+            // Get the chunk at this position with null safety
+            std::shared_ptr<ThreadSafeChunk> chunk = nullptr;
+            try {
+                chunk = getChunkCallback(chunkPos);
+            }
+            catch (...) {
+                // Handle any exceptions from the callback
+                break;
+            }
 
             if (chunk) {
                 // Convert world voxel position to chunk-local coordinates
@@ -96,25 +137,37 @@ public:
                     localVoxelPos.z >= 0 && localVoxelPos.z < CHUNK_SIZE) {
 
                     // Check if current voxel is solid
-                    if (chunk->getVoxel(localVoxelPos)) {
-                        // Calculate the adjacent voxel position based on which face we hit
-                        glm::ivec3 adjacentPos = worldVoxelPos;
-                        if (side == 0) { // Hit X face
-                            adjacentPos.x -= step.x;
-                        }
-                        else if (side == 1) { // Hit Y face
-                            adjacentPos.y -= step.y;
-                        }
-                        else { // Hit Z face
-                            adjacentPos.z -= step.z;
-                        }
+                    try {
+                        if (chunk->getVoxel(localVoxelPos)) {
+                            // Calculate the adjacent voxel position based on which face we hit
+                            glm::ivec3 adjacentPos = worldVoxelPos;
+                            if (side == 0) { // Hit X face
+                                adjacentPos.x -= step.x;
+                            }
+                            else if (side == 1) { // Hit Y face
+                                adjacentPos.y -= step.y;
+                            }
+                            else { // Hit Z face
+                                adjacentPos.z -= step.z;
+                            }
 
-                        // Return the intersection result
-                        return RayIntersectionResult{
-                            true,           // hit
-                            worldVoxelPos,  // hitVoxelPos
-                            adjacentPos     // adjacentVoxelPos
-                        };
+                            // Bounds check the adjacent position
+                            if (glm::abs(adjacentPos.x) <= MAX_WORLD_COORD &&
+                                glm::abs(adjacentPos.y) <= MAX_WORLD_COORD &&
+                                glm::abs(adjacentPos.z) <= MAX_WORLD_COORD) {
+
+                                // Return the intersection result
+                                return RayIntersectionResult{
+                                    true,           // hit
+                                    worldVoxelPos,  // hitVoxelPos
+                                    adjacentPos     // adjacentVoxelPos
+                                };
+                            }
+                        }
+                    }
+                    catch (...) {
+                        // Handle any exceptions from voxel access
+                        break;
                     }
                 }
             }
@@ -149,17 +202,31 @@ public:
         // No intersection found within max distance
         return RayIntersectionResult{
             false,              // hit
-            ivec3(0, 0, 0),    // hitVoxelPos (invalid)
-            ivec3(0, 0, 0)     // adjacentVoxelPos (invalid)
+            ivec3(INT_MAX, INT_MAX, INT_MAX),    // hitVoxelPos (invalid)
+            ivec3(INT_MAX, INT_MAX, INT_MAX)     // adjacentVoxelPos (invalid)
         };
     }
 
-    // Modified multi-chunk version
+    // Modified multi-chunk version with safety checks
     static RayIntersectionResult rayVoxelIntersectionMultiChunk(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance,
         std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
 
+        // Clamp max distance and validate inputs
+        maxDistance = glm::clamp(maxDistance, 0.1f, 1000.0f);
+
         // Normalize the direction vector
         glm::vec3 dir = glm::normalize(direction);
+        if (glm::length(dir) < 0.001f) {
+            return RayIntersectionResult{ false, ivec3(INT_MAX), ivec3(INT_MAX) };
+        }
+
+        // Bounds check camera position
+        const float MAX_WORLD_COORD = 1000000.0f;
+        if (glm::abs(cameraPos.x) > MAX_WORLD_COORD ||
+            glm::abs(cameraPos.y) > MAX_WORLD_COORD ||
+            glm::abs(cameraPos.z) > MAX_WORLD_COORD) {
+            return RayIntersectionResult{ false, ivec3(INT_MAX), ivec3(INT_MAX) };
+        }
 
         // Current position along the ray
         glm::vec3 currentPos = cameraPos;
@@ -171,8 +238,19 @@ public:
 
         float totalDistance = 0.0f;
         constexpr int CHUNK_SIZE = 32;
+        constexpr int MAX_ITERATIONS = static_cast<int>(1000.0f / stepSize); // Prevent infinite loops
+        int iterations = 0;
 
-        while (totalDistance < maxDistance) {
+        while (totalDistance < maxDistance && iterations < MAX_ITERATIONS) {
+            iterations++;
+
+            // Bounds check current position
+            if (glm::abs(currentPos.x) > MAX_WORLD_COORD ||
+                glm::abs(currentPos.y) > MAX_WORLD_COORD ||
+                glm::abs(currentPos.z) > MAX_WORLD_COORD) {
+                break;
+            }
+
             // Calculate which chunk we're currently in
             ivec3 chunkPos = ivec3(
                 currentPos.x >= 0 ? static_cast<int>(currentPos.x) / CHUNK_SIZE : (static_cast<int>(currentPos.x) - CHUNK_SIZE + 1) / CHUNK_SIZE,
@@ -180,8 +258,22 @@ public:
                 currentPos.z >= 0 ? static_cast<int>(currentPos.z) / CHUNK_SIZE : (static_cast<int>(currentPos.z) - CHUNK_SIZE + 1) / CHUNK_SIZE
             );
 
+            // Bounds check chunk position
+            const int MAX_CHUNK_COORD = MAX_WORLD_COORD / CHUNK_SIZE;
+            if (glm::abs(chunkPos.x) > MAX_CHUNK_COORD ||
+                glm::abs(chunkPos.y) > MAX_CHUNK_COORD ||
+                glm::abs(chunkPos.z) > MAX_CHUNK_COORD) {
+                break;
+            }
+
             // Get the chunk at this position
-            auto chunk = getChunkCallback(chunkPos);
+            std::shared_ptr<ThreadSafeChunk> chunk = nullptr;
+            try {
+                chunk = getChunkCallback(chunkPos);
+            }
+            catch (...) {
+                break;
+            }
 
             if (chunk) {
                 // Convert to chunk-local coordinates
@@ -193,16 +285,30 @@ public:
                     voxelPos.y >= 0 && voxelPos.y < CHUNK_SIZE &&
                     voxelPos.z >= 0 && voxelPos.z < CHUNK_SIZE) {
 
-                    if (chunk->getVoxel(voxelPos)) {
-                        // Hit a solid voxel - calculate adjacent position
-                        glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
-                        glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));
+                    try {
+                        if (chunk->getVoxel(voxelPos)) {
+                            // Hit a solid voxel - calculate adjacent position
+                            glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
+                            glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));
 
-                        return RayIntersectionResult{
-                            true,           // hit
-                            hitVoxel,       // hitVoxelPos
-                            adjacentVoxel   // adjacentVoxelPos
-                        };
+                            // Bounds check results
+                            if (glm::abs(hitVoxel.x) <= MAX_WORLD_COORD &&
+                                glm::abs(hitVoxel.y) <= MAX_WORLD_COORD &&
+                                glm::abs(hitVoxel.z) <= MAX_WORLD_COORD &&
+                                glm::abs(adjacentVoxel.x) <= MAX_WORLD_COORD &&
+                                glm::abs(adjacentVoxel.y) <= MAX_WORLD_COORD &&
+                                glm::abs(adjacentVoxel.z) <= MAX_WORLD_COORD) {
+
+                                return RayIntersectionResult{
+                                    true,           // hit
+                                    hitVoxel,       // hitVoxelPos
+                                    adjacentVoxel   // adjacentVoxelPos
+                                };
+                            }
+                        }
+                    }
+                    catch (...) {
+                        break;
                     }
                 }
             }
@@ -216,8 +322,8 @@ public:
         // No intersection found
         return RayIntersectionResult{
             false,              // hit
-            ivec3(0, 0, 0),    // hitVoxelPos (invalid)
-            ivec3(0, 0, 0)     // adjacentVoxelPos (invalid)
+            ivec3(INT_MAX, INT_MAX, INT_MAX),    // hitVoxelPos (invalid)
+            ivec3(INT_MAX, INT_MAX, INT_MAX)     // adjacentVoxelPos (invalid)
         };
     }
 

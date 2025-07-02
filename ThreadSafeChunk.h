@@ -23,15 +23,26 @@ using glm::vec3;
 using glm::vec2;
 
 struct ChunkRenderData {
-    std::string chunkDataBindGroupName;
-    std::string materialBindGroupName;
+    // Direct WebGPU resource handles instead of string lookups
+    BindGroup chunkDataBindGroup;
+    BindGroup materialBindGroup;
 
-    std::string indexBufferName;
-    std::string vertexBufferName;
+    Buffer indexBuffer;
+    Buffer vertexBuffer;
 
     uint32_t indexBufferSize;
     uint32_t vertexBufferSize;
     uint16_t indexCount;
+
+    // Optional: chunk position for sorting/culling
+    ivec3 chunkPosition;
+    float distanceToCamera; // For potential LOD or sorting
+
+    // Validation method
+    bool isValid() const {
+        return chunkDataBindGroup && materialBindGroup &&
+            indexBuffer && vertexBuffer && indexCount > 0;
+    }
 };
 
 enum class ChunkState {
@@ -60,56 +71,48 @@ public:
 
 private:
     uint32_t lod = 0;
-
     WorldGenerator worldGen;
 
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
     static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
 
-    Texture material;
     ivec3 position;
     ivec3 id;
-    std::string resourceId;
 
-    // voxel data
+    // Direct WebGPU resource handles - no more strings!
+    Texture materialTexture;
+    TextureView materialTextureView;
+    Buffer chunkDataBuffer;
+    Buffer vertexBuffer;
+    Buffer indexBuffer;
+    BindGroup chunkDataBindGroup;
+    BindGroup materialBindGroup;
+
+    // Resource state tracking
+    std::atomic<bool> materialInitialized{ false };
+    std::atomic<bool> chunkDataBufferInitialized{ false };
+    std::atomic<bool> meshBufferInitialized{ false };
+    std::atomic<bool> bindGroupsInitialized{ false };
+
+    // Mesh data
+    uint32_t indexCount = 0;
+    uint32_t vertexBufferSize = 0;
+    uint32_t indexBufferSize = 0;
+
+    // Data storage (same as before)
     std::vector<uint8_t> voxelData;
     mutable std::mutex voxelDataMutex;
-
-    // material data
     std::vector<VoxelMaterial> materialData;
     mutable std::mutex materialDataMutex;
-
-    // mesh data
     std::vector<VertexAttributes> vertexData;
     std::vector<uint16_t> indexData;
     mutable std::mutex meshDataMutex;
 
-    std::string vertexBufferName;
-    std::string indexBufferName;
-    uint32_t indexCount = 0;
-    bool meshBufferInitialized = false;
-
-    std::string chunkDataBufferName;
-    bool chunkDataBufferInitialized = false;
-    std::string chunkDataBindGroupName;
-    bool chunkDataBindGroupInitialized = false;
-
-    std::string materialTextureName;
-    std::string materialTextureViewName;
-    bool materialInitialized = false;
-    std::string materialBindGroupName;
-    bool materialBindGroupInitialized = false;
-
-    uint32_t vertexBufferSize;
-    uint32_t indexBufferSize;
-
     struct ChunkData {
         glm::ivec3 worldPosition;
         uint32_t lod;
-        //float _pad; // Padding for 16-byte alignment
     };
-
     static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
 
 public:
@@ -117,17 +120,12 @@ public:
         : position(pos), id(i), lod(lodlevel), voxelData(BYTES_NEEDED, 0) {
         worldGen.initialize(1234);
 
-        // initialize voxel data
         if (voxelData.size() != BYTES_NEEDED) {
             voxelData.resize(BYTES_NEEDED, 0);
         }
-
-        // initialize material data
         if (materialData.size() != TOTAL_VOXELS) {
             materialData.resize(TOTAL_VOXELS);
         }
-
-        resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
     }
 
     ~ThreadSafeChunk() {
@@ -140,68 +138,112 @@ public:
     int getSolidVoxels() const { return solidVoxels.load(); }
     const ivec3& getPosition() const { return position; }
     void setPosition(const ivec3& pos) { position = pos; }
-    std::string getResourceId() { return resourceId; }
 
-    void initialize3DTexture(TextureManager *tex) {
-        if (materialInitialized) {
-            return; // Already initialized
+    bool initializeGPUResources(TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
+        if (bindGroupsInitialized.load()) {
+            return true; // Already initialized
         }
 
         try {
-            // Create 3D texture descriptor
-            TextureDescriptor textureDesc = {};
-            textureDesc.dimension = TextureDimension::_3D;
-            textureDesc.format = TextureFormat::RG8Unorm; // 2 bytes per voxel (VoxelMaterial)
-            textureDesc.mipLevelCount = 1;
-            textureDesc.sampleCount = 1;
-            textureDesc.size = { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE };
-            textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
-            textureDesc.viewFormatCount = 0;
-            textureDesc.viewFormats = nullptr;
-            textureDesc.label = "Chunk 3D Material Texture";
+            // Initialize 3D material texture
+            if (!materialInitialized.load()) {
+                TextureDescriptor textureDesc = {};
+                textureDesc.dimension = TextureDimension::_3D;
+                textureDesc.format = TextureFormat::RG8Unorm;
+                textureDesc.mipLevelCount = 1;
+                textureDesc.sampleCount = 1;
+                textureDesc.size = { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE };
+                textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+                textureDesc.label = "Chunk 3D Material Texture";
 
-            materialTextureName = getResourceId().append("-tex");
-            tex->createTexture(materialTextureName, textureDesc);
+                // Create texture directly
+                materialTexture = tex->getDevice().createTexture(textureDesc);
+                if (!materialTexture) return false;
 
-            // Create texture view
-            TextureViewDescriptor viewDesc = {};
-            viewDesc.aspect = TextureAspect::All;
-            viewDesc.baseArrayLayer = 0;
-            viewDesc.arrayLayerCount = 1;
-            viewDesc.baseMipLevel = 0;
-            viewDesc.mipLevelCount = 1;
-            viewDesc.dimension = TextureViewDimension::_3D;
-            viewDesc.format = TextureFormat::RG8Unorm;
-            viewDesc.label = "Chunk 3D Material Texture View";
+                // Create texture view
+                TextureViewDescriptor viewDesc = {};
+                viewDesc.aspect = TextureAspect::All;
+                viewDesc.baseArrayLayer = 0;
+                viewDesc.arrayLayerCount = 1;
+                viewDesc.baseMipLevel = 0;
+                viewDesc.mipLevelCount = 1;
+                viewDesc.dimension = TextureViewDimension::_3D;
+                viewDesc.format = TextureFormat::RG8Unorm;
 
-            materialTextureViewName = getResourceId().append("-view");
-            tex->createTextureView(materialTextureName, materialTextureViewName, viewDesc);
+                materialTextureView = materialTexture.createView(viewDesc);
+                if (!materialTextureView) return false;
 
-            materialInitialized = true;
+                materialInitialized.store(true);
+            }
 
+            // Initialize chunk data buffer
+            if (!chunkDataBufferInitialized.load()) {
+                BufferDescriptor chunkDataBufferDesc;
+                chunkDataBufferDesc.size = sizeof(ChunkData);
+                chunkDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+                chunkDataBufferDesc.mappedAtCreation = false;
+
+                chunkDataBuffer = buf->getDevice().createBuffer(chunkDataBufferDesc);
+                if (!chunkDataBuffer) return false;
+
+                chunkDataBufferInitialized.store(true);
+            }
+
+            // Create bind groups
+            if (!bindGroupsInitialized.load()) {
+                // Material bind group
+                std::vector<BindGroupEntry> materialBindings(2);
+                materialBindings[0].binding = 0;
+                materialBindings[0].textureView = materialTextureView;
+                materialBindings[1].binding = 1;
+                materialBindings[1].sampler = tex->getSampler("material_sampler");
+
+                BindGroupDescriptor materialBindGroupDesc;
+                materialBindGroupDesc.layout = pip->getBindGroupLayout("material_uniforms");
+                materialBindGroupDesc.entryCount = materialBindings.size();
+                materialBindGroupDesc.entries = materialBindings.data();
+                materialBindGroup = pip->getDevice().createBindGroup(materialBindGroupDesc);
+
+                // Chunk data bind group
+                std::vector<BindGroupEntry> chunkDataBindings(1);
+                chunkDataBindings[0].binding = 0;
+                chunkDataBindings[0].buffer = chunkDataBuffer;
+                chunkDataBindings[0].offset = 0;
+                chunkDataBindings[0].size = sizeof(ChunkData);
+
+                BindGroupDescriptor chunkDataBindGroupDesc;
+                chunkDataBindGroupDesc.layout = pip->getBindGroupLayout("chunkdata_uniforms");
+                chunkDataBindGroupDesc.entryCount = chunkDataBindings.size();
+                chunkDataBindGroupDesc.entries = chunkDataBindings.data();
+                chunkDataBindGroup = pip->getDevice().createBindGroup(chunkDataBindGroupDesc);
+
+                if (!materialBindGroup || !chunkDataBindGroup) return false;
+
+                bindGroupsInitialized.store(true);
+            }
+
+            return true;
         }
         catch (const std::exception& e) {
-            std::cerr << "Failed to create 3D material texture: " << e.what() << std::endl;
-            materialInitialized = false;
+            std::cerr << "Failed to initialize GPU resources: " << e.what() << std::endl;
+            return false;
         }
     }
 
     void uploadMaterialTexture(TextureManager* tex) {
-        if (!materialInitialized || materialData.empty()) {
+        if (!materialInitialized.load() || materialData.empty()) {
             return;
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
 
         try {
-            // Set up the destination for the texture write
             ImageCopyTexture destination = {};
-            destination.texture = tex->getTexture(materialTextureName);
+            destination.texture = materialTexture;
             destination.mipLevel = 0;
             destination.origin = { 0, 0, 0 };
             destination.aspect = TextureAspect::All;
 
-            // Set up the source data layout
             TextureDataLayout source = {};
             source.offset = 0;
             source.bytesPerRow = CHUNK_SIZE * sizeof(VoxelMaterial);
@@ -219,31 +261,8 @@ public:
         }
     }
 
-    void initializeChunkDataBuffer(BufferManager* buf) {
-        if (chunkDataBufferInitialized) {
-            return; // Already initialized
-        }
-
-        try {
-            // Create buffer for chunk data
-            BufferDescriptor chunkDataBufferDesc;
-            chunkDataBufferDesc.size = sizeof(ChunkData);
-            chunkDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-            chunkDataBufferDesc.mappedAtCreation = false;
-            chunkDataBufferDesc.label = "Chunk Data Buffer";
-
-            chunkDataBufferName = getResourceId().append("-data");
-            buf->createBuffer(chunkDataBufferName, chunkDataBufferDesc);
-            chunkDataBufferInitialized = true;
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Failed to create chunk data buffer: " << e.what() << std::endl;
-            chunkDataBufferInitialized = false;
-        }
-    }
-
     void updateChunkDataBuffer(BufferManager* buf) {
-        if (!chunkDataBufferInitialized) {
+        if (!chunkDataBufferInitialized.load()) {
             return;
         }
 
@@ -251,60 +270,14 @@ public:
         chunkData.worldPosition = position;
         chunkData.lod = lod;
 
-        buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
+        buf->getQueue().writeBuffer(chunkDataBuffer, 0, &chunkData, sizeof(ChunkData));
     }
 
-    void updateMaterialBindGroup(PipelineManager* pip, TextureManager *tex) {
-        if (!materialInitialized) {
-            return;
-        }
-        
-        if (materialBindGroupInitialized) {
-            pip->deleteBindGroup(materialBindGroupName);
-        }
-
-
-        std::vector<BindGroupEntry> materialBindings(2);
-
-        // 3D Material texture binding
-        materialBindings[0].binding = 0;
-        materialBindings[0].textureView = tex->getTextureView(materialTextureViewName);
-
-        // 3D Material sampler binding
-        materialBindings[1].binding = 1;
-        materialBindings[1].sampler = tex->getSampler("material_sampler");
-
-        materialBindGroupName = getResourceId().append("-mbind");
-        BindGroup materialBindGroup = pip->createBindGroup(materialBindGroupName, "material_uniforms", materialBindings);
-    }
-
-    void updateChunkDataBindGroup(PipelineManager* pip, BufferManager *buf) {
-        if (!chunkDataBufferInitialized) {
-            return;
-        }
-
-        if (chunkDataBindGroupInitialized) {
-            pip->deleteBindGroup(chunkDataBindGroupName);
-        }
-
-        std::vector<BindGroupEntry> chunkDataBindings(1);
-
-        // Chunk data buffer binding
-        chunkDataBindings[0].binding = 0;
-        chunkDataBindings[0].buffer = buf->getBuffer(chunkDataBufferName);
-        chunkDataBindings[0].offset = 0;
-        chunkDataBindings[0].size = 16; // sizeof(ChunkData)
-
-        chunkDataBindGroupName = getResourceId().append("-dbind");
-        pip->createBindGroup(chunkDataBindGroupName, "chunkdata_uniforms", chunkDataBindings);
-
-    }
-
-    std::string getChunkDataBuffer() const {
+    Buffer getChunkDataBuffer() const {
         if (chunkDataBufferInitialized) {
-            return chunkDataBufferName;
+            return chunkDataBuffer;
         }
-        return "";
+        return nullptr;
     }
 
     bool hasChunkDataBuffer() const {
@@ -1309,95 +1282,90 @@ public:
 
 public:
     // Must be run on main thread only
-    void uploadToGPU(TextureManager *tex, BufferManager *buf, PipelineManager *pip) {
+    void uploadToGPU(TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
         if (state.load() != ChunkState::MeshReady) return;
 
         setState(ChunkState::UploadingToGPU);
 
-        if (!chunkDataBufferInitialized) {
-            initializeChunkDataBuffer(buf);
+        // Initialize all GPU resources if needed
+        if (!initializeGPUResources(tex, buf, pip)) {
+            setState(ChunkState::MeshReady); // Failed, try again later
+            return;
         }
 
-        if (chunkDataBufferInitialized) {
-            updateChunkDataBuffer(buf);
+        // Update chunk data
+        updateChunkDataBuffer(buf);
+
+        // Upload material texture
+        uploadMaterialTexture(tex);
+
+        // Clean up old mesh buffers
+        if (meshBufferInitialized.load()) {
+            if (vertexBuffer) {
+                vertexBuffer.destroy();
+                vertexBuffer.release();
+            }
+            if (indexBuffer) {
+                indexBuffer.destroy();
+                indexBuffer.release();
+            }
         }
 
-        if (!materialInitialized) {
-            initialize3DTexture(tex);
+        // Create new mesh buffers
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+
+        if (!vertexData.empty() && !indexData.empty()) {
+            // Create vertex buffer
+            BufferDescriptor vertexBufferDesc;
+            vertexBufferSize = vertexData.size() * sizeof(VertexAttributes);
+            vertexBufferDesc.size = vertexBufferSize;
+            vertexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
+            vertexBufferDesc.mappedAtCreation = false;
+
+            vertexBuffer = buf->getDevice().createBuffer(vertexBufferDesc);
+
+            // Create index buffer
+            BufferDescriptor indexBufferDesc;
+            indexBufferSize = indexData.size() * sizeof(uint16_t);
+            indexBufferDesc.size = indexBufferSize;
+            indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
+            indexBufferDesc.mappedAtCreation = false;
+
+            indexBuffer = buf->getDevice().createBuffer(indexBufferDesc);
+
+            indexCount = static_cast<uint16_t>(indexData.size());
+
+            // Upload data
+            buf->getQueue().writeBuffer(vertexBuffer, 0, vertexData.data(), vertexBufferSize);
+            buf->getQueue().writeBuffer(indexBuffer, 0, indexData.data(), indexBufferSize);
+
+            meshBufferInitialized.store(true);
         }
-
-        if (materialInitialized) {
-            uploadMaterialTexture(tex);
-        }
-
-        if (!materialBindGroupInitialized) {
-            updateMaterialBindGroup(pip, tex);
-        }
-
-        if (!chunkDataBindGroupInitialized) {
-            updateChunkDataBindGroup(pip, buf);
-        }
-
-        // destroy old buffers if initialized
-        if (meshBufferInitialized) {
-            buf->deleteBuffer(vertexBufferName);
-            buf->deleteBuffer(indexBufferName);
-        }
-
-        //if (vertexData.empty() || indexData.empty()) {
-        //    // For empty chunks, we still need to clean up old buffers
-        //    buf->deleteBuffer(vertexBufferName);
-        //    buf->deleteBuffer(indexBufferName);
-        //    indexCount = 0;
-        //    indexBufferSize = 0;
-        //    vertexBufferSize = 0;
-        //    setState(ChunkState::Air);
-        //    return;
-        //}
-
-        std::string resourceId = getResourceId();
-
-        // Create new buffers with new mesh data
-        BufferDescriptor vertexBufferDesc;
-        vertexBufferSize = vertexData.size() * sizeof(VertexAttributes);
-        vertexBufferDesc.size = vertexBufferSize;
-        vertexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
-        vertexBufferDesc.mappedAtCreation = false;
-        vertexBufferName = resourceId + "-vert";
-        buf->createBuffer(vertexBufferName, vertexBufferDesc);
-
-        BufferDescriptor indexBufferDesc;
-        indexBufferSize = indexData.size() * sizeof(uint16_t);
-        indexBufferDesc.size = indexBufferSize;
-        indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
-        indexBufferDesc.mappedAtCreation = false;
-        indexBufferName = resourceId + "-ind";
-        buf->createBuffer(indexBufferName, indexBufferDesc);
-
-        indexCount = static_cast<uint16_t>(indexData.size());
-
-        // Upload data to new buffers
-        buf->writeBuffer(vertexBufferName, 0, vertexData.data(), vertexBufferSize);
-        buf->writeBuffer(indexBufferName, 0, indexData.data(), indexBufferSize);
-        meshBufferInitialized = true;
 
         setState(ChunkState::Active);
     }
 
     // get data about how to render the chunk
-    std::optional<ChunkRenderData> getRenderData() {
-        ChunkRenderData renderData;
-        if (state.load() == ChunkState::Active) {
-            renderData.chunkDataBindGroupName = chunkDataBindGroupName;
-            renderData.materialBindGroupName = materialBindGroupName;
-            renderData.indexBufferName = indexBufferName;
-            renderData.vertexBufferName = vertexBufferName;
-            renderData.indexBufferSize = indexBufferSize;
-            renderData.vertexBufferSize = vertexBufferSize;
-            renderData.indexCount = indexCount;
-            return renderData;
+    std::optional<ChunkRenderData> getRenderData() const {
+        if (state.load() != ChunkState::Active || !bindGroupsInitialized.load() || !meshBufferInitialized.load()) {
+            return std::nullopt;
         }
-        return std::nullopt;
+
+        ChunkRenderData renderData;
+        renderData.chunkDataBindGroup = chunkDataBindGroup;
+        renderData.materialBindGroup = materialBindGroup;
+        renderData.indexBuffer = indexBuffer;
+        renderData.vertexBuffer = vertexBuffer;
+        renderData.indexBufferSize = indexBufferSize;
+        renderData.vertexBufferSize = vertexBufferSize;
+        renderData.indexCount = indexCount;
+        renderData.chunkPosition = position;
+
+        return renderData;
+    }
+
+    bool hasValidResources() const {
+        return bindGroupsInitialized.load() && meshBufferInitialized.load();
     }
 
     size_t getVertexDataSize() const {
@@ -1442,9 +1410,49 @@ public:
         chunkDataBufferInitialized = false;
     }
 
-    void cleanup() {
-        cleanupBuffersOnly();
 
+    void cleanup() {
+        // Clean up WebGPU resources
+        if (materialTextureView) {
+            materialTextureView.release();
+            materialTextureView = nullptr;
+        }
+        if (materialTexture) {
+            materialTexture.destroy();
+            materialTexture.release();
+            materialTexture = nullptr;
+        }
+        if (chunkDataBuffer) {
+            chunkDataBuffer.destroy();
+            chunkDataBuffer.release();
+            chunkDataBuffer = nullptr;
+        }
+        if (vertexBuffer) {
+            vertexBuffer.destroy();
+            vertexBuffer.release();
+            vertexBuffer = nullptr;
+        }
+        if (indexBuffer) {
+            indexBuffer.destroy();
+            indexBuffer.release();
+            indexBuffer = nullptr;
+        }
+        if (chunkDataBindGroup) {
+            chunkDataBindGroup.release();
+            chunkDataBindGroup = nullptr;
+        }
+        if (materialBindGroup) {
+            materialBindGroup.release();
+            materialBindGroup = nullptr;
+        }
+
+        // Reset state
+        materialInitialized.store(false);
+        chunkDataBufferInitialized.store(false);
+        meshBufferInitialized.store(false);
+        bindGroupsInitialized.store(false);
+
+        // Clean up data
         std::lock_guard<std::mutex> lock1(voxelDataMutex);
         std::lock_guard<std::mutex> lock2(meshDataMutex);
         std::lock_guard<std::mutex> lock3(materialDataMutex);

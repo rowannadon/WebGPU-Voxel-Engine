@@ -18,6 +18,10 @@ class TextureManager {
 public:
     TextureManager(Device d, Queue q) : device(d), queue(q) {}
 
+    // Direct access methods
+    Device getDevice() const { return device; }
+    Queue getQueue() const { return queue; }
+
     Texture createTexture(const std::string& name, const TextureDescriptor& config);
     TextureView createTextureView(const std::string& textureName, const std::string& viewName, const TextureViewDescriptor& config);
     Sampler createSampler(const std::string& samplerName, const SamplerDescriptor& config);

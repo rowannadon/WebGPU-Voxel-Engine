@@ -15,6 +15,9 @@ class BufferManager {
 public:
     BufferManager(Device d, Queue q) : device(d), queue(q) {}
 
+    Device getDevice() const { return device; }
+    Queue getQueue() const { return queue; }
+
     Buffer createBuffer(std::string bufferName, BufferDescriptor config);
     Buffer getBuffer(std::string bufferName);
     void writeBuffer(const std::string bufferName, uint64_t bufferOffset, void* data, size_t size);

@@ -33,6 +33,8 @@ class PipelineManager {
 public:
     PipelineManager(Device d, TextureFormat sf) : device(d), surfaceFormat(sf) {}
 
+    Device getDevice() const { return device; }
+
     RenderPipeline createRenderPipeline(const std::string pipelineName, PipelineConfig & config);
     BindGroupLayout createBindGroupLayout(const std::string bindGroupLayoutName, const std::vector<BindGroupLayoutEntry>& entries);
     BindGroup createBindGroup(const std::string bindGroupName, const std::string bindGroupLayoutName, const std::vector<BindGroupEntry>& bindings);

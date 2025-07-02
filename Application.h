@@ -148,17 +148,7 @@ private:
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
     static constexpr float CHUNK_UPDATE_INTERVAL = 0.02f; // 50Hz chunk updates
 
-    // GPU upload queue (main thread only)
-    struct GPUUploadItem {
-        ivec3 chunkPos;
-        std::shared_ptr<ThreadSafeChunk> chunk;
-    };
-    std::queue<GPUUploadItem> pendingGPUUploads;
-    std::mutex gpuUploadMutex;
-
-    // Bind group update tracking
-    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> chunksNeedingBindGroupUpdate;
-    std::mutex bindGroupUpdateMutex;
+    
 
     MyUniforms uniforms;
 };

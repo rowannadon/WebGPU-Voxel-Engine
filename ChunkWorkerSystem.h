@@ -50,7 +50,7 @@ private:
     std::condition_variable queueCondition;
     std::atomic<bool> shouldStop{ false };
 
-    static constexpr int NUM_WORKER_THREADS = 6;
+    static constexpr int NUM_WORKER_THREADS = 8;
     static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr int HIGH_PRIORITY = 100;
     static constexpr int NORMAL_PRIORITY = 0;

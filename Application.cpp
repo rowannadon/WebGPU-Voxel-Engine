@@ -19,7 +19,7 @@ bool Application::Initialize() {
     uniforms.time = 1.0f;
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
-    uniforms.projectionMatrix = glm::perspective(85 * PI / 180, 1280.0f / 720.0f, 0.01f, 1000.0f);
+    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f, 2500.0f);
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
 
     camera.updateCameraVectors();
@@ -40,14 +40,31 @@ void Application::Terminate() {
 }
 
 void Application::breakBlock() {
-    //std::cout << "breaking block" << "\n";
     // Early exit if no block is being looked at
-    if (lookingAtBlockPos.x == 0 && lookingAtBlockPos.y == 0 && lookingAtBlockPos.z == 0) {
+    if (lookingAtBlockPos.x == INT_MAX || lookingAtBlockPos.y == INT_MAX || lookingAtBlockPos.z == INT_MAX) {
         return; // No valid block position
     }
+
+    // Bounds check to prevent coordinate overflow
+    const int MAX_WORLD_COORD = 1000000;
+    if (glm::abs(lookingAtBlockPos.x) > MAX_WORLD_COORD ||
+        glm::abs(lookingAtBlockPos.y) > MAX_WORLD_COORD ||
+        glm::abs(lookingAtBlockPos.z) > MAX_WORLD_COORD) {
+        return;
+    }
+
     vec3 lookingAtBlockPosf = vec3(lookingAtBlockPos.x, lookingAtBlockPos.y, lookingAtBlockPos.z);
+
     // Calculate which chunk contains the block
     ivec3 chunkWorldPos = ivec3(glm::floor(lookingAtBlockPosf / 32.0f));
+
+    // Additional bounds check for chunk position
+    if (glm::abs(chunkWorldPos.x) > MAX_WORLD_COORD / 32 ||
+        glm::abs(chunkWorldPos.y) > MAX_WORLD_COORD / 32 ||
+        glm::abs(chunkWorldPos.z) > MAX_WORLD_COORD / 32) {
+        return;
+    }
+
     std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
 
     // Check if chunk exists and is active
@@ -59,20 +76,16 @@ void Application::breakBlock() {
     // Calculate local position within the chunk
     ivec3 localChunkPos = lookingAtBlockPos - (chunkWorldPos * 32);
 
-    //std::cout << "localChunkPos: " << localChunkPos.x << " " << localChunkPos.y << " " << localChunkPos.z << std::endl;
-
     // Ensure local position is within chunk bounds
     if (localChunkPos.x < 0 || localChunkPos.x >= 32 ||
         localChunkPos.y < 0 || localChunkPos.y >= 32 ||
         localChunkPos.z < 0 || localChunkPos.z >= 32) {
-
         return;
     }
 
     // Check if there's actually a voxel to break
     if (!chunk->getVoxel(localChunkPos)) {
         std::cout << "not solid" << "\n";
-
         return; // No voxel at this position
     }
 
@@ -81,7 +94,6 @@ void Application::breakBlock() {
     VoxelMaterial material;
     material.materialType = 0;
     chunk->setMaterial(localChunkPos, material);
-    
 
     // Check if the broken block is on a chunk boundary
     // If so, regenerate neighboring chunks that might be affected
@@ -95,52 +107,77 @@ void Application::breakBlock() {
     if (localChunkPos.z == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, -1));
     if (localChunkPos.z == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, 1));
 
-    // Regenerate neighboring chunks
+    // Regenerate neighboring chunks with null checks
     for (const auto& neighborPos : neighborsToUpdate) {
         auto neighborChunk = chunkManager.getChunk(neighborPos);
-        //std::cout << "localPos:    " << chunkWorldPos.x << " " << chunkWorldPos.y << " " << chunkWorldPos.z << std::endl;
-		//std::cout << "neighborPos: " << neighborPos.x << " " << neighborPos.y << " " << neighborPos.z << std::endl;
         if (neighborChunk && neighborChunk->getState() == ChunkState::Active) {
-            neighborChunk->generateMesh(chunkManager.getNeighbors(neighborPos));
-            neighborChunk->uploadToGPU(tex, buf, pip);
+            std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = chunkManager.getNeighbors(neighborPos);
+            neighborChunk->generateMesh(neighbors);
+            if (tex && buf && pip) { // Add null checks for GPU resources
+                neighborChunk->uploadToGPU(tex, buf, pip);
+            }
         }
     }
 
-    chunk->generateMesh(chunkManager.getNeighbors(chunkWorldPos));
-    chunk->uploadToGPU(tex, buf, pip);
+    // Regenerate the current chunk
+    std::array<std::shared_ptr<ThreadSafeChunk>, 6> currentNeighbors = chunkManager.getNeighbors(chunkWorldPos);
+    chunk->generateMesh(currentNeighbors);
+    if (tex && buf && pip) { // Add null checks for GPU resources
+        chunk->uploadToGPU(tex, buf, pip);
+    }
 }
 
 void Application::placeBlock() {
-    //std::cout << "placing block" << "\n";
-    // Early exit if no block is being looked at
-    if (placeBlockPos.x == 0 && placeBlockPos.y == 0 && placeBlockPos.z == 0) {
+    // Early exit if no block position is valid
+    if (placeBlockPos.x == INT_MAX || placeBlockPos.y == INT_MAX || placeBlockPos.z == INT_MAX) {
         return; // No valid block position
     }
+
+    // Bounds check to prevent coordinate overflow
+    const int MAX_WORLD_COORD = 1000000;
+    if (glm::abs(placeBlockPos.x) > MAX_WORLD_COORD ||
+        glm::abs(placeBlockPos.y) > MAX_WORLD_COORD ||
+        glm::abs(placeBlockPos.z) > MAX_WORLD_COORD) {
+        return;
+    }
+
     vec3 placeBlockPosf = vec3(placeBlockPos.x, placeBlockPos.y, placeBlockPos.z);
+
     // Calculate which chunk contains the block
     ivec3 chunkWorldPos = ivec3(glm::floor(placeBlockPosf / 32.0f));
+
+    // Additional bounds check for chunk position
+    if (glm::abs(chunkWorldPos.x) > MAX_WORLD_COORD / 32 ||
+        glm::abs(chunkWorldPos.y) > MAX_WORLD_COORD / 32 ||
+        glm::abs(chunkWorldPos.z) > MAX_WORLD_COORD / 32) {
+        return;
+    }
+
     std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
 
-    // Check if chunk exists and is active
-    if (!chunk || chunk->getState() != ChunkState::Active) {
-        std::cout << "chunk not found or not active" << std::endl;
-		chunk->setState(ChunkState::Active);
+    // Check if chunk exists, create if needed but ensure it's in a valid state
+    if (!chunk) {
+        std::cout << "chunk not found for placing block" << std::endl;
+        return; // Don't create chunks on demand in place block
+    }
+
+    // Only place blocks in active chunks
+    if (chunk->getState() != ChunkState::Active) {
+        std::cout << "chunk not active for placing block" << std::endl;
+        return;
     }
 
     // Calculate local position within the chunk
     ivec3 localChunkPos = placeBlockPos - (chunkWorldPos * 32);
 
-    //std::cout << "localChunkPos: " << localChunkPos.x << " " << localChunkPos.y << " " << localChunkPos.z << std::endl;
-
     // Ensure local position is within chunk bounds
     if (localChunkPos.x < 0 || localChunkPos.x >= 32 ||
         localChunkPos.y < 0 || localChunkPos.y >= 32 ||
         localChunkPos.z < 0 || localChunkPos.z >= 32) {
-
         return;
     }
 
-	// Check if the area is empty (no voxel at this position)
+    // Check if the area is empty (no voxel at this position)
     if (chunk->getVoxel(localChunkPos)) {
         std::cout << "solid" << "\n";
         return;
@@ -152,7 +189,7 @@ void Application::placeBlock() {
     material.materialType = 4;
     chunk->setMaterial(localChunkPos, material);
 
-    // Check if the broken block is on a chunk boundary
+    // Check if the placed block is on a chunk boundary
     // If so, regenerate neighboring chunks that might be affected
     std::vector<ivec3> neighborsToUpdate;
 
@@ -166,24 +203,30 @@ void Application::placeBlock() {
     if (localChunkPos.z == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, -1));
     if (localChunkPos.z == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(0, 0, 1));
 
-    // Regenerate neighboring chunks
+    // Regenerate neighboring chunks with null checks
     for (const auto& neighborPos : neighborsToUpdate) {
         auto neighborChunk = chunkManager.getChunk(neighborPos);
-        //std::cout << "localPos:    " << chunkWorldPos.x << " " << chunkWorldPos.y << " " << chunkWorldPos.z << std::endl;
-        //std::cout << "neighborPos: " << neighborPos.x << " " << neighborPos.y << " " << neighborPos.z << std::endl;
         if (neighborChunk && neighborChunk->getState() == ChunkState::Active) {
-            neighborChunk->generateMesh(chunkManager.getNeighbors(neighborPos));
-            neighborChunk->uploadToGPU(tex, buf, pip);
+            std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = chunkManager.getNeighbors(neighborPos);
+            neighborChunk->generateMesh(neighbors);
+            if (tex && buf && pip) { // Add null checks for GPU resources
+                neighborChunk->uploadToGPU(tex, buf, pip);
+            }
         }
     }
 
-    chunk->generateMesh(chunkManager.getNeighbors(chunkWorldPos));
-    chunk->uploadToGPU(tex, buf, pip);
+    // Regenerate the current chunk
+    std::array<std::shared_ptr<ThreadSafeChunk>, 6> currentNeighbors = chunkManager.getNeighbors(chunkWorldPos);
+    chunk->generateMesh(currentNeighbors);
+    if (tex && buf && pip) { // Add null checks for GPU resources
+        chunk->uploadToGPU(tex, buf, pip);
+    }
 
-    if (wasEmpty) {
+    // Update bind group if this was an empty chunk
+    /*if (wasEmpty) {
         std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
         chunksNeedingBindGroupUpdate.insert(chunkWorldPos);
-    }
+    }*/
 }
 
 void Application::registerMovementCallbacks() {
@@ -223,62 +266,127 @@ void Application::MainLoop() {
     // Update camera position for chunk thread (atomic operation)
     lastChunkUpdateCameraPos.store(camera.position);
 
-    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> { return chunkManager.getChunk(c); };
+    // Bounds check camera position to prevent coordinate overflow
+    const float MAX_CAMERA_COORD = 500000.0f;
+    if (glm::abs(camera.position.x) > MAX_CAMERA_COORD ||
+        glm::abs(camera.position.y) > MAX_CAMERA_COORD ||
+        glm::abs(camera.position.z) > MAX_CAMERA_COORD) {
 
-    RayIntersectionResult result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+        camera.position.x = glm::clamp(camera.position.x, -MAX_CAMERA_COORD, MAX_CAMERA_COORD);
+        camera.position.y = glm::clamp(camera.position.y, -MAX_CAMERA_COORD, MAX_CAMERA_COORD);
+        camera.position.z = glm::clamp(camera.position.z, -MAX_CAMERA_COORD, MAX_CAMERA_COORD);
+        updateViewMatrix();
+    }
+
+    // Ray intersection (same as before)
+    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> {
+        try {
+            return chunkManager.getChunk(c);
+        }
+        catch (...) {
+            return nullptr;
+        }
+        };
+
+    RayIntersectionResult result;
+    try {
+        result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+    }
+    catch (...) {
+        result = RayIntersectionResult{ false, ivec3(INT_MAX), ivec3(INT_MAX) };
+    }
+
     if (result.hit) {
-        lookingAtBlockPos = result.hitVoxelPos;
-        placeBlockPos = result.adjacentVoxelPos;
+        const int MAX_BLOCK_COORD = 500000;
+        if (glm::abs(result.hitVoxelPos.x) <= MAX_BLOCK_COORD &&
+            glm::abs(result.hitVoxelPos.y) <= MAX_BLOCK_COORD &&
+            glm::abs(result.hitVoxelPos.z) <= MAX_BLOCK_COORD &&
+            glm::abs(result.adjacentVoxelPos.x) <= MAX_BLOCK_COORD &&
+            glm::abs(result.adjacentVoxelPos.y) <= MAX_BLOCK_COORD &&
+            glm::abs(result.adjacentVoxelPos.z) <= MAX_BLOCK_COORD) {
+
+            lookingAtBlockPos = result.hitVoxelPos;
+            placeBlockPos = result.adjacentVoxelPos;
+        }
+        else {
+            lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+            placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+        }
     }
     else {
         lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+        placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
     }
 
     if (shouldBreakBlock) {
-        breakBlock();
+        try { breakBlock(); }
+        catch (...) { std::cerr << "Exception in breakBlock()" << std::endl; }
         shouldBreakBlock = false;
     }
 
     if (shouldPlaceBlock) {
-        placeBlock();
+        try { placeBlock(); }
+        catch (...) { std::cerr << "Exception in placeBlock()" << std::endl; }
         shouldPlaceBlock = false;
     }
 
-    uniforms.highlightedVoxelPos = lookingAtBlockPos;
+    if (lookingAtBlockPos.x != INT_MAX && lookingAtBlockPos.y != INT_MAX && lookingAtBlockPos.z != INT_MAX) {
+        uniforms.highlightedVoxelPos = lookingAtBlockPos;
+    }
+    else {
+        uniforms.highlightedVoxelPos = ivec3(0, 0, 0);
+    }
 
     uniforms.cameraWorldPos = camera.position;
-    
+
     static float lastDebugTime = 0.0f;
     if (currentFrame - lastDebugTime > 1.0f) {
-        chunkManager.printChunkStates();
+        try {
+            chunkManager.printChunkStates();
+        }
+        catch (...) {
+            std::cerr << "Exception in printChunkStates()" << std::endl;
+        }
         lastDebugTime = currentFrame;
     }
 
-    static float lastChunkUpdate = 0.0f;
-    const float CHUNK_UPDATE_INTERVAL = 0.02f;
+    // OPTIMIZED: Use the new optimized processing methods
+    try {
+        chunkManager.processGPUUploads(tex, buf, pip);
+    }
+    catch (...) {
+        std::cerr << "Exception in processGPUUploads()" << std::endl;
+    }
 
-    bool timeForUpdate = (currentFrame - lastChunkUpdate) > CHUNK_UPDATE_INTERVAL;
+    try {
+        chunkManager.processBindGroupUpdates();
+    }
+    catch (...) {
+        std::cerr << "Exception in processBindGroupUpdates()" << std::endl;
+    }
 
-    // Update chunks with adaptive frequency
-    /*if (timeForUpdate) {
-        chunkManager.updateChunks(camera.position, tex, buf, pip);
-        lastChunkUpdate = currentFrame;
-    }*/
+    // OPTIMIZED: Use visible chunk rendering with distance culling
+    std::vector<ChunkRenderData> renderData;
+    try {
+        renderData = chunkManager.getChunkRenderData();
+    }
+    catch (...) {
+        std::cerr << "Exception in getVisibleChunkRenderData()" << std::endl;
+        renderData.clear();
+    }
 
-    // Process GPU uploads from chunk thread(main thread only)
-    processGPUUploads();
-
-    // Process bind group updates (main thread only)
-    processBindGroupUpdates();
-
-    std::vector<ChunkRenderData> renderData = chunkManager.getChunkRenderData();
-
-    if (!renderData.empty())
-        gpu.renderChunks(uniforms, renderData);
+    if (!renderData.empty()) {
+        try {
+            gpu.renderChunks(uniforms, renderData);
+        }
+        catch (...) {
+            std::cerr << "Exception in renderChunks()" << std::endl;
+        }
+    }
 
     frameTime = static_cast<float>(glfwGetTime()) - currentFrame;
 
-    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
+    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f;
     if (frameTime < TARGET_FRAME_TIME) {
         float sleepTime = (TARGET_FRAME_TIME - frameTime);
         std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
@@ -295,18 +403,6 @@ void Application::startChunkUpdateThread() {
     chunkUpdateThread = std::thread(&Application::chunkUpdateThreadFunction, this);
 }
 
-void Application::stopChunkUpdateThread() {
-    if (!chunkUpdateThreadRunning.load()) {
-        return; // Not running
-    }
-
-    shouldStopChunkThread.store(true);
-    if (chunkUpdateThread.joinable()) {
-        chunkUpdateThread.join();
-    }
-    chunkUpdateThreadRunning.store(false);
-}
-
 void Application::chunkUpdateThreadFunction() {
     float lastUpdateTime = 0.0f;
 
@@ -320,11 +416,11 @@ void Application::chunkUpdateThreadFunction() {
 
             // Collect chunks that need GPU upload
             {
-                std::lock_guard<std::mutex> lock(gpuUploadMutex);
+                std::lock_guard<std::mutex> lock(chunkManager.gpuUploadMutex);
 
                 auto readyChunks = chunkManager.getChunksReadyForGPU();
                 for (const auto& pair : readyChunks) {
-                    pendingGPUUploads.push({ pair.first, pair.second });
+                    chunkManager.pendingGPUUploads.push({ pair.first, pair.second });
                 }
             }
 
@@ -336,47 +432,16 @@ void Application::chunkUpdateThreadFunction() {
     }
 }
 
-void Application::processGPUUploads() {
-    std::lock_guard<std::mutex> lock(gpuUploadMutex);
-
-    // Limit uploads per frame to prevent stutter
-    const int MAX_UPLOADS_PER_FRAME = 128;
-    int uploadsThisFrame = 0;
-
-    while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {
-        GPUUploadItem item = pendingGPUUploads.front();
-        pendingGPUUploads.pop();
-
-        if (item.chunk && item.chunk->getState() == ChunkState::MeshReady) {
-            item.chunk->uploadToGPU(tex, buf, pip);
-
-            // Mark for bind group update
-            /*if (item.chunk->getState() == ChunkState::Active) {
-                std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
-                chunksNeedingBindGroupUpdate.insert(item.chunkPos);
-            }*/
-        }
-
-        uploadsThisFrame++;
-    }
-}
-
-void Application::processBindGroupUpdates() {
-    std::lock_guard<std::mutex> lock(bindGroupUpdateMutex);
-
-    for (const auto& chunkPos : chunksNeedingBindGroupUpdate) {
-        auto chunk = chunkManager.getChunk(chunkPos);
-        if (chunk && chunk->getState() == ChunkState::Active) {
-            if (chunk->hasMaterialTexture()) {
-                chunk->updateMaterialBindGroup(pip, tex);
-            }
-            if (chunk->hasChunkDataBuffer()) {
-                chunk->updateChunkDataBindGroup(pip, buf);
-            }
-        }
+void Application::stopChunkUpdateThread() {
+    if (!chunkUpdateThreadRunning.load()) {
+        return; // Not running
     }
 
-    chunksNeedingBindGroupUpdate.clear();
+    shouldStopChunkThread.store(true);
+    if (chunkUpdateThread.joinable()) {
+        chunkUpdateThread.join();
+    }
+    chunkUpdateThreadRunning.store(false);
 }
 
 void Application::onResize() {
@@ -424,7 +489,7 @@ void Application::updateProjectionMatrix(int zoom) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
-    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 1000.0f);
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 2500.0f);
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }

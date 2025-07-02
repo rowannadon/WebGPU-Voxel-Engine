@@ -38,17 +38,23 @@ BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
 }
 
-void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderData> chunkRenderData) {
-	// write frame uniforms
+void WebGPURenderer::renderChunks(MyUniforms& uniforms, const std::vector<ChunkRenderData>& chunkRenderData) {
+	// Early exit if no chunks to render
+	if (chunkRenderData.empty()) {
+		return;
+	}
+
+	// Write frame uniforms once
 	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
 
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
 	if (!targetView) return;
 
 	CommandEncoderDescriptor encoderDesc = Default;
-	encoderDesc.label = "My command encoder";
+	encoderDesc.label = "Chunk Render Encoder";
 	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
 
+	// Set up render pass
 	RenderPassDescriptor renderPassDesc = {};
 	RenderPassColorAttachment renderPassColorAttachment = {};
 	renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
@@ -59,7 +65,7 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 #ifndef WEBGPU_BACKEND_WGPU
 	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif
-	 
+
 	renderPassDesc.colorAttachmentCount = 1;
 	renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
@@ -75,21 +81,40 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	depthStencilAttachment.stencilReadOnly = true;
 
 	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
-
 	renderPassDesc.timestampWrites = nullptr;
 
 	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
 
+	// Set pipeline once
 	renderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
 
+	// Set global uniforms once
 	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
 
-	for (ChunkRenderData data : chunkRenderData) {
-		renderPass.setBindGroup(1, pipelineManager->getBindGroup(data.materialBindGroupName), 0, nullptr);
-		renderPass.setBindGroup(2, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
+	// Batch rendering - group chunks by material bind group to reduce state changes
+	const auto& firstChunk = chunkRenderData[0];
+	BindGroup currentMaterialBindGroup = firstChunk.materialBindGroup;
+	renderPass.setBindGroup(1, currentMaterialBindGroup, 0, nullptr);
 
-		renderPass.setVertexBuffer(0, bufferManager->getBuffer(data.vertexBufferName), 0, data.vertexBufferSize);
-		renderPass.setIndexBuffer(bufferManager->getBuffer(data.indexBufferName), IndexFormat::Uint16, 0, data.indexBufferSize);
+	// Render all chunks
+	for (const auto& data : chunkRenderData) {
+		// Validate render data
+		if (!data.isValid()) {
+			continue;
+		}
+
+		// Only change material bind group if different (reduces state changes)
+		if (data.materialBindGroup != currentMaterialBindGroup) {
+			currentMaterialBindGroup = data.materialBindGroup;
+			renderPass.setBindGroup(1, currentMaterialBindGroup, 0, nullptr);
+		}
+
+		// Set chunk-specific bind group and buffers
+		renderPass.setBindGroup(2, data.chunkDataBindGroup, 0, nullptr);
+		renderPass.setVertexBuffer(0, data.vertexBuffer, 0, data.vertexBufferSize);
+		renderPass.setIndexBuffer(data.indexBuffer, IndexFormat::Uint16, 0, data.indexBufferSize);
+
+		// Draw the chunk
 		renderPass.drawIndexed(data.indexCount, 1, 0, 0, 0);
 	}
 
@@ -97,7 +122,7 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	renderPass.release();
 
 	CommandBufferDescriptor cmdBufferDescriptor = {};
-	cmdBufferDescriptor.label = "Command buffer";
+	cmdBufferDescriptor.label = "Chunk Render Commands";
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
 
