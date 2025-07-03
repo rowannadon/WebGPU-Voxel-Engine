@@ -26,7 +26,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined;
     pipelineDesc.primitive.frontFace = FrontFace::CCW;
     pipelineDesc.primitive.cullMode = CullMode::Back;
-    pipelineDesc.multisample.count = 4;
+    pipelineDesc.multisample.count = config.sampleCount;
     pipelineDesc.multisample.mask = ~0u;
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
 
@@ -56,7 +56,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     fragmentState.targets = &colorTarget;
 
     MultisampleState multisampleState = Default;
-    multisampleState.count = 4;
+    multisampleState.count = config.sampleCount;
 
     pipelineDesc.multisample = multisampleState;
 

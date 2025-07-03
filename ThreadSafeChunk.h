@@ -17,6 +17,7 @@
 #include "Rendering/BufferManager.h"
 #include "Rendering/PipelineManager.h"
 #include "VoxelMaterial.h"
+#include "ChunkData.h"
 
 using glm::ivec3;
 using glm::vec3;
@@ -103,12 +104,7 @@ private:
 
     int textureSlot = 0;
 
-    struct ChunkData {
-        glm::ivec3 worldPosition;
-        uint32_t lod;
-        uint32_t textureSlot;
-        float _pad[3]; // Padding for 16-byte alignment
-    };
+
 
     static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
 

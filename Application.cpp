@@ -244,7 +244,7 @@ void Application::MainLoop() {
     }
 
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
-
+    uniforms.time = currentFrame;
     uniforms.cameraWorldPos = camera.position;
     
     static float lastDebugTime = 0.0f;
@@ -387,8 +387,9 @@ void Application::onResize() {
     gpu.getContext()->configureSurface();
 
     //// Re-init
-    gpu.initMultiSampleTexture();
-    gpu.initDepthTexture();
+    RenderConfig config;
+    gpu.initMultiSampleTexture(config);
+    gpu.initDepthTexture(config);
 
     updateProjectionMatrix(camera.zoom);
 }

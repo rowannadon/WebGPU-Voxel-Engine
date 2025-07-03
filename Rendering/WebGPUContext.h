@@ -17,6 +17,8 @@ struct RenderConfig {
     int height = 720;
 
     const char* title = "Voxel Engine";
+
+    int samples = 4;
 };
 
 struct MyUniforms {

@@ -64,7 +64,7 @@ class TexturePool {
         materialSamplerDesc.addressModeU = AddressMode::Repeat;
         materialSamplerDesc.addressModeV = AddressMode::Repeat;
         materialSamplerDesc.addressModeW = AddressMode::Repeat;
-        materialSamplerDesc.magFilter = FilterMode::Nearest; // Use nearest for discrete material data
+        materialSamplerDesc.magFilter = FilterMode::Nearest;
         materialSamplerDesc.minFilter = FilterMode::Nearest;
         materialSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
         materialSamplerDesc.lodMinClamp = 0.0f;

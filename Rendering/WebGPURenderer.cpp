@@ -14,9 +14,9 @@ bool WebGPURenderer::initialize() {
 
 	textureManager->createTexturePool("texture_pool");
 
-	initMultiSampleTexture();
-	initDepthTexture();
-	initRenderPipeline();
+	initMultiSampleTexture(config);
+	initDepthTexture(config);
+	initRenderPipeline(config);
 	initUniformBuffers();
 	initTextures();
 	initBindGroup();
@@ -112,7 +112,7 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	context->getDevice().tick();
 }
 
-bool WebGPURenderer::initMultiSampleTexture() {
+bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
 	int width, height;
 	glfwGetFramebufferSize(context->getWindow(), &width, &height);
 
@@ -122,7 +122,7 @@ bool WebGPURenderer::initMultiSampleTexture() {
 	multiSampleTextureDesc.dimension = TextureDimension::_2D;
 	multiSampleTextureDesc.format = multiSampleTextureFormat;
 	multiSampleTextureDesc.mipLevelCount = 1;
-	multiSampleTextureDesc.sampleCount = 4;
+	multiSampleTextureDesc.sampleCount = renderConfig.samples;
 	multiSampleTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 	multiSampleTextureDesc.usage = TextureUsage::RenderAttachment;
 	multiSampleTextureDesc.viewFormatCount = 0;
@@ -142,7 +142,7 @@ bool WebGPURenderer::initMultiSampleTexture() {
 	return multiSampleTextureView != nullptr;
 }
 
-bool WebGPURenderer::initDepthTexture() {
+bool WebGPURenderer::initDepthTexture(RenderConfig renderConfig) {
 	int width, height;
 	glfwGetFramebufferSize(context->getWindow(), &width, &height);
 
@@ -151,7 +151,7 @@ bool WebGPURenderer::initDepthTexture() {
 	depthTextureDesc.dimension = TextureDimension::_2D;
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
-	depthTextureDesc.sampleCount = 4;
+	depthTextureDesc.sampleCount = renderConfig.samples;
 	depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment;
 	depthTextureDesc.viewFormatCount = 0;
@@ -171,12 +171,12 @@ bool WebGPURenderer::initDepthTexture() {
 	return depthTextureView != nullptr;
 }
 
-bool WebGPURenderer::initRenderPipeline() {
+bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	PipelineConfig config;
 	config.shaderPath = RESOURCE_DIR "/shader.wgsl";
 	config.colorFormat = TextureFormat::BGRA8Unorm;
 	config.depthFormat = TextureFormat::Depth24Plus;
-	config.sampleCount = 4;
+	config.sampleCount = renderConfig.samples;
 	config.cullMode = CullMode::Back;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
@@ -219,7 +219,7 @@ bool WebGPURenderer::initRenderPipeline() {
 	chunkDataUniforms[0].binding = 0;
 	chunkDataUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	chunkDataUniforms[0].buffer.type = BufferBindingType::Uniform;
-	chunkDataUniforms[0].buffer.minBindingSize = 32; // sizeof(ChunkData)
+	chunkDataUniforms[0].buffer.minBindingSize = sizeof(ChunkData);
 	
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("chunkdata_uniforms", chunkDataUniforms)

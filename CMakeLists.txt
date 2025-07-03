@@ -15,7 +15,7 @@ add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
 # add_subdirectory(glm)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h webgpu-utils.h webgpu-utils.cpp "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/BufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h")
+add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h webgpu-utils.h webgpu-utils.cpp "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/BufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.

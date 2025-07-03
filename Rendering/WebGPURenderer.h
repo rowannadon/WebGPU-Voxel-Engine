@@ -31,9 +31,9 @@ public:
 
     void registerMovementCallbacks();
 
-    bool initMultiSampleTexture();
-    bool initDepthTexture();
-    bool initRenderPipeline();
+    bool initMultiSampleTexture(RenderConfig renderConfig);
+    bool initDepthTexture(RenderConfig renderConfig);
+    bool initRenderPipeline(RenderConfig renderConfig);
     bool initTextures();
     bool initUniformBuffers();
     bool initBindGroup();

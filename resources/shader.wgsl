@@ -328,6 +328,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     out.position = uMyUniforms.projectionMatrix * view_position;
+
+    if ((chunkData.lod > 0u) && (data.normal_index == 4u || data.normal_index == 5u)) {
+        out.position.z -= 0.00001; // Small bias towards camera
+    }
+
     out.normal = (uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz;
     out.uv = uv; 
     out.world_position = world_position.xyz;
@@ -344,14 +349,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(in.normal);
 
-    let lightDirection1 = normalize(vec3f(1.5, 1.0, 2.5));
-    let lightDirection2 = normalize(vec3f(-1.5, -1.0, 0.0));
+    let lightDirection1 = normalize(vec3f(0.6, 1.0, 0.5));
+    let lightDirection2 = normalize(vec3f(-1.0, -0.6, -0.5));
 
-    let shading1 = max(0.3, dot(lightDirection1, normal));
-    let shading2 = max(0.3, dot(lightDirection2, normal));
+    let shading1 = max(0.1, dot(lightDirection1, normal));
+    let shading2 = max(0.1, dot(lightDirection2, normal));
 
-    let lightColor1 = vec3f(0.7, 1.0, 0.95);
-    let lightColor2 = vec3f(1.0, 0.6, 0.4);
+    let lightColor1 = vec3f(0.95, 0.84, 0.75);
+    let lightColor2 = vec3f(0.15, 0.25, 0.30);
 
     var material_id: u32;
     
@@ -366,14 +371,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     var aoComp = 1.0;
     if (chunkData.lod > 0u) {
-        aoComp = 0.92;
+        aoComp = 0.98;
         // For LOD rendering, sample the 3D texture at the fragment's world position
         // Convert world position back to local chunk coordinates
         let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
         let local_world_pos = in.world_position - chunk_world_pos;
         
         // Convert local position to chunk-relative coordinates [0, 32)
-        let chunk_relative_pos = clamp(local_world_pos, vec3f(0.0), vec3f(31.999));
+        let chunk_relative_pos = clamp(local_world_pos, vec3f(0.01), vec3f(31.99));
         
         // Calculate the absolute position in the 3D texture
         let absolute_texture_pos = chunk_relative_pos + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
@@ -393,7 +398,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             sample_offset.z = -sign(normal.z) * epsilon;
         }
         
-        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.0), vec3f(0.999));
+        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.0), vec3f(0.99));
         
         // Sample the 3D material texture
         material_id = sample_material_3d(final_coords);
@@ -423,34 +428,38 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         }
     }
 
-    let atlas_uv = get_atlas_uv(in.uv, material_id-1);
+    let atlas_uv = get_atlas_uv(in.uv, material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
-    
     let shading = shading1 * lightColor1 + shading2 * lightColor2;
-
 
     let view = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
 
     let aoFadeNear = 300.0;
-    let aoFadeFar = 600.0;
+    let aoFadeFar = 500.0;
 
-    let aoFactor = min(1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0), max(dot(normal, view), 0.1));
+    let aoFactor = 1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0) * (1 - dot(normal, view));
     
-    let ao_adjusted = pow(in.ao, aoFactor);
+    let ao_adjusted = pow(in.ao, aoFactor * 0.75);
     
-    var baseColor = textureColor * shading * ao_adjusted * aoComp;
+    var baseColor = (textureColor/2) * (shading*3.6) * ao_adjusted * aoComp;
 
     if (in.highlighted > 0) {
-        baseColor *= 1.5;
+        baseColor *= 1.3;
     }
 
-    let fogNear = 850.0;
-    let fogFar = 1100.0;
-    let fogColor = vec3(0.7, 0.8, 0.9);
+    //let fogNear = 750.0;
+    //let fogFar = 1100.0;
+    //let fogColor = vec3(0.7, 0.8, 0.9);
 
-    let fogFactor = pow(clamp((in.fog_distance - fogNear) / (fogFar - fogNear), 0.0, 1.0), 1.2);
+    let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
+    let sunAmount = max(dot(view, -lightDirection1), 0.0 );
+
+    let fogColor  = mix( vec3(0.5,0.6,0.7), // blue
+                    vec3(1.0,0.9,0.7), // yellow
+                    pow(sunAmount,16.0) );
+
     let finalColor = mix(baseColor, fogColor, fogFactor);
 
     return vec4f(finalColor, 1.0);

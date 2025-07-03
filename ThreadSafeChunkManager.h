@@ -180,7 +180,7 @@ private:
 
         for (int x = -renderDistance; x <= renderDistance; ++x) {
             for (int y = -renderDistance; y <= renderDistance; ++y) {
-                for (int z = -renderDistance/4; z <= renderDistance/4; ++z) {
+                for (int z = -renderDistance/2; z <= renderDistance/2; ++z) {
                     ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
 
                     if (activeChunks < 8000) {
@@ -338,4 +338,4 @@ public:
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
     }
-}; 
+};
