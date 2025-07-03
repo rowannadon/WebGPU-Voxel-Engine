@@ -37,6 +37,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
+    textureSlot: u32,
 };
 
 struct UnpackedData {
@@ -354,6 +355,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     var material_id: u32;
     
+    // Constants for 3D texture layout
+    let CHUNKS_PER_ROW = 640u / 32u;  // 16 chunks per row
+    let TOTAL_TEXTURE_SIZE = 640.0;   // Total 3D texture size
+    
+    // Calculate the chunk's position in 3D texture space
+    let ox = chunkData.textureSlot % CHUNKS_PER_ROW;
+    let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
+    let oz = chunkData.textureSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
+    
     var aoComp = 1.0;
     if (chunkData.lod > 0u) {
         aoComp = 0.92;
@@ -362,37 +372,50 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
         let local_world_pos = in.world_position - chunk_world_pos;
         
-        // Convert to normalized texture coordinates [0,1], clamping to valid range
-        let texture_coords = clamp(local_world_pos / CHUNK_SIZE, vec3f(0.0), vec3f(1.0));
+        // Convert local position to chunk-relative coordinates [0, 32)
+        let chunk_relative_pos = clamp(local_world_pos, vec3f(0.0), vec3f(31.999));
         
-        // For bidirectional quads, we need to sample based on the normal direction
-        // to determine which side of the boundary we're rendering
+        // Calculate the absolute position in the 3D texture
+        let absolute_texture_pos = chunk_relative_pos + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
+        
+        // Normalize to [0, 1] for texture sampling
+        let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
+        
+        // For bidirectional quads, offset sampling position slightly based on normal
         var sample_offset = vec3f(0.0);
-        let epsilon = 0.9 / CHUNK_SIZE; // Half voxel offset
+        let epsilon = 0.5 / TOTAL_TEXTURE_SIZE; // Half voxel offset in texture space
         
-        // Offset sampling position slightly in the direction of the normal
-        // This ensures we sample the correct voxel on each side of the boundary
-        if (abs(normal.x) > 0.9) {
+        if (abs(normal.x) > 0.5) {
             sample_offset.x = -sign(normal.x) * epsilon;
-        } else if (abs(normal.y) > 0.9) {
+        } else if (abs(normal.y) > 0.5) {
             sample_offset.y = -sign(normal.y) * epsilon;
-        } else if (abs(normal.z) > 0.9) {
+        } else if (abs(normal.z) > 0.5) {
             sample_offset.z = -sign(normal.z) * epsilon;
         }
         
-        let adjusted_coords = clamp(texture_coords + sample_offset, vec3f(0.0), vec3f(0.999));
+        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.0), vec3f(0.999));
         
         // Sample the 3D material texture
-        material_id = sample_material_3d(adjusted_coords);
+        material_id = sample_material_3d(final_coords);
         
         // Discard air blocks (assuming material_id 0 is air)
         if (material_id == 0u) {
             discard;
         }
+
     } else {
         // Regular voxel rendering - sample at voxel center
-        let material_sample_pos = (in.voxel_pos + vec3f(0.5)) / CHUNK_SIZE;
-        material_id = sample_material_3d(material_sample_pos);
+        // Convert voxel position to absolute texture coordinates
+        let voxel_center = in.voxel_pos + vec3f(0.5); // Center of voxel
+        let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
+        
+        // Normalize to [0, 1] for texture sampling
+        let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
+        
+        // Clamp to valid range
+        let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
+        
+        material_id = sample_material_3d(final_coords);
         
         // Discard air blocks
         if (material_id == 0u) {
@@ -403,8 +426,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let atlas_uv = get_atlas_uv(in.uv, material_id-1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
-    let ao_adjusted = pow(in.ao, 1.0);
+    
     let shading = shading1 * lightColor1 + shading2 * lightColor2;
+
+
+    let view = normalize(uMyUniforms.cameraWorldPos - in.world_position);
+
+
+    let aoFadeNear = 300.0;
+    let aoFadeFar = 600.0;
+
+    let aoFactor = min(1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0), max(dot(normal, view), 0.1));
+    
+    let ao_adjusted = pow(in.ao, aoFactor);
     
     var baseColor = textureColor * shading * ao_adjusted * aoComp;
 
@@ -412,8 +446,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         baseColor *= 1.5;
     }
 
-    let fogNear = 250.0;
-    let fogFar = 850.0;
+    let fogNear = 850.0;
+    let fogFar = 1100.0;
     let fogColor = vec3(0.7, 0.8, 0.9);
 
     let fogFactor = pow(clamp((in.fog_distance - fogNear) / (fogFar - fogNear), 0.0, 1.0), 1.2);

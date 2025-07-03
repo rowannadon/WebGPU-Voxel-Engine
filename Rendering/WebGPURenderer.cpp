@@ -12,6 +12,8 @@ bool WebGPURenderer::initialize() {
 	bufferManager = std::make_unique<BufferManager>(context->getDevice(), context->getQueue());
 	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
 
+	textureManager->createTexturePool("texture_pool");
+
 	initMultiSampleTexture();
 	initDepthTexture();
 	initRenderPipeline();
@@ -84,8 +86,10 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 
 	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
 
+	renderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
+
 	for (ChunkRenderData data : chunkRenderData) {
-		renderPass.setBindGroup(1, pipelineManager->getBindGroup(data.materialBindGroupName), 0, nullptr);
+		
 		renderPass.setBindGroup(2, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
 
 		renderPass.setVertexBuffer(0, bufferManager->getBuffer(data.vertexBufferName), 0, data.vertexBufferSize);
@@ -207,26 +211,16 @@ bool WebGPURenderer::initRenderPipeline() {
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
 	);
 
-	std::vector<BindGroupLayoutEntry> materialUniforms(2, Default);
-	materialUniforms[0].binding = 0;
-	materialUniforms[0].visibility = ShaderStage::Fragment;
-	materialUniforms[0].texture.sampleType = TextureSampleType::Float;
-	materialUniforms[0].texture.viewDimension = TextureViewDimension::_3D;
-
-	materialUniforms[1].binding = 1;
-	materialUniforms[1].visibility = ShaderStage::Fragment;
-	materialUniforms[1].sampler.type = SamplerBindingType::Filtering;
-
 	config.bindGroupLayouts.push_back(
-		pipelineManager->createBindGroupLayout("material_uniforms", materialUniforms)
+		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
 	);
 
 	std::vector<BindGroupLayoutEntry> chunkDataUniforms(1, Default);
 	chunkDataUniforms[0].binding = 0;
 	chunkDataUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	chunkDataUniforms[0].buffer.type = BufferBindingType::Uniform;
-	chunkDataUniforms[0].buffer.minBindingSize = 16; // sizeof(ChunkData)
-
+	chunkDataUniforms[0].buffer.minBindingSize = 32; // sizeof(ChunkData)
+	
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("chunkdata_uniforms", chunkDataUniforms)
 	);
@@ -259,19 +253,6 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("atlas_sampler", samplerDesc);
-
-	SamplerDescriptor materialSamplerDesc;
-	materialSamplerDesc.addressModeU = AddressMode::ClampToEdge;
-	materialSamplerDesc.addressModeV = AddressMode::ClampToEdge;
-	materialSamplerDesc.addressModeW = AddressMode::ClampToEdge;
-	materialSamplerDesc.magFilter = FilterMode::Nearest; // Use nearest for discrete material data
-	materialSamplerDesc.minFilter = FilterMode::Nearest;
-	materialSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
-	materialSamplerDesc.lodMinClamp = 0.0f;
-	materialSamplerDesc.lodMaxClamp = 8.0f;
-	materialSamplerDesc.compare = CompareFunction::Undefined;
-	materialSamplerDesc.maxAnisotropy = 1;
-	textureManager->createSampler("material_sampler", materialSamplerDesc);
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 

@@ -1,9 +1,9 @@
 #ifndef BUFFER_MANAGER
 #define BUFFER_MANAGER
 
-
 #include <unordered_map>
 #include <webgpu/webgpu.hpp>
+#include "BufferPool.h"
 
 using namespace wgpu;
 
@@ -18,6 +18,7 @@ public:
     Buffer createBuffer(std::string bufferName, BufferDescriptor config);
     Buffer getBuffer(std::string bufferName);
     void writeBuffer(const std::string bufferName, uint64_t bufferOffset, void* data, size_t size);
+    //BufferPool createBufferPooled();
 
     void deleteBuffer(std::string bufferName);
 

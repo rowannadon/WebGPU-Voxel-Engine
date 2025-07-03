@@ -65,7 +65,6 @@ void Application::breakBlock() {
     if (localChunkPos.x < 0 || localChunkPos.x >= 32 ||
         localChunkPos.y < 0 || localChunkPos.y >= 32 ||
         localChunkPos.z < 0 || localChunkPos.z >= 32) {
-
         return;
     }
 
@@ -367,9 +366,6 @@ void Application::processBindGroupUpdates() {
     for (const auto& chunkPos : chunksNeedingBindGroupUpdate) {
         auto chunk = chunkManager.getChunk(chunkPos);
         if (chunk && chunk->getState() == ChunkState::Active) {
-            if (chunk->hasMaterialTexture()) {
-                chunk->updateMaterialBindGroup(pip, tex);
-            }
             if (chunk->hasChunkDataBuffer()) {
                 chunk->updateChunkDataBindGroup(pip, buf);
             }

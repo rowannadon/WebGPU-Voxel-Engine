@@ -2,6 +2,22 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "../stb_image.h"
 
+std::shared_ptr<TexturePool> TextureManager::createTexturePool(std::string name) {
+    auto pool = std::make_shared<TexturePool>();
+    pool->init(device, queue);
+
+    pools[name] = pool;
+    return pool;
+}
+
+std::shared_ptr<TexturePool> TextureManager::getTexturePool(std::string name) {
+    auto pool = pools.find(name);
+    if (pool != pools.end()) {
+        return pool->second;
+    }
+    return nullptr;
+}
+
 void TextureManager::writeTexture(const ImageCopyTexture& destination,
     const void* data, size_t size,
     const TextureDataLayout& source,

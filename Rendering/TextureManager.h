@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <webgpu/webgpu.hpp>
 #include <filesystem>
+#include "TexturePool.h"
 
 using namespace wgpu;
 
@@ -12,6 +13,7 @@ class TextureManager {
     std::unordered_map<std::string, Texture> textures;
     std::unordered_map<std::string, TextureView> textureViews;
     std::unordered_map<std::string, Sampler> samplers;
+    std::unordered_map<std::string, std::shared_ptr<TexturePool>> pools;
     Device device;
     Queue queue;
 
@@ -32,11 +34,14 @@ public:
     void removeTextureView(const std::string& name);
     void removeTexture(const std::string& name);
 
+    std::shared_ptr<TexturePool> createTexturePool(std::string name);
+    std::shared_ptr<TexturePool> getTexturePool(std::string name);
+
     void terminate();
 
 private:
     uint32_t bit_width(uint32_t m);
-    void TextureManager::writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
+    void writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
 };
 
 #endif

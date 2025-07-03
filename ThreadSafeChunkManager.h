@@ -50,16 +50,16 @@ private:
 
     ivec3 playerChunkPos;
 
-    int renderDistance = 24;
+    int renderDistance = 32;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
+    static constexpr int LOD_CHUNK_LEVEL = 32;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
 public:
     ThreadSafeChunkManager() {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
-
     }
 
     ~ThreadSafeChunkManager() {
@@ -68,17 +68,7 @@ public:
     }
 
     void updateChunksAsync(vec3 playerPos) {
-        playerChunkPos = ivec3(0, 0, 0); // glm::floor(playerPos / 32.0f));
-
-        removeDistantChunks(playerChunkPos);
-        queueNewChunks(playerChunkPos);
-        queueChunkBatchForGeneration(playerChunkPos);
-        generateTopsoil();
-        generateMeshes();
-    }
-
-    void updateChunks(vec3 playerPos, TextureManager *tex, PipelineManager *pip, BufferManager *buf) {
-        playerChunkPos = ivec3(glm::floor(playerPos / 32.0f));
+        playerChunkPos = vec3(0, 0, 2);//glm::floor(playerPos / 32.0f);
 
         removeDistantChunks(playerChunkPos);
         queueNewChunks(playerChunkPos);
@@ -166,7 +156,7 @@ private:
                 if (it != chunks.end()) {
                     if (it->second) {
                         it->second->setState(ChunkState::Unloading);
-                        it->second->cleanup(); // Cleanup resources
+                        //it->second->cleanup(); // Cleanup resources
                         it->second = nullptr; // Clear the shared pointer
                     }
                     chunks.erase(it->first);
@@ -181,15 +171,25 @@ private:
             pendingChunkCreation.pop();
         }
 
+        int activeChunks = 0;
+        for (auto pair : chunks) {
+            if (pair.second->getState() == ChunkState::Active) {
+                activeChunks++;
+            }
+        }
+
         for (int x = -renderDistance; x <= renderDistance; ++x) {
             for (int y = -renderDistance; y <= renderDistance; ++y) {
-                for (int z = -renderDistance/2; z <= renderDistance/2; ++z) {
+                for (int z = -renderDistance/4; z <= renderDistance/4; ++z) {
                     ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
 
-                    if (chunks.find(chunkPos) == chunks.end()) {
-                        float distSq = x * x + y * y + z * z;
-                        pendingChunkCreation.push({ chunkPos, distSq });
+                    if (activeChunks < 8000) {
+                        if (chunks.find(chunkPos) == chunks.end()) {
+                            float distSq = x * x + y * y + z * z;
+                            pendingChunkCreation.push({ chunkPos, distSq });
+                        }
                     }
+                    
                 }
             }
         }
@@ -205,7 +205,7 @@ private:
                 float distanceFromPlayer = glm::length(vec3(nextChunk.position) - vec3(playerChunkPos));
                 uint32_t lodlevel = 0;
 
-                if (distanceFromPlayer > 4) {
+                if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
                     lodlevel = 1;
 				}
 
@@ -338,4 +338,4 @@ public:
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
     }
-};
+}; 
