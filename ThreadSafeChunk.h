@@ -323,7 +323,7 @@ public:
     }
 
     void generateTerrain() {
-        setState(ChunkState::GeneratingMesh);
+        setState(ChunkState::GeneratingTerrain);
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < CHUNK_SIZE; z++) {
@@ -453,7 +453,7 @@ public:
                 for (int z = 0; z < CHUNK_SIZE; z++) {
                     if (getVoxel(ivec3(x, y, z))) {
                         vec3 pos = vec3(position + ivec3(x, y, z));
-                        float noiseValue = worldGen.sample3D2(pos);
+                        float noiseValue = 0.5; // worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = 3; // stone
@@ -572,7 +572,7 @@ public:
         }
 
         if (solidVoxels.load() == 0) {
-            setState(ChunkState::MeshReady);
+            setState(ChunkState::Air);
             return true;
         }
 

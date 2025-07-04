@@ -12,14 +12,14 @@ public:
     FastNoise::SmartNode<> fnGenerator2;
 	
 	uint32_t seed = 0;
-	float noiseScale = 0.01f;
+	float noiseScale = 0.006f;
 	float noiseScale2 = 0.05f;
     int CHUNK_SIZE = 32;
 
 public:
 	bool initialize(uint32_t s) {
 		seed = s;
-        fnGenerator = FastNoise::NewFromEncodedNodeTree("EAA9Cte+GQAbABMAAAAAPw0ABgAAAFK43j8JAACuRyE/AM3MzL0BEwAK1yM+CAABBAAAAAAA7FG4vgAAAAAAAAAAAAAAAArXIz0AAAAAAAAAAADD9Sg/");
+        fnGenerator = FastNoise::NewFromEncodedNodeTree("IAAPAAMAAAAAAABAIAARAAQAAABmZuY/EAAK16M9GQATAJqZmT4NAAYAAAAAAABACQAAZmYmPwAAAAA/AQQAAAAAAK5H4b4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI/CvwC4HoU/AFyPwj4BBAAAAAAAAADIwgAAAAAAAAAAAAAAAD0KVz8AAAAAAAAAAAAAAMhCAHE9Cj8AmpkZQAEEAAAAAAAfhVvBAAAAAAAAAAAAAAAArkdhvgAAAAAAAAAAAFyPakE=");
         fnGenerator2 = FastNoise::NewFromEncodedNodeTree("EAApXI8/JQAK1yM+cT1KQArXIz49Clc/EwC4HoU/DQAEAAAAAAAgQAkAAGZmJj8AAAAAPwDhehQ/");
         return true;
 	}

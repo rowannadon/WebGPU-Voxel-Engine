@@ -63,6 +63,11 @@ const ATLAS_TILES_Y: f32 = 3.0;
 const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
 const CHUNK_SIZE: f32 = 32.0;
 
+// Distance-based shading fade constants
+const SHADING_FADE_START: f32 = 300.0;  // Distance where shading starts to fade
+const SHADING_FADE_END: f32 = 600.0;    // Distance where shading is completely flat
+const MIN_SHADING_CONTRAST: f32 = 0.1;  // Minimum contrast to maintain
+
 fn sample_material_3d(local_pos: vec3<f32>) -> u32 {
     let sample = textureSample(material_texture_3d, material_sampler_3d, local_pos);
     let r = u32(sample.r * 255.0 + 0.5);
@@ -349,19 +354,29 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let normal = normalize(in.normal);
 
-    let lightDirection1 = normalize(vec3f(0.6, 1.0, 0.5));
+    let lightDirection1 = normalize(vec3f(0.6, 1.0, 1.0));
     let lightDirection2 = normalize(vec3f(-1.0, -0.6, -0.5));
 
     let shading1 = max(0.1, dot(lightDirection1, normal));
     let shading2 = max(0.1, dot(lightDirection2, normal));
 
-    let lightColor1 = vec3f(0.95, 0.84, 0.75);
+    let lightColor1 = vec3f(0.95, 0.80, 0.70);
     let lightColor2 = vec3f(0.15, 0.25, 0.30);
+
+    // Calculate distance-based shading fade factor
+    let shadingFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
+    
+    // Blend between full shading and minimal shading based on distance
+    let flatShading1 = mix(0.5, shading1, MIN_SHADING_CONTRAST);
+    let flatShading2 = mix(0.5, shading2, MIN_SHADING_CONTRAST);
+    
+    let distanceAdjustedShading1 = mix(flatShading1, shading1, shadingFadeFactor);
+    let distanceAdjustedShading2 = mix(flatShading2, shading2, shadingFadeFactor);
 
     var material_id: u32;
     
     // Constants for 3D texture layout
-    let CHUNKS_PER_ROW = 640u / 32u;  // 16 chunks per row
+    let CHUNKS_PER_ROW = 640u / 32u;  // 20 chunks per row
     let TOTAL_TEXTURE_SIZE = 640.0;   // Total 3D texture size
     
     // Calculate the chunk's position in 3D texture space
@@ -371,7 +386,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     var aoComp = 1.0;
     if (chunkData.lod > 0u) {
-        aoComp = 0.98;
+        aoComp = 1.0;
         // For LOD rendering, sample the 3D texture at the fragment's world position
         // Convert world position back to local chunk coordinates
         let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -398,7 +413,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             sample_offset.z = -sign(normal.z) * epsilon;
         }
         
-        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.0), vec3f(0.99));
+        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.001), vec3f(0.999));
         
         // Sample the 3D material texture
         material_id = sample_material_3d(final_coords);
@@ -431,32 +446,37 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let atlas_uv = get_atlas_uv(in.uv, material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
-    let shading = shading1 * lightColor1 + shading2 * lightColor2;
+    // Use the distance-adjusted shading instead of the original shading
+    let shading = distanceAdjustedShading1 * lightColor1 + distanceAdjustedShading2 * lightColor2;
 
     let view = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
+    let aoFadeNear = 400.0;
+    let aoFadeFar = 600.0;
 
-    let aoFadeNear = 300.0;
-    let aoFadeFar = 500.0;
+    let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));// * dot(normal, view);
+    
+    // Also apply distance-based fade to AO for consistency
+    let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
+    let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
+    
+    let ao_adjusted = pow(in.ao, distanceAdjustedAoFactor * 0.5);
 
-    let aoFactor = 1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0) * (1 - dot(normal, view));
+    let shadingFadeNear = 600.0;
+    let shadingFadeFar = 800.0;
+
+    let shadingFactor = 1.0 - clamp((in.fog_distance - shadingFadeNear) / (shadingFadeFar - shadingFadeNear), 0.0, 1.0);
     
-    let ao_adjusted = pow(in.ao, aoFactor * 0.75);
-    
-    var baseColor = (textureColor/2) * (shading*3.6) * ao_adjusted * aoComp;
+    var baseColor = clamp((textureColor/2) * (shading*4) * ao_adjusted * aoComp, vec3f(0.0), vec3f(1.0));
 
     if (in.highlighted > 0) {
         baseColor *= 1.3;
     }
 
-    //let fogNear = 750.0;
-    //let fogFar = 1100.0;
-    //let fogColor = vec3(0.7, 0.8, 0.9);
-
-    let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
+    let fogFactor = 1.0 - exp(-in.fog_distance * 0.001);
     let sunAmount = max(dot(view, -lightDirection1), 0.0 );
 
-    let fogColor  = mix( vec3(0.5,0.6,0.7), // blue
+    let fogColor  = mix( vec3(0.4,0.5,0.7), // blue
                     vec3(1.0,0.9,0.7), // yellow
                     pow(sunAmount,16.0) );
 

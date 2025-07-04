@@ -50,7 +50,7 @@ private:
     std::condition_variable queueCondition;
     std::atomic<bool> shouldStop{ false };
 
-    static constexpr int NUM_WORKER_THREADS = 8;
+    static constexpr int NUM_WORKER_THREADS = 6;
     static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr int HIGH_PRIORITY = 100;
     static constexpr int NORMAL_PRIORITY = 0;
@@ -191,14 +191,14 @@ private:
                 return;
             }
 
-            /*ChunkState currentState = workItem.chunk->getState();
+            ChunkState currentState = workItem.chunk->getState();
             if (currentState != ChunkState::Empty) {
                 return;
             }
 
             if (currentState == ChunkState::Unloading) {
                 return;
-            }*/
+            }
 
             workItem.chunk->generateTerrain();
         }
@@ -216,15 +216,14 @@ private:
                 return;
             }
 
-            /*ChunkState currentState = workItem.chunk->getState();
-
+            ChunkState currentState = workItem.chunk->getState();
             if (currentState != ChunkState::TerrainReady) {
                 return;
             }
 
             if (currentState == ChunkState::Unloading) {
                 return;
-            }*/
+            }
 
             workItem.chunk->generateTopsoil(workItem.neighbors);
         }
@@ -243,16 +242,16 @@ private:
             }
 
             ChunkState currentState = workItem.chunk->getState();
-            /*if (currentState != ChunkState::GeneratingMesh && currentState != ChunkState::RegeneratingMesh) {
-                return;
-            }
-
-            if (currentState == ChunkState::Unloading) {
+            /*if (currentState != ChunkState::TopsoilReady && currentState != ChunkState::Active) {
                 return;
             }*/
 
+            if (currentState == ChunkState::Unloading) {
+                return;
+            }
+
             if (workItem.chunk->getSolidVoxels() == 0) {
-                workItem.chunk->setState(ChunkState::MeshReady);
+                workItem.chunk->setState(ChunkState::Air);
                 return;
             }
 

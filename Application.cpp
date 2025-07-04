@@ -258,12 +258,6 @@ void Application::MainLoop() {
 
     bool timeForUpdate = (currentFrame - lastChunkUpdate) > CHUNK_UPDATE_INTERVAL;
 
-    // Update chunks with adaptive frequency
-    /*if (timeForUpdate) {
-        chunkManager.updateChunks(camera.position, tex, buf, pip);
-        lastChunkUpdate = currentFrame;
-    }*/
-
     // Process GPU uploads from chunk thread(main thread only)
     processGPUUploads();
 

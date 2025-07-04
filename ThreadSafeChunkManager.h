@@ -52,8 +52,8 @@ private:
 
     int renderDistance = 32;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int LOD_CHUNK_LEVEL = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
+    static constexpr int LOD_CHUNK_LEVEL = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -250,12 +250,11 @@ private:
                     }
 
                     if (allNeighborsReady) {
-                        chunk->setState(ChunkState::GeneratingTopsoil);
                         workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
                     }
                 }
                 else {
-                    chunk->setState(ChunkState::MeshReady);
+                    chunk->setState(ChunkState::Air);
                 }
             }
         }

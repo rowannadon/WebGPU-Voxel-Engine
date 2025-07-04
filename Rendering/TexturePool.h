@@ -2,7 +2,7 @@
 #include <webgpu/webgpu.hpp>
 #include "../glm/glm.hpp"
 #include "../VoxelMaterial.h"
-
+#include <mutex>
 
 using namespace wgpu;
 using glm::ivec3;
@@ -20,6 +20,8 @@ class TexturePool {
     BindGroupLayout bindGroupLayout;
     BindGroup bindGroup;
     Sampler sampler;
+
+    std::mutex dataMutex;
 
     const uint32_t CHUNK_SIZE = 32;
     const uint32_t MAX_TEXTURE_SIZE = 640;
@@ -150,17 +152,20 @@ public:
     }
 
     int allocateSlot(std::string id) {
+        std::lock_guard<std::mutex> lock(dataMutex);
         int freeSlot = findFreeSlot();
         if (freeSlot != -1) {
             // we got a slot
-            map[id] = freeSlot;
             slotOccupancy[freeSlot].store(true);
+            map[id] = freeSlot;
+            
             return freeSlot;
         }
         return -1;
     }
 
     void deAllocateSlot(std::string id) {
+        std::lock_guard<std::mutex> lock(dataMutex);
         int freeSlot = map.find(id)->second;
         map.erase(id);
         slotOccupancy[freeSlot].store(false);
@@ -171,6 +176,7 @@ public:
     }
 
     void writeToSlot(std::string id, std::vector<VoxelMaterial> materialData) {
+        std::lock_guard<std::mutex> lock(dataMutex);
         int index = map.find(id)->second;
         ivec3 pos = get3DPos(index);
 
