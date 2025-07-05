@@ -21,6 +21,7 @@
 #include <chrono>
 #include <array>
 #include <thread>
+#include <numeric>
 
 using namespace wgpu;
 
@@ -116,12 +117,15 @@ private:
     GLFWwindow* window;
 
     FirstPersonCamera camera;
+    std::mutex cameraMutex;
     MouseState mouseState;
     KeyStates keyStates;
 
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
     float frameTime = 0.0f;
+
+    std::vector<float> frameTimes;
 
     ThreadSafeChunkManager chunkManager;
     ivec3 chunkPosition;
@@ -140,9 +144,6 @@ private:
     // Thread-safe communication between main and chunk update threads
     std::mutex chunkUpdateMutex;
     std::atomic<bool> hasPendingChunkUpdates{ false };
-
-    // Camera position for chunk updates (thread-safe)
-    std::atomic<glm::vec3> lastChunkUpdateCameraPos{ glm::vec3(0.0f) };
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };

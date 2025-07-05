@@ -219,12 +219,12 @@ void Application::MainLoop() {
     glfwPollEvents();
     processInput();
 
-    // Update camera position for chunk thread (atomic operation)
-    lastChunkUpdateCameraPos.store(camera.position);
-
     auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> { return chunkManager.getChunk(c); };
-
-    RayIntersectionResult result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+    RayIntersectionResult result;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+    }
     if (result.hit) {
         lookingAtBlockPos = result.hitVoxelPos;
         placeBlockPos = result.adjacentVoxelPos;
@@ -247,11 +247,7 @@ void Application::MainLoop() {
     uniforms.time = currentFrame;
     uniforms.cameraWorldPos = camera.position;
     
-    static float lastDebugTime = 0.0f;
-    if (currentFrame - lastDebugTime > 1.0f) {
-        chunkManager.printChunkStates();
-        lastDebugTime = currentFrame;
-    }
+    
 
     static float lastChunkUpdate = 0.0f;
     const float CHUNK_UPDATE_INTERVAL = 0.02f;
@@ -270,6 +266,22 @@ void Application::MainLoop() {
         gpu.renderChunks(uniforms, renderData);
 
     frameTime = static_cast<float>(glfwGetTime()) - currentFrame;
+
+    frameTimes.push_back(frameTime);
+    if (frameTimes.size() > 100) {
+        frameTimes.erase(frameTimes.begin());
+    }
+
+    float average = std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0) / frameTimes.size();
+
+    static float lastDebugTime = 0.0f;
+    if (currentFrame - lastDebugTime > 1.0f) {
+        chunkManager.printChunkStates();
+        std::cout << ((1.0f / average) / 144.0f) * 100.0f << "\n";
+
+        lastDebugTime = currentFrame;
+    }
+
 
     constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
     if (frameTime < TARGET_FRAME_TIME) {
@@ -307,7 +319,11 @@ void Application::chunkUpdateThreadFunction() {
         float currentTime = static_cast<float>(glfwGetTime());
 
         if (currentTime - lastUpdateTime >= CHUNK_UPDATE_INTERVAL) {
-            vec3 cameraPos = lastChunkUpdateCameraPos.load();
+            vec3 cameraPos;
+            {
+                std::lock_guard<std::mutex> lock(cameraMutex);
+                cameraPos = camera.position;
+            }
 
             chunkManager.updateChunksAsync(cameraPos);
 
@@ -333,7 +349,7 @@ void Application::processGPUUploads() {
     std::lock_guard<std::mutex> lock(gpuUploadMutex);
 
     // Limit uploads per frame to prevent stutter
-    const int MAX_UPLOADS_PER_FRAME = 128;
+    const int MAX_UPLOADS_PER_FRAME = 10000;
     int uploadsThisFrame = 0;
 
     while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {
@@ -389,6 +405,8 @@ void Application::onResize() {
 }
 
 void Application::processInput() {
+    std::unique_lock<std::mutex> lock(cameraMutex);
+
     float velocity = camera.movementSpeed * deltaTime;
 
     // WASD movement
