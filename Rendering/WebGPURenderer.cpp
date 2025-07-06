@@ -13,6 +13,7 @@ bool WebGPURenderer::initialize() {
 	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
 
 	textureManager->createTexturePool("texture_pool");
+	textureManager->createTexturePool("texture_pool_light");
 
 	initMultiSampleTexture(config);
 	initDepthTexture(config);
@@ -88,9 +89,11 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 
 	renderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
 
+	renderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+
 	for (ChunkRenderData data : chunkRenderData) {
 		
-		renderPass.setBindGroup(2, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
+		renderPass.setBindGroup(3, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
 
 		renderPass.setVertexBuffer(0, bufferManager->getBuffer(data.vertexBufferName), 0, data.vertexBufferSize);
 		renderPass.setIndexBuffer(bufferManager->getBuffer(data.indexBufferName), IndexFormat::Uint16, 0, data.indexBufferSize);
@@ -213,6 +216,10 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 
 	config.bindGroupLayouts.push_back(
 		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
+	);
+
+	config.bindGroupLayouts.push_back(
+		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()
 	);
 
 	std::vector<BindGroupLayoutEntry> chunkDataUniforms(1, Default);

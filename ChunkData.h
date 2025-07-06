@@ -7,7 +7,8 @@ struct ChunkData {
     glm::ivec3 worldPosition;
     uint32_t lod;
     uint32_t textureSlot;
-    float _pad[3]; // Padding for 16-byte alignment
+    uint32_t lightSlot;
+    float _pad[2]; // Padding for 16-byte alignment
 };
 
 #endif

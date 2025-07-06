@@ -49,11 +49,13 @@ private:
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
     ivec3 playerChunkPos;
+	int numActiveChunks = 0;
+	int lastNumActiveChunks = 0;
 
-    int renderDistance = 32;
+    int renderDistance = 128;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
+    static constexpr int LOD_CHUNK_LEVEL = 32;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -68,13 +70,12 @@ public:
     }
 
     void updateChunksAsync(vec3 playerPos) {
-        playerChunkPos = vec3(0, 0, 2);//glm::floor(playerPos / 32.0f);
+        playerChunkPos = glm::floor(playerPos / 32.0f);
 
-        removeDistantChunks(playerChunkPos);
+        //removeDistantChunks(playerChunkPos);
         queueNewChunks(playerChunkPos);
         queueChunkBatchForGeneration(playerChunkPos);
-        generateTopsoil();
-        generateMeshes();
+        progressChunks();
     }
 
     // Get chunks ready for GPU upload
@@ -165,31 +166,58 @@ private:
         }
     }
 
+
     void queueNewChunks(ivec3 playerChunkPos) {
-        // Clear the queue but keep its memory allocated
-        while (!pendingChunkCreation.empty()) {
-            pendingChunkCreation.pop();
-        }
+        // Configuration
+        const int maxChunksPerIteration = 3;  // Limit chunks added per call
+        //const int maxActiveChunks = 8000;
 
-        int activeChunks = 0;
-        for (auto pair : chunks) {
-            if (pair.second->getState() == ChunkState::Active) {
-                activeChunks++;
-            }
-        }
+        //// Count active chunks
+        //int activeChunks = 0;
+        //for (auto pair : chunks) {
+        //    if (pair.second->getState() == ChunkState::Active) {
+        //        activeChunks++;
+        //    }
+        //}
 
-        for (int x = -renderDistance; x <= renderDistance; ++x) {
-            for (int y = -renderDistance; y <= renderDistance; ++y) {
-                for (int z = -renderDistance/2; z <= renderDistance/2; ++z) {
-                    ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
+        // Don't add more chunks if we're at the limit
+        /*if (activeChunks >= maxActiveChunks) {
+            return;
+        }*/
 
-                    if (activeChunks < 8000) {
+        int chunksAdded = 0;
+
+        // Onion skin approach: iterate by distance layers
+        for (int radius = 0; radius <= renderDistance && chunksAdded < maxChunksPerIteration; ++radius) {
+            // For each distance layer, check all positions at that Manhattan distance
+            for (int x = -radius; x <= radius && chunksAdded < maxChunksPerIteration; ++x) {
+                for (int y = -radius; y <= radius && chunksAdded < maxChunksPerIteration; ++y) {
+                    for (int z = -renderDistance / 2; z <= renderDistance / 2 && chunksAdded < maxChunksPerIteration; ++z) {
+                        // Only process chunks that are exactly at this radius (onion skin)
+                        int manhattanDist = abs(x) + abs(y) + abs(z);
+                        if (manhattanDist != radius) {
+                            continue;
+                        }
+
+                        // Check if within render distance (Euclidean)
+                        float distSq = x * x + y * y + z * z;
+                        if (distSq > renderDistance * renderDistance) {
+                            continue;
+                        }
+
+                        ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
+
+                        // If chunk doesn't exist, add it to the queue
                         if (chunks.find(chunkPos) == chunks.end()) {
-                            float distSq = x * x + y * y + z * z;
                             pendingChunkCreation.push({ chunkPos, distSq });
+                            chunksAdded++;
+
+                            // Stop if we've reached the limit for this iteration
+                            if (chunksAdded >= maxChunksPerIteration) {
+                                break;
+                            }
                         }
                     }
-                    
                 }
             }
         }
@@ -202,7 +230,10 @@ private:
             pendingChunkCreation.pop();
 
             if (chunks.find(nextChunk.position) == chunks.end()) {
-                float distanceFromPlayer = glm::length(vec3(nextChunk.position) - vec3(playerChunkPos));
+                float distanceFromPlayer = glm::abs(nextChunk.position.x - playerChunkPos.x) + 
+                    glm::abs(nextChunk.position.y - playerChunkPos.y) + 
+                    glm::abs(nextChunk.position.z - playerChunkPos.z);
+
                 uint32_t lodlevel = 0;
 
                 if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
@@ -212,24 +243,49 @@ private:
                 auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 chunks[nextChunk.position] = newChunk;
 
-                workerSystem->queueTerrainGeneration(newChunk, nextChunk.position);
+                workerSystem->queueTerrainGeneration(newChunk, nextChunk.position, distanceFromPlayer + 1);
 
                 chunksCreated++;
             }
         }
     }
 
-    void generateTopsoil() {
+    void progressChunks() {
         for (const auto& pair : chunks) {
-            if (pair.second && pair.second->getState() == ChunkState::TerrainReady) {
+            if (pair.second) {
                 std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
-                if (chunk->getSolidVoxels() > 0) {
-                    
-                    ivec3 chunkPos = pair.first;
-                    if (!chunk) continue;
+				ivec3 chunkPos = pair.first;
+                std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
+                if (pair.second->getState() == ChunkState::TerrainReady) {
+                    if (chunk->getSolidVoxels() > 0) {
+                        // Check if all existing neighbors are ready
+                        bool allNeighborsReady = true;
+                        for (int i = 0; i < 6; ++i) {
+                            auto neighbor = neighbors[i];
+                            if (neighbor == nullptr) {
+                                allNeighborsReady = false;
+                                break;
+                            }
+                            else {
+                                ChunkState neighborState = neighbor->getState();
+                                if (neighborState == ChunkState::Empty ||
+                                    neighborState == ChunkState::GeneratingTerrain ||
+                                    neighborState == ChunkState::Unloading) {
+                                    allNeighborsReady = false;
+                                    break;
+                                }
+                            }
+                        }
 
-                    std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
-
+                        if (allNeighborsReady) {
+                            workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
+                        }
+                    }
+                    else {
+                        chunk->setState(ChunkState::Air);
+                    }
+                }
+                else if (pair.second->getState() == ChunkState::TopsoilReady) {
                     // Check if all existing neighbors are ready
                     bool allNeighborsReady = true;
                     for (int i = 0; i < 6; ++i) {
@@ -242,7 +298,8 @@ private:
                             ChunkState neighborState = neighbor->getState();
                             if (neighborState == ChunkState::Empty ||
                                 neighborState == ChunkState::GeneratingTerrain ||
-                                neighborState == ChunkState::Unloading) {
+                                neighborState == ChunkState::Unloading ||
+                                neighborState == ChunkState::GeneratingTopsoil) {
                                 allNeighborsReady = false;
                                 break;
                             }
@@ -250,59 +307,22 @@ private:
                     }
 
                     if (allNeighborsReady) {
-                        workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
+                        chunk->setState(ChunkState::GeneratingMesh);
+                        workerSystem->queueMeshGeneration(chunk, chunkPos, neighbors);
                     }
-                }
-                else {
-                    chunk->setState(ChunkState::Air);
                 }
             }
-        }
-    }
-
-    void generateMeshes() {
-        for (const auto& pair : chunks) {
-            if (pair.second && pair.second->getState() == ChunkState::TopsoilReady) {
-                std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
-                ivec3 chunkPos = pair.first;
-                if (!chunk) continue;
-
-                std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
-
-                // Check if all existing neighbors are ready
-                bool allNeighborsReady = true;
-                for (int i = 0; i < 6; ++i) {
-                    auto neighbor = neighbors[i];
-                    if (neighbor == nullptr) {
-                        allNeighborsReady = false;
-                        break;
-                    }
-                    else {
-                        ChunkState neighborState = neighbor->getState();
-                        if (neighborState == ChunkState::Empty ||
-                            neighborState == ChunkState::GeneratingTerrain ||
-                            neighborState == ChunkState::Unloading ||
-                            neighborState == ChunkState::GeneratingTopsoil) {
-                            allNeighborsReady = false;
-                            break;
-                        }
-                    }
-                }
-
-                if (allNeighborsReady) {
-                    chunk->setState(ChunkState::GeneratingMesh);
-                    workerSystem->queueMeshGeneration(chunk, chunkPos, neighbors);
-                }
-            }
+            
         }
     }
 
 public:
     // Debug/monitoring functions
-    void printChunkStates() const {
+    void printChunkStates() {
         std::unordered_map<ChunkState, int> stateCounts;
         int totalChunks = 0;
 
+        lastNumActiveChunks = numActiveChunks;
         {
             for (const auto& pair : chunks) {
                 if (pair.second) {
@@ -312,6 +332,10 @@ public:
                 }
             }
         }
+
+		numActiveChunks = stateCounts[ChunkState::Active];
+
+		int numChunksAdded = numActiveChunks - lastNumActiveChunks;
 
         std::cout << "Chunks(" << totalChunks << "): ";
         std::cout << "Empty=" << stateCounts[ChunkState::Empty] << " ";
@@ -323,7 +347,10 @@ public:
         std::cout << "MeshReady=" << stateCounts[ChunkState::MeshReady] << " ";
         std::cout << "Upload=" << stateCounts[ChunkState::UploadingToGPU] << " ";
         std::cout << "Active=" << stateCounts[ChunkState::Active] << " ";
+        std::cout << "Added=" << numChunksAdded << " ";
         std::cout << "Air=" << stateCounts[ChunkState::Air] << " ";
+        std::cout << "Solid=" << stateCounts[ChunkState::Solid] << " ";
+
         std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
 
         std::cout << std::endl;

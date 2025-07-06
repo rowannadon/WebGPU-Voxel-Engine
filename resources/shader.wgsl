@@ -38,6 +38,7 @@ struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
     textureSlot: u32,
+    lightSlot: u32,
 };
 
 struct UnpackedData {
@@ -56,7 +57,10 @@ struct UnpackedData {
 @group(1) @binding(0) var material_texture_3d: texture_3d<f32>;
 @group(1) @binding(1) var material_sampler_3d: sampler;
 
-@group(2) @binding(0) var<uniform> chunkData: ChunkData;
+@group(2) @binding(0) var light_texture_3d: texture_3d<f32>;
+@group(2) @binding(1) var light_sampler_3d: sampler;
+
+@group(3) @binding(0) var<uniform> chunkData: ChunkData;
 
 const ATLAS_TILES_X: f32 = 3.0;
 const ATLAS_TILES_Y: f32 = 3.0;
@@ -70,6 +74,13 @@ const MIN_SHADING_CONTRAST: f32 = 0.1;  // Minimum contrast to maintain
 
 fn sample_material_3d(local_pos: vec3<f32>) -> u32 {
     let sample = textureSample(material_texture_3d, material_sampler_3d, local_pos);
+    let r = u32(sample.r * 255.0 + 0.5);
+    let g = u32(sample.g * 255.0 + 0.5);
+    return r | (g << 8u);
+}
+
+fn sample_light_3d(local_pos: vec3<f32>) -> u32 {
+    let sample = textureSample(light_texture_3d, light_sampler_3d, local_pos);
     let r = u32(sample.r * 255.0 + 0.5);
     let g = u32(sample.g * 255.0 + 0.5);
     return r | (g << 8u);
@@ -383,8 +394,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ox = chunkData.textureSlot % CHUNKS_PER_ROW;
     let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
     let oz = chunkData.textureSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
+
+    let olx = chunkData.lightSlot % CHUNKS_PER_ROW;
+    let oly = (chunkData.lightSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
+    let olz = chunkData.lightSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
     
     var aoComp = 1.0;
+    var light_level = 0.0;
     if (chunkData.lod > 0u) {
         aoComp = 1.0;
         // For LOD rendering, sample the 3D texture at the fragment's world position
@@ -428,15 +444,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // Convert voxel position to absolute texture coordinates
         let voxel_center = in.voxel_pos + vec3f(0.5); // Center of voxel
         let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-        
+
+        let normal_position = in.voxel_pos + vec3f(0.5) + normal;
+        let offset_normal_position = in.voxel_pos + vec3f(0.5) - 2*normal;
+        let absolute_light_pos = normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
+        let normal_offset_light_pos = offset_normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
+
         // Normalize to [0, 1] for texture sampling
         let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
-        
+        let light_texture_coords = absolute_light_pos / TOTAL_TEXTURE_SIZE;
+        let normal_offset_light_texture_coords = normal_offset_light_pos / TOTAL_TEXTURE_SIZE;
+
         // Clamp to valid range
         let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
+        let final_light_coords = clamp(light_texture_coords, vec3f(0.0), vec3f(0.999));
+        let normal_offset_final_light_coords = clamp(normal_offset_light_texture_coords, vec3f(0.0), vec3f(0.999));
         
         material_id = sample_material_3d(final_coords);
+        light_level = f32(sample_light_3d(final_light_coords));
+        let light_level_normal_offset = f32(sample_light_3d(normal_offset_final_light_coords));
         
+        if (light_level_normal_offset > light_level) {
+            light_level *= (2.5/15.0);
+        }
+
         // Discard air blocks
         if (material_id == 0u) {
             discard;
@@ -481,6 +512,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                     pow(sunAmount,16.0) );
 
     let finalColor = mix(baseColor, fogColor, fogFactor);
-
-    return vec4f(finalColor, 1.0);
+    let light_color = vec3(0.95, 0.75, 0.55);
+    return vec4f(finalColor * (0.75+((light_level / 33) * light_color)), 1.0);
 }

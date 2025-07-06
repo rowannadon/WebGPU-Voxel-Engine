@@ -25,7 +25,6 @@ using glm::vec2;
 
 struct ChunkRenderData {
     std::string chunkDataBindGroupName;
-    std::string materialBindGroupName;
 
     std::string indexBufferName;
     std::string vertexBufferName;
@@ -48,6 +47,7 @@ enum class ChunkState {
     Unloading,          // Being removed
     Air,                // Chunk is all air
     RegeneratingMesh,   // Mesh is being regenerated
+	Solid,              // Chunk is solid (no air voxels)
 };
 
 
@@ -65,7 +65,6 @@ private:
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
     static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
 
-    Texture material;
     ivec3 position;
     ivec3 id;
     std::string resourceId;
@@ -77,6 +76,10 @@ private:
     // material data
     std::vector<VoxelMaterial> materialData;
     mutable std::mutex materialDataMutex;
+
+    // light data
+    std::vector<VoxelMaterial> lightData;
+    mutable std::mutex lightDataMutex;
 
     // mesh data
     std::vector<VertexAttributes> vertexData;
@@ -93,16 +96,15 @@ private:
     std::string chunkDataBindGroupName;
     bool chunkDataBindGroupInitialized = false;
 
-    std::string materialTextureName;
-    std::string materialTextureViewName;
     bool materialInitialized = false;
-    std::string materialBindGroupName;
-    bool materialBindGroupInitialized = false;
+
+    bool lightInitialized = false;
 
     uint32_t vertexBufferSize;
     uint32_t indexBufferSize;
 
     int textureSlot = 0;
+    int lightSlot = 0;
 
 
 
@@ -123,6 +125,10 @@ public:
             materialData.resize(TOTAL_VOXELS);
         }
 
+        if (lightData.size() != TOTAL_VOXELS) {
+            lightData.resize(TOTAL_VOXELS);
+        }
+
         resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
     }
 
@@ -135,6 +141,37 @@ public:
     const ivec3& getPosition() const { return position; }
     void setPosition(const ivec3& pos) { position = pos; }
     std::string getResourceId() { return resourceId; }
+
+    void initializeLightTexture(TextureManager* tex) {
+        if (lightInitialized) {
+            return; // Already initialized
+        }
+
+        try {
+            lightSlot = tex->getTexturePool("texture_pool_light")->allocateSlot(getResourceId());
+            lightInitialized = true;
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to create 3D light texture: " << e.what() << std::endl;
+            lightInitialized = false;
+        }
+    }
+
+    void uploadLightTexture(TextureManager* tex) {
+        if (!lightInitialized || lightData.empty()) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(lightDataMutex);
+
+        try {
+            // Set up the destination for the texture write
+            tex->getTexturePool("texture_pool_light")->writeToSlot(getResourceId(), lightData);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to upload light texture: " << e.what() << std::endl;
+        }
+    }
 
     void initialize3DTexture(TextureManager *tex) {
         if (materialInitialized) {
@@ -199,6 +236,7 @@ public:
         chunkData.worldPosition = position;
         chunkData.lod = lod;
         chunkData.textureSlot = textureSlot;
+		chunkData.lightSlot = lightSlot;
 
         buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
     }
@@ -234,6 +272,35 @@ public:
 
     bool hasChunkDataBuffer() const {
         return chunkDataBufferInitialized;
+    }
+
+    VoxelMaterial getLight(ivec3 pos) const {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            return { 0 };
+        }
+
+        std::lock_guard<std::mutex> lock(lightDataMutex);
+        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+        if (index >= 0 && index < static_cast<int>(lightData.size())) {
+            return lightData[index];
+        }
+        return { 0 };
+    }
+
+    void setLight(ivec3 pos, const VoxelMaterial& material) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(lightDataMutex);
+        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+        if (index >= 0 && index < static_cast<int>(lightData.size())) {
+            lightData[index] = material;
+        }
     }
 
     VoxelMaterial getMaterial(ivec3 pos) const {
@@ -327,6 +394,10 @@ public:
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < CHUNK_SIZE; z++) {
+                    VoxelMaterial lightMaterial;
+                    lightMaterial.materialType = 0; // Default to air
+                    setLight(ivec3(x, y, z), lightMaterial);
+
                     ivec3 worldPos = ivec3(x, y, z) + position;
                     float noiseValue = worldGen.sample3D(vec3(worldPos.x, worldPos.z, worldPos.y));
                     if (noiseValue > -0.4) {
@@ -453,7 +524,7 @@ public:
                 for (int z = 0; z < CHUNK_SIZE; z++) {
                     if (getVoxel(ivec3(x, y, z))) {
                         vec3 pos = vec3(position + ivec3(x, y, z));
-                        float noiseValue = 0.5; // worldGen.sample3D2(pos);
+                        float noiseValue = worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = 3; // stone
@@ -500,22 +571,20 @@ public:
                             int maxHeightDifference = calculateSteepness(x, y, z);
 
                             // Determine material type based on steepness
-                            int materialType;
                             switch (maxHeightDifference) {
                             case 0:
                             case 1:
-                                materialType = 2; // grass
+                                material.materialType = 2; // grass
                                 break;
                             case 2:
-                                materialType = 1; // dirt
+                                material.materialType = 1; // dirt
                                 break;
                             default: // 3 or more
-                                //materialType = 3; // stone
                                 break;
                             }
 
                             // Apply materials to multiple layers
-                            if (materialType == 2) { // grass terrain
+                            if (material.materialType == 2) { // grass terrain
                                 // Top 2 layers: grass
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
@@ -535,7 +604,7 @@ public:
                                     }
                                 }
                             }
-                            else if (materialType == 1) { // dirt terrain
+                            else if (material.materialType == 1) { // dirt terrain
                                 // Top 3 layers: dirt
                                 for (int layer = 0; layer < 3; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
@@ -545,12 +614,6 @@ public:
                                         setMaterial(layerPos, material);
                                     }
                                 }
-                            }
-                            else { // stone terrain
-                                // Just set the surface block to stone
-                                VoxelMaterial material;
-                                material.materialType = 3; // stone
-                                setMaterial(ivec3(x, y, z), material);
                             }
                         }
                     }
@@ -1244,7 +1307,7 @@ public:
             indexCount = 0;
             indexBufferSize = 0;
             vertexBufferSize = 0;
-            setState(ChunkState::Air);
+            setState(ChunkState::Solid);
             return;
         }
 
@@ -1256,6 +1319,14 @@ public:
 
         if (materialInitialized) {
             uploadMaterialTexture(tex);
+        }
+
+        if (!lightInitialized) {
+            initializeLightTexture(tex);
+        }
+
+        if (lightInitialized) {
+            uploadLightTexture(tex);
         }
 
         if (!chunkDataBufferInitialized) {
@@ -1310,7 +1381,6 @@ public:
         ChunkRenderData renderData;
         if (state.load() == ChunkState::Active) {
             renderData.chunkDataBindGroupName = chunkDataBindGroupName;
-            renderData.materialBindGroupName = materialBindGroupName;
             renderData.indexBufferName = indexBufferName;
             renderData.vertexBufferName = vertexBufferName;
             renderData.indexBufferSize = indexBufferSize;
@@ -1346,6 +1416,10 @@ public:
             tex->getTexturePool("texture_pool")->deAllocateSlot(getResourceId());
             materialInitialized = false;
         }
+        if (lightInitialized) {
+            tex->getTexturePool("texture_pool_light")->deAllocateSlot(getResourceId());
+            lightInitialized = false;
+        }
         if (chunkDataBufferInitialized) {
             buf->deleteBuffer(chunkDataBufferName);
             chunkDataBufferInitialized = false;
@@ -1358,10 +1432,12 @@ public:
         std::lock_guard<std::mutex> lock1(voxelDataMutex);
         std::lock_guard<std::mutex> lock2(meshDataMutex);
         std::lock_guard<std::mutex> lock3(materialDataMutex);
+        std::lock_guard<std::mutex> lock4(lightDataMutex);
 
         vertexData.clear();
         indexData.clear();
         materialData.clear();
+        lightData.clear();
         solidVoxels.store(0);
         indexCount = 0;
     }

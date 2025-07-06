@@ -11,6 +11,7 @@
 
 //#include "magic_enum.hpp"
 
+#include <set>
 #include <iostream>
 #include <cassert>
 #include <vector>
@@ -56,6 +57,8 @@ private:
     void processInput();
     void breakBlock();
 	void placeBlock();
+
+    void propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk> chunk);
 
 private:
     struct FirstPersonCamera {
