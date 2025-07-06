@@ -169,13 +169,13 @@ void Application::placeBlock() {
     material.materialType = 0;
     chunk->setMaterial(localChunkPos, material);
 
-	propagateLight(localChunkPos, chunk);
+	propagateGlobalLight(placeBlockPos, 15);
 
     // Check if the broken block is on a chunk boundary
     // If so, regenerate neighboring chunks that might be affected
     std::vector<ivec3> neighborsToUpdate;
 
-    bool wasEmpty = (chunk->getSolidVoxels() == 1);
+    bool wasEmpty = (chunk->getSolidVoxels() == 1 );
 
     // Check each face of the chunk
     if (localChunkPos.x == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(-1, 0, 0));
@@ -202,6 +202,71 @@ void Application::placeBlock() {
     if (wasEmpty) {
         std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
         chunksNeedingBindGroupUpdate.insert(chunkWorldPos);
+    }
+}
+
+void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
+    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> affectedChunks;
+
+    // First, clear light in the affected area
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
+            for (int z = -radius; z <= radius; z++) {
+                ivec3 worldPos = centerPos + ivec3(x, y, z);
+                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
+
+                auto chunk = chunkManager.getChunk(chunkPos);
+                if (chunk && chunk->getState() == ChunkState::Active) {
+                    ivec3 localPos = worldPos - (chunkPos * 32);
+
+                    if (localPos.x >= 0 && localPos.x < 32 &&
+                        localPos.y >= 0 && localPos.y < 32 &&
+                        localPos.z >= 0 && localPos.z < 32) {
+
+                        if (!chunk->getVoxel(localPos)) {
+                            VoxelMaterial clearLight;
+                            clearLight.materialType = 0;
+                            chunk->setLight(localPos, clearLight);
+                            affectedChunks.insert(chunkPos);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Then, find all light sources in the area and re-propagate
+    for (int x = -radius; x <= radius; x++) {
+        for (int y = -radius; y <= radius; y++) {
+            for (int z = -radius; z <= radius; z++) {
+                ivec3 worldPos = centerPos + ivec3(x, y, z);
+                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
+
+                auto chunk = chunkManager.getChunk(chunkPos);
+                if (chunk && chunk->getState() == ChunkState::Active) {
+                    ivec3 localPos = worldPos - (chunkPos * 32);
+
+                    if (localPos.x >= 0 && localPos.x < 32 &&
+                        localPos.y >= 0 && localPos.y < 32 &&
+                        localPos.z >= 0 && localPos.z < 32) {
+
+                        // Check if this is a light source (for now, just placed blocks)
+                        if (chunk->getVoxel(localPos)) {
+                            // Re-propagate light from this source
+                            propagateGlobalLight(worldPos, 15);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update light textures for all affected chunks
+    for (const auto& chunkPos : affectedChunks) {
+        auto chunk = chunkManager.getChunk(chunkPos);
+        if (chunk && chunk->getState() == ChunkState::Active) {
+            chunk->uploadLightTexture(tex);
+        }
     }
 }
 
@@ -274,6 +339,134 @@ void Application::propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk
     }
 }
 
+void Application::propagateGlobalLight(ivec3 worldPosition, int lightLevel) {
+    // Enhanced light propagation that handles cross-chunk boundaries
+    const int MAX_LIGHT_LEVEL = 15;
+
+    // Use a queue for breadth-first traversal
+    std::queue<LightPropagationItem> lightQueue;
+    struct WorldPosHash {
+        std::size_t operator()(const ivec3& k) const {
+            std::size_t h1 = std::hash<int>{}(k.x);
+            std::size_t h2 = std::hash<int>{}(k.y);
+            std::size_t h3 = std::hash<int>{}(k.z);
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+
+    std::unordered_set<ivec3, WorldPosHash> visited;
+
+    // Start with the source position
+    lightQueue.push({ worldPosition, lightLevel, ivec3(0), ivec3(0) });
+    visited.insert(worldPosition);
+
+    // 6 directions for 3D propagation
+    const std::vector<ivec3> directions = {
+        {0, 1, 0},   // up
+        {0, -1, 0},  // down
+        {1, 0, 0},   // east
+        {-1, 0, 0},  // west
+        {0, 0, 1},   // north
+        {0, 0, -1}   // south
+    };
+
+    std::unordered_set<ivec3, WorldPosHash> chunksToUpdate;
+
+    while (!lightQueue.empty()) {
+        auto item = lightQueue.front();
+        lightQueue.pop();
+
+        // Calculate which chunk contains this world position
+        ivec3 chunkWorldPos = ivec3(glm::floor(vec3(item.worldPosition) / 32.0f));
+        std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
+
+        if (!chunk || chunk->getState() == ChunkState::Unloading) {
+            continue;
+        }
+
+        // Calculate local position within the chunk
+        ivec3 localPos = item.worldPosition - (chunkWorldPos * 32);
+
+        // Bounds check
+        if (localPos.x < 0 || localPos.x >= 32 ||
+            localPos.y < 0 || localPos.y >= 32 ||
+            localPos.z < 0 || localPos.z >= 32) {
+            continue;
+        }
+
+        // Skip if current position has a solid voxel
+        if (chunk->getVoxel(localPos)) {
+            continue;
+        }
+
+        // Get current light level and update if necessary
+        VoxelMaterial currentLight = chunk->getLight(localPos);
+        int newLightLevel = std::max(item.lightLevel, static_cast<int>(currentLight.materialType));
+
+        if (newLightLevel > currentLight.materialType) {
+            VoxelMaterial newLight;
+            newLight.materialType = newLightLevel;
+            chunk->setLight(localPos, newLight);
+            chunksToUpdate.insert(chunkWorldPos);
+        }
+
+        // If light level is 0, stop propagating from this position
+        if (item.lightLevel <= 0) {
+            continue;
+        }
+
+        // Propagate to all 6 neighboring positions
+        for (const auto& dir : directions) {
+            ivec3 neighborWorldPos = item.worldPosition + dir;
+
+            // Skip if we've already visited this position
+            if (visited.find(neighborWorldPos) != visited.end()) {
+                continue;
+            }
+
+            // Calculate neighbor chunk position
+            ivec3 neighborChunkPos = ivec3(glm::floor(vec3(neighborWorldPos) / 32.0f));
+            std::shared_ptr<ThreadSafeChunk> neighborChunk = chunkManager.getChunk(neighborChunkPos);
+
+            if (!neighborChunk || neighborChunk->getState() == ChunkState::Unloading) {
+                continue;
+            }
+
+            // Calculate local position in neighbor chunk
+            ivec3 neighborLocalPos = neighborWorldPos - (neighborChunkPos * 32);
+
+            // Bounds check
+            if (neighborLocalPos.x < 0 || neighborLocalPos.x >= 32 ||
+                neighborLocalPos.y < 0 || neighborLocalPos.y >= 32 ||
+                neighborLocalPos.z < 0 || neighborLocalPos.z >= 32) {
+                continue;
+            }
+
+            // Skip if neighbor position has a solid voxel
+            if (neighborChunk->getVoxel(neighborLocalPos)) {
+                continue;
+            }
+
+            // Calculate new light level (reduced by 1)
+            int newLightLevel = item.lightLevel - 1;
+
+            // Add to queue if light level is still positive
+            if (newLightLevel > 0) {
+                lightQueue.push({ neighborWorldPos, newLightLevel, neighborChunkPos, neighborLocalPos });
+                visited.insert(neighborWorldPos);
+            }
+        }
+    }
+
+    // Update light textures for all affected chunks
+    for (const auto& chunkPos : chunksToUpdate) {
+        auto chunk = chunkManager.getChunk(chunkPos);
+        if (chunk && chunk->getState() == ChunkState::Active) {
+            chunk->uploadLightTexture(tex);
+        }
+    }
+}
+
 void Application::registerMovementCallbacks() {
     // Set the user pointer to be "this"
     glfwSetWindowUserPointer(window, this);
@@ -312,7 +505,7 @@ void Application::MainLoop() {
     RayIntersectionResult result;
     {
         std::lock_guard<std::mutex> lock(cameraMutex);
-        result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+        result = Ray::rayVoxelIntersection(camera.position, camera.front, 10000.0f, getChunkCallback);
     }
     if (result.hit) {
         lookingAtBlockPos = result.hitVoxelPos;
@@ -335,13 +528,6 @@ void Application::MainLoop() {
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
     uniforms.time = currentFrame;
     uniforms.cameraWorldPos = camera.position;
-    
-    
-
-    static float lastChunkUpdate = 0.0f;
-    const float CHUNK_UPDATE_INTERVAL = 0.1f;
-
-    bool timeForUpdate = (currentFrame - lastChunkUpdate) > CHUNK_UPDATE_INTERVAL;
 
     // Process GPU uploads from chunk thread(main thread only)
     processGPUUploads();
@@ -372,7 +558,7 @@ void Application::MainLoop() {
     }
 
 
-    constexpr float TARGET_FRAME_TIME = 1.0f / 120.0f; 
+    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
     if (frameTime < TARGET_FRAME_TIME) {
         float sleepTime = (TARGET_FRAME_TIME - frameTime);
         std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
@@ -522,7 +708,7 @@ void Application::updateProjectionMatrix(int zoom) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
-    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 1.0f, 5000.0f);
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.05f, 2500.0f);
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }

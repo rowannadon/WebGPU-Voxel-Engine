@@ -169,7 +169,7 @@ private:
 
     void queueNewChunks(ivec3 playerChunkPos) {
         // Configuration
-        const int maxChunksPerIteration = 3;  // Limit chunks added per call
+        const int maxChunksPerIteration = 6;  // Limit chunks added per call
         //const int maxActiveChunks = 8000;
 
         //// Count active chunks
@@ -271,6 +271,11 @@ private:
                                 if (neighborState == ChunkState::Empty ||
                                     neighborState == ChunkState::GeneratingTerrain ||
                                     neighborState == ChunkState::Unloading) {
+
+                                    if (neighborState == ChunkState::Empty) {
+                                        workerSystem->queueTerrainGeneration(chunk, chunk->getPosition(), 1);
+                                    }
+
                                     allNeighborsReady = false;
                                     break;
                                 }
@@ -301,6 +306,7 @@ private:
                                 neighborState == ChunkState::Unloading ||
                                 neighborState == ChunkState::GeneratingTopsoil) {
                                 allNeighborsReady = false;
+
                                 break;
                             }
                         }

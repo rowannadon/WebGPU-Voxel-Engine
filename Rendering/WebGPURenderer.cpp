@@ -58,7 +58,7 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	renderPassColorAttachment.resolveTarget = targetView;
 	renderPassColorAttachment.loadOp = LoadOp::Clear;
 	renderPassColorAttachment.storeOp = StoreOp::Store;
-	renderPassColorAttachment.clearValue = Color{ 0.7, 0.8, 0.9, 1.0 };
+	renderPassColorAttachment.clearValue = Color{ 0.1, 0.12, 0.15, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
 	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif

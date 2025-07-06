@@ -108,7 +108,7 @@ private:
 
 
 
-    static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
+
 
 public:
     ThreadSafeChunk(const ivec3& pos = ivec3(0), const ivec3& i = ivec3(0), uint32_t lodlevel = 0)

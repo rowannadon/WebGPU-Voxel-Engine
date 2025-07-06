@@ -11,4 +11,6 @@ struct ChunkData {
     float _pad[2]; // Padding for 16-byte alignment
 };
 
+static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
+
 #endif

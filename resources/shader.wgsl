@@ -445,28 +445,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let voxel_center = in.voxel_pos + vec3f(0.5); // Center of voxel
         let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
 
-        let normal_position = in.voxel_pos + vec3f(0.5) + normal;
-        let offset_normal_position = in.voxel_pos + vec3f(0.5) - 2*normal;
+        var normal_position = in.voxel_pos + normal + vec3f(0.5);
+
+        //let offset_normal_position = clamp(in.voxel_pos - 2*normal, vec3f(1.0), vec3f(30.0)) + vec3f(0.5);
         let absolute_light_pos = normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
-        let normal_offset_light_pos = offset_normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
+        //let normal_offset_light_pos = offset_normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
 
         // Normalize to [0, 1] for texture sampling
         let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
         let light_texture_coords = absolute_light_pos / TOTAL_TEXTURE_SIZE;
-        let normal_offset_light_texture_coords = normal_offset_light_pos / TOTAL_TEXTURE_SIZE;
+        //let normal_offset_light_texture_coords = normal_offset_light_pos / TOTAL_TEXTURE_SIZE;
 
         // Clamp to valid range
         let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
         let final_light_coords = clamp(light_texture_coords, vec3f(0.0), vec3f(0.999));
-        let normal_offset_final_light_coords = clamp(normal_offset_light_texture_coords, vec3f(0.0), vec3f(0.999));
+        //let normal_offset_final_light_coords = clamp(normal_offset_light_texture_coords, vec3f(0.0), vec3f(0.999));
         
         material_id = sample_material_3d(final_coords);
         light_level = f32(sample_light_3d(final_light_coords));
-        let light_level_normal_offset = f32(sample_light_3d(normal_offset_final_light_coords));
+        //let light_level_normal_offset = f32(sample_light_3d(normal_offset_final_light_coords));
         
-        if (light_level_normal_offset > light_level) {
-            light_level *= (2.5/15.0);
-        }
+        // if (light_level_normal_offset > light_level) {
+        //     light_level *= (6.5/15.0);
+        // }
 
         // Discard air blocks
         if (material_id == 0u) {
@@ -504,7 +505,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         baseColor *= 1.3;
     }
 
-    let fogFactor = 1.0 - exp(-in.fog_distance * 0.001);
+    let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
     let sunAmount = max(dot(view, -lightDirection1), 0.0 );
 
     let fogColor  = mix( vec3(0.4,0.5,0.7), // blue
@@ -512,6 +513,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                     pow(sunAmount,16.0) );
 
     let finalColor = mix(baseColor, fogColor, fogFactor);
-    let light_color = vec3(0.95, 0.75, 0.55);
-    return vec4f(finalColor * (0.75+((light_level / 33) * light_color)), 1.0);
+    let light_color = vec3(0.95, 0.65, 0.55);
+    return vec4f(finalColor * (0.75+((light_level / 15) * light_color)), 1.0);
 }

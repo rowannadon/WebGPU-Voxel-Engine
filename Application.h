@@ -59,6 +59,8 @@ private:
 	void placeBlock();
 
     void propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk> chunk);
+    void propagateGlobalLight(ivec3 worldPosition, int lightLevel);
+    void Application::recalculateLightingArea(ivec3 centerPos, int radius);
 
 private:
     struct FirstPersonCamera {
@@ -73,7 +75,7 @@ private:
         float pitch = 0.0f;  // Rotation around X axis (up/down)
 
         // Camera options
-        float movementSpeed = 40.0f;
+        float movementSpeed = 10.0f;
         float mouseSensitivity = 0.1f;
         float zoom = 85.f;
 
@@ -113,6 +115,17 @@ private:
         bool Shift = false;   // Move down
     };
 
+    struct LightPropagationItem {
+        ivec3 worldPosition;
+        int lightLevel;
+        ivec3 chunkPosition;
+        ivec3 localPosition;
+    };
+
+    // Global light propagation queue for cross-chunk lighting
+    std::queue<LightPropagationItem> globalLightQueue;
+    std::mutex globalLightMutex;
+
     WebGPURenderer gpu;
     PipelineManager *pip;
     TextureManager *tex;
@@ -150,7 +163,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.02f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.1f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
