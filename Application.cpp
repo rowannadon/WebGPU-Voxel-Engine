@@ -164,12 +164,14 @@ void Application::placeBlock() {
     }
 
     // Add the voxel
-    //chunk->setVoxel(localChunkPos, true);
+    
     VoxelMaterial material;
-    material.materialType = 0;
+    material.materialType = 9;
     chunk->setMaterial(localChunkPos, material);
 
-	propagateGlobalLight(placeBlockPos, 15);
+    propagateGridBasedLight(placeBlockPos, 30);
+
+    chunk->setVoxel(localChunkPos, true);
 
     // Check if the broken block is on a chunk boundary
     // If so, regenerate neighboring chunks that might be affected
@@ -205,15 +207,298 @@ void Application::placeBlock() {
     }
 }
 
-void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
+//void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
+//    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> affectedChunks;
+//
+//    // First, clear light in the affected area
+//    for (int x = -radius; x <= radius; x++) {
+//        for (int y = -radius; y <= radius; y++) {
+//            for (int z = -radius; z <= radius; z++) {
+//                ivec3 worldPos = centerPos + ivec3(x, y, z);
+//                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
+//
+//                auto chunk = chunkManager.getChunk(chunkPos);
+//                if (chunk && chunk->getState() == ChunkState::Active) {
+//                    ivec3 localPos = worldPos - (chunkPos * 32);
+//
+//                    if (localPos.x >= 0 && localPos.x < 32 &&
+//                        localPos.y >= 0 && localPos.y < 32 &&
+//                        localPos.z >= 0 && localPos.z < 32) {
+//
+//                        if (!chunk->getVoxel(localPos)) {
+//                            VoxelMaterial clearLight;
+//                            clearLight.materialType = 0;
+//                            chunk->setLight(localPos, clearLight);
+//                            affectedChunks.insert(chunkPos);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
+//
+//    // Then, find all light sources in the area and re-propagate
+//    for (int x = -radius; x <= radius; x++) {
+//        for (int y = -radius; y <= radius; y++) {
+//            for (int z = -radius; z <= radius; z++) {
+//                ivec3 worldPos = centerPos + ivec3(x, y, z);
+//                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
+//
+//                auto chunk = chunkManager.getChunk(chunkPos);
+//                if (chunk && chunk->getState() == ChunkState::Active) {
+//                    ivec3 localPos = worldPos - (chunkPos * 32);
+//
+//                    if (localPos.x >= 0 && localPos.x < 32 &&
+//                        localPos.y >= 0 && localPos.y < 32 &&
+//                        localPos.z >= 0 && localPos.z < 32) {
+//
+//                        // Check if this is a light source (for now, just placed blocks)
+//                        if (chunk->getVoxel(localPos)) {
+//                            // Re-propagate light from this source
+//                            propagateGlobalLight(worldPos, 15);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
+//
+//    // Update light textures for all affected chunks
+//    for (const auto& chunkPos : affectedChunks) {
+//        auto chunk = chunkManager.getChunk(chunkPos);
+//        if (chunk && chunk->getState() == ChunkState::Active) {
+//            chunk->uploadLightTexture(tex);
+//        }
+//    }
+//}
+
+void Application::propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel) {
+    // Grid-based visibility lighting propagation
+    const int LIGHT_RADIUS = 16; // Reduced radius to prevent memory issues
+
+    std::lock_guard<std::mutex> lock(gridVisibility.visibilityMutex);
+
+    // Clear old visibility data for this light source
+    gridVisibility.visibilityScores.clear();
+    gridVisibility.lightSources.insert(lightSourcePos);
+
+    // Lambda functions for the visibility algorithm
+    auto isSolid = [this](ivec3 worldPos) -> bool {
+        vec3 worldPosf = vec3(worldPos.x, worldPos.y, worldPos.z);
+        ivec3 chunkPos = ivec3(glm::floor(worldPosf / 32.0f));
+        auto chunk = chunkManager.getChunk(chunkPos);
+
+        if (!chunk || chunk->getState() != ChunkState::Active) {
+            return false; // Treat unloaded chunks as transparent
+        }
+
+        ivec3 localPos = worldPos - (chunkPos * 32);
+        if (localPos.x < 0 || localPos.x >= 32 ||
+            localPos.y < 0 || localPos.y >= 32 ||
+            localPos.z < 0 || localPos.z >= 32) {
+            return false;
+        }
+
+        return chunk->getVoxel(localPos);
+        };
+
+    auto setVisibility = [this](ivec3 worldPos, float visibility) {
+        gridVisibility.visibilityScores[worldPos] = visibility;
+        };
+
+    // Process each octant separately using the same approach as the 2D algorithm
+    // In 2D, we process 4 quadrants. In 3D, we process 8 octants.
+    // Each octant starts from the light source and extends in one of 8 directions
+
+    // Process +X, +Y, +Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, 1, 1, 1);
+
+    // Process +X, +Y, -Z octant  
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, 1, 1, -1);
+
+    // Process +X, -Y, +Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, 1, -1, 1);
+
+    // Process +X, -Y, -Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, 1, -1, -1);
+
+    // Process -X, +Y, +Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, -1, 1, 1);
+
+    // Process -X, +Y, -Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, -1, 1, -1);
+
+    // Process -X, -Y, +Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, -1, -1, 1);
+
+    // Process -X, -Y, -Z octant
+    propagateVisibilityInOctant(lightSourcePos, LIGHT_RADIUS, isSolid, setVisibility, -1, -1, -1);
+
+    // Apply visibility scores to actual light values
+    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> chunksToUpdate;
+
+    for (const auto& [worldPos, visibility] : gridVisibility.visibilityScores) {
+        // Calculate distance-based light falloff
+        float distance = glm::length(vec3(worldPos - lightSourcePos));
+        float distanceFalloff = std::max(0.0f, 1.0f - (distance / LIGHT_RADIUS));
+
+        // Combine visibility with distance falloff
+        float finalLightLevel = visibility * distanceFalloff * lightLevel;
+
+        if (finalLightLevel > 0.1f) { // Only apply meaningful light levels
+            vec3 worldPosf = vec3(worldPos.x, worldPos.y, worldPos.z);
+            ivec3 chunkPos = ivec3(glm::floor(worldPosf / 32.0f));
+            auto chunk = chunkManager.getChunk(chunkPos);
+
+            if (chunk && chunk->getState() == ChunkState::Active) {
+                ivec3 localPos = worldPos - (chunkPos * 32);
+
+                if (localPos.x >= 0 && localPos.x < 32 &&
+                    localPos.y >= 0 && localPos.y < 32 &&
+                    localPos.z >= 0 && localPos.z < 32) {
+
+                    // Don't light solid blocks
+                    if (!chunk->getVoxel(localPos)) {
+                        VoxelMaterial currentLight = chunk->getLight(localPos);
+                        int newLightLevel = std::min(15, static_cast<int>(finalLightLevel));
+
+                        if (newLightLevel > currentLight.materialType) {
+                            VoxelMaterial newLight;
+                            newLight.materialType = newLightLevel;
+                            chunk->setLight(localPos, newLight);
+                            chunksToUpdate.insert(chunkPos);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update light textures for affected chunks
+    for (const auto& chunkPos : chunksToUpdate) {
+        auto chunk = chunkManager.getChunk(chunkPos);
+        if (chunk && chunk->getState() == ChunkState::Active) {
+            auto neighbors = chunkManager.getNeighbors(chunkPos);
+            std::array<int, 6> lightOffsets = { 0 };
+
+            for (int i = 0; i < 6; ++i) {
+                if (neighbors[i] && neighbors[i]->getLightSlot() != -1) {
+                    lightOffsets[i] = neighbors[i]->getLightSlot();
+                }
+                else {
+                    lightOffsets[i] = 4294967295u;
+                }
+            }
+
+            chunk->uploadLightTexture(tex, lightOffsets);
+            chunk->updateChunkDataBuffer(buf);
+        }
+    }
+}
+
+void Application::propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
+    const std::function<bool(ivec3)>& isSolid,
+    const std::function<void(ivec3, float)>& setVisibility,
+    int xDir, int yDir, int zDir) {
+
+    // Create a 3D grid for this octant
+    // The grid represents coordinates relative to the light source
+    std::vector<std::vector<std::vector<float>>> visGrid(radius + 1,
+        std::vector<std::vector<float>>(radius + 1,
+            std::vector<float>(radius + 1, 1.0f)));
+
+    // Initialize grid based on solid blocks
+    for (int x = 0; x <= radius; x++) {
+        for (int y = 0; y <= radius; y++) {
+            for (int z = 0; z <= radius; z++) {
+                ivec3 worldPos = lightSourcePos + ivec3(x * xDir, y * yDir, z * zDir);
+
+                if (isSolid(worldPos)) {
+                    visGrid[x][y][z] = 0.0f;
+                }
+            }
+        }
+    }
+
+    // Apply 3D grid-based visibility algorithm
+    // This follows the same pattern as the 2D algorithm but extended to 3D
+    for (int x = 0; x <= radius; x++) {
+        for (int y = (x == 0) ? 1 : 0; y <= radius; y++) {  // Skip (0,0,z) when x=0
+            for (int z = ((x == 0 && y == 0) ? 1 : 0); z <= radius; z++) {  // Skip (0,0,0)
+
+                // Only process non-solid blocks
+                if (visGrid[x][y][z] == 0.0f) continue;
+
+                // Calculate visibility using 3D linear interpolation
+                // This is the 3D extension of the 2D formula:
+                // grid[x,y] *= (x*grid[x-1,y] + y*grid[x,y-1]) / (x + y)
+
+                float totalWeight = 0.0f;
+                float weightedSum = 0.0f;
+
+                // Add contribution from x-1 neighbor
+                if (x > 0) {
+                    float weight = static_cast<float>(x);
+                    weightedSum += weight * visGrid[x - 1][y][z];
+                    totalWeight += weight;
+                }
+
+                // Add contribution from y-1 neighbor
+                if (y > 0) {
+                    float weight = static_cast<float>(y);
+                    weightedSum += weight * visGrid[x][y - 1][z];
+                    totalWeight += weight;
+                }
+
+                // Add contribution from z-1 neighbor
+                if (z > 0) {
+                    float weight = static_cast<float>(z);
+                    weightedSum += weight * visGrid[x][y][z - 1];
+                    totalWeight += weight;
+                }
+
+                // Apply interpolation if we have valid neighbors
+                if (totalWeight > 0.0f) {
+                    visGrid[x][y][z] *= weightedSum / totalWeight;
+                }
+            }
+        }
+    }
+
+    // Store results back to the visibility system
+    for (int x = 0; x <= radius; x++) {
+        for (int y = 0; y <= radius; y++) {
+            for (int z = 0; z <= radius; z++) {
+                float visibility = visGrid[x][y][z];
+                if (visibility > 0.01f) { // Only store meaningful visibility values
+                    ivec3 worldPos = lightSourcePos + ivec3(x * xDir, y * yDir, z * zDir);
+                    setVisibility(worldPos, visibility);
+                }
+            }
+        }
+    }
+}
+
+float Application::getGridVisibilityScore(ivec3 worldPos, ivec3 lightPos) {
+    std::lock_guard<std::mutex> lock(gridVisibility.visibilityMutex);
+
+    auto it = gridVisibility.visibilityScores.find(worldPos);
+    if (it != gridVisibility.visibilityScores.end()) {
+        return it->second;
+    }
+    return 0.0f;
+}
+
+void Application::recalculateGridLightingArea(ivec3 centerPos, int radius) {
+    // Clear existing light in the affected area
     std::unordered_set<ivec3, IVec3Hash, IVec3Equal> affectedChunks;
 
-    // First, clear light in the affected area
     for (int x = -radius; x <= radius; x++) {
         for (int y = -radius; y <= radius; y++) {
             for (int z = -radius; z <= radius; z++) {
                 ivec3 worldPos = centerPos + ivec3(x, y, z);
-                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
+                vec3 worldPosf = vec3(worldPos.x, worldPos.y, worldPos.z);
+                ivec3 chunkPos = ivec3(glm::floor(worldPosf / 32.0f));
 
                 auto chunk = chunkManager.getChunk(chunkPos);
                 if (chunk && chunk->getState() == ChunkState::Active) {
@@ -223,6 +508,7 @@ void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
                         localPos.y >= 0 && localPos.y < 32 &&
                         localPos.z >= 0 && localPos.z < 32) {
 
+                        // Clear light for non-solid blocks
                         if (!chunk->getVoxel(localPos)) {
                             VoxelMaterial clearLight;
                             clearLight.materialType = 0;
@@ -235,41 +521,16 @@ void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
         }
     }
 
-    // Then, find all light sources in the area and re-propagate
-    for (int x = -radius; x <= radius; x++) {
-        for (int y = -radius; y <= radius; y++) {
-            for (int z = -radius; z <= radius; z++) {
-                ivec3 worldPos = centerPos + ivec3(x, y, z);
-                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
-
-                auto chunk = chunkManager.getChunk(chunkPos);
-                if (chunk && chunk->getState() == ChunkState::Active) {
-                    ivec3 localPos = worldPos - (chunkPos * 32);
-
-                    if (localPos.x >= 0 && localPos.x < 32 &&
-                        localPos.y >= 0 && localPos.y < 32 &&
-                        localPos.z >= 0 && localPos.z < 32) {
-
-                        // Check if this is a light source (for now, just placed blocks)
-                        if (chunk->getVoxel(localPos)) {
-                            // Re-propagate light from this source
-                            propagateGlobalLight(worldPos, 15);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Update light textures for all affected chunks
-    for (const auto& chunkPos : affectedChunks) {
-        auto chunk = chunkManager.getChunk(chunkPos);
-        if (chunk && chunk->getState() == ChunkState::Active) {
-            chunk->uploadLightTexture(tex);
+    // Re-propagate light from all light sources in the area
+    std::lock_guard<std::mutex> lock(gridVisibility.visibilityMutex);
+    for (const auto& lightSource : gridVisibility.lightSources) {
+        // Check if this light source affects the area
+        float distance = glm::length(vec3(lightSource - centerPos));
+        if (distance <= radius + 32) { // Include some buffer
+            propagateGridBasedLight(lightSource, 15); // Assume max light level
         }
     }
 }
-
 
 void Application::propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk> chunk) {
     // Maximum light level at the source
@@ -458,12 +719,31 @@ void Application::propagateGlobalLight(ivec3 worldPosition, int lightLevel) {
         }
     }
 
-    // Update light textures for all affected chunks
+    // FIXED: Update light textures for all affected chunks with proper neighbor mapping
     for (const auto& chunkPos : chunksToUpdate) {
         auto chunk = chunkManager.getChunk(chunkPos);
-        if (chunk && chunk->getState() == ChunkState::Active) {
-            chunk->uploadLightTexture(tex);
+        if (!chunk || chunk->getState() != ChunkState::Active) {
+            continue;
         }
+
+        // Get neighbors with proper mapping
+        auto neighbors = chunkManager.getNeighbors(chunkPos);
+        std::array<int, 6> lightOffsets = { 0 };
+
+        // Map neighbors to their light slots
+        // Order: Right, Left, Front, Back, Top, Bottom
+        for (int i = 0; i < 6; ++i) {
+            if (neighbors[i] && neighbors[i]->getLightSlot() != -1) {
+                lightOffsets[i] = neighbors[i]->getLightSlot();
+            }
+            else {
+                lightOffsets[i] = 4294967295u; // Invalid slot marker
+            }
+        }
+
+        // Upload light texture with neighbor information
+        chunk->uploadLightTexture(tex, lightOffsets);
+        chunk->updateChunkDataBuffer(buf);
     }
 }
 
@@ -560,7 +840,7 @@ void Application::MainLoop() {
 
     constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
     if (frameTime < TARGET_FRAME_TIME) {
-        float sleepTime = (TARGET_FRAME_TIME - frameTime);
+        float sleepTime = (TARGET_FRAME_TIME - frameTime) * 1.5;
         std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
     }
 }
@@ -708,7 +988,7 @@ void Application::updateProjectionMatrix(int zoom) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
-    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.05f, 2500.0f);
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.01f, 2500.0f);
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }

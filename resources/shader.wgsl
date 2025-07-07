@@ -39,6 +39,12 @@ struct ChunkData {
     lod: u32,
     textureSlot: u32,
     lightSlot: u32,
+    right: u32,
+    left: u32,
+    front: u32,
+    back: u32,
+    top: u32,
+    bottom: u32,
 };
 
 struct UnpackedData {
@@ -73,14 +79,14 @@ const SHADING_FADE_END: f32 = 600.0;    // Distance where shading is completely 
 const MIN_SHADING_CONTRAST: f32 = 0.1;  // Minimum contrast to maintain
 
 fn sample_material_3d(local_pos: vec3<f32>) -> u32 {
-    let sample = textureSample(material_texture_3d, material_sampler_3d, local_pos);
+    let sample = textureSampleLevel(material_texture_3d, material_sampler_3d, local_pos, 0.0);
     let r = u32(sample.r * 255.0 + 0.5);
     let g = u32(sample.g * 255.0 + 0.5);
     return r | (g << 8u);
 }
 
 fn sample_light_3d(local_pos: vec3<f32>) -> u32 {
-    let sample = textureSample(light_texture_3d, light_sampler_3d, local_pos);
+    let sample = textureSampleLevel(light_texture_3d, light_sampler_3d, local_pos, 0.0);
     let r = u32(sample.r * 255.0 + 0.5);
     let g = u32(sample.g * 255.0 + 0.5);
     return r | (g << 8u);
@@ -282,6 +288,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         // For LOD, scale UVs to tile across the entire quad (32x32 times)
         let base_uv = faceUVsIndependent[data.normal_index][data.vertex_index];
         uv = base_uv * CHUNK_SIZE; // Scale UV by chunk size to get 32x32 tiling
+
+        if ((chunkData.lod > 0u) && (data.normal_index == 4u || data.normal_index == 5u)) {
+            out.position.z -= 0.00001; // Small bias towards camera
+        }
+
     } else {
         // Regular voxel rendering
         voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
@@ -345,9 +356,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     out.position = uMyUniforms.projectionMatrix * view_position;
 
-    if ((chunkData.lod > 0u) && (data.normal_index == 4u || data.normal_index == 5u)) {
-        out.position.z -= 0.00001; // Small bias towards camera
-    }
+
 
     out.normal = (uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz;
     out.uv = uv; 
@@ -359,6 +368,27 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.voxel_pos = voxel_pos;
     
     return out;
+}
+
+fn sample_light(lightSlot: u32, pos: vec3f, offset: vec3f) -> f32 {
+    // Constants for 3D texture layout
+    let CHUNKS_PER_ROW = 640u / 32u;  // 20 chunks per row
+    let TOTAL_TEXTURE_SIZE = 640.0;   // Total 3D texture size
+    
+    // Calculate the chunk's position in 3D texture space
+    let ox = lightSlot % CHUNKS_PER_ROW;
+    let oy = (lightSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
+    let oz = lightSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
+
+    // Clamp position to valid chunk bounds [0, 32)
+    let clampedPos = clamp(pos, vec3f(0.0), vec3f(31.999));
+    let voxel_center = clampedPos + vec3f(0.5) + offset; // Center of voxel
+    let absolute_light_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
+
+    let light_texture_coords = absolute_light_pos / TOTAL_TEXTURE_SIZE;
+    let final_light_coords = clamp(light_texture_coords, vec3f(0.0), vec3f(0.999));
+    
+    return f32(sample_light_3d(final_light_coords));
 }
 
 @fragment
@@ -395,12 +425,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
     let oz = chunkData.textureSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
 
-    let olx = chunkData.lightSlot % CHUNKS_PER_ROW;
-    let oly = (chunkData.lightSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
-    let olz = chunkData.lightSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
-    
     var aoComp = 1.0;
     var light_level = 0.0;
+    
     if (chunkData.lod > 0u) {
         aoComp = 1.0;
         // For LOD rendering, sample the 3D texture at the fragment's world position
@@ -444,31 +471,79 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         // Convert voxel position to absolute texture coordinates
         let voxel_center = in.voxel_pos + vec3f(0.5); // Center of voxel
         let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-
-        var normal_position = in.voxel_pos + normal + vec3f(0.5);
-
-        //let offset_normal_position = clamp(in.voxel_pos - 2*normal, vec3f(1.0), vec3f(30.0)) + vec3f(0.5);
-        let absolute_light_pos = normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
-        //let normal_offset_light_pos = offset_normal_position + vec3f(f32(olx * 32u), f32(oly * 32u), f32(olz * 32u));
-
         // Normalize to [0, 1] for texture sampling
         let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
-        let light_texture_coords = absolute_light_pos / TOTAL_TEXTURE_SIZE;
-        //let normal_offset_light_texture_coords = normal_offset_light_pos / TOTAL_TEXTURE_SIZE;
-
         // Clamp to valid range
         let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
-        let final_light_coords = clamp(light_texture_coords, vec3f(0.0), vec3f(0.999));
-        //let normal_offset_final_light_coords = clamp(normal_offset_light_texture_coords, vec3f(0.0), vec3f(0.999));
-        
         material_id = sample_material_3d(final_coords);
-        light_level = f32(sample_light_3d(final_light_coords));
-        //let light_level_normal_offset = f32(sample_light_3d(normal_offset_final_light_coords));
-        
-        // if (light_level_normal_offset > light_level) {
-        //     light_level *= (6.5/15.0);
-        // }
 
+        let light_sample_pos = in.voxel_pos + normal;
+        var final_light_level: f32;
+        
+        // Check if sample position is outside current chunk bounds
+        if (light_sample_pos.x < -0.25) {
+            // Sample from left neighbor (-X direction)
+            if (chunkData.left < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x + 32.0, light_sample_pos.y, light_sample_pos.z);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // Offset towards the interior
+                final_light_level = sample_light(chunkData.left, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else if (light_sample_pos.x > 31.75) {
+            // Sample from right neighbor (+X direction)
+            if (chunkData.right < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x - 32.0, light_sample_pos.y, light_sample_pos.z);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // Offset towards the interior
+                final_light_level = sample_light(chunkData.right, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else if (light_sample_pos.y < -0.25) {
+            // Sample from back neighbor (-Y direction)
+            if (chunkData.back < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y + 32.0, light_sample_pos.z);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // Offset towards the interior
+                final_light_level = sample_light(chunkData.back, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else if (light_sample_pos.y > 31.75) {
+            // Sample from front neighbor (+Y direction)
+            if (chunkData.front < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y - 32.0, light_sample_pos.z);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // Offset towards the interior
+                final_light_level = sample_light(chunkData.front, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else if (light_sample_pos.z < -0.25) {
+            // Sample from bottom neighbor (-Z direction)
+            if (chunkData.bottom < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z + 32.0);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // Offset towards the interior
+                final_light_level = sample_light(chunkData.bottom, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else if (light_sample_pos.z > 31.75) {
+            // Sample from top neighbor (+Z direction)
+            if (chunkData.top < 4294967295u) {
+                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z - 32.0);
+                let sample_offset = vec3f(0.0, 0.0, 0.0); // FIXED: Negative offset towards interior
+                final_light_level = sample_light(chunkData.top, neighbor_pos, sample_offset);
+            } else {
+                final_light_level = 0.0;
+            }
+        } else {
+            // Sample from current chunk
+            let clamped_sample_pos = clamp(light_sample_pos, vec3f(0.0), vec3f(31.999));
+            let sample_offset = vec3f(0.0, 0.0, 0.0); // No offset for current chunk
+            final_light_level = sample_light(chunkData.lightSlot, clamped_sample_pos, sample_offset);
+        }
+
+        light_level = final_light_level;
+        
         // Discard air blocks
         if (material_id == 0u) {
             discard;
@@ -486,7 +561,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFadeNear = 400.0;
     let aoFadeFar = 600.0;
 
-    let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));// * dot(normal, view);
+    let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     
     // Also apply distance-based fade to AO for consistency
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
@@ -514,5 +589,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let finalColor = mix(baseColor, fogColor, fogFactor);
     let light_color = vec3(0.95, 0.65, 0.55);
-    return vec4f(finalColor * (0.75+((light_level / 15) * light_color)), 1.0);
+    return vec4f(finalColor * (0.75+((light_level / 15.0) * light_color)), 1.0);
 }

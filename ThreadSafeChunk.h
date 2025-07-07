@@ -56,6 +56,8 @@ class ThreadSafeChunk {
 public:
     std::atomic<ChunkState> state{ ChunkState::Empty };
     std::atomic<int> solidVoxels{ 0 };
+    std::array<int, 6> neighborLightSlots = { 0 };
+
 
 private:
     uint32_t lod = 0;
@@ -103,10 +105,8 @@ private:
     uint32_t vertexBufferSize;
     uint32_t indexBufferSize;
 
-    int textureSlot = 0;
-    int lightSlot = 0;
-
-
+    int textureSlot = -1;
+    int lightSlot = -1;
 
 
 
@@ -141,6 +141,8 @@ public:
     const ivec3& getPosition() const { return position; }
     void setPosition(const ivec3& pos) { position = pos; }
     std::string getResourceId() { return resourceId; }
+    int getTextureSlot() { return textureSlot; };
+    int getLightSlot() { return lightSlot; };
 
     void initializeLightTexture(TextureManager* tex) {
         if (lightInitialized) {
@@ -157,10 +159,16 @@ public:
         }
     }
 
-    void uploadLightTexture(TextureManager* tex) {
+    void uploadLightTexture(TextureManager* tex, std::array<int, 6> lightOffsets) {
         if (!lightInitialized || lightData.empty()) {
             return;
         }
+
+        for (int i = 0; i < 6; ++i) {
+            neighborLightSlots[i] = lightOffsets[i];
+        }
+
+        std::cout << "set neighborslots: " << neighborLightSlots[0] << " " << neighborLightSlots[1] << " " << neighborLightSlots[2] << " " << neighborLightSlots[3] << " " << neighborLightSlots[4] << " " << neighborLightSlots[5] << "\n";
 
         std::lock_guard<std::mutex> lock(lightDataMutex);
 
@@ -227,7 +235,7 @@ public:
         }
     }
 
-    void updateChunkDataBuffer(BufferManager* buf) {
+    void ThreadSafeChunk::updateChunkDataBuffer(BufferManager* buf) {
         if (!chunkDataBufferInitialized) {
             return;
         }
@@ -236,7 +244,35 @@ public:
         chunkData.worldPosition = position;
         chunkData.lod = lod;
         chunkData.textureSlot = textureSlot;
-		chunkData.lightSlot = lightSlot;
+        chunkData.lightSlot = lightSlot;
+
+        // FIXED: Proper neighbor slot assignment with validation
+        // Only update if we have valid neighbor data
+        bool hasValidNeighbors = false;
+        for (int i = 0; i < 6; ++i) {
+            if (neighborLightSlots[i] > 0 && neighborLightSlots[i] < 4294967295u) {
+                hasValidNeighbors = true;
+                break;
+            }
+        }
+
+        if (hasValidNeighbors) {
+            chunkData.right = neighborLightSlots[0];
+            chunkData.left = neighborLightSlots[1];
+            chunkData.front = neighborLightSlots[2];
+            chunkData.back = neighborLightSlots[3];
+            chunkData.top = neighborLightSlots[4];
+            chunkData.bottom = neighborLightSlots[5];
+        }
+        else {
+            // Set to invalid marker if no valid neighbors
+            chunkData.right = 4294967295u;
+            chunkData.left = 4294967295u;
+            chunkData.front = 4294967295u;
+            chunkData.back = 4294967295u;
+            chunkData.top = 4294967295u;
+            chunkData.bottom = 4294967295u;
+        }
 
         buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
     }
@@ -1323,19 +1359,21 @@ public:
 
         if (!lightInitialized) {
             initializeLightTexture(tex);
+            //uploadLightTexture(tex);
         }
 
-        if (lightInitialized) {
+        /*if (lightInitialized) {
             uploadLightTexture(tex);
-        }
+        }*/
 
         if (!chunkDataBufferInitialized) {
             initializeChunkDataBuffer(buf);
-        }
-
-        if (chunkDataBufferInitialized) {
             updateChunkDataBuffer(buf);
         }
+
+        /*if (chunkDataBufferInitialized) {
+            updateChunkDataBuffer(buf);
+        }*/
 
         if (!chunkDataBindGroupInitialized) {
             updateChunkDataBindGroup(pip, buf);

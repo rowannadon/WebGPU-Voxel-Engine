@@ -75,7 +75,7 @@ private:
         float pitch = 0.0f;  // Rotation around X axis (up/down)
 
         // Camera options
-        float movementSpeed = 10.0f;
+        float movementSpeed = 100.0f;
         float mouseSensitivity = 0.1f;
         float zoom = 85.f;
 
@@ -95,6 +95,24 @@ private:
             up = glm::normalize(glm::cross(right, front));
         }
     };
+
+    void propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel);
+    void propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
+        const std::function<bool(ivec3)>& isSolid,
+        const std::function<void(ivec3, float)>& setVisibility,
+        int xDir, int yDir, int zDir);
+    float getGridVisibilityScore(ivec3 worldPos, ivec3 lightPos);
+    void recalculateGridLightingArea(ivec3 centerPos, int radius);
+
+    // Grid-based visibility data structure
+    struct GridVisibilityData {
+        std::unordered_map<ivec3, float, IVec3Hash, IVec3Equal> visibilityScores;
+        std::unordered_set<ivec3, IVec3Hash, IVec3Equal> lightSources;
+        std::mutex visibilityMutex;
+    };
+
+    // Add this member variable to Application class:
+    GridVisibilityData gridVisibility;
 
     // Mouse state for first person look
     struct MouseState {
@@ -163,7 +181,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.1f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
