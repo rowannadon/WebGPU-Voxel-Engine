@@ -14,6 +14,8 @@ bool WebGPURenderer::initialize() {
 
 	textureManager->createTexturePool("texture_pool");
 	textureManager->createTexturePool("texture_pool_light");
+	bufferManager->createBufferPool("chunkdata_pool");
+	bufferManager->createMeshBufferPool("mesh_pool");
 
 	initMultiSampleTexture(config);
 	initDepthTexture(config);
@@ -41,7 +43,7 @@ BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
 }
 
-void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderData> chunkRenderData) {
+void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
 	// write frame uniforms
 	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
 
@@ -58,7 +60,7 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	renderPassColorAttachment.resolveTarget = targetView;
 	renderPassColorAttachment.loadOp = LoadOp::Clear;
 	renderPassColorAttachment.storeOp = StoreOp::Store;
-	renderPassColorAttachment.clearValue = Color{ 0.1, 0.12, 0.15, 1.0 };
+	renderPassColorAttachment.clearValue = Color{ 0.2,0.25, 0.35, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
 	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif
@@ -86,18 +88,25 @@ void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderD
 	renderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
 
 	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
-
 	renderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
-
 	renderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+	renderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 
-	for (ChunkRenderData data : chunkRenderData) {
-		
-		renderPass.setBindGroup(3, pipelineManager->getBindGroup(data.chunkDataBindGroupName), 0, nullptr);
+	auto pool = bufferManager->getMeshBufferPool("mesh_pool");
 
-		renderPass.setVertexBuffer(0, bufferManager->getBuffer(data.vertexBufferName), 0, data.vertexBufferSize);
-		renderPass.setIndexBuffer(bufferManager->getBuffer(data.indexBufferName), IndexFormat::Uint16, 0, data.indexBufferSize);
-		renderPass.drawIndexed(data.indexCount, 1, 0, 0, 0);
+	renderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
+	renderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
+
+	for (const auto& daic : chunkRenderData) {
+		if (daic.indexCount > 0) {
+			renderPass.drawIndexed(
+				daic.indexCount,     // indexCount
+				daic.instanceCount,  // instanceCount  
+				daic.firstIndex,     // firstIndex
+				daic.baseVertex,     // baseVertex
+				daic.firstInstance   // firstInstance
+			);
+		}
 	}
 
 	renderPass.end();
@@ -213,23 +222,14 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
 	);
-
 	config.bindGroupLayouts.push_back(
 		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
 	);
-
 	config.bindGroupLayouts.push_back(
 		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()
 	);
-
-	std::vector<BindGroupLayoutEntry> chunkDataUniforms(1, Default);
-	chunkDataUniforms[0].binding = 0;
-	chunkDataUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-	chunkDataUniforms[0].buffer.type = BufferBindingType::Uniform;
-	chunkDataUniforms[0].buffer.minBindingSize = sizeof(ChunkData);
-	
 	config.bindGroupLayouts.push_back(
-		pipelineManager->createBindGroupLayout("chunkdata_uniforms", chunkDataUniforms)
+		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
 	);
 
 	pipelineManager->createRenderPipeline("voxel_pipeline", config);

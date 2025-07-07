@@ -16,6 +16,13 @@ struct ChunkData {
     uint32_t bottom;
 };
 
+struct ChunkDataSimple {
+    uint32_t index;
+    float _pad[3];
+};
+
 static_assert(sizeof(ChunkData) % 16 == 0, "ChunkData must be 16-byte aligned");
+static_assert(sizeof(ChunkDataSimple) % 16 == 0, "ChunkDataSimple must be 16-byte aligned");
+
 
 #endif

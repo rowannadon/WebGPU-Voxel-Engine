@@ -42,7 +42,6 @@ private:
     void stopChunkUpdateThread();
     void chunkUpdateThreadFunction();
     void processGPUUploads();
-    void processBindGroupUpdates();
 
     // Event handlers
     void registerMovementCallbacks();
@@ -190,10 +189,6 @@ private:
     };
     std::queue<GPUUploadItem> pendingGPUUploads;
     std::mutex gpuUploadMutex;
-
-    // Bind group update tracking
-    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> chunksNeedingBindGroupUpdate;
-    std::mutex bindGroupUpdateMutex;
 
     MyUniforms uniforms;
 };

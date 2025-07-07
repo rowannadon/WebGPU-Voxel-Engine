@@ -31,6 +31,38 @@ Buffer BufferManager::getBuffer(std::string bufferName) {
     return nullptr;
 }
 
+std::shared_ptr<MeshBufferPool> BufferManager::createMeshBufferPool(std::string name) {
+    auto pool = std::make_shared<MeshBufferPool>();
+    pool->init(device, queue);
+    meshPools[name] = pool;
+
+    return pool;
+}
+
+std::shared_ptr<MeshBufferPool> BufferManager::getMeshBufferPool(std::string name) {
+    auto pool = meshPools.find(name);
+    if (pool != meshPools.end()) {
+        return pool->second;
+    }
+    return nullptr;
+}
+
+std::shared_ptr<BufferPool> BufferManager::createBufferPool(std::string name) {
+    auto pool = std::make_shared<BufferPool>();
+    pool->init(device, queue);
+    pools[name] = pool;
+
+    return pool;
+}
+
+std::shared_ptr<BufferPool> BufferManager::getBufferPool(std::string name) {
+    auto pool = pools.find(name);
+    if (pool != pools.end()) {
+        return pool->second;
+    }
+    return nullptr;
+}
+
 void BufferManager::terminate() {
     for (auto pair : buffers) {
         if (pair.second) {

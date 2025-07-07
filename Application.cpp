@@ -19,7 +19,7 @@ bool Application::Initialize() {
     uniforms.time = 1.0f;
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
-    uniforms.projectionMatrix = glm::perspective(85 * PI / 180, 1280.0f / 720.0f, 1.0f, 5000.0f);
+    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.01f, 2500.0f);
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
 
     camera.updateCameraVectors();
@@ -177,8 +177,6 @@ void Application::placeBlock() {
     // If so, regenerate neighboring chunks that might be affected
     std::vector<ivec3> neighborsToUpdate;
 
-    bool wasEmpty = (chunk->getSolidVoxels() == 1 );
-
     // Check each face of the chunk
     if (localChunkPos.x == 0) neighborsToUpdate.push_back(chunkWorldPos + ivec3(-1, 0, 0));
     if (localChunkPos.x == 31) neighborsToUpdate.push_back(chunkWorldPos + ivec3(1, 0, 0));
@@ -195,16 +193,13 @@ void Application::placeBlock() {
         if (neighborChunk && neighborChunk->getState() == ChunkState::Active) {
             neighborChunk->generateMesh(chunkManager.getNeighbors(neighborPos));
             neighborChunk->uploadToGPU(tex, buf, pip);
+            neighborChunk->uploadMaterialTexture(tex);
         }
     }
 
     chunk->generateMesh(chunkManager.getNeighbors(chunkWorldPos));
     chunk->uploadToGPU(tex, buf, pip);
-
-    if (wasEmpty) {
-        std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
-        chunksNeedingBindGroupUpdate.insert(chunkWorldPos);
-    }
+    chunk->uploadMaterialTexture(tex);
 }
 
 //void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
@@ -274,7 +269,7 @@ void Application::placeBlock() {
 
 void Application::propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel) {
     // Grid-based visibility lighting propagation
-    const int LIGHT_RADIUS = 16; // Reduced radius to prevent memory issues
+    const int LIGHT_RADIUS = 24; // Reduced radius to prevent memory issues
 
     std::lock_guard<std::mutex> lock(gridVisibility.visibilityMutex);
 
@@ -423,8 +418,10 @@ void Application::propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
     // Apply 3D grid-based visibility algorithm
     // This follows the same pattern as the 2D algorithm but extended to 3D
     for (int x = 0; x <= radius; x++) {
-        for (int y = (x == 0) ? 1 : 0; y <= radius; y++) {  // Skip (0,0,z) when x=0
-            for (int z = ((x == 0 && y == 0) ? 1 : 0); z <= radius; z++) {  // Skip (0,0,0)
+        for (int y = 0; y <= radius; y++) {
+            for (int z = 0; z <= radius; z++) {
+                // Skip the origin (0,0,0)
+                if (x == 0 && y == 0 && z == 0) continue;
 
                 // Only process non-solid blocks
                 if (visGrid[x][y][z] == 0.0f) continue;
@@ -457,9 +454,33 @@ void Application::propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
                     totalWeight += weight;
                 }
 
-                // Apply interpolation if we have valid neighbors
-                if (totalWeight > 0.0f) {
-                    visGrid[x][y][z] *= weightedSum / totalWeight;
+                // Special handling for axis-aligned cases
+                // When we're on an axis (two coordinates are 0), we need special handling
+                if (totalWeight == 0.0f) {
+                    // This happens at (1,0,0), (0,1,0), (0,0,1) - the first steps along each axis
+                    // For these cases, visibility should be 1.0 if not blocked, 0.0 if blocked
+                    // The grid initialization already handles this correctly
+                    continue;
+                }
+
+                // Apply interpolation
+                visGrid[x][y][z] *= weightedSum / totalWeight;
+
+                // Critical fix: For axis-aligned propagation, ensure blocking works
+                // If we're on the Z-axis (x=0, y=0, z>0), check if previous Z position blocks us
+                if (x == 0 && y == 0 && z > 0) {
+                    // Light can only come from the previous Z position
+                    visGrid[x][y][z] = visGrid[x][y][z - 1];
+                }
+                // If we're on the Y-axis (x=0, z=0, y>0), check if previous Y position blocks us
+                else if (x == 0 && z == 0 && y > 0) {
+                    // Light can only come from the previous Y position
+                    visGrid[x][y][z] = visGrid[x][y - 1][z];
+                }
+                // If we're on the X-axis (y=0, z=0, x>0), check if previous X position blocks us
+                else if (y == 0 && z == 0 && x > 0) {
+                    // Light can only come from the previous X position
+                    visGrid[x][y][z] = visGrid[x - 1][y][z];
                 }
             }
         }
@@ -527,7 +548,7 @@ void Application::recalculateGridLightingArea(ivec3 centerPos, int radius) {
         // Check if this light source affects the area
         float distance = glm::length(vec3(lightSource - centerPos));
         if (distance <= radius + 32) { // Include some buffer
-            propagateGridBasedLight(lightSource, 15); // Assume max light level
+            propagateGridBasedLight(lightSource, 24); // Assume max light level
         }
     }
 }
@@ -774,7 +795,7 @@ void Application::registerMovementCallbacks() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 144.0f;
+    constexpr float TARGET_FPS = 60.0;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
@@ -823,10 +844,7 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
-    // Process bind group updates (main thread only)
-    processBindGroupUpdates();
-
-    std::vector<ChunkRenderData> renderData = chunkManager.getChunkRenderData();
+    std::vector<DAIC> renderData = chunkManager.getChunkDAICs();
     if (!renderData.empty()) {
         gpu.renderChunks(uniforms, renderData);
     }
@@ -958,31 +976,10 @@ void Application::processGPUUploads() {
 
         if (item.chunk && item.chunk->getState() == ChunkState::MeshReady) {
             item.chunk->uploadToGPU(tex, buf, pip);
-
-            // Mark for bind group update
-            /*if (item.chunk->getState() == ChunkState::Active) {
-                std::lock_guard<std::mutex> bgLock(bindGroupUpdateMutex);
-                chunksNeedingBindGroupUpdate.insert(item.chunkPos);
-            }*/
         }
 
         uploadsThisFrame++;
     }
-}
-
-void Application::processBindGroupUpdates() {
-    std::lock_guard<std::mutex> lock(bindGroupUpdateMutex);
-
-    for (const auto& chunkPos : chunksNeedingBindGroupUpdate) {
-        auto chunk = chunkManager.getChunk(chunkPos);
-        if (chunk && chunk->getState() == ChunkState::Active) {
-            if (chunk->hasChunkDataBuffer()) {
-                chunk->updateChunkDataBindGroup(pip, buf);
-            }
-        }
-    }
-
-    chunksNeedingBindGroupUpdate.clear();
 }
 
 void Application::onResize() {

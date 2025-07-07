@@ -46,7 +46,7 @@ public:
 
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
-    void renderChunks(MyUniforms& uniforms, std::vector<ChunkRenderData> chunkRenderData);
+    void renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData);
     void terminate();
 };
 

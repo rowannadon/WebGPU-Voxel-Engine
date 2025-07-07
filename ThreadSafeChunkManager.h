@@ -92,11 +92,11 @@ public:
         return readyChunks;
     }
 
-    std::vector<ChunkRenderData> getChunkRenderData() {
-        std::vector<ChunkRenderData> data;
+    std::vector<DAIC> getChunkDAICs() {
+        std::vector<DAIC> data;
         data.reserve(chunks.size());
         for (const auto& pair : chunks) {
-            std::optional<ChunkRenderData> rd = pair.second->getRenderData();
+            std::optional<DAIC> rd = pair.second->getDAIC();
             if (rd != std::nullopt)
                 data.push_back(rd.value());
         }

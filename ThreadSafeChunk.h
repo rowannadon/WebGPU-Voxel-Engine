@@ -23,15 +23,12 @@ using glm::ivec3;
 using glm::vec3;
 using glm::vec2;
 
-struct ChunkRenderData {
-    std::string chunkDataBindGroupName;
-
-    std::string indexBufferName;
-    std::string vertexBufferName;
-
-    uint32_t indexBufferSize;
-    uint32_t vertexBufferSize;
-    uint16_t indexCount;
+struct DAIC {
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    int32_t baseVertex;
+    uint32_t firstInstance;
 };
 
 enum class ChunkState {
@@ -49,8 +46,6 @@ enum class ChunkState {
     RegeneratingMesh,   // Mesh is being regenerated
 	Solid,              // Chunk is solid (no air voxels)
 };
-
-
 
 class ThreadSafeChunk {
 public:
@@ -88,27 +83,15 @@ private:
     std::vector<uint16_t> indexData;
     mutable std::mutex meshDataMutex;
 
-    std::string vertexBufferName;
-    std::string indexBufferName;
-    uint32_t indexCount = 0;
     bool meshBufferInitialized = false;
-
-    std::string chunkDataBufferName;
-    bool chunkDataBufferInitialized = false;
-    std::string chunkDataBindGroupName;
-    bool chunkDataBindGroupInitialized = false;
-
     bool materialInitialized = false;
-
     bool lightInitialized = false;
-
-    uint32_t vertexBufferSize;
-    uint32_t indexBufferSize;
+    bool chunkDataBufferInitialized = false;
 
     int textureSlot = -1;
     int lightSlot = -1;
-
-
+    int dataSlot = -1;
+    int meshSlot = -1;
 
 public:
     ThreadSafeChunk(const ivec3& pos = ivec3(0), const ivec3& i = ivec3(0), uint32_t lodlevel = 0)
@@ -144,6 +127,59 @@ public:
     int getTextureSlot() { return textureSlot; };
     int getLightSlot() { return lightSlot; };
 
+    std::optional<DAIC> getDAIC() {
+        if (meshSlot == -1 || dataSlot == -1) {
+            return std::nullopt;
+        }
+
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+
+        if (indexData.empty() || vertexData.empty()) {
+            return std::nullopt;
+        }
+
+        DAIC daic;
+        daic.indexCount = static_cast<uint32_t>(indexData.size());
+        daic.instanceCount = 1;
+
+        // These should be offsets in ELEMENTS, not bytes
+        daic.firstIndex = static_cast<uint32_t>(meshSlot * 32768); // Assuming max 16384 indices per chunk
+        daic.baseVertex = static_cast<int32_t>(meshSlot * 32768);  // Assuming max 16384 vertices per chunk
+        daic.firstInstance = static_cast<uint32_t>(dataSlot);
+
+        return daic;
+    }
+
+    void initializeMeshBuffer(BufferManager *buf) {
+        if (meshBufferInitialized) {
+            return;
+        }
+
+        meshSlot = buf->getMeshBufferPool("mesh_pool")->allocateSlot(getResourceId());
+        if (meshSlot == -1) {
+            std::cerr << "Failed to allocate mesh buffer slot for chunk " << getResourceId() << std::endl;
+            return;
+        }
+        meshBufferInitialized = true;
+    }
+
+    void uploadMesh(BufferManager* buf) {
+        if (!meshBufferInitialized || meshSlot == -1) {
+            std::cerr << "Mesh buffer not initialized for chunk " << getResourceId() << std::endl;
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+
+        if (vertexData.empty() || indexData.empty()) {
+            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
+            return;
+        }
+
+        auto meshPool = buf->getMeshBufferPool("mesh_pool");
+        meshPool->writeToSlot(getResourceId(), vertexData, indexData);
+    }
+
     void initializeLightTexture(TextureManager* tex) {
         if (lightInitialized) {
             return; // Already initialized
@@ -168,7 +204,7 @@ public:
             neighborLightSlots[i] = lightOffsets[i];
         }
 
-        std::cout << "set neighborslots: " << neighborLightSlots[0] << " " << neighborLightSlots[1] << " " << neighborLightSlots[2] << " " << neighborLightSlots[3] << " " << neighborLightSlots[4] << " " << neighborLightSlots[5] << "\n";
+        //std::cout << "set neighborslots: " << neighborLightSlots[0] << " " << neighborLightSlots[1] << " " << neighborLightSlots[2] << " " << neighborLightSlots[3] << " " << neighborLightSlots[4] << " " << neighborLightSlots[5] << "\n";
 
         std::lock_guard<std::mutex> lock(lightDataMutex);
 
@@ -218,15 +254,7 @@ public:
         }
 
         try {
-            // Create buffer for chunk data
-            BufferDescriptor chunkDataBufferDesc;
-            chunkDataBufferDesc.size = sizeof(ChunkData);
-            chunkDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-            chunkDataBufferDesc.mappedAtCreation = false;
-            chunkDataBufferDesc.label = "Chunk Data Buffer";
-
-            chunkDataBufferName = getResourceId().append("-data");
-            buf->createBuffer(chunkDataBufferName, chunkDataBufferDesc);
+            dataSlot = buf->getBufferPool("chunkdata_pool")->allocateSlot(getResourceId());
             chunkDataBufferInitialized = true;
         }
         catch (const std::exception& e) {
@@ -246,11 +274,9 @@ public:
         chunkData.textureSlot = textureSlot;
         chunkData.lightSlot = lightSlot;
 
-        // FIXED: Proper neighbor slot assignment with validation
-        // Only update if we have valid neighbor data
         bool hasValidNeighbors = false;
         for (int i = 0; i < 6; ++i) {
-            if (neighborLightSlots[i] > 0 && neighborLightSlots[i] < 4294967295u) {
+            if (neighborLightSlots[i] < 4294967295u) {
                 hasValidNeighbors = true;
                 break;
             }
@@ -274,36 +300,7 @@ public:
             chunkData.bottom = 4294967295u;
         }
 
-        buf->writeBuffer(chunkDataBufferName, 0, &chunkData, sizeof(ChunkData));
-    }
-
-    void updateChunkDataBindGroup(PipelineManager* pip, BufferManager *buf) {
-        if (!chunkDataBufferInitialized) {
-            return;
-        }
-
-        if (chunkDataBindGroupInitialized) {
-            pip->deleteBindGroup(chunkDataBindGroupName);
-        }
-
-        std::vector<BindGroupEntry> chunkDataBindings(1);
-
-        // Chunk data buffer binding
-        chunkDataBindings[0].binding = 0;
-        chunkDataBindings[0].buffer = buf->getBuffer(chunkDataBufferName);
-        chunkDataBindings[0].offset = 0;
-        chunkDataBindings[0].size = sizeof(ChunkData); // sizeof(ChunkData)
-
-        chunkDataBindGroupName = getResourceId().append("-dbind");
-        pip->createBindGroup(chunkDataBindGroupName, "chunkdata_uniforms", chunkDataBindings);
-
-    }
-
-    std::string getChunkDataBuffer() const {
-        if (chunkDataBufferInitialized) {
-            return chunkDataBufferName;
-        }
-        return "";
+        buf->getBufferPool("chunkdata_pool")->writeToSlot(getResourceId(), chunkData);
     }
 
     bool hasChunkDataBuffer() const {
@@ -1338,11 +1335,8 @@ public:
 
         if (vertexData.empty() || indexData.empty()) {
             // For empty chunks, we still need to clean up old buffers
-            buf->deleteBuffer(vertexBufferName);
-            buf->deleteBuffer(indexBufferName);
-            indexCount = 0;
-            indexBufferSize = 0;
-            vertexBufferSize = 0;
+            if (meshSlot != -1)
+                buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(getResourceId());
             setState(ChunkState::Solid);
             return;
         }
@@ -1351,82 +1345,25 @@ public:
         
         if (!materialInitialized) {
             initialize3DTexture(tex);
-        }
-
-        if (materialInitialized) {
             uploadMaterialTexture(tex);
         }
 
         if (!lightInitialized) {
             initializeLightTexture(tex);
-            //uploadLightTexture(tex);
+            uploadLightTexture(tex, {-1, -1, -1, -1, -1, -1});
         }
-
-        /*if (lightInitialized) {
-            uploadLightTexture(tex);
-        }*/
 
         if (!chunkDataBufferInitialized) {
             initializeChunkDataBuffer(buf);
             updateChunkDataBuffer(buf);
         }
 
-        /*if (chunkDataBufferInitialized) {
-            updateChunkDataBuffer(buf);
-        }*/
-
-        if (!chunkDataBindGroupInitialized) {
-            updateChunkDataBindGroup(pip, buf);
+        if (!meshBufferInitialized) {
+            initializeMeshBuffer(buf);
         }
 
-        // destroy old buffers if initialized
-        if (meshBufferInitialized) {
-            buf->deleteBuffer(vertexBufferName);
-            buf->deleteBuffer(indexBufferName);
-        }
-
-        std::string resourceId = getResourceId();
-
-        // Create new buffers with new mesh data
-        BufferDescriptor vertexBufferDesc;
-        vertexBufferSize = vertexData.size() * sizeof(VertexAttributes);
-        vertexBufferDesc.size = vertexBufferSize;
-        vertexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
-        vertexBufferDesc.mappedAtCreation = false;
-        vertexBufferName = resourceId + "-vert";
-        buf->createBuffer(vertexBufferName, vertexBufferDesc);
-
-        BufferDescriptor indexBufferDesc;
-        indexBufferSize = indexData.size() * sizeof(uint16_t);
-        indexBufferDesc.size = indexBufferSize;
-        indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
-        indexBufferDesc.mappedAtCreation = false;
-        indexBufferName = resourceId + "-ind";
-        buf->createBuffer(indexBufferName, indexBufferDesc);
-
-        indexCount = static_cast<uint16_t>(indexData.size());
-
-        // Upload data to new buffers
-        buf->writeBuffer(vertexBufferName, 0, vertexData.data(), vertexBufferSize);
-        buf->writeBuffer(indexBufferName, 0, indexData.data(), indexBufferSize);
-        meshBufferInitialized = true;
-
+        uploadMesh(buf);
         setState(ChunkState::Active);
-    }
-
-    // get data about how to render the chunk
-    std::optional<ChunkRenderData> getRenderData() {
-        ChunkRenderData renderData;
-        if (state.load() == ChunkState::Active) {
-            renderData.chunkDataBindGroupName = chunkDataBindGroupName;
-            renderData.indexBufferName = indexBufferName;
-            renderData.vertexBufferName = vertexBufferName;
-            renderData.indexBufferSize = indexBufferSize;
-            renderData.vertexBufferSize = vertexBufferSize;
-            renderData.indexCount = indexCount;
-            return renderData;
-        }
-        return std::nullopt;
     }
 
     size_t getVertexDataSize() const {
@@ -1445,8 +1382,7 @@ public:
 
     void cleanupBuffersOnly(TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
         if (meshBufferInitialized) {
-            buf->deleteBuffer(vertexBufferName);
-            buf->deleteBuffer(indexBufferName);
+            buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(getResourceId());
             meshBufferInitialized = false;
         }
 
@@ -1459,7 +1395,7 @@ public:
             lightInitialized = false;
         }
         if (chunkDataBufferInitialized) {
-            buf->deleteBuffer(chunkDataBufferName);
+            buf->getBufferPool("chunkdata_pool")->deAllocateSlot(getResourceId());
             chunkDataBufferInitialized = false;
         }
     }
@@ -1477,7 +1413,6 @@ public:
         materialData.clear();
         lightData.clear();
         solidVoxels.store(0);
-        indexCount = 0;
     }
 };
 

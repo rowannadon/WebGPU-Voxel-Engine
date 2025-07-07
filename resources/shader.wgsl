@@ -3,6 +3,7 @@
 * as input to the entry point of a shader.
 */
 struct VertexInput {
+    @builtin(instance_index) instance_idx: u32,
     @location(0) data: u32,
 };
 
@@ -20,6 +21,7 @@ struct VertexOutput {
     @location(4) ao: f32,
     @location(5) voxel_pos: vec3f,
     @location(6) highlighted: f32,
+    @location(7) @interpolate(flat) idx: u32,
 };
 
 /**
@@ -66,7 +68,7 @@ struct UnpackedData {
 @group(2) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(2) @binding(1) var light_sampler_3d: sampler;
 
-@group(3) @binding(0) var<uniform> chunkData: ChunkData;
+@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
 
 const ATLAS_TILES_X: f32 = 3.0;
 const ATLAS_TILES_Y: f32 = 3.0;
@@ -239,6 +241,10 @@ const aoLevels = array<f32, 4>(
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
+    
+    let chunkData = chunkDataArray[in.instance_idx];
+
+    out.idx = in.instance_idx;
 
     let data = unpack_data(in.data);
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -393,6 +399,8 @@ fn sample_light(lightSlot: u32, pos: vec3f, offset: vec3f) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+    let chunkData = chunkDataArray[in.idx];
+
     let normal = normalize(in.normal);
 
     let lightDirection1 = normalize(vec3f(0.6, 1.0, 1.0));
@@ -553,8 +561,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let atlas_uv = get_atlas_uv(in.uv, material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
+    let light_color = vec3(0.95, 0.75, 0.55);
+
     // Use the distance-adjusted shading instead of the original shading
-    let shading = distanceAdjustedShading1 * lightColor1 + distanceAdjustedShading2 * lightColor2;
+    let shading = distanceAdjustedShading1 * lightColor1 + distanceAdjustedShading2 * lightColor2 + (0.05+(light_level / 16.0) * light_color);
 
     let view = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
@@ -577,8 +587,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var baseColor = clamp((textureColor/2) * (shading*4) * ao_adjusted * aoComp, vec3f(0.0), vec3f(1.0));
 
     if (in.highlighted > 0) {
-        baseColor *= 1.3;
+        baseColor *= 1.5;
     }
+
+
+    let l = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
+    let tc = baseColor / (baseColor + 1.0);
+    let t_baseColor = mix(baseColor / (l + 1.0), tc, tc);
 
     let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
     let sunAmount = max(dot(view, -lightDirection1), 0.0 );
@@ -588,6 +603,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                     pow(sunAmount,16.0) );
 
     let finalColor = mix(baseColor, fogColor, fogFactor);
-    let light_color = vec3(0.95, 0.65, 0.55);
-    return vec4f(finalColor * (0.75+((light_level / 8.0) * light_color)), 1.0);
+    return vec4f(finalColor, 1.0);
 }
