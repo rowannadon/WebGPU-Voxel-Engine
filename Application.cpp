@@ -169,7 +169,7 @@ void Application::placeBlock() {
     material.materialType = 9;
     chunk->setMaterial(localChunkPos, material);
 
-    propagateGridBasedLight(placeBlockPos, 30);
+    propagateGridBasedLight(placeBlockPos, 16);
 
     chunk->setVoxel(localChunkPos, true);
 
@@ -774,19 +774,30 @@ void Application::registerMovementCallbacks() {
 }
 
 void Application::MainLoop() {
+    constexpr float TARGET_FPS = 144.0f;
+    constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
+
     float currentFrame = static_cast<float>(glfwGetTime());
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
 
+    // Poll events first to minimize input lag
     glfwPollEvents();
     processInput();
 
-    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> { return chunkManager.getChunk(c); };
+    // Early exit if frame budget is already exceeded
+    float frameStartTime = currentFrame;
+
+    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> {
+        return chunkManager.getChunk(c);
+        };
+
     RayIntersectionResult result;
     {
         std::lock_guard<std::mutex> lock(cameraMutex);
         result = Ray::rayVoxelIntersection(camera.position, camera.front, 10000.0f, getChunkCallback);
     }
+
     if (result.hit) {
         lookingAtBlockPos = result.hitVoxelPos;
         placeBlockPos = result.adjacentVoxelPos;
@@ -809,39 +820,73 @@ void Application::MainLoop() {
     uniforms.time = currentFrame;
     uniforms.cameraWorldPos = camera.position;
 
-    // Process GPU uploads from chunk thread(main thread only)
+    // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
     // Process bind group updates (main thread only)
     processBindGroupUpdates();
 
     std::vector<ChunkRenderData> renderData = chunkManager.getChunkRenderData();
-
-    if (!renderData.empty())
+    if (!renderData.empty()) {
         gpu.renderChunks(uniforms, renderData);
+    }
 
-    frameTime = static_cast<float>(glfwGetTime()) - currentFrame;
+    // Calculate frame time more accurately
+    float frameEndTime = static_cast<float>(glfwGetTime());
+    frameTime = frameEndTime - frameStartTime;
 
+    // Store frame times for averaging
     frameTimes.push_back(frameTime);
     if (frameTimes.size() > 100) {
         frameTimes.erase(frameTimes.begin());
     }
 
-    float average = std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0) / frameTimes.size();
+    // Calculate average frame time
+    float averageFrameTime = std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0f) / frameTimes.size();
+    float averageFPS = 1.0f / averageFrameTime;
 
+    // Debug output every second
     static float lastDebugTime = 0.0f;
-    if (currentFrame - lastDebugTime > 1.0f) {
+    if (currentFrame - lastDebugTime >= 1.0f) {
         chunkManager.printChunkStates();
-        std::cout << ((1.0f / average) / 144.0f) * 100.0f << "\n";
+
+        // Print frame budget and performance metrics
+        float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
+        float currentFrameMs = frameTime * 1000.0f;
+        float averageFrameMs = averageFrameTime * 1000.0f;
+        float frameBudgetUtilization = (averageFrameTime / TARGET_FRAME_TIME) * 100.0f;
+
+        std::cout << "=== Frame Timing Debug ===" << std::endl;
+        std::cout << "Target FPS: " << TARGET_FPS << " (Budget: " << frameBudgetMs << "ms)" << std::endl;
+        std::cout << "Current Frame: " << currentFrameMs << "ms" << std::endl;
+        std::cout << "Average Frame: " << averageFrameMs << "ms (" << averageFPS << " FPS)" << std::endl;
+        std::cout << "Frame Budget Utilization: " << frameBudgetUtilization << "%" << std::endl;
+        std::cout << "=========================" << std::endl;
 
         lastDebugTime = currentFrame;
     }
 
+    // Improved frame rate limiting with more precise timing
+    float timeAfterWork = static_cast<float>(glfwGetTime());
+    float workTime = timeAfterWork - frameStartTime;
 
-    constexpr float TARGET_FRAME_TIME = 1.0f / 60.0f; 
-    if (frameTime < TARGET_FRAME_TIME) {
-        float sleepTime = (TARGET_FRAME_TIME - frameTime) * 1.5;
-        std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
+    if (workTime < TARGET_FRAME_TIME) {
+        float remainingTime = TARGET_FRAME_TIME - workTime;
+
+        // Use high-precision sleep for better frame pacing
+        // Leave a small buffer to avoid oversleeping
+        const float SLEEP_BUFFER = 0.0001f; // 0.5ms buffer
+
+        if (remainingTime > SLEEP_BUFFER) {
+            float sleepTime = remainingTime - SLEEP_BUFFER;
+            std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
+        }
+
+        // Spin-wait for the remaining time for maximum precision
+        while (static_cast<float>(glfwGetTime()) - frameStartTime < TARGET_FRAME_TIME) {
+            // Busy wait for precise timing
+            std::this_thread::yield();
+        }
     }
 }
 

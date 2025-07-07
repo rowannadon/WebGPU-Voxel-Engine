@@ -398,10 +398,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let lightDirection1 = normalize(vec3f(0.6, 1.0, 1.0));
     let lightDirection2 = normalize(vec3f(-1.0, -0.6, -0.5));
 
-    let shading1 = max(0.1, dot(lightDirection1, normal));
-    let shading2 = max(0.1, dot(lightDirection2, normal));
+    let shading1 = max(0.05, dot(lightDirection1, normal));
+    let shading2 = max(0.05, dot(lightDirection2, normal));
 
-    let lightColor1 = vec3f(0.95, 0.80, 0.70);
+    let lightColor1 = vec3f(0.95, 0.80, 0.70) * 0.2;
     let lightColor2 = vec3f(0.15, 0.25, 0.30);
 
     // Calculate distance-based shading fade factor
@@ -567,7 +567,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
     
-    let ao_adjusted = pow(in.ao, distanceAdjustedAoFactor * 0.5);
+    let ao_adjusted = pow(in.ao, distanceAdjustedAoFactor * 0.9);
 
     let shadingFadeNear = 600.0;
     let shadingFadeFar = 800.0;
@@ -583,11 +583,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
     let sunAmount = max(dot(view, -lightDirection1), 0.0 );
 
-    let fogColor  = mix( vec3(0.4,0.5,0.7), // blue
-                    vec3(1.0,0.9,0.7), // yellow
+    let fogColor  = mix( vec3(0.4,0.5,0.7)/2.0, // blue
+                    vec3(1.0,0.9,0.7)/2.0, // yellow
                     pow(sunAmount,16.0) );
 
     let finalColor = mix(baseColor, fogColor, fogFactor);
     let light_color = vec3(0.95, 0.65, 0.55);
-    return vec4f(finalColor * (0.75+((light_level / 15.0) * light_color)), 1.0);
+    return vec4f(finalColor * (0.75+((light_level / 8.0) * light_color)), 1.0);
 }
