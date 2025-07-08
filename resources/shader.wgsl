@@ -60,6 +60,13 @@ struct UnpackedData {
     ao_index: u32,
 }
 
+// Material properties for Blinn-Phong specular
+struct MaterialProperties {
+    specularColor: vec3f,
+    shininess: f32,
+    specularIntensity: f32,
+};
+
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var textureAtlas: texture_2d<f32>;
 @group(0) @binding(2) var textureSampler: sampler;
@@ -81,6 +88,33 @@ const CHUNK_SIZE: f32 = 32.0;
 const SHADING_FADE_START: f32 = 300.0;  // Distance where shading starts to fade
 const SHADING_FADE_END: f32 = 600.0;    // Distance where shading is completely flat
 const MIN_SHADING_CONTRAST: f32 = 0.1;  // Minimum contrast to maintain
+
+// Material property definitions (material_id - 1 as index)
+const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
+    // Material 0: Stone/Rock - low shininess, neutral specular
+    MaterialProperties(vec3f(0.2, 0.2, 0.2), 8.0, 0.3),
+    // Material 1: Grass - very low shininess, green tint
+    MaterialProperties(vec3f(0.1, 0.15, 0.1), 4.0, 0.1),
+    // Material 2: Wood - low shininess, warm specular
+    MaterialProperties(vec3f(0.2, 0.2, 0.2), 8.0, 0.3),
+    // Material 3: Metal - high shininess, bright specular
+    MaterialProperties(vec3f(0.8, 0.8, 0.8), 64.0, 0.8),
+    // Material 4: Water - very high shininess, blue tint
+    MaterialProperties(vec3f(0.3, 0.4, 0.6), 128.0, 0.9),
+    // Material 5: Ice - high shininess, cool specular
+    MaterialProperties(vec3f(0.6, 0.7, 0.8), 96.0, 0.7),
+    // Material 6: Sand - very low shininess, warm specular
+    MaterialProperties(vec3f(0.12, 0.1, 0.08), 2.0, 0.05),
+    // Material 7: Crystal - very high shininess, prismatic specular
+    MaterialProperties(vec3f(0.9, 0.9, 1.0), 256.0, 1.0),
+    // Material 8: Lava - medium shininess, red-orange specular
+    MaterialProperties(vec3f(0.4, 0.2, 0.1), 16.0, 0.4)
+);
+
+fn get_material_properties(material_id: u32) -> MaterialProperties {
+    let index = clamp(material_id - 1u, 0u, 8u);
+    return MATERIAL_PROPERTIES[index];
+}
 
 fn sample_material_3d(local_pos: vec3<f32>) -> u32 {
     let sample = textureSampleLevel(material_texture_3d, material_sampler_3d, local_pos, 0.0);
@@ -368,16 +402,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     out.position = uMyUniforms.projectionMatrix * view_position;
-
-
-
     out.normal = (uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz;
     out.uv = uv; 
     out.world_position = world_position.xyz;
     out.ao = ao;
     
-    let camera_world_pos = uMyUniforms.cameraWorldPos;
-    out.fog_distance = length(vec3f(world_position.x, world_position.y, 30.0) - camera_world_pos);       
+    out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));       
     out.voxel_pos = voxel_pos;
     
     return out;
@@ -404,31 +434,41 @@ fn sample_light(lightSlot: u32, pos: vec3f, offset: vec3f) -> f32 {
     return f32(sample_light_3d(final_light_coords));
 }
 
+fn smoothClamp(x: f32, a: f32, b: f32) -> f32 {
+    return smoothstep(0., 1., (x - a)/(b - a))*(b - a) + a;
+}
+
+fn softClamp(x: f32, a: f32, b: f32) -> f32 {
+    return smoothstep(0., 1., (2./3.)*(x - a)/(b - a) + (1./6.))*(b - a) + a;
+}
+
+// Blinn-Phong specular calculation
+fn calculate_blinn_phong_specular(
+    normal: vec3f,
+    lightDir: vec3f,
+    viewDir: vec3f,
+    lightColor: vec3f,
+    materialProps: MaterialProperties,
+    shadingFadeFactor: f32
+) -> vec3f {
+    // Calculate halfway vector
+    let halfwayDir = normalize(lightDir + viewDir);
+    
+    // Calculate specular component
+    let specularDot = max(dot(normal, halfwayDir), 0.0);
+    let specularFactor = pow(specularDot, materialProps.shininess);
+    
+    // Apply distance-based fade to specular intensity
+    let fadeAdjustedIntensity = mix(0.0, materialProps.specularIntensity, shadingFadeFactor);
+    
+    return lightColor * materialProps.specularColor * specularFactor * fadeAdjustedIntensity;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
 
     let normal = normalize(in.normal);
-
-    let sunDirection = get_sun_direction(uMyUniforms.time);
-    let lightDirection1 = sunDirection;
-    let lightDirection2 = vec3f(sunDirection.x, sunDirection.y, 0.0);
-
-    let shading1 = max(0.2, dot(lightDirection1, normal));
-    let shading2 = max(0.2, dot(lightDirection2, normal));
-
-    let lightColor1 = vec3f(0.95, 0.80, 0.70);
-    let lightColor2 = vec3f(0.15, 0.25, 0.30);
-
-    // Calculate distance-based shading fade factor
-    let shadingFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
-    
-    // Blend between full shading and minimal shading based on distance
-    let flatShading1 = mix(0.5, shading1, MIN_SHADING_CONTRAST);
-    let flatShading2 = mix(0.5, shading2, MIN_SHADING_CONTRAST);
-    
-    let distanceAdjustedShading1 = mix(flatShading1, shading1, shadingFadeFactor);
-    let distanceAdjustedShading2 = mix(flatShading2, shading2, shadingFadeFactor);
 
     var material_id: u32;
     
@@ -441,11 +481,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
     let oz = chunkData.textureSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
 
-    var aoComp = 1.0;
     var light_level = 0.0;
     
     if (chunkData.lod > 0u) {
-        aoComp = 1.0;
         // For LOD rendering, sample the 3D texture at the fragment's world position
         // Convert world position back to local chunk coordinates
         let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -566,15 +604,71 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         }
     }
 
+    // Get material properties for specular calculation
+    let materialProps = get_material_properties(0);
+
+    let sunDirection = get_sun_direction(uMyUniforms.time);
+    let inverseSunDirection = vec3f(sunDirection.x, sunDirection.y, 0.0);
+
+    let sunShading = dot(sunDirection, normal);
+    let inverseSunShading = dot(inverseSunDirection, normal);
+
+    let sunColor = vec3f(0.95, 0.80, 0.70);
+    let inverseSunColor = vec3f(0.15, 0.25, 0.30);
+
+    // Calculate distance-based shading fade factor
+    let shadingFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
+    
+    // Blend between full shading and minimal shading based on distance
+    let flatSunShading = mix(0.5, sunShading, MIN_SHADING_CONTRAST);
+    let flatInverseSunShading = mix(0.5, inverseSunShading, MIN_SHADING_CONTRAST);
+    
+    let distanceAdjustedSunShading = mix(flatSunShading, sunShading, shadingFadeFactor);
+    let distanceAdjustedInverseSunShading = mix(flatInverseSunShading, inverseSunShading, shadingFadeFactor);
+
+    let day_night = softClamp(cos(uMyUniforms.time * 0.2 + 1.5), 0.05, 1.0);
+
     let atlas_uv = get_atlas_uv(in.uv, material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
     let light_color = vec3(0.95, 0.75, 0.55);
 
-    // Use the distance-adjusted shading instead of the original shading
-    let shading = distanceAdjustedShading1 * lightColor1 + distanceAdjustedShading2 * lightColor2 + (0.05+(light_level / 16.0) * light_color);
+    let ambient = (vec3f(0.5) * day_night) + 0.1;
+    let shading = max(max(distanceAdjustedSunShading * sunColor * day_night + distanceAdjustedInverseSunShading * inverseSunColor * ((day_night * 0.5)+0.5), (light_level / 16.0) * light_color), ambient);
 
-    let view = normalize(uMyUniforms.cameraWorldPos - in.world_position);
+    // Calculate view and light directions for specular
+    let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
+    
+    // Calculate specular highlights from sun
+    var specularColor = vec3f(0.0);
+    
+    // Sun specular (only during day)
+    if (day_night > 0.1) {
+        let sunSpecular = calculate_blinn_phong_specular(
+            normal, 
+            sunDirection, 
+            viewDir, 
+            sunColor * day_night, 
+            materialProps, 
+            shadingFadeFactor
+        );
+        specularColor += sunSpecular;
+    }
+    
+    // Optional: Add specular from artificial light sources
+    if (light_level > 0.0) {
+        // Use a simple upward light direction for artificial lights
+        let artificialLightDir = normalize(vec3f(0.0, 0.0, 1.0));
+        let artificialSpecular = calculate_blinn_phong_specular(
+            normal, 
+            artificialLightDir, 
+            viewDir, 
+            light_color * (light_level / 16.0), 
+            materialProps, 
+            shadingFadeFactor
+        );
+        specularColor += artificialSpecular * 0.5; // Reduce intensity for artificial lights
+    }
 
     let aoFadeNear = 400.0;
     let aoFadeFar = 600.0;
@@ -585,41 +679,41 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
     
-    let ao_adjusted = pow(in.ao, distanceAdjustedAoFactor * 0.9);
+    let ao_adjusted = in.ao * distanceAdjustedAoFactor;
 
-    let shadingFadeNear = 600.0;
-    let shadingFadeFar = 800.0;
-
-    let shadingFactor = 1.0 - clamp((in.fog_distance - shadingFadeNear) / (shadingFadeFar - shadingFadeNear), 0.0, 1.0);
-    
-    var baseColor = clamp((textureColor/2) * (shading*4) * ao_adjusted * aoComp, vec3f(0.0), vec3f(1.0));
+    // Combine diffuse and specular
+    var baseColor = clamp((textureColor/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
 
     
     if (in.highlighted > 0) {
-        var highlight = 1.0;
-        let width = 1.0/32.0;
-        if (in.uv.x < width || in.uv.x > (1 - width)) {
-            highlight = 3.5;
-            baseColor = vec3f((baseColor.r + baseColor.g + baseColor.b / 3.0)*highlight);
-        }
-        else if (in.uv.y < width || in.uv.y > (1 - width)) {
-            highlight = 3.5;
-            baseColor = vec3f((baseColor.r + baseColor.g + baseColor.b / 3.0)*highlight);
-        }
+        let width = 1.0/16.0;
+        let highlight = 4.0;
+        
+        // Calculate distance from edges with smooth falloff
+        let left_edge = smoothstep(0.0, width, in.uv.x);
+        let right_edge = smoothstep(0.0, width, 1.0 - in.uv.x);
+        let top_edge = smoothstep(0.0, width, in.uv.y);
+        let bottom_edge = smoothstep(0.0, width, 1.0 - in.uv.y);
+        
+        // Combine edge factors - closer to edge = lower value
+        let edge_factor = min(min(left_edge, right_edge), min(top_edge, bottom_edge));
+        
+        // Invert so edges are highlighted (1.0 at edge, 0.0 at center)
+        let highlight_intensity = 1.0 - edge_factor;
+        
+        // Apply highlight with smooth blending
+        let avgColor = (baseColor.r + baseColor.g + baseColor.b) / 3.0;
+        let highlightColor = vec3f(avgColor * highlight);
+        baseColor = clamp(mix(baseColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(1.0));
     }
 
 
-    let l = dot(baseColor, vec3(0.2126, 0.7152, 0.0722));
-    let tc = baseColor / (baseColor + 1.0);
-    let t_baseColor = mix(baseColor / (l + 1.0), tc, tc);
-
     let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
-    let sunAmount = max(dot(view, -lightDirection1), 0.0 );
+    let sunAmount = max(dot(viewDir, -sunDirection), 0.0 );
 
-    let fogColor  = mix( vec3(0.4,0.5,0.7), // blue
-                    vec3(1.0,0.9,0.7), // yellow
-                    pow(sunAmount,16.0) );
+    let fogColor  = vec3(0.7,0.8,1.0);
+    let fogColor2 = vec3(0.002, 0.002, 0.004);
 
-    let finalColor = mix(baseColor, fogColor, fogFactor);
+    let finalColor = mix(baseColor, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
     return vec4f(finalColor, 1.0);
 }

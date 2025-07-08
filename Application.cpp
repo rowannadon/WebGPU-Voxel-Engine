@@ -369,7 +369,7 @@ void Application::propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel) 
         }
     }
 
-    // Update light textures for affected chunks
+    // Update light textures and texture pool information for affected chunks
     for (const auto& chunkPos : chunksToUpdate) {
         auto chunk = chunkManager.getChunk(chunkPos);
         if (chunk && chunk->getState() == ChunkState::Active) {
@@ -795,7 +795,7 @@ void Application::registerMovementCallbacks() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 144.0;
+    constexpr float TARGET_FPS = 60.0f;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());

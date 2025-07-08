@@ -168,8 +168,11 @@ private:
 
 
     void queueNewChunks(ivec3 playerChunkPos) {
+        std::priority_queue<ChunkPriority> empty_pq;
+        pendingChunkCreation.swap(empty_pq);
+
         // Configuration
-        const int maxChunksPerIteration = 6;  // Limit chunks added per call
+        const int maxChunksPerIteration = 24;  // Limit chunks added per call
         //const int maxActiveChunks = 8000;
 
         //// Count active chunks
@@ -212,6 +215,8 @@ private:
                             pendingChunkCreation.push({ chunkPos, distSq });
                             chunksAdded++;
 
+                            //std::cout << "pendingCreationQueueSize: " << pendingChunkCreation.size() << "\n";
+
                             // Stop if we've reached the limit for this iteration
                             if (chunksAdded >= maxChunksPerIteration) {
                                 break;
@@ -236,9 +241,9 @@ private:
 
                 uint32_t lodlevel = 0;
 
-                if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
-                    lodlevel = 1;
-				}
+    //            if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
+    //                lodlevel = 1;
+				//}
 
                 auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 chunks[nextChunk.position] = newChunk;
@@ -272,9 +277,9 @@ private:
                                     neighborState == ChunkState::GeneratingTerrain ||
                                     neighborState == ChunkState::Unloading) {
 
-                                    if (neighborState == ChunkState::Empty) {
+                                    /*if (neighborState == ChunkState::Empty) {
                                         workerSystem->queueTerrainGeneration(chunk, chunk->getPosition(), 1);
-                                    }
+                                    }*/
 
                                     allNeighborsReady = false;
                                     break;
@@ -299,12 +304,41 @@ private:
                             allNeighborsReady = false;
                             break;
                         }
+
                         else {
                             ChunkState neighborState = neighbor->getState();
                             if (neighborState == ChunkState::Empty ||
                                 neighborState == ChunkState::GeneratingTerrain ||
                                 neighborState == ChunkState::Unloading ||
                                 neighborState == ChunkState::GeneratingTopsoil) {
+                                allNeighborsReady = false;
+
+                                break;
+                            }
+                        }
+                    }
+
+                    if (allNeighborsReady) {
+                        //chunk->setState(ChunkState::GeneratingTrees);
+                        workerSystem->queueTreeGeneration(chunk, chunkPos, neighbors);
+                    }
+                }
+                else if (pair.second->getState() == ChunkState::TreesReady) {
+                    // Check if all existing neighbors are ready
+                    bool allNeighborsReady = true;
+                    for (int i = 0; i < 6; ++i) {
+                        auto neighbor = neighbors[i];
+                        if (neighbor == nullptr) {
+                            allNeighborsReady = false;
+                            break;
+                        }
+                        else {
+                            ChunkState neighborState = neighbor->getState();
+                            if (neighborState == ChunkState::Empty ||
+                                neighborState == ChunkState::GeneratingTerrain ||
+                                neighborState == ChunkState::Unloading ||
+                                neighborState == ChunkState::GeneratingTopsoil ||
+                                neighborState == ChunkState::GeneratingTrees) {
                                 allNeighborsReady = false;
 
                                 break;
@@ -349,6 +383,8 @@ public:
         std::cout << "TerrainReady=" << stateCounts[ChunkState::TerrainReady] << " ";
         std::cout << "GenTopsoil=" << stateCounts[ChunkState::GeneratingTopsoil] << " ";
         std::cout << "TopsoilReady=" << stateCounts[ChunkState::TopsoilReady] << " ";
+        std::cout << "GenTrees=" << stateCounts[ChunkState::GeneratingTrees] << " ";
+        std::cout << "TreesReady=" << stateCounts[ChunkState::TreesReady] << " ";
         std::cout << "GenMesh=" << stateCounts[ChunkState::GeneratingMesh] << " ";
         std::cout << "MeshReady=" << stateCounts[ChunkState::MeshReady] << " ";
         std::cout << "Upload=" << stateCounts[ChunkState::UploadingToGPU] << " ";

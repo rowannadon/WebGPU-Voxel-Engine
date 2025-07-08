@@ -77,70 +77,8 @@ bool WebGPURenderer::initSkyPipeline(RenderConfig renderConfig) {
 
 	return true;
 }
-void WebGPURenderer::renderSky(MyUniforms& uniforms) {
-	// Write frame uniforms (same as main pass)
-	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
-
-	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
-	if (!targetView) return;
-
-	CommandEncoderDescriptor encoderDesc = Default;
-	encoderDesc.label = "Sky command encoder";
-	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
-
-	// Sky render pass
-	RenderPassDescriptor renderPassDesc = {};
-	RenderPassColorAttachment renderPassColorAttachment = {};
-	renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
-	renderPassColorAttachment.resolveTarget = targetView;
-	renderPassColorAttachment.loadOp = LoadOp::Clear;
-	renderPassColorAttachment.storeOp = StoreOp::Store;
-	renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };  // Clear to black
-#ifndef WEBGPU_BACKEND_WGPU
-	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-#endif
-
-	renderPassDesc.colorAttachmentCount = 1;
-	renderPassDesc.colorAttachments = &renderPassColorAttachment;
-
-	RenderPassDepthStencilAttachment depthStencilAttachment;
-	depthStencilAttachment.view = textureManager->getTextureView("depth_view");
-	depthStencilAttachment.depthClearValue = 1.0f;
-	depthStencilAttachment.depthLoadOp = LoadOp::Clear;
-	depthStencilAttachment.depthStoreOp = StoreOp::Store;
-	depthStencilAttachment.depthReadOnly = false;
-	depthStencilAttachment.stencilClearValue = 0;
-	depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
-	depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
-	depthStencilAttachment.stencilReadOnly = true;
-
-	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
-	renderPassDesc.timestampWrites = nullptr;
-
-	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
-
-	// Set sky pipeline
-	renderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
-	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
-
-	// Draw fullscreen quad (6 vertices for 2 triangles)
-	renderPass.draw(6, 1, 0, 0);
-
-	renderPass.end();
-	renderPass.release();
-
-	CommandBufferDescriptor cmdBufferDescriptor = {};
-	cmdBufferDescriptor.label = "Sky command buffer";
-	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
-	encoder.release();
-
-	context->getQueue().submit(1, &command);
-	command.release();
-	targetView.release();
-}
 
 void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
-	// Write frame uniforms once
 	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
 
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();

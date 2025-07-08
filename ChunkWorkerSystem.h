@@ -20,6 +20,7 @@ public:
         GenerateTerrain,
         GenerateTopsoil,
         GenerateMesh,
+        GenerateTrees,
         RegenerateMesh,
         COUNT // For validation
     };
@@ -284,7 +285,7 @@ public:
         }
 
         // Create result processor thread
-        result_processor_thread = std::thread(&ChunkWorkerSystem::resultProcessorLoop, this);
+        //result_processor_thread = std::thread(&ChunkWorkerSystem::resultProcessorLoop, this);
     }
 
     ~ChunkWorkerSystem() {
@@ -333,6 +334,18 @@ public:
         }
 
         ChunkWorkItem item(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, ChunkWorkItem::HIGH);
+        return work_queue.push(item);
+    }
+
+    bool queueTreeGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+        if (!chunk || !validateChunkForWork(chunk)) return false;
+
+        if (work_queue.size() >= MAX_QUEUE_SIZE) {
+            return false;
+        }
+
+        ChunkWorkItem item(ChunkWorkItem::GenerateTrees, chunk, position, neighbors, ChunkWorkItem::HIGH);
         return work_queue.push(item);
     }
 
@@ -456,6 +469,8 @@ private:
             return processTerrainGeneration(workItem, error_message);
         case ChunkWorkItem::GenerateTopsoil:
             return processTopsoilGeneration(workItem, error_message);
+        case ChunkWorkItem::GenerateTrees:
+            return processTreeGeneration(workItem, error_message);
         case ChunkWorkItem::GenerateMesh:
         case ChunkWorkItem::RegenerateMesh:
             return processMeshGeneration(workItem, error_message);
@@ -508,6 +523,29 @@ private:
 
         chunk->generateTopsoil(workItem.getNeighbors());
         topsoil_generated++;
+        return true;
+    }
+
+    bool processTreeGeneration(const ChunkWorkItem& workItem, std::string& error_message) {
+        auto chunk = workItem.getChunk();
+        if (!chunk) {
+            error_message = "Null chunk";
+            return false;
+        }
+
+
+        ChunkState currentState = chunk->getState();
+        if (currentState != ChunkState::TopsoilReady) {
+            error_message = "Chunk not in TopsoilReady state";
+            return false;
+        }
+
+        if (currentState == ChunkState::Unloading) {
+            error_message = "Chunk is unloading";
+            return false;
+        }
+
+        chunk->generateTrees(workItem.getNeighbors());
         return true;
     }
 
@@ -574,26 +612,3 @@ private:
         }
     }
 };
-
-// Usage example showing integration with existing code
-/*
-class ThreadSafeChunkManager {
-private:
-    std::unique_ptr<ChunkWorkerSystem> workerSystem;
-
-public:
-    ThreadSafeChunkManager() {
-        workerSystem = std::make_unique<ChunkWorkerSystem>(12); // 12 worker threads
-    }
-
-    void printChunkStates() const {
-        auto stats = workerSystem->getStatistics();
-        std::cout << "Worker Stats: Queue=" << stats.queue_size
-                  << " Active=" << stats.active_workers
-                  << " Processed=" << stats.total_processed
-                  << " Success=" << (stats.success_rate * 100.0) << "%" << std::endl;
-    }
-
-    // Your existing methods remain the same, just replace the worker system calls
-};
-*/

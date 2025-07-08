@@ -23,15 +23,15 @@ struct SkyVertexOutput {
 // Sky atmosphere constants
 const PLANET_RADIUS: f32 = 6371e2;
 const ATMOSPHERE_RADIUS: f32 = 6471e2;
-const RAYLEIGH_SCALE_HEIGHT: f32 = 8e3;
+const RAYLEIGH_SCALE_HEIGHT: f32 = 8e4;
 const MIE_SCALE_HEIGHT: f32 = 1.2e3;
-const RAYLEIGH_SCATTERING: vec3f = vec3f(5.8e-6, 13.5e-6, 33.1e-6);
-const MIE_SCATTERING: vec3f = vec3f(3.996e-6, 3.996e-6, 3.996e-6)*0.1;
-const MIE_EXTINCTION: vec3f = vec3f(4.44e-6, 4.44e-6, 4.44e-6)*2;
+const RAYLEIGH_SCATTERING: vec3f = vec3f(5.8e-6, 13.5e-6, 33.1e-6) * 1.2;
+const MIE_SCATTERING: vec3f = vec3f(3.996e-6, 3.996e-6, 3.996e-6)*0.01;
+const MIE_EXTINCTION: vec3f = vec3f(4.44e-6, 4.44e-6, 4.44e-6)*2.0;
 const RAYLEIGH_PHASE_SCALE: f32 = 3.0 / (16.0 * 3.14159265359);
 const MIE_PHASE_G: f32 = 0.8;
 const SUN_ANGULAR_RADIUS: f32 = 0.00935;
-const SUN_INTENSITY: f32 = 15.0;
+const SUN_INTENSITY: f32 = 18.0;
 
 fn get_sun_direction(time: f32) -> vec3f {
     let sun_angle = time * 0.2 + 1.5;
@@ -144,6 +144,17 @@ fn calculate_scattering(view_dir: vec3f, sun_dir: vec3f, camera_altitude: f32) -
     return (rayleigh_color + mie_color) * SUN_INTENSITY;
 }
 
+fn sampleInterleavedGradientNoise(pixelPos: vec2f) -> f32 {
+    let magic = vec3f(0.06711056f, 0.00583715f, 52.9829189f);
+    return fract(magic.z * fract(dot(pixelPos, magic.xy)));
+}
+
+fn applyDitherToPixelColor(pixelColor: vec3f, pixelPos: vec2f) -> vec3f {
+    let scaleBias = vec2f(1.0/255.0, -0.6/255.0);
+    let noiseDither = sampleInterleavedGradientNoise(pixelPos) * scaleBias.x + scaleBias.y;
+    return pixelColor + noiseDither;
+}
+
 @vertex
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -178,7 +189,7 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
 @fragment
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_direction = get_sun_direction(uMyUniforms.time);
-    let camera_altitude = 1000.0;
+    let camera_altitude = f32(uMyUniforms.cameraWorldPos.z*2) - 50.0;
     
     let sky_color = calculate_scattering(normalize(in.world_dir), sun_direction, camera_altitude);
     
@@ -192,8 +203,17 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     let horizon_factor = smoothstep(-0.1, 0.3, in.world_dir.z);
     let horizon_color = mix(vec3f(0.8, 0.9, 1.0), vec3f(0.5, 0.7, 1.0), horizon_factor);
+
+    let mixed_color = mix(final_sky, final_sky * horizon_color, 0.2);
     
-    let final_color = mix(final_sky, final_sky * horizon_color, 0.2);
+    // Apply dithering with proper pixel position
+    let pixel_pos = vec2f(in.position.x, in.position.y);
+    let dithered_color = applyDitherToPixelColor(mixed_color, pixel_pos);
+    
+    // Apply tone mapping to the dithered color
+    let l = dot(dithered_color, vec3f(0.2126, 0.7152, 0.0722));
+    let tc = dithered_color / (dithered_color + 1.0);
+    let final_color = mix(dithered_color / (l + 1.0), tc, tc);
     
     return vec4f(final_color, 1.0);
 }

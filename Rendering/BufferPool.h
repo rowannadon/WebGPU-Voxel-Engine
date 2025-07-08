@@ -46,6 +46,9 @@ public:
         chunkDataBufferDesc.label = "Chunk Data Storage Buffer";
 
         buffer = device.createBuffer(chunkDataBufferDesc);
+
+        std::cout << "BufferPool initialized: " << NUM_BUFFERS << " slots, "
+            << "Storage buffer: " << TOTAL_SIZE << " bytes" << std::endl;
     }
 
     void initBindGroupLayout() {

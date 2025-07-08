@@ -59,6 +59,9 @@ class TexturePool {
         viewDesc.label = "Chunk 3D Material Texture View";
 
         view = texture.createView(viewDesc);
+
+        std::cout << "TexturePool initialized: " << totalSlots << " slots, "
+            << "Texture size: " << totalSlots * (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2) << " bytes" << std::endl;
     };
 
     void initSampler() {

@@ -75,7 +75,7 @@ public:
         return -1;
     }
 
-    int allocateSlot(std::string id) {
+    int allocateSlot(std::string id, size_t num_vertices) {
         std::lock_guard<std::mutex> lock(dataMutex);
         if (map.find(id) != map.end()) {
             return map[id]; // Return existing slot

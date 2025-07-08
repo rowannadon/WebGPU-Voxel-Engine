@@ -37,6 +37,8 @@ enum class ChunkState {
     TerrainReady,       // Voxel data ready, needs meshing
     GeneratingTopsoil,  // Background thread generating topsoil data
     TopsoilReady,       // Topsoil data ready, needs meshing
+    GeneratingTrees,
+    TreesReady,
     GeneratingMesh,     // Background thread calculating mesh
     MeshReady,          // Mesh data ready, needs GPU upload
     UploadingToGPU,     // Main thread uploading to GPU
@@ -82,6 +84,8 @@ private:
     std::vector<VertexAttributes> vertexData;
     std::vector<uint16_t> indexData;
     mutable std::mutex meshDataMutex;
+
+    std::vector<ivec3> treeData;
 
     bool meshBufferInitialized = false;
     bool materialInitialized = false;
@@ -159,7 +163,7 @@ public:
             return;
         }
 
-        meshSlot = buf->getMeshBufferPool("mesh_pool")->allocateSlot(getResourceId());
+        meshSlot = buf->getMeshBufferPool("mesh_pool")->allocateSlot(getResourceId(), vertexData.size());
         if (meshSlot == -1) {
             std::cerr << "Failed to allocate mesh buffer slot for chunk " << getResourceId() << std::endl;
             return;
@@ -426,6 +430,10 @@ public:
         }
     }
 
+    std::vector<ivec3> getTreeData() {
+        return treeData;
+    }
+
     void generateTerrain() {
         setState(ChunkState::GeneratingTerrain);
         for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -612,6 +620,20 @@ public:
                             case 0:
                             case 1:
                                 material.materialType = 2; // grass
+                                if (rand() % 32 == 0) {
+                                    if (positionAbove.x > 1 && positionAbove.y > 1 &&
+                                        positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+                                        int closestDistance = INT_MAX;
+                                        for (ivec3 pos : treeData) {
+                                            int distance = glm::abs(pos.x - positionAbove.x) + glm::abs(pos.y - positionAbove.y);
+                                            closestDistance = glm::min(distance, closestDistance);
+                                        }
+
+                                        if (closestDistance > 8) {
+                                            treeData.push_back(positionAbove);
+                                        }
+                                    }
+                                }
                                 break;
                             case 2:
                                 material.materialType = 1; // dirt
@@ -659,6 +681,59 @@ public:
         }
 
         setState(ChunkState::TopsoilReady);
+    }
+
+    void generateTrees(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        setState(ChunkState::GeneratingTrees);
+
+        VoxelMaterial trunk;
+        trunk.materialType = 8;
+
+        VoxelMaterial leaves;
+        leaves.materialType = 9;
+
+        int treeHeight = 7;
+        int leafHeight = 3;
+
+        for (ivec3 treePos : treeData) {
+            for (int i = -1; i < 2; i++) {
+                for (int j = -1; j < 2; j++) {
+                    for (int k = treeHeight - leafHeight; k < treeHeight + 1; k++) {
+                        setVoxel(treePos + ivec3(i, j, k), true);
+                        setMaterial(treePos + ivec3(i, j, k), leaves);
+                    }
+                }
+            }
+
+            for (int i = 0; i < treeHeight; i++) {
+                setVoxel(treePos + ivec3(0, 0, i), true);
+                setMaterial(treePos + ivec3(0, 0, i), trunk);
+            }
+        }
+
+        // neighbor below
+        for (ivec3 treePos : neighbors[5]->getTreeData()) {
+            if (treePos.z + treeHeight > CHUNK_SIZE) {
+                int localZ = (treePos.z + treeHeight) - CHUNK_SIZE;
+                for (int i = -1; i < 2; i++) {
+                    for (int j = -1; j < 2; j++) {
+                        for (int k = localZ - (treeHeight - leafHeight) + 1; k <= localZ; k++) {
+                            ivec3 pos = ivec3(treePos.x + i, treePos.y + j, k);
+                            setVoxel(pos, true);
+                            setMaterial(pos, leaves);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < localZ; i++) {
+                    ivec3 pos = ivec3(treePos.x, treePos.y, i);
+                    setVoxel(pos, true);
+                    setMaterial(pos, trunk);
+                }
+            }
+        }
+        
+        setState(ChunkState::TreesReady);
     }
 
     bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
