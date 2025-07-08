@@ -9,34 +9,48 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     RenderPipelineDescriptor pipelineDesc;
     pipelineDesc.nextInChain = nullptr;
 
-    // vertex buffer layout
+    // Handle vertex buffer configuration
     VertexBufferLayout vertexBufferLayout;
-    vertexBufferLayout.attributeCount = static_cast<uint32_t>(config.vertexAttributes.size());
-    vertexBufferLayout.attributes = config.vertexAttributes.data();
-    vertexBufferLayout.arrayStride = sizeof(VertexAttributes);
-    vertexBufferLayout.stepMode = VertexStepMode::Vertex;
+    if (config.useVertexBuffers && !config.vertexAttributes.empty()) {
+        vertexBufferLayout.attributeCount = static_cast<uint32_t>(config.vertexAttributes.size());
+        vertexBufferLayout.attributes = config.vertexAttributes.data();
+        vertexBufferLayout.arrayStride = sizeof(VertexAttributes);
+        vertexBufferLayout.stepMode = VertexStepMode::Vertex;
 
-    pipelineDesc.vertex.bufferCount = 1;
-    pipelineDesc.vertex.buffers = &vertexBufferLayout;
+        pipelineDesc.vertex.bufferCount = 1;
+        pipelineDesc.vertex.buffers = &vertexBufferLayout;
+    }
+    else {
+        // No vertex buffers - for procedural geometry
+        pipelineDesc.vertex.bufferCount = 0;
+        pipelineDesc.vertex.buffers = nullptr;
+    }
+
     pipelineDesc.vertex.module = shaderModule;
-    pipelineDesc.vertex.entryPoint = "vs_main"; // vertex shader entry point
+    pipelineDesc.vertex.entryPoint = config.vertexShaderName.c_str();
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = nullptr;
-    pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
+
+    // Primitive state
+    pipelineDesc.primitive.topology = config.topology;
     pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined;
     pipelineDesc.primitive.frontFace = FrontFace::CCW;
-    pipelineDesc.primitive.cullMode = CullMode::Back;
+    pipelineDesc.primitive.cullMode = config.cullMode;
+
+    // Multisample state
     pipelineDesc.multisample.count = config.sampleCount;
     pipelineDesc.multisample.mask = ~0u;
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
 
+    // Fragment state
     FragmentState fragmentState;
     pipelineDesc.fragment = &fragmentState;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = "fs_main"; // fragment shader entry point
+    fragmentState.entryPoint = config.fragmentShaderName.c_str();
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
 
+    // Blend state
     BlendState blendState;
     blendState.color.srcFactor = BlendFactor::SrcAlpha;
     blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
@@ -45,33 +59,26 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     blendState.alpha.dstFactor = BlendFactor::One;
     blendState.alpha.operation = BlendOperation::Add;
 
+    // Color target state
     ColorTargetState colorTarget;
     colorTarget.format = surfaceFormat;
     colorTarget.blend = &blendState;
     colorTarget.writeMask = ColorWriteMask::All;
 
-    // We have only one target because our render pass has only one output color
-    // attachment.
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTarget;
 
-    MultisampleState multisampleState = Default;
-    multisampleState.count = config.sampleCount;
-
-    pipelineDesc.multisample = multisampleState;
-
+    // Depth stencil state
     DepthStencilState depthStencilState = Default;
-    // Setup depth state
-    depthStencilState.depthCompare = CompareFunction::Less;
-    depthStencilState.depthWriteEnabled = true;
-    // Store the format in a variable as later parts of the code depend on it
+    depthStencilState.depthCompare = config.depthCompare;
+    depthStencilState.depthWriteEnabled = config.depthWriteEnabled;
     depthStencilState.format = config.depthFormat;
-    // Deactivate the stencil alltogether
     depthStencilState.stencilReadMask = 0;
     depthStencilState.stencilWriteMask = 0;
 
     pipelineDesc.depthStencil = &depthStencilState;
 
+    // Pipeline layout
     PipelineLayoutDescriptor layoutDesc{};
     layoutDesc.bindGroupLayoutCount = (uint32_t)config.bindGroupLayouts.size();
     layoutDesc.bindGroupLayouts = reinterpret_cast<WGPUBindGroupLayout*>(config.bindGroupLayouts.data());
@@ -84,8 +91,9 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
 
     pipelines[pipelineName] = pipeline;
 
-    // We no longer need to access the shader module
+    // Clean up
     shaderModule.release();
+    layout.release();
 
     return pipeline;
 }

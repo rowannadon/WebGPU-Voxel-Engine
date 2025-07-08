@@ -169,7 +169,8 @@ RequiredLimits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
     requiredLimits.limits.maxInterStageShaderComponents = 8;
 
     // We use at most 1 bind group for now
-    requiredLimits.limits.maxBindGroups = 3;
+    requiredLimits.limits.maxBindGroups = 4;
+    requiredLimits.limits.maxBindGroupsPlusVertexBuffers = 8;
     // We use at most 1 uniform buffer per stage
     requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
     // Add the possibility to sample a texture in a shader

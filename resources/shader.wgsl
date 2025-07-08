@@ -1,3 +1,5 @@
+// TERRAIN SHADER
+
 /**
 * A structure with fields labeled with vertex attribute locations can be used
 * as input to the entry point of a shader.
@@ -92,6 +94,11 @@ fn sample_light_3d(local_pos: vec3<f32>) -> u32 {
     let r = u32(sample.r * 255.0 + 0.5);
     let g = u32(sample.g * 255.0 + 0.5);
     return r | (g << 8u);
+}
+
+fn get_sun_direction(time: f32) -> vec3f {
+    let sun_angle = time * 0.2 + 1.5;
+    return normalize(vec3f(sin(sun_angle), 0.5, cos(sun_angle)));
 }
 
 fn get_atlas_uv(base_uv: vec2<f32>, material_id: u32) -> vec2<f32> {
@@ -403,13 +410,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let normal = normalize(in.normal);
 
-    let lightDirection1 = normalize(vec3f(0.6, 1.0, 1.0));
-    let lightDirection2 = normalize(vec3f(-1.0, -0.6, -0.5));
+    let sunDirection = get_sun_direction(uMyUniforms.time);
+    let lightDirection1 = sunDirection;
+    let lightDirection2 = vec3f(sunDirection.x, sunDirection.y, 0.0);
 
-    let shading1 = max(0.05, dot(lightDirection1, normal));
-    let shading2 = max(0.05, dot(lightDirection2, normal));
+    let shading1 = max(0.2, dot(lightDirection1, normal));
+    let shading2 = max(0.2, dot(lightDirection2, normal));
 
-    let lightColor1 = vec3f(0.95, 0.80, 0.70) * 0.2;
+    let lightColor1 = vec3f(0.95, 0.80, 0.70);
     let lightColor2 = vec3f(0.15, 0.25, 0.30);
 
     // Calculate distance-based shading fade factor
@@ -586,8 +594,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     var baseColor = clamp((textureColor/2) * (shading*4) * ao_adjusted * aoComp, vec3f(0.0), vec3f(1.0));
 
+    
     if (in.highlighted > 0) {
-        baseColor *= 1.5;
+        var highlight = 1.0;
+        let width = 1.0/32.0;
+        if (in.uv.x < width || in.uv.x > (1 - width)) {
+            highlight = 3.5;
+            baseColor = vec3f((baseColor.r + baseColor.g + baseColor.b / 3.0)*highlight);
+        }
+        else if (in.uv.y < width || in.uv.y > (1 - width)) {
+            highlight = 3.5;
+            baseColor = vec3f((baseColor.r + baseColor.g + baseColor.b / 3.0)*highlight);
+        }
     }
 
 
@@ -595,11 +613,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let tc = baseColor / (baseColor + 1.0);
     let t_baseColor = mix(baseColor / (l + 1.0), tc, tc);
 
-    let fogFactor = 1.0 - exp(-in.fog_distance * 0.002);
+    let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
     let sunAmount = max(dot(view, -lightDirection1), 0.0 );
 
-    let fogColor  = mix( vec3(0.4,0.5,0.7)/2.0, // blue
-                    vec3(1.0,0.9,0.7)/2.0, // yellow
+    let fogColor  = mix( vec3(0.4,0.5,0.7), // blue
+                    vec3(1.0,0.9,0.7), // yellow
                     pow(sunAmount,16.0) );
 
     let finalColor = mix(baseColor, fogColor, fogFactor);

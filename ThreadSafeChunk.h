@@ -128,7 +128,11 @@ public:
     int getLightSlot() { return lightSlot; };
 
     std::optional<DAIC> getDAIC() {
-        if (meshSlot == -1 || dataSlot == -1) {
+        if (state.load() != ChunkState::Active) {
+            return std::nullopt;
+        }
+
+        if (!meshBufferInitialized || meshSlot < 0 || textureSlot < 0) {
             return std::nullopt;
         }
 

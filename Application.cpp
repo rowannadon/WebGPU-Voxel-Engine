@@ -795,7 +795,7 @@ void Application::registerMovementCallbacks() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 60.0;
+    constexpr float TARGET_FPS = 144.0;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
@@ -846,7 +846,7 @@ void Application::MainLoop() {
 
     std::vector<DAIC> renderData = chunkManager.getChunkDAICs();
     if (!renderData.empty()) {
-        gpu.renderChunks(uniforms, renderData);
+        gpu.renderFrame(uniforms, renderData);
     }
 
     // Calculate frame time more accurately

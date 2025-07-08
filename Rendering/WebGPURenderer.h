@@ -46,6 +46,10 @@ public:
 
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
+    bool initSkyPipeline(RenderConfig renderConfig);
+    void renderSky(MyUniforms& uniforms);
+    void renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData);
+
     void renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData);
     void terminate();
 };

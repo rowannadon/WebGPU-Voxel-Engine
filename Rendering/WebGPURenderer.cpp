@@ -2,7 +2,7 @@
 
 bool WebGPURenderer::initialize() {
 	RenderConfig config;
-	
+
 	context = std::make_unique<WebGPUContext>();
 	if (!context->initialize(config)) {
 		return false;
@@ -19,7 +19,8 @@ bool WebGPURenderer::initialize() {
 
 	initMultiSampleTexture(config);
 	initDepthTexture(config);
-	initRenderPipeline(config);
+	initRenderPipeline(config);      // Voxel pipeline
+	initSkyPipeline(config);         // Sky pipeline - ADD THIS
 	initUniformBuffers();
 	initTextures();
 	initBindGroup();
@@ -41,6 +42,219 @@ TextureManager* WebGPURenderer::getTextureManager() {
 
 BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
+}
+
+bool WebGPURenderer::initSkyPipeline(RenderConfig renderConfig) {
+	PipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/sky_shader.wgsl";
+	config.colorFormat = TextureFormat::BGRA8Unorm;
+	config.depthFormat = TextureFormat::Depth24Plus;
+	config.sampleCount = renderConfig.samples;
+	config.cullMode = CullMode::None;  // No culling for sky
+	config.depthWriteEnabled = false;  // Don't write to depth buffer
+	config.depthCompare = CompareFunction::LessEqual;  // Allow drawing at far plane
+	config.vertexShaderName = "sky_vs_main";
+	config.fragmentShaderName = "sky_fs_main";
+	config.useVertexBuffers = false;  // Sky shader generates vertices procedurally
+
+	// Clear vertex attributes since we don't need them
+	config.vertexAttributes.clear();
+
+	// IMPORTANT: Use the same bind group layout as the voxel pipeline
+	// This way we can share the same bind group
+	std::vector<BindGroupLayoutEntry> globalUniforms(1, Default);
+	globalUniforms[0].binding = 0;
+	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
+	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
+
+	// Use the existing "global_uniforms" layout instead of creating a new one
+	config.bindGroupLayouts.push_back(
+		pipelineManager->getBindGroupLayout("global_uniforms")
+	);
+
+	pipelineManager->createRenderPipeline("sky_pipeline", config);
+
+	return true;
+}
+void WebGPURenderer::renderSky(MyUniforms& uniforms) {
+	// Write frame uniforms (same as main pass)
+	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
+
+	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
+	if (!targetView) return;
+
+	CommandEncoderDescriptor encoderDesc = Default;
+	encoderDesc.label = "Sky command encoder";
+	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
+
+	// Sky render pass
+	RenderPassDescriptor renderPassDesc = {};
+	RenderPassColorAttachment renderPassColorAttachment = {};
+	renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
+	renderPassColorAttachment.resolveTarget = targetView;
+	renderPassColorAttachment.loadOp = LoadOp::Clear;
+	renderPassColorAttachment.storeOp = StoreOp::Store;
+	renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };  // Clear to black
+#ifndef WEBGPU_BACKEND_WGPU
+	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+
+	renderPassDesc.colorAttachmentCount = 1;
+	renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+	RenderPassDepthStencilAttachment depthStencilAttachment;
+	depthStencilAttachment.view = textureManager->getTextureView("depth_view");
+	depthStencilAttachment.depthClearValue = 1.0f;
+	depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+	depthStencilAttachment.depthStoreOp = StoreOp::Store;
+	depthStencilAttachment.depthReadOnly = false;
+	depthStencilAttachment.stencilClearValue = 0;
+	depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+	depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+	depthStencilAttachment.stencilReadOnly = true;
+
+	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+	renderPassDesc.timestampWrites = nullptr;
+
+	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
+
+	// Set sky pipeline
+	renderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
+	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
+
+	// Draw fullscreen quad (6 vertices for 2 triangles)
+	renderPass.draw(6, 1, 0, 0);
+
+	renderPass.end();
+	renderPass.release();
+
+	CommandBufferDescriptor cmdBufferDescriptor = {};
+	cmdBufferDescriptor.label = "Sky command buffer";
+	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
+	encoder.release();
+
+	context->getQueue().submit(1, &command);
+	command.release();
+	targetView.release();
+}
+
+void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
+	// Write frame uniforms once
+	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
+
+	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
+	if (!targetView) return;
+
+	CommandEncoderDescriptor encoderDesc = Default;
+	encoderDesc.label = "Frame command encoder";
+	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
+
+	// === SKY RENDER PASS ===
+	{
+		RenderPassDescriptor renderPassDesc = {};
+		RenderPassColorAttachment renderPassColorAttachment = {};
+		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
+		renderPassColorAttachment.resolveTarget = targetView;
+		renderPassColorAttachment.loadOp = LoadOp::Clear;
+		renderPassColorAttachment.storeOp = StoreOp::Store;
+		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+
+		renderPassDesc.colorAttachmentCount = 1;
+		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+		RenderPassDepthStencilAttachment depthStencilAttachment;
+		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
+		depthStencilAttachment.depthClearValue = 1.0f;
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+		depthStencilAttachment.depthStoreOp = StoreOp::Store;
+		depthStencilAttachment.depthReadOnly = false;
+		depthStencilAttachment.stencilClearValue = 0;
+		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.stencilReadOnly = true;
+
+		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.timestampWrites = nullptr;
+
+		RenderPassEncoder skyRenderPass = encoder.beginRenderPass(renderPassDesc);
+		skyRenderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
+		skyRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
+		skyRenderPass.draw(6, 1, 0, 0);  // Draw fullscreen quad
+		skyRenderPass.end();
+		skyRenderPass.release();
+	}
+
+	// === VOXEL RENDER PASS ===
+	{
+		RenderPassDescriptor renderPassDesc = {};
+		RenderPassColorAttachment renderPassColorAttachment = {};
+		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
+		renderPassColorAttachment.resolveTarget = targetView;
+		renderPassColorAttachment.loadOp = LoadOp::Load;  // Keep sky background
+		renderPassColorAttachment.storeOp = StoreOp::Store;
+		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+
+		renderPassDesc.colorAttachmentCount = 1;
+		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+		RenderPassDepthStencilAttachment depthStencilAttachment;
+		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
+		depthStencilAttachment.depthClearValue = 1.0f;
+		depthStencilAttachment.depthLoadOp = LoadOp::Load;  // Keep depth from sky
+		depthStencilAttachment.depthStoreOp = StoreOp::Store;
+		depthStencilAttachment.depthReadOnly = false;
+		depthStencilAttachment.stencilClearValue = 0;
+		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.stencilReadOnly = true;
+
+		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.timestampWrites = nullptr;
+
+		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
+		voxelRenderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
+		voxelRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
+		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
+		voxelRenderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		voxelRenderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+
+		auto pool = bufferManager->getMeshBufferPool("mesh_pool");
+		voxelRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
+		voxelRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
+
+		for (const auto& daic : chunkRenderData) {
+			if (daic.indexCount > 0) {
+				voxelRenderPass.drawIndexed(
+					daic.indexCount,
+					daic.instanceCount,
+					daic.firstIndex,
+					daic.baseVertex,
+					daic.firstInstance
+				);
+			}
+		}
+
+		voxelRenderPass.end();
+		voxelRenderPass.release();
+	}
+
+	CommandBufferDescriptor cmdBufferDescriptor = {};
+	cmdBufferDescriptor.label = "Frame command buffer";
+	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
+	encoder.release();
+
+	context->getQueue().submit(1, &command);
+	command.release();
+	targetView.release();
+	context->getSurface().present();
+	context->getDevice().tick();
 }
 
 void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
@@ -192,6 +406,8 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	config.cullMode = CullMode::Back;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
+	config.fragmentShaderName = "fs_main";  // Fragment shader entry point
+	config.vertexShaderName = "vs_main";  // Vertex shader entry point
 
 	// vertex attributes
 	std::vector<VertexAttribute> vertexAttribs(1);

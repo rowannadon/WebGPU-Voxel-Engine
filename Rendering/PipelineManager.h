@@ -12,6 +12,8 @@ using namespace wgpu;
 
 struct PipelineConfig {
     std::string shaderPath;
+    std::string fragmentShaderName = "fs_main";
+    std::string vertexShaderName = "vs_main";
     std::vector<VertexAttribute> vertexAttributes;
     std::vector<BindGroupLayout> bindGroupLayouts;
     TextureFormat colorFormat = TextureFormat::BGRA8Unorm;
@@ -21,6 +23,7 @@ struct PipelineConfig {
     CullMode cullMode = CullMode::Back;
     bool depthWriteEnabled = true;
     CompareFunction depthCompare = CompareFunction::Less;
+    bool useVertexBuffers = true;  // New flag to control vertex buffer usage
 };
 
 class PipelineManager {
