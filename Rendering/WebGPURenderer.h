@@ -34,6 +34,7 @@ public:
     bool initMultiSampleTexture(RenderConfig renderConfig);
     bool initDepthTexture(RenderConfig renderConfig);
     bool initRenderPipeline(RenderConfig renderConfig);
+    bool initComputePipeline();
     bool initTextures();
     bool initUniformBuffers();
     bool initBindGroup();

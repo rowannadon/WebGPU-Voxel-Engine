@@ -356,7 +356,7 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	config.vertexAttributes = vertexAttribs;
 
 	// uniforms binding
-	std::vector<BindGroupLayoutEntry> globalUniforms(3, Default);
+	std::vector<BindGroupLayoutEntry> globalUniforms(5, Default);
 	globalUniforms[0].binding = 0;
 	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
@@ -373,6 +373,17 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	globalUniforms[2].visibility = ShaderStage::Fragment;
 	globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
 
+	// The fog atlas binding and sampler
+	globalUniforms[3].binding = 3;
+	globalUniforms[3].visibility = ShaderStage::Fragment;
+	globalUniforms[3].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[3].texture.viewDimension = TextureViewDimension::_3D;
+
+	// The fog sampler binding
+	globalUniforms[4].binding = 4;
+	globalUniforms[4].visibility = ShaderStage::Fragment;
+	globalUniforms[4].sampler.type = SamplerBindingType::Filtering;
+
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
 	);
@@ -387,6 +398,12 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	);
 
 	pipelineManager->createRenderPipeline("voxel_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initComputePipeline() {
+	
 
 	return true;
 }
@@ -417,11 +434,50 @@ bool WebGPURenderer::initTextures() {
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 
-	return textureManager->getTextureView("atlas_view") != nullptr;
+	SamplerDescriptor fogSamplerDesc;
+	fogSamplerDesc.addressModeU = AddressMode::Repeat;
+	fogSamplerDesc.addressModeV = AddressMode::Repeat;
+	fogSamplerDesc.addressModeW = AddressMode::Repeat;
+	fogSamplerDesc.magFilter = FilterMode::Nearest;
+	fogSamplerDesc.minFilter = FilterMode::Nearest;
+	fogSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
+	fogSamplerDesc.lodMinClamp = 0.0f;
+	fogSamplerDesc.lodMaxClamp = 8.0f;
+	fogSamplerDesc.compare = CompareFunction::Undefined;
+	fogSamplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("fog_sampler", fogSamplerDesc);
+
+	TextureDescriptor textureDesc = {};
+	textureDesc.dimension = TextureDimension::_3D;
+	textureDesc.format = TextureFormat::RGBA16Float; // 2 bytes per voxel (VoxelMaterial)
+	textureDesc.mipLevelCount = 1;
+	textureDesc.sampleCount = 1;
+	textureDesc.size = { 32, 32, 32 };
+	textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	textureDesc.viewFormatCount = 0;
+	textureDesc.viewFormats = nullptr;
+	textureDesc.label = "LUT 3D Material Texture";
+
+	textureManager->createTexture("fog_texture", textureDesc);
+
+	TextureViewDescriptor viewDesc = {};
+	viewDesc.aspect = TextureAspect::All;
+	viewDesc.baseArrayLayer = 0;
+	viewDesc.arrayLayerCount = 1;
+	viewDesc.baseMipLevel = 0;
+	viewDesc.mipLevelCount = 1;
+	viewDesc.dimension = TextureViewDimension::_3D;
+	viewDesc.format = TextureFormat::RGBA16Float;
+	viewDesc.label = "LUT 3D Material Texture View";
+
+	textureManager->createTextureView("fog_texture", "fog_view", viewDesc);
+
+	return textureManager->getTextureView("atlas_view") != nullptr &&
+		textureManager->getTextureView("fog_view") != nullptr;
 }
 
 bool WebGPURenderer::initBindGroup() {
-	std::vector<BindGroupEntry> bindings(3);
+	std::vector<BindGroupEntry> bindings(5);
 
 	bindings[0].binding = 0;
 	bindings[0].buffer = bufferManager->getBuffer("uniform_buffer");
@@ -433,6 +489,12 @@ bool WebGPURenderer::initBindGroup() {
 
 	bindings[2].binding = 2;
 	bindings[2].sampler = textureManager->getSampler("atlas_sampler");
+
+	bindings[3].binding = 3;
+	bindings[3].textureView = textureManager->getTextureView("fog_view");
+
+	bindings[4].binding = 4;
+	bindings[4].sampler = textureManager->getSampler("fog_sampler");
 
 	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
 
