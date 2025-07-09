@@ -28,6 +28,12 @@ public:
 		return fnGenerator->GenSingle3D(position.x * noiseScale, position.y * noiseScale, position.z * noiseScale, seed);
 	}
 
+	std::vector<float> sampleArea3D(int size, ivec3 origin) {
+		std::vector<float> noiseOutput(size * size * size);
+		fnGenerator->GenUniformGrid3D(noiseOutput.data(), origin.x, origin.z, origin.y, size, size, size, noiseScale, seed);
+		return noiseOutput;
+	}
+
 	float sample3D2(vec3 position) {
 		return fnGenerator2->GenSingle3D(position.x * noiseScale2, position.y * noiseScale2, position.z * noiseScale2, seed);
 	}

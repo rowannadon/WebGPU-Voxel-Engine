@@ -39,10 +39,125 @@ void Application::Terminate() {
     gpu.terminate();
 }
 
+void Application::MainLoop() {
+    constexpr float TARGET_FPS = 60.0f;
+    constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
+
+    float currentFrame = static_cast<float>(glfwGetTime());
+    deltaTime = currentFrame - lastFrame;
+    lastFrame = currentFrame;
+
+    // Poll events first to minimize input lag
+    glfwPollEvents();
+    processInput();
+
+    // Early exit if frame budget is already exceeded
+    float frameStartTime = currentFrame;
+
+    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> {
+        return chunkManager.getChunk(c);
+        };
+
+    RayIntersectionResult result;
+    {
+        std::lock_guard<std::mutex> lock(cameraMutex);
+        result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
+    }
+
+    if (result.hit) {
+        lookingAtBlockPos = result.hitVoxelPos;
+        placeBlockPos = result.adjacentVoxelPos;
+    }
+    else {
+        lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+        placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
+    }
+
+    if (shouldBreakBlock) {
+        breakBlock();
+        shouldBreakBlock = false;
+    }
+
+    if (shouldPlaceBlock) {
+        placeBlock();
+        shouldPlaceBlock = false;
+    }
+
+    uniforms.highlightedVoxelPos = lookingAtBlockPos;
+    uniforms.time = currentFrame;
+    uniforms.cameraWorldPos = camera.position;
+
+    // Process GPU uploads from chunk thread (main thread only)
+    processGPUUploads();
+
+    std::vector<DAIC> renderData = chunkManager.getChunkDAICs();
+    if (!renderData.empty()) {
+        gpu.renderFrame(uniforms, renderData);
+    }
+
+    // Calculate frame time more accurately
+    float frameEndTime = static_cast<float>(glfwGetTime());
+    frameTime = frameEndTime - frameStartTime;
+
+    // Store frame times for averaging
+    frameTimes.push_back(frameTime);
+    if (frameTimes.size() > 100) {
+        frameTimes.erase(frameTimes.begin());
+    }
+
+    // Calculate average frame time
+    float averageFrameTime = std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0f) / frameTimes.size();
+    float averageFPS = 1.0f / averageFrameTime;
+
+    // Debug output every second
+    static float lastDebugTime = 0.0f;
+    if (currentFrame - lastDebugTime >= 1.0f) {
+        chunkManager.printChunkStates();
+
+        // Print frame budget and performance metrics
+        float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
+        float currentFrameMs = frameTime * 1000.0f;
+        float averageFrameMs = averageFrameTime * 1000.0f;
+        float frameBudgetUtilization = (averageFrameTime / TARGET_FRAME_TIME) * 100.0f;
+
+        std::cout << "=== Frame Timing Debug ===" << std::endl;
+        std::cout << "Target FPS: " << TARGET_FPS << " (Budget: " << frameBudgetMs << "ms)" << std::endl;
+        std::cout << "Current Frame: " << currentFrameMs << "ms" << std::endl;
+        std::cout << "Average Frame: " << averageFrameMs << "ms (" << averageFPS << " FPS)" << std::endl;
+        std::cout << "Frame Budget Utilization: " << frameBudgetUtilization << "%" << std::endl;
+        std::cout << "=========================" << std::endl;
+
+        lastDebugTime = currentFrame;
+    }
+
+    // Improved frame rate limiting with more precise timing
+    float timeAfterWork = static_cast<float>(glfwGetTime());
+    float workTime = timeAfterWork - frameStartTime;
+
+    if (workTime < TARGET_FRAME_TIME) {
+        float remainingTime = TARGET_FRAME_TIME - workTime;
+
+        // Use high-precision sleep for better frame pacing
+        // Leave a small buffer to avoid oversleeping
+        const float SLEEP_BUFFER = 0.0005f; // 0.5ms buffer
+
+        if (remainingTime > SLEEP_BUFFER) {
+            float sleepTime = remainingTime - SLEEP_BUFFER;
+            std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
+        }
+
+        // Spin-wait for the remaining time for maximum precision
+        while (static_cast<float>(glfwGetTime()) - frameStartTime < TARGET_FRAME_TIME) {
+            // Busy wait for precise timing
+            std::this_thread::yield();
+        }
+    }
+}
+
 void Application::breakBlock() {
     //std::cout << "breaking block" << "\n";
     // Early exit if no block is being looked at
-    if (lookingAtBlockPos.x == 0 && lookingAtBlockPos.y == 0 && lookingAtBlockPos.z == 0) {
+    if (lookingAtBlockPos.x == INT_MAX && lookingAtBlockPos.y == INT_MAX && lookingAtBlockPos.z == INT_MAX) {
         return; // No valid block position
     }
     vec3 lookingAtBlockPosf = vec3(lookingAtBlockPos.x, lookingAtBlockPos.y, lookingAtBlockPos.z);
@@ -124,6 +239,9 @@ void Application::breakBlock() {
 }
 
 void Application::placeBlock() {
+    if (placeBlockPos.x == INT_MAX && placeBlockPos.y == INT_MAX && placeBlockPos.z == INT_MAX) {
+        return; // No valid block position
+    }
     vec3 placeBlockPosf = vec3(placeBlockPos.x, placeBlockPos.y, placeBlockPos.z);
     // Calculate which chunk contains the block
     ivec3 chunkWorldPos = ivec3(glm::floor(placeBlockPosf / 32.0f));
@@ -201,71 +319,6 @@ void Application::placeBlock() {
     chunk->uploadToGPU(tex, buf, pip);
     chunk->uploadMaterialTexture(tex);
 }
-
-//void Application::recalculateLightingArea(ivec3 centerPos, int radius) {
-//    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> affectedChunks;
-//
-//    // First, clear light in the affected area
-//    for (int x = -radius; x <= radius; x++) {
-//        for (int y = -radius; y <= radius; y++) {
-//            for (int z = -radius; z <= radius; z++) {
-//                ivec3 worldPos = centerPos + ivec3(x, y, z);
-//                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
-//
-//                auto chunk = chunkManager.getChunk(chunkPos);
-//                if (chunk && chunk->getState() == ChunkState::Active) {
-//                    ivec3 localPos = worldPos - (chunkPos * 32);
-//
-//                    if (localPos.x >= 0 && localPos.x < 32 &&
-//                        localPos.y >= 0 && localPos.y < 32 &&
-//                        localPos.z >= 0 && localPos.z < 32) {
-//
-//                        if (!chunk->getVoxel(localPos)) {
-//                            VoxelMaterial clearLight;
-//                            clearLight.materialType = 0;
-//                            chunk->setLight(localPos, clearLight);
-//                            affectedChunks.insert(chunkPos);
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//
-//    // Then, find all light sources in the area and re-propagate
-//    for (int x = -radius; x <= radius; x++) {
-//        for (int y = -radius; y <= radius; y++) {
-//            for (int z = -radius; z <= radius; z++) {
-//                ivec3 worldPos = centerPos + ivec3(x, y, z);
-//                ivec3 chunkPos = ivec3(glm::floor(vec3(worldPos) / 32.0f));
-//
-//                auto chunk = chunkManager.getChunk(chunkPos);
-//                if (chunk && chunk->getState() == ChunkState::Active) {
-//                    ivec3 localPos = worldPos - (chunkPos * 32);
-//
-//                    if (localPos.x >= 0 && localPos.x < 32 &&
-//                        localPos.y >= 0 && localPos.y < 32 &&
-//                        localPos.z >= 0 && localPos.z < 32) {
-//
-//                        // Check if this is a light source (for now, just placed blocks)
-//                        if (chunk->getVoxel(localPos)) {
-//                            // Re-propagate light from this source
-//                            propagateGlobalLight(worldPos, 15);
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
-//
-//    // Update light textures for all affected chunks
-//    for (const auto& chunkPos : affectedChunks) {
-//        auto chunk = chunkManager.getChunk(chunkPos);
-//        if (chunk && chunk->getState() == ChunkState::Active) {
-//            chunk->uploadLightTexture(tex);
-//        }
-//    }
-//}
 
 void Application::propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel) {
     // Grid-based visibility lighting propagation
@@ -553,221 +606,6 @@ void Application::recalculateGridLightingArea(ivec3 centerPos, int radius) {
     }
 }
 
-void Application::propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk> chunk) {
-    // Maximum light level at the source
-    const int MAX_LIGHT_LEVEL = 15;
-    // Use a queue for breadth-first traversal
-    std::queue<std::pair<ivec3, int>> lightQueue;
-    struct Vec3Compare {
-        bool operator()(const ivec3& a, const ivec3& b) const {
-            if (a.x != b.x) return a.x < b.x;
-            if (a.y != b.y) return a.y < b.y;
-            return a.z < b.z;
-        }
-    };
-    std::set<ivec3, Vec3Compare> visited;
-    // Start with the source position
-    lightQueue.push({ position, MAX_LIGHT_LEVEL });
-    visited.insert(position);
-    // 6 directions for 3D propagation (up, down, north, south, east, west)
-    const std::vector<ivec3> directions = {
-        {0, 1, 0},   // up
-        {0, -1, 0},  // down
-        {1, 0, 0},   // east
-        {-1, 0, 0},  // west
-        {0, 0, 1},   // north
-        {0, 0, -1}   // south
-    };
-    while (!lightQueue.empty()) {
-        auto [currentPos, currentLight] = lightQueue.front();
-        lightQueue.pop();
-
-        // Skip if current position has a solid voxel
-        if (chunk->getVoxel(currentPos)) {
-            continue;
-        }
-
-        // Set the light level at current position
-        uint16_t oldLight = chunk->getLight(currentPos).materialType; // Update light data in the chunk
-        VoxelMaterial currentLightMaterial;
-        currentLightMaterial.materialType = glm::min(currentLight + oldLight, 15); // Use material type to represent light level
-        chunk->setLight(currentPos, currentLightMaterial);
-
-        // If light level is 0, stop propagating from this position
-        if (currentLight <= 0) {
-            continue;
-        }
-        // Propagate to all 6 neighboring positions
-        for (const auto& dir : directions) {
-            ivec3 neighborPos = currentPos + dir;
-            // Skip if we've already visited this position
-            if (visited.find(neighborPos) != visited.end()) {
-                continue;
-            }
-
-            // Skip if neighbor position has a solid voxel
-            if (chunk->getVoxel(neighborPos)) {
-                continue;
-            }
-
-            // Calculate new light level (reduced by 1)
-            int newLightLevel = currentLight - 1;
-            // Add to queue if light level is still positive
-            if (newLightLevel > 0) {
-                lightQueue.push({ neighborPos, newLightLevel });
-                visited.insert(neighborPos);
-            }
-        }
-    }
-}
-
-void Application::propagateGlobalLight(ivec3 worldPosition, int lightLevel) {
-    // Enhanced light propagation that handles cross-chunk boundaries
-    const int MAX_LIGHT_LEVEL = 15;
-
-    // Use a queue for breadth-first traversal
-    std::queue<LightPropagationItem> lightQueue;
-    struct WorldPosHash {
-        std::size_t operator()(const ivec3& k) const {
-            std::size_t h1 = std::hash<int>{}(k.x);
-            std::size_t h2 = std::hash<int>{}(k.y);
-            std::size_t h3 = std::hash<int>{}(k.z);
-            return h1 ^ (h2 << 1) ^ (h3 << 2);
-        }
-    };
-
-    std::unordered_set<ivec3, WorldPosHash> visited;
-
-    // Start with the source position
-    lightQueue.push({ worldPosition, lightLevel, ivec3(0), ivec3(0) });
-    visited.insert(worldPosition);
-
-    // 6 directions for 3D propagation
-    const std::vector<ivec3> directions = {
-        {0, 1, 0},   // up
-        {0, -1, 0},  // down
-        {1, 0, 0},   // east
-        {-1, 0, 0},  // west
-        {0, 0, 1},   // north
-        {0, 0, -1}   // south
-    };
-
-    std::unordered_set<ivec3, WorldPosHash> chunksToUpdate;
-
-    while (!lightQueue.empty()) {
-        auto item = lightQueue.front();
-        lightQueue.pop();
-
-        // Calculate which chunk contains this world position
-        ivec3 chunkWorldPos = ivec3(glm::floor(vec3(item.worldPosition) / 32.0f));
-        std::shared_ptr<ThreadSafeChunk> chunk = chunkManager.getChunk(chunkWorldPos);
-
-        if (!chunk || chunk->getState() == ChunkState::Unloading) {
-            continue;
-        }
-
-        // Calculate local position within the chunk
-        ivec3 localPos = item.worldPosition - (chunkWorldPos * 32);
-
-        // Bounds check
-        if (localPos.x < 0 || localPos.x >= 32 ||
-            localPos.y < 0 || localPos.y >= 32 ||
-            localPos.z < 0 || localPos.z >= 32) {
-            continue;
-        }
-
-        // Skip if current position has a solid voxel
-        if (chunk->getVoxel(localPos)) {
-            continue;
-        }
-
-        // Get current light level and update if necessary
-        VoxelMaterial currentLight = chunk->getLight(localPos);
-        int newLightLevel = std::max(item.lightLevel, static_cast<int>(currentLight.materialType));
-
-        if (newLightLevel > currentLight.materialType) {
-            VoxelMaterial newLight;
-            newLight.materialType = newLightLevel;
-            chunk->setLight(localPos, newLight);
-            chunksToUpdate.insert(chunkWorldPos);
-        }
-
-        // If light level is 0, stop propagating from this position
-        if (item.lightLevel <= 0) {
-            continue;
-        }
-
-        // Propagate to all 6 neighboring positions
-        for (const auto& dir : directions) {
-            ivec3 neighborWorldPos = item.worldPosition + dir;
-
-            // Skip if we've already visited this position
-            if (visited.find(neighborWorldPos) != visited.end()) {
-                continue;
-            }
-
-            // Calculate neighbor chunk position
-            ivec3 neighborChunkPos = ivec3(glm::floor(vec3(neighborWorldPos) / 32.0f));
-            std::shared_ptr<ThreadSafeChunk> neighborChunk = chunkManager.getChunk(neighborChunkPos);
-
-            if (!neighborChunk || neighborChunk->getState() == ChunkState::Unloading) {
-                continue;
-            }
-
-            // Calculate local position in neighbor chunk
-            ivec3 neighborLocalPos = neighborWorldPos - (neighborChunkPos * 32);
-
-            // Bounds check
-            if (neighborLocalPos.x < 0 || neighborLocalPos.x >= 32 ||
-                neighborLocalPos.y < 0 || neighborLocalPos.y >= 32 ||
-                neighborLocalPos.z < 0 || neighborLocalPos.z >= 32) {
-                continue;
-            }
-
-            // Skip if neighbor position has a solid voxel
-            if (neighborChunk->getVoxel(neighborLocalPos)) {
-                continue;
-            }
-
-            // Calculate new light level (reduced by 1)
-            int newLightLevel = item.lightLevel - 1;
-
-            // Add to queue if light level is still positive
-            if (newLightLevel > 0) {
-                lightQueue.push({ neighborWorldPos, newLightLevel, neighborChunkPos, neighborLocalPos });
-                visited.insert(neighborWorldPos);
-            }
-        }
-    }
-
-    // FIXED: Update light textures for all affected chunks with proper neighbor mapping
-    for (const auto& chunkPos : chunksToUpdate) {
-        auto chunk = chunkManager.getChunk(chunkPos);
-        if (!chunk || chunk->getState() != ChunkState::Active) {
-            continue;
-        }
-
-        // Get neighbors with proper mapping
-        auto neighbors = chunkManager.getNeighbors(chunkPos);
-        std::array<int, 6> lightOffsets = { 0 };
-
-        // Map neighbors to their light slots
-        // Order: Right, Left, Front, Back, Top, Bottom
-        for (int i = 0; i < 6; ++i) {
-            if (neighbors[i] && neighbors[i]->getLightSlot() != -1) {
-                lightOffsets[i] = neighbors[i]->getLightSlot();
-            }
-            else {
-                lightOffsets[i] = 4294967295u; // Invalid slot marker
-            }
-        }
-
-        // Upload light texture with neighbor information
-        chunk->uploadLightTexture(tex, lightOffsets);
-        chunk->updateChunkDataBuffer(buf);
-    }
-}
-
 void Application::registerMovementCallbacks() {
     // Set the user pointer to be "this"
     glfwSetWindowUserPointer(window, this);
@@ -792,120 +630,6 @@ void Application::registerMovementCallbacks() {
         auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
         if (that != nullptr) that->onKey(key, scancode, action, mods);
         });
-}
-
-void Application::MainLoop() {
-    constexpr float TARGET_FPS = 60.0f;
-    constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
-
-    float currentFrame = static_cast<float>(glfwGetTime());
-    deltaTime = currentFrame - lastFrame;
-    lastFrame = currentFrame;
-
-    // Poll events first to minimize input lag
-    glfwPollEvents();
-    processInput();
-
-    // Early exit if frame budget is already exceeded
-    float frameStartTime = currentFrame;
-
-    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ThreadSafeChunk> {
-        return chunkManager.getChunk(c);
-        };
-
-    RayIntersectionResult result;
-    {
-        std::lock_guard<std::mutex> lock(cameraMutex);
-        result = Ray::rayVoxelIntersection(camera.position, camera.front, 10000.0f, getChunkCallback);
-    }
-
-    if (result.hit) {
-        lookingAtBlockPos = result.hitVoxelPos;
-        placeBlockPos = result.adjacentVoxelPos;
-    }
-    else {
-        lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
-    }
-
-    if (shouldBreakBlock) {
-        breakBlock();
-        shouldBreakBlock = false;
-    }
-
-    if (shouldPlaceBlock) {
-        placeBlock();
-        shouldPlaceBlock = false;
-    }
-
-    uniforms.highlightedVoxelPos = lookingAtBlockPos;
-    uniforms.time = currentFrame;
-    uniforms.cameraWorldPos = camera.position;
-
-    // Process GPU uploads from chunk thread (main thread only)
-    processGPUUploads();
-
-    std::vector<DAIC> renderData = chunkManager.getChunkDAICs();
-    if (!renderData.empty()) {
-        gpu.renderFrame(uniforms, renderData);
-    }
-
-    // Calculate frame time more accurately
-    float frameEndTime = static_cast<float>(glfwGetTime());
-    frameTime = frameEndTime - frameStartTime;
-
-    // Store frame times for averaging
-    frameTimes.push_back(frameTime);
-    if (frameTimes.size() > 100) {
-        frameTimes.erase(frameTimes.begin());
-    }
-
-    // Calculate average frame time
-    float averageFrameTime = std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0f) / frameTimes.size();
-    float averageFPS = 1.0f / averageFrameTime;
-
-    // Debug output every second
-    static float lastDebugTime = 0.0f;
-    if (currentFrame - lastDebugTime >= 1.0f) {
-        chunkManager.printChunkStates();
-
-        // Print frame budget and performance metrics
-        float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
-        float currentFrameMs = frameTime * 1000.0f;
-        float averageFrameMs = averageFrameTime * 1000.0f;
-        float frameBudgetUtilization = (averageFrameTime / TARGET_FRAME_TIME) * 100.0f;
-
-        std::cout << "=== Frame Timing Debug ===" << std::endl;
-        std::cout << "Target FPS: " << TARGET_FPS << " (Budget: " << frameBudgetMs << "ms)" << std::endl;
-        std::cout << "Current Frame: " << currentFrameMs << "ms" << std::endl;
-        std::cout << "Average Frame: " << averageFrameMs << "ms (" << averageFPS << " FPS)" << std::endl;
-        std::cout << "Frame Budget Utilization: " << frameBudgetUtilization << "%" << std::endl;
-        std::cout << "=========================" << std::endl;
-
-        lastDebugTime = currentFrame;
-    }
-
-    // Improved frame rate limiting with more precise timing
-    float timeAfterWork = static_cast<float>(glfwGetTime());
-    float workTime = timeAfterWork - frameStartTime;
-
-    if (workTime < TARGET_FRAME_TIME) {
-        float remainingTime = TARGET_FRAME_TIME - workTime;
-
-        // Use high-precision sleep for better frame pacing
-        // Leave a small buffer to avoid oversleeping
-        const float SLEEP_BUFFER = 0.0001f; // 0.5ms buffer
-
-        if (remainingTime > SLEEP_BUFFER) {
-            float sleepTime = remainingTime - SLEEP_BUFFER;
-            std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
-        }
-
-        // Spin-wait for the remaining time for maximum precision
-        while (static_cast<float>(glfwGetTime()) - frameStartTime < TARGET_FRAME_TIME) {
-            // Busy wait for precise timing
-            std::this_thread::yield();
-        }
-    }
 }
 
 void Application::startChunkUpdateThread() {

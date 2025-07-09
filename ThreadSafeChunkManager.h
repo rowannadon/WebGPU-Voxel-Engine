@@ -172,7 +172,7 @@ private:
         pendingChunkCreation.swap(empty_pq);
 
         // Configuration
-        const int maxChunksPerIteration = 24;  // Limit chunks added per call
+        const int maxChunksPerIteration = 16;  // Limit chunks added per call
         //const int maxActiveChunks = 8000;
 
         //// Count active chunks
@@ -235,7 +235,8 @@ private:
             pendingChunkCreation.pop();
 
             if (chunks.find(nextChunk.position) == chunks.end()) {
-                float distanceFromPlayer = glm::abs(nextChunk.position.x - playerChunkPos.x) + 
+                float distanceFromPlayer = 
+                    glm::abs(nextChunk.position.x - playerChunkPos.x) + 
                     glm::abs(nextChunk.position.y - playerChunkPos.y) + 
                     glm::abs(nextChunk.position.z - playerChunkPos.z);
 
@@ -248,6 +249,7 @@ private:
                 auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 chunks[nextChunk.position] = newChunk;
 
+                newChunk->setState(ChunkState::GeneratingTerrain);
                 workerSystem->queueTerrainGeneration(newChunk, nextChunk.position, distanceFromPlayer + 1);
 
                 chunksCreated++;
@@ -262,37 +264,33 @@ private:
 				ivec3 chunkPos = pair.first;
                 std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
                 if (pair.second->getState() == ChunkState::TerrainReady) {
-                    if (chunk->getSolidVoxels() > 0) {
-                        // Check if all existing neighbors are ready
-                        bool allNeighborsReady = true;
-                        for (int i = 0; i < 6; ++i) {
-                            auto neighbor = neighbors[i];
-                            if (neighbor == nullptr) {
+                    // Check if all existing neighbors are ready
+                    bool allNeighborsReady = true;
+                    for (int i = 0; i < 6; ++i) {
+                        auto neighbor = neighbors[i];
+                        if (neighbor == nullptr) {
+                            allNeighborsReady = false;
+                            break;
+                        }
+                        else {
+                            ChunkState neighborState = neighbor->getState();
+                            if (neighborState == ChunkState::Empty ||
+                                neighborState == ChunkState::GeneratingTerrain ||
+                                neighborState == ChunkState::Unloading) {
+
+                                /*if (neighborState == ChunkState::Empty) {
+                                    workerSystem->queueTerrainGeneration(chunk, chunk->getPosition(), 1);
+                                }*/
+
                                 allNeighborsReady = false;
                                 break;
                             }
-                            else {
-                                ChunkState neighborState = neighbor->getState();
-                                if (neighborState == ChunkState::Empty ||
-                                    neighborState == ChunkState::GeneratingTerrain ||
-                                    neighborState == ChunkState::Unloading) {
-
-                                    /*if (neighborState == ChunkState::Empty) {
-                                        workerSystem->queueTerrainGeneration(chunk, chunk->getPosition(), 1);
-                                    }*/
-
-                                    allNeighborsReady = false;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (allNeighborsReady) {
-                            workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
                         }
                     }
-                    else {
-                        chunk->setState(ChunkState::Air);
+
+                    if (allNeighborsReady && chunk->getState() == ChunkState::TerrainReady) {
+                        chunk->setState(ChunkState::GeneratingTopsoil);
+                        workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
                     }
                 }
                 else if (pair.second->getState() == ChunkState::TopsoilReady) {
@@ -307,19 +305,16 @@ private:
 
                         else {
                             ChunkState neighborState = neighbor->getState();
-                            if (neighborState == ChunkState::Empty ||
-                                neighborState == ChunkState::GeneratingTerrain ||
-                                neighborState == ChunkState::Unloading ||
-                                neighborState == ChunkState::GeneratingTopsoil) {
+                            if (neighborState <= ChunkState::GeneratingTopsoil ||
+                                neighborState == ChunkState::Unloading) {
                                 allNeighborsReady = false;
-
                                 break;
                             }
                         }
                     }
 
-                    if (allNeighborsReady) {
-                        //chunk->setState(ChunkState::GeneratingTrees);
+                    if (allNeighborsReady && chunk->getState() == ChunkState::TopsoilReady) {
+                        chunk->setState(ChunkState::GeneratingTrees);
                         workerSystem->queueTreeGeneration(chunk, chunkPos, neighbors);
                     }
                 }
@@ -334,13 +329,9 @@ private:
                         }
                         else {
                             ChunkState neighborState = neighbor->getState();
-                            if (neighborState == ChunkState::Empty ||
-                                neighborState == ChunkState::GeneratingTerrain ||
-                                neighborState == ChunkState::Unloading ||
-                                neighborState == ChunkState::GeneratingTopsoil ||
-                                neighborState == ChunkState::GeneratingTrees) {
+                            if (neighborState < ChunkState::GeneratingTrees ||
+                                neighborState == ChunkState::Unloading) {
                                 allNeighborsReady = false;
-
                                 break;
                             }
                         }

@@ -24,6 +24,7 @@ struct VertexOutput {
     @location(5) voxel_pos: vec3f,
     @location(6) highlighted: f32,
     @location(7) @interpolate(flat) idx: u32,
+    @location(8) chunk_edge_factor: f32,
 };
 
 /**
@@ -89,26 +90,30 @@ const SHADING_FADE_START: f32 = 300.0;  // Distance where shading starts to fade
 const SHADING_FADE_END: f32 = 600.0;    // Distance where shading is completely flat
 const MIN_SHADING_CONTRAST: f32 = 0.1;  // Minimum contrast to maintain
 
+// Chunk edge highlighting constants
+const CHUNK_EDGE_WIDTH: f32 = 2.0;  // Width of edge highlighting in voxels
+const CHUNK_EDGE_INTENSITY: f32 = 0.3;  // Intensity of edge highlighting
+
 // Material property definitions (material_id - 1 as index)
 const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
-    // Material 0: Stone/Rock - low shininess, neutral specular
-    MaterialProperties(vec3f(0.2, 0.2, 0.2), 8.0, 0.3),
-    // Material 1: Grass - very low shininess, green tint
+    // Material 1: Dirt - very low shininess, earthy brown specular
+    MaterialProperties(vec3f(0.08, 0.06, 0.04), 2.0, 0.02),
+    // Material 2: Grass - very low shininess, green tint
     MaterialProperties(vec3f(0.1, 0.15, 0.1), 4.0, 0.1),
-    // Material 2: Wood - low shininess, warm specular
-    MaterialProperties(vec3f(0.2, 0.2, 0.2), 8.0, 0.3),
-    // Material 3: Metal - high shininess, bright specular
-    MaterialProperties(vec3f(0.8, 0.8, 0.8), 64.0, 0.8),
-    // Material 4: Water - very high shininess, blue tint
-    MaterialProperties(vec3f(0.3, 0.4, 0.6), 128.0, 0.9),
-    // Material 5: Ice - high shininess, cool specular
-    MaterialProperties(vec3f(0.6, 0.7, 0.8), 96.0, 0.7),
-    // Material 6: Sand - very low shininess, warm specular
-    MaterialProperties(vec3f(0.12, 0.1, 0.08), 2.0, 0.05),
-    // Material 7: Crystal - very high shininess, prismatic specular
-    MaterialProperties(vec3f(0.9, 0.9, 1.0), 256.0, 1.0),
-    // Material 8: Lava - medium shininess, red-orange specular
-    MaterialProperties(vec3f(0.4, 0.2, 0.1), 16.0, 0.4)
+    // Material 3: Limestone - low shininess, light neutral specular
+    MaterialProperties(vec3f(0.25, 0.25, 0.22), 12.0, 0.25),
+    // Material 4: Brick - low shininess, warm reddish specular
+    MaterialProperties(vec3f(0.18, 0.12, 0.08), 8.0, 0.2),
+    // Material 5: Slate - medium shininess, dark bluish specular
+    MaterialProperties(vec3f(0.15, 0.17, 0.2), 24.0, 0.4),
+    // Material 6: Andesite - low shininess, neutral gray specular
+    MaterialProperties(vec3f(0.2, 0.2, 0.19), 10.0, 0.3),
+    // Material 7: Gneiss - medium shininess, banded specular
+    MaterialProperties(vec3f(0.22, 0.20, 0.18), 16.0, 0.35),
+    // Material 8: Log - low shininess, warm brown specular
+    MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
+    // Material 9: Leaf - very low shininess, green organic specular
+    MaterialProperties(vec3f(0.8, 1.0, 0.6), 3.0, 0.08)
 );
 
 fn get_material_properties(material_id: u32) -> MaterialProperties {
@@ -197,6 +202,36 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         vertex_index,
         ao_index
     );
+}
+
+fn calculate_chunk_edge_factor(voxel_pos: vec3f, normal_index: u32) -> f32 {
+    // Calculate distance from chunk edges
+    let edge_distances = vec3f(
+        min(voxel_pos.x, CHUNK_SIZE - 1.0 - voxel_pos.x),
+        min(voxel_pos.y, CHUNK_SIZE - 1.0 - voxel_pos.y),
+        min(voxel_pos.z, CHUNK_SIZE - 1.0 - voxel_pos.z)
+    );
+    
+    // Determine which edge distance to use based on face normal
+    var relevant_edge_distance: f32;
+    
+    switch (normal_index) {
+        case 0u, 1u: { // X-axis faces - use Y and Z edges
+            relevant_edge_distance = min(edge_distances.y, edge_distances.z);
+        }
+        case 2u, 3u: { // Y-axis faces - use X and Z edges  
+            relevant_edge_distance = min(edge_distances.x, edge_distances.z);
+        }
+        case 4u, 5u: { // Z-axis faces - use X and Y edges
+            relevant_edge_distance = min(edge_distances.x, edge_distances.y);
+        }
+        default: {
+            relevant_edge_distance = min(min(edge_distances.x, edge_distances.y), edge_distances.z);
+        }
+    }
+    
+    // Create smooth falloff from edge
+    return 1.0 - smoothstep(0.0, CHUNK_EDGE_WIDTH, relevant_edge_distance);
 }
 
 const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
@@ -340,6 +375,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             out.position.z -= 0.00001; // Small bias towards camera
         }
 
+        // For LOD, calculate chunk edge factor based on the actual world position
+        let chunk_world_pos_vec = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
+        let local_world_pos = position - chunk_world_pos_vec;
+        out.chunk_edge_factor = calculate_chunk_edge_factor(local_world_pos, data.normal_index);
+
     } else {
         // Regular voxel rendering
         voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
@@ -382,6 +422,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         
         // Regular voxel rendering uses standard UVs
         uv = faceUVsIndependent[data.normal_index][data.vertex_index];
+
+        // Calculate chunk edge factor for regular voxels
+        out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos, data.normal_index);
     }
     
     let normal = faceNormals[data.normal_index];
@@ -628,7 +671,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let day_night = softClamp(cos(uMyUniforms.time * 0.2 + 1.5), 0.05, 1.0);
 
-    let atlas_uv = get_atlas_uv(in.uv, material_id - 1);
+    let atlas_uv = get_atlas_uv(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
     
     let light_color = vec3(0.95, 0.75, 0.55);
@@ -684,7 +727,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Combine diffuse and specular
     var baseColor = clamp((textureColor/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
 
+    // Apply chunk edge highlighting
+    // if (in.chunk_edge_factor > 0.0) {
+    //     let edgeColor = vec3f(0.8, 0.9, 1.0); // Light blue/white edge color
+    //     baseColor = mix(baseColor, edgeColor, in.chunk_edge_factor * CHUNK_EDGE_INTENSITY);
+    // }
     
+    // Apply individual block highlighting (if any)
     if (in.highlighted > 0) {
         let width = 1.0/16.0;
         let highlight = 4.0;
@@ -706,7 +755,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let highlightColor = vec3f(avgColor * highlight);
         baseColor = clamp(mix(baseColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(1.0));
     }
-
 
     let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
     let sunAmount = max(dot(viewDir, -sunDirection), 0.0 );

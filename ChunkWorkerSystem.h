@@ -264,7 +264,7 @@ private:
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 12;
+    static constexpr int DEFAULT_WORKER_COUNT = 16;
     static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
 
@@ -321,7 +321,7 @@ public:
             return false;
         }
 
-        ChunkWorkItem item(ChunkWorkItem::GenerateTerrain, chunk, position, ChunkWorkItem::CRITICAL / distance);
+        ChunkWorkItem item(ChunkWorkItem::GenerateTerrain, chunk, position, ChunkWorkItem::LOW);
         return work_queue.push(item);
     }
 
@@ -333,7 +333,7 @@ public:
             return false;
         }
 
-        ChunkWorkItem item(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, ChunkWorkItem::HIGH);
+        ChunkWorkItem item(ChunkWorkItem::GenerateTopsoil, chunk, position, neighbors, ChunkWorkItem::NORMAL);
         return work_queue.push(item);
     }
 
@@ -488,13 +488,8 @@ private:
         }
 
         ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::Empty) {
+        if (currentState != ChunkState::GeneratingTerrain) {
             error_message = "Chunk not in Empty state";
-            return false;
-        }
-
-        if (currentState == ChunkState::Unloading) {
-            error_message = "Chunk is unloading";
             return false;
         }
 
@@ -511,13 +506,8 @@ private:
         }
 
         ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::TerrainReady) {
+        if (currentState != ChunkState::GeneratingTopsoil) {
             error_message = "Chunk not in TerrainReady state";
-            return false;
-        }
-
-        if (currentState == ChunkState::Unloading) {
-            error_message = "Chunk is unloading";
             return false;
         }
 
@@ -533,15 +523,9 @@ private:
             return false;
         }
 
-
         ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::TopsoilReady) {
+        if (currentState != ChunkState::GeneratingTrees) {
             error_message = "Chunk not in TopsoilReady state";
-            return false;
-        }
-
-        if (currentState == ChunkState::Unloading) {
-            error_message = "Chunk is unloading";
             return false;
         }
 
@@ -556,15 +540,15 @@ private:
             return false;
         }
 
-        ChunkState currentState = chunk->getState();
-        if (currentState == ChunkState::Unloading) {
-            error_message = "Chunk is unloading";
-            return false;
-        }
-
         if (chunk->getSolidVoxels() == 0) {
             chunk->setState(ChunkState::Air);
             return true;
+        }
+
+        ChunkState currentState = chunk->getState();
+        if (currentState != ChunkState::GeneratingMesh) {
+            error_message = "Chunk not in TopsoilReady state";
+            return false;
         }
 
         bool success = chunk->generateMesh(workItem.getNeighbors());
@@ -575,30 +559,6 @@ private:
             error_message = "Mesh generation failed";
         }
         return success;
-    }
-
-    void resultProcessorLoop() {
-        while (running) {
-            ChunkWorkResult result;
-            if (result_queue.pop(result)) {
-                processResult(result);
-            }
-        }
-    }
-
-    void processResult(const ChunkWorkResult& result) {
-        // Default result processing - can be customized
-        if (!result.success) {
-            std::cerr << "Work item " << result.work_item_id
-                << " (" << static_cast<int>(result.work_type) << ") failed: "
-                << result.error_message << std::endl;
-        }
-
-        // Could add logic here to:
-        // - Queue follow-up work items
-        // - Update chunk manager state
-        // - Trigger GPU uploads
-        // - Log performance metrics
     }
 
     void performPeriodicCleanup() {

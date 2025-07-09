@@ -435,16 +435,14 @@ public:
     }
 
     void generateTerrain() {
-        setState(ChunkState::GeneratingTerrain);
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int y = 0; y < CHUNK_SIZE; y++) {
-                for (int z = 0; z < CHUNK_SIZE; z++) {
-                    VoxelMaterial lightMaterial;
-                    lightMaterial.materialType = 0; // Default to air
-                    setLight(ivec3(x, y, z), lightMaterial);
+        std::vector<float> noiseData = worldGen.sampleArea3D(CHUNK_SIZE, position);
+        int index = 0;
 
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int z = 0; z < CHUNK_SIZE; z++) {
+                for (int x = 0; x < CHUNK_SIZE; x++) {
                     ivec3 worldPos = ivec3(x, y, z) + position;
-                    float noiseValue = worldGen.sample3D(vec3(worldPos.x, worldPos.z, worldPos.y));
+                    float noiseValue = noiseData[index++];
                     if (noiseValue > -0.4) {
                         setVoxel(vec3(x, y, z), true);
                     }
@@ -457,16 +455,11 @@ public:
             }
         }
 
-        if (getSolidVoxels() > 0) {
-            setState(ChunkState::TerrainReady);
-        }
-        else {
-            setState(ChunkState::Air);
-        }
+        setState(ChunkState::TerrainReady);
+
     }
 
     void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        setState(ChunkState::GeneratingTopsoil);
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
             // Check if position is within current chunk bounds
@@ -572,37 +565,37 @@ public:
                         float noiseValue = worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = 3; // stone
+                            material.materialType = BlockType::Limestone;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
-                            material.materialType = 7; // andesite
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > -0.6 && noiseValue < -0.4) {
-                            material.materialType = 6; // tuff
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
-                            material.materialType = 5; // deepslate
+                            material.materialType = BlockType::Slate;
                         }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
-                            material.materialType = 6; // tuff
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0 && noiseValue < 0.2) {
-                            material.materialType = 7; // andesite
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > 0.2 && noiseValue < 0.4) {
-                            material.materialType = 3; // stone
+                            material.materialType = BlockType::Limestone;
                         }
                         else if (noiseValue > 0.4 && noiseValue < 0.6) {
-                            material.materialType = 7; // andesite
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > 0.6 && noiseValue < 0.8) {
-                            material.materialType = 6; // tuff
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0.8 && noiseValue < 1) {
-                            material.materialType = 5; // deepslate
+                            material.materialType = BlockType::Slate;
                         }
                         else {
-                            material.materialType = 5; // stone by default
+                            material.materialType = BlockType::Limestone;
                         }
 
                         setMaterial(ivec3(x, y, z), material);
@@ -619,7 +612,7 @@ public:
                             switch (maxHeightDifference) {
                             case 0:
                             case 1:
-                                material.materialType = 2; // grass
+                                material.materialType = BlockType::Grass; // grass
                                 if (rand() % 32 == 0) {
                                     if (positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
@@ -630,26 +623,27 @@ public:
                                         }
 
                                         if (closestDistance > 8) {
+                                            
                                             treeData.push_back(positionAbove);
                                         }
                                     }
                                 }
                                 break;
                             case 2:
-                                material.materialType = 1; // dirt
+                                material.materialType = BlockType::Dirt; // dirt
                                 break;
                             default: // 3 or more
                                 break;
                             }
 
                             // Apply materials to multiple layers
-                            if (material.materialType == 2) { // grass terrain
+                            if (material.materialType == BlockType::Grass) { // grass terrain
                                 // Top 2 layers: grass
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxel(layerPos)) {
                                         VoxelMaterial material;
-                                        material.materialType = 2; // grass
+                                        material.materialType = BlockType::Grass; // grass
                                         setMaterial(layerPos, material);
                                     }
                                 }
@@ -658,18 +652,18 @@ public:
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxel(layerPos)) {
                                         VoxelMaterial material;
-                                        material.materialType = 1; // dirt
+                                        material.materialType = BlockType::Dirt; // dirt
                                         setMaterial(layerPos, material);
                                     }
                                 }
                             }
-                            else if (material.materialType == 1) { // dirt terrain
+                            else if (material.materialType == BlockType::Dirt) { // dirt terrain
                                 // Top 3 layers: dirt
                                 for (int layer = 0; layer < 3; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxel(layerPos)) {
                                         VoxelMaterial material;
-                                        material.materialType = 1; // dirt
+                                        material.materialType = BlockType::Dirt; // dirt
                                         setMaterial(layerPos, material);
                                     }
                                 }
@@ -684,71 +678,127 @@ public:
     }
 
     void generateTrees(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        setState(ChunkState::GeneratingTrees);
+        VoxelMaterial trunkMaterial;
+        trunkMaterial.materialType = BlockType::Log;
 
-        VoxelMaterial trunk;
-        trunk.materialType = 8;
+        VoxelMaterial leavesMaterial;
+        leavesMaterial.materialType = BlockType::Leaf;
 
-        VoxelMaterial leaves;
-        leaves.materialType = 9;
+        // A helper lambda to generate the shape of a single tree.
+        // It takes a base position relative to the current chunk's origin and a pre-calculated height.
+        // The setVoxel/setMaterial calls within will automatically clip the tree to the chunk's boundaries.
+        auto placeTreeShape = [&](const ivec3& basePos, int treeHeight) {
+            int leafHeight = 3;
 
-        int treeHeight = 7;
-        int leafHeight = 3;
-
-        for (ivec3 treePos : treeData) {
-            for (int i = -1; i < 2; i++) {
-                for (int j = -1; j < 2; j++) {
-                    for (int k = treeHeight - leafHeight; k < treeHeight + 1; k++) {
-                        setVoxel(treePos + ivec3(i, j, k), true);
-                        setMaterial(treePos + ivec3(i, j, k), leaves);
+            // Generate leaves first so trunk can overwrite it (looks better)
+            // This uses the same shape as your original code.
+            for (int i = -2; i <= 2; i++) {
+                for (int j = -2; j <= 2; j++) {
+                    for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
+                        setVoxel(basePos + ivec3(i, j, k), true);
+                        setMaterial(basePos + ivec3(i, j, k), leavesMaterial);
                     }
                 }
             }
 
+            for (int i = -1; i <= 1; i++) {
+                for (int j = -1; j <= 1; j++) {
+                    for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
+                        setVoxel(basePos + ivec3(i, j, k), true);
+                        setMaterial(basePos + ivec3(i, j, k), leavesMaterial);
+                    }
+                }
+            }
+
+            setVoxel(basePos + ivec3(0, 1, treeHeight), true);
+            setMaterial(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
+
+            setVoxel(basePos + ivec3(0, -1, treeHeight), true);
+            setMaterial(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
+
+            setVoxel(basePos + ivec3(1, 0, treeHeight), true);
+            setMaterial(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
+
+            setVoxel(basePos + ivec3(-1, 0, treeHeight), true);
+            setMaterial(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
+
+            setVoxel(basePos + ivec3(0, 0, treeHeight), true);
+            setMaterial(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
+
+            // Generate trunk
             for (int i = 0; i < treeHeight; i++) {
-                setVoxel(treePos + ivec3(0, 0, i), true);
-                setMaterial(treePos + ivec3(0, 0, i), trunk);
+                setVoxel(basePos + ivec3(0, 0, i), true);
+                setMaterial(basePos + ivec3(0, 0, i), trunkMaterial);
+            }
+            };
+
+        // 1. Generate trees that are rooted in THIS chunk.
+        {
+            for (const ivec3& localTreePos : treeData) {
+                // Calculate a deterministic height based on the tree's absolute world position
+                // to ensure consistency across chunk boundaries.
+                ivec3 worldTreePos = this->position + localTreePos;
+                int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4); // Range 4-6
+
+                placeTreeShape(localTreePos, treeHeight);
             }
         }
 
-        // neighbor below
-        for (ivec3 treePos : neighbors[5]->getTreeData()) {
-            if (treePos.z + treeHeight > CHUNK_SIZE) {
-                int localZ = (treePos.z + treeHeight) - CHUNK_SIZE;
-                for (int i = -1; i < 2; i++) {
-                    for (int j = -1; j < 2; j++) {
-                        for (int k = localZ - (treeHeight - leafHeight) + 1; k <= localZ; k++) {
-                            ivec3 pos = ivec3(treePos.x + i, treePos.y + j, k);
-                            setVoxel(pos, true);
-                            setMaterial(pos, leaves);
-                        }
-                    }
-                }
+        // 2. Generate parts of trees rooted in NEIGHBORING chunks.
+        const ivec3 neighborChunkOffsets[6] = {
+            ivec3(-CHUNK_SIZE, 0, 0),   // Right neighbor: to map its local to ours, we subtract {32,0,0}
+            ivec3(CHUNK_SIZE, 0, 0),    // Left neighbor: to map its local to ours, we add {32,0,0}
+            ivec3(0, -CHUNK_SIZE, 0),   // Front neighbor
+            ivec3(0, CHUNK_SIZE, 0),    // Back neighbor
+            ivec3(0, 0, -CHUNK_SIZE),   // Top neighbor
+            ivec3(0, 0, CHUNK_SIZE)     // Bottom neighbor
+        };
 
-                for (int i = 0; i < localZ; i++) {
-                    ivec3 pos = ivec3(treePos.x, treePos.y, i);
-                    setVoxel(pos, true);
-                    setMaterial(pos, trunk);
+        // NOTE: The offsets seem reversed but are correct for transforming a point from
+        // the neighbor's coordinate system to the current chunk's coordinate system.
+        // For example, a point at local x=0 in the RIGHT (+X) neighbor is at local x=32
+        // in this chunk. That's outside our bounds. A point at local x=31 in the LEFT (-X)
+        // neighbor is at local x=-1 in this chunk.
+        const ivec3 neighborDirection[6] = {
+            ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0), ivec3(0,0,1), ivec3(0,0,-1)
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            const auto& neighbor = neighbors[i];
+            if (neighbor) {
+                const ivec3 neighborWorldOrigin = neighbor->getPosition();
+                const ivec3 transformOffset = (neighborWorldOrigin - this->position);
+
+                // For each tree rooted in the neighbor...
+                for (const ivec3& neighborTreeLocalPos : neighbor->getTreeData()) {
+                    // ...calculate its absolute world position to get a deterministic height.
+                    ivec3 worldTreePos = neighborWorldOrigin + neighborTreeLocalPos;
+                    int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4);
+
+                    // ...transform its base position into THIS chunk's local coordinate system.
+                    ivec3 transformedBasePos = neighborTreeLocalPos + transformOffset;
+
+                    // Generate the full tree shape. It will be automatically clipped to this chunk's bounds.
+                    placeTreeShape(transformedBasePos, treeHeight);
                 }
             }
         }
-        
+
         setState(ChunkState::TreesReady);
     }
 
     bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        setState(ChunkState::GeneratingMesh);
         if (lod > 0) {
             return generateMeshLod(neighbors);
 		}
-        
-        if (state.load() == ChunkState::Unloading) {
-            return false;
-        }
 
         if (solidVoxels.load() == 0) {
             setState(ChunkState::Air);
-            return true;
+            return true; // Return success, as there's nothing to do.
+        }
+        
+        if (state.load() == ChunkState::Unloading) {
+            return false;
         }
 
         ivec3 aoStates[6][4][3] = {
@@ -1464,7 +1514,6 @@ public:
             buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(getResourceId());
             meshBufferInitialized = false;
         }
-
         if (materialInitialized) {
             tex->getTexturePool("texture_pool")->deAllocateSlot(getResourceId());
             materialInitialized = false;
@@ -1481,17 +1530,26 @@ public:
 
     void cleanup(TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
         cleanupBuffersOnly(tex, buf, pip);
-
-        std::lock_guard<std::mutex> lock1(voxelDataMutex);
-        std::lock_guard<std::mutex> lock2(meshDataMutex);
-        std::lock_guard<std::mutex> lock3(materialDataMutex);
-        std::lock_guard<std::mutex> lock4(lightDataMutex);
-
-        vertexData.clear();
-        indexData.clear();
-        materialData.clear();
-        lightData.clear();
-        solidVoxels.store(0);
+        {
+            std::lock_guard<std::mutex> lock1(voxelDataMutex);
+            voxelData.clear();
+            solidVoxels.store(0);
+        }
+        {
+            std::lock_guard<std::mutex> lock2(meshDataMutex);
+            vertexData.clear();
+            indexData.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock3(materialDataMutex);
+            materialData.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock4(lightDataMutex);
+            lightData.clear();
+        }
+        
+        
     }
 };
 

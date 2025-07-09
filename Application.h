@@ -63,7 +63,7 @@ private:
 
 private:
     struct FirstPersonCamera {
-        vec3 position = vec3(5.0f, 0.0f, 150.0f);  // Camera position in world space
+        vec3 position = vec3(5.0f, 0.0f, 200.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
         vec3 up = vec3(0.0f, 0.0f, 1.0f);        // Up vector
         vec3 right = vec3(0.0f, 1.0f, 0.0f);     // Right vector (corrected)
@@ -164,10 +164,10 @@ private:
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
-    ivec3 lookingAtBlockPos;
+    ivec3 lookingAtBlockPos = ivec3(0, 0, 0);
     bool shouldBreakBlock = false;
 
-    ivec3 placeBlockPos;
+    ivec3 placeBlockPos = ivec3(0, 0, 0);
 	bool shouldPlaceBlock = false;
 
     std::thread chunkUpdateThread;
@@ -180,7 +180,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.04f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {

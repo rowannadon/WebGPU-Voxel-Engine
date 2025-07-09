@@ -189,7 +189,7 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
 @fragment
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_direction = get_sun_direction(uMyUniforms.time);
-    let camera_altitude = f32(uMyUniforms.cameraWorldPos.z*2) - 50.0;
+    let camera_altitude = f32(uMyUniforms.cameraWorldPos.z*2) - 180.0;
     
     let sky_color = calculate_scattering(normalize(in.world_dir), sun_direction, camera_altitude);
     
