@@ -180,7 +180,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.04f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.01f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {

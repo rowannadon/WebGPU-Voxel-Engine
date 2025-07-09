@@ -90,6 +90,7 @@ private:
     mutable std::mutex meshDataMutex;
 
     std::vector<ivec3> treeData;
+    mutable std::mutex treeDataMutex;
 
     bool meshBufferInitialized = false;
     bool materialInitialized = false;
@@ -496,6 +497,7 @@ public:
     }
 
     std::vector<ivec3> getTreeData() {
+        std::lock_guard<std::mutex> lock(treeDataMutex);
         return treeData;
     }
 
@@ -684,8 +686,10 @@ public:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
                                 if (rand() % 32 == 0) {
-                                    if (positionAbove.x > 1 && positionAbove.y > 1 &&
+                                    if (positionAbove.z < CHUNK_SIZE && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+                                        
+                                        std::lock_guard<std::mutex> lock(treeDataMutex);
                                         int closestDistance = INT_MAX;
                                         for (ivec3 pos : treeData) {
                                             int distance = glm::abs(pos.x - positionAbove.x) + glm::abs(pos.y - positionAbove.y);
@@ -693,7 +697,6 @@ public:
                                         }
 
                                         if (closestDistance > 8) {
-                                            
                                             treeData.push_back(positionAbove);
                                         }
                                     }
@@ -805,6 +808,8 @@ public:
 
         // 1. Generate trees that are rooted in THIS chunk.
         {
+            std::lock_guard<std::mutex> lock(treeDataMutex);
+
             for (const ivec3& localTreePos : treeData) {
                 // Calculate a deterministic height based on the tree's absolute world position
                 // to ensure consistency across chunk boundaries.
