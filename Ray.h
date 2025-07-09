@@ -96,7 +96,7 @@ public:
                     localVoxelPos.z >= 0 && localVoxelPos.z < CHUNK_SIZE) {
 
                     // Check if current voxel is solid
-                    if (chunk->getVoxel(localVoxelPos)) {
+                    if (chunk->getVoxel(localVoxelPos) || chunk->getTransparentVoxel(localVoxelPos)) {
                         // Calculate the adjacent voxel position based on which face we hit
                         glm::ivec3 adjacentPos = worldVoxelPos;
                         if (side == 0) { // Hit X face
@@ -193,7 +193,7 @@ public:
                     voxelPos.y >= 0 && voxelPos.y < CHUNK_SIZE &&
                     voxelPos.z >= 0 && voxelPos.z < CHUNK_SIZE) {
 
-                    if (chunk->getVoxel(voxelPos)) {
+                    if (chunk->getVoxel(voxelPos) || chunk->getTransparentVoxel(voxelPos)) {
                         // Hit a solid voxel - calculate adjacent position
                         glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
                         glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));

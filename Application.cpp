@@ -13,6 +13,8 @@ bool Application::Initialize() {
     tex = gpu.getTextureManager();
     window = gpu.getWindow();
 
+    chunkManager.init(tex, buf);
+
     registerMovementCallbacks();
 
     // initialize uniforms
@@ -193,7 +195,7 @@ void Application::breakBlock() {
     }
 
     // Check if there's actually a voxel to break
-    if (!chunk->getVoxel(localChunkPos)) {
+    if (!chunk->getVoxel(localChunkPos) && !chunk->getTransparentVoxel(localChunkPos)) {
         std::cout << "not solid" << "\n";
 
         return; // No voxel at this position
@@ -201,6 +203,7 @@ void Application::breakBlock() {
 
     // Remove the voxel
     chunk->setVoxel(localChunkPos, false);
+    chunk->setTransparentVoxel(localChunkPos, false);
     VoxelMaterial material;
     material.materialType = 0;
     chunk->setMaterial(localChunkPos, material);
@@ -284,10 +287,10 @@ void Application::placeBlock() {
     // Add the voxel
     
     VoxelMaterial material;
-    material.materialType = 9;
+    material.materialType = BlockType::Glowstone;
     chunk->setMaterial(localChunkPos, material);
 
-    propagateGridBasedLight(placeBlockPos, 16);
+    propagateGridBasedLight(placeBlockPos, 32);
 
     chunk->setVoxel(localChunkPos, true);
 

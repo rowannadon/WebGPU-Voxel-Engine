@@ -264,7 +264,7 @@ private:
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 16;
+    static constexpr int DEFAULT_WORKER_COUNT = 32;
     static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
 
@@ -357,7 +357,7 @@ public:
             return false;
         }
 
-        ChunkWorkItem item(ChunkWorkItem::GenerateMesh, chunk, position, neighbors, ChunkWorkItem::HIGH);
+        ChunkWorkItem item(ChunkWorkItem::GenerateMesh, chunk, position, neighbors, ChunkWorkItem::CRITICAL);
         return work_queue.push(item);
     }
 

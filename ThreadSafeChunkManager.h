@@ -52,16 +52,26 @@ private:
 	int numActiveChunks = 0;
 	int lastNumActiveChunks = 0;
 
-    int renderDistance = 128;
+    int renderDistance = 32;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int WORLD_MIN = 0;
+    static constexpr int WORLD_MAX = 16;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
+
+    BufferManager* buf;
+    TextureManager* tex;
 
 public:
     ThreadSafeChunkManager() {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
+    }
+
+    void init(TextureManager* t, BufferManager* b) {
+        tex = t;
+        buf = b;
     }
 
     ~ThreadSafeChunkManager() {
@@ -72,7 +82,7 @@ public:
     void updateChunksAsync(vec3 playerPos) {
         playerChunkPos = glm::floor(playerPos / 32.0f);
 
-        //removeDistantChunks(playerChunkPos);
+        removeDistantChunks(playerChunkPos);
         queueNewChunks(playerChunkPos);
         queueChunkBatchForGeneration(playerChunkPos);
         progressChunks();
@@ -157,10 +167,8 @@ private:
                 if (it != chunks.end()) {
                     if (it->second) {
                         it->second->setState(ChunkState::Unloading);
-                        //it->second->cleanup(); // Cleanup resources
-                        it->second = nullptr; // Clear the shared pointer
                     }
-                    chunks.erase(it->first);
+                    chunks.erase(it);
                 }
             }
         }
@@ -195,7 +203,7 @@ private:
             // For each distance layer, check all positions at that Manhattan distance
             for (int x = -radius; x <= radius && chunksAdded < maxChunksPerIteration; ++x) {
                 for (int y = -radius; y <= radius && chunksAdded < maxChunksPerIteration; ++y) {
-                    for (int z = -renderDistance / 2; z <= renderDistance / 2 && chunksAdded < maxChunksPerIteration; ++z) {
+                    for (int z = -renderDistance; z <= renderDistance && chunksAdded < maxChunksPerIteration; ++z) {
                         // Only process chunks that are exactly at this radius (onion skin)
                         int manhattanDist = abs(x) + abs(y) + abs(z);
                         if (manhattanDist != radius) {
@@ -211,7 +219,7 @@ private:
                         ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
 
                         // If chunk doesn't exist, add it to the queue
-                        if (chunks.find(chunkPos) == chunks.end()) {
+                        if (chunkPos.z > WORLD_MIN && chunkPos.z < WORLD_MAX && chunks.find(chunkPos) == chunks.end()) {
                             pendingChunkCreation.push({ chunkPos, distSq });
                             chunksAdded++;
 
@@ -246,7 +254,18 @@ private:
     //                lodlevel = 1;
 				//}
 
-                auto newChunk = std::make_shared<ThreadSafeChunk>(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
+                auto chunkDeleter = [tex = this->tex, buf = this->buf](ThreadSafeChunk* chunk) {
+                    if (chunk) {
+                        // This is called when the last shared_ptr is destroyed.
+                        // It cleans up all GPU resources from the pools.
+                        chunk->cleanupBuffersOnly(tex, buf, nullptr);
+                    }
+                    // Finally, delete the chunk object itself.
+                    delete chunk;
+                };
+
+                auto* newChunkRaw = new ThreadSafeChunk(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
+                auto newChunk = std::shared_ptr<ThreadSafeChunk>(newChunkRaw, chunkDeleter);
                 chunks[nextChunk.position] = newChunk;
 
                 newChunk->setState(ChunkState::GeneratingTerrain);

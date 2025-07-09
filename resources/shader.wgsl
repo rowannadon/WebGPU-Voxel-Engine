@@ -80,8 +80,8 @@ struct MaterialProperties {
 
 @group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
 
-const ATLAS_TILES_X: f32 = 3.0;
-const ATLAS_TILES_Y: f32 = 3.0;
+const ATLAS_TILES_X: f32 = 4.0;
+const ATLAS_TILES_Y: f32 = 4.0;
 const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -99,7 +99,7 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     // Material 1: Dirt - very low shininess, earthy brown specular
     MaterialProperties(vec3f(0.08, 0.06, 0.04), 2.0, 0.02),
     // Material 2: Grass - very low shininess, green tint
-    MaterialProperties(vec3f(0.1, 0.15, 0.1), 4.0, 0.1),
+    MaterialProperties(vec3f(0.1, 0.15, 0.1), 4.0, 0.2),
     // Material 3: Limestone - low shininess, light neutral specular
     MaterialProperties(vec3f(0.25, 0.25, 0.22), 12.0, 0.25),
     // Material 4: Brick - low shininess, warm reddish specular
@@ -113,7 +113,7 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     // Material 8: Log - low shininess, warm brown specular
     MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
     // Material 9: Leaf - very low shininess, green organic specular
-    MaterialProperties(vec3f(0.8, 1.0, 0.6), 3.0, 0.08)
+    MaterialProperties(vec3f(0.08, 0.10, 0.06), 3.0, 0.4)
 );
 
 fn get_material_properties(material_id: u32) -> MaterialProperties {
@@ -672,12 +672,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let day_night = softClamp(cos(uMyUniforms.time * 0.2 + 1.5), 0.05, 1.0);
 
     let atlas_uv = get_atlas_uv(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
-    let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv).rgb;
+    let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv);
+
+    if (textureColor.a < 0.5) {
+        discard;
+    }
+
+
     
     let light_color = vec3(0.95, 0.75, 0.55);
 
     let ambient = (vec3f(0.5) * day_night) + 0.1;
-    let shading = max(max(distanceAdjustedSunShading * sunColor * day_night + distanceAdjustedInverseSunShading * inverseSunColor * ((day_night * 0.5)+0.5), (light_level / 16.0) * light_color), ambient);
+    let shading = max(max(distanceAdjustedSunShading * sunColor * day_night + distanceAdjustedInverseSunShading * inverseSunColor * ((day_night * 0.5)+0.5), (light_level / 24.0) * light_color + 0.1), ambient);
 
     // Calculate view and light directions for specular
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
@@ -725,7 +731,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ao_adjusted = in.ao * distanceAdjustedAoFactor;
 
     // Combine diffuse and specular
-    var baseColor = clamp((textureColor/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
+    var baseColor = clamp((textureColor.rgb/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
 
     // Apply chunk edge highlighting
     // if (in.chunk_edge_factor > 0.0) {

@@ -53,6 +53,7 @@ class ThreadSafeChunk {
 public:
     std::atomic<ChunkState> state{ ChunkState::Empty };
     std::atomic<int> solidVoxels{ 0 };
+    std::atomic<int> transparentVoxels{ 0 };
     std::array<int, 6> neighborLightSlots = { 0 };
 
 
@@ -71,6 +72,9 @@ private:
     // voxel data
     std::vector<uint8_t> voxelData;
     mutable std::mutex voxelDataMutex;
+
+    std::vector<uint8_t> transparentVoxelData;
+    mutable std::mutex transparentVoxelDataMutex;
 
     // material data
     std::vector<VoxelMaterial> materialData;
@@ -105,6 +109,10 @@ public:
         // initialize voxel data
         if (voxelData.size() != BYTES_NEEDED) {
             voxelData.resize(BYTES_NEEDED, 0);
+        }
+
+        if (transparentVoxelData.size() != BYTES_NEEDED) {
+            transparentVoxelData.resize(BYTES_NEEDED, 0);
         }
 
         // initialize material data
@@ -430,6 +438,63 @@ public:
         }
     }
 
+    bool getTransparentVoxel(vec3 pos) const {
+        int x = pos.x, y = pos.y, z = pos.z;
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+            return false;
+        }
+
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(transparentVoxelDataMutex);
+
+        if (transparentVoxelData.empty()) {
+            return false;
+        }
+
+        int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+
+        // Bounds check the calculated index
+        if (index < 0 || index >= TOTAL_VOXELS) {
+            return false;
+        }
+
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
+
+        // Final bounds check on the byte array
+        if (byteIndex < 0 || byteIndex >= static_cast<int>(transparentVoxelData.size())) {
+            return false;
+        }
+
+        return (transparentVoxelData[byteIndex] & (1 << bitIndex)) != 0;
+    }
+
+    void setTransparentVoxel(vec3 pos, bool value) {
+        int x = pos.x, y = pos.y, z = pos.z;
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(transparentVoxelDataMutex);
+        int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
+
+        bool currentValue = (transparentVoxelData[byteIndex] & (1 << bitIndex)) != 0;
+
+        if (value && !currentValue) {
+            transparentVoxels.fetch_add(1);
+            transparentVoxelData[byteIndex] |= (1 << bitIndex);
+        }
+        else if (!value && currentValue) {
+            transparentVoxels.fetch_sub(1);
+            transparentVoxelData[byteIndex] &= ~(1 << bitIndex);
+        }
+    }
+
     std::vector<ivec3> getTreeData() {
         return treeData;
     }
@@ -460,6 +525,11 @@ public:
     }
 
     void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        if (solidVoxels.load() + transparentVoxels.load() == 0) {
+            setState(ChunkState::TopsoilReady);
+            return;
+        }
+
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
             // Check if position is within current chunk bounds
@@ -695,7 +765,7 @@ public:
             for (int i = -2; i <= 2; i++) {
                 for (int j = -2; j <= 2; j++) {
                     for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
-                        setVoxel(basePos + ivec3(i, j, k), true);
+                        setTransparentVoxel(basePos + ivec3(i, j, k), true);
                         setMaterial(basePos + ivec3(i, j, k), leavesMaterial);
                     }
                 }
@@ -704,33 +774,34 @@ public:
             for (int i = -1; i <= 1; i++) {
                 for (int j = -1; j <= 1; j++) {
                     for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
-                        setVoxel(basePos + ivec3(i, j, k), true);
+                        setTransparentVoxel(basePos + ivec3(i, j, k), true);
                         setMaterial(basePos + ivec3(i, j, k), leavesMaterial);
                     }
                 }
             }
 
-            setVoxel(basePos + ivec3(0, 1, treeHeight), true);
+            setTransparentVoxel(basePos + ivec3(0, 1, treeHeight), true);
             setMaterial(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
 
-            setVoxel(basePos + ivec3(0, -1, treeHeight), true);
+            setTransparentVoxel(basePos + ivec3(0, -1, treeHeight), true);
             setMaterial(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
 
-            setVoxel(basePos + ivec3(1, 0, treeHeight), true);
+            setTransparentVoxel(basePos + ivec3(1, 0, treeHeight), true);
             setMaterial(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
 
-            setVoxel(basePos + ivec3(-1, 0, treeHeight), true);
+            setTransparentVoxel(basePos + ivec3(-1, 0, treeHeight), true);
             setMaterial(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
 
-            setVoxel(basePos + ivec3(0, 0, treeHeight), true);
+            setTransparentVoxel(basePos + ivec3(0, 0, treeHeight), true);
             setMaterial(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
 
             // Generate trunk
-            for (int i = 0; i < treeHeight; i++) {
+            for (int i = 0; i < treeHeight-1; i++) {
+                setTransparentVoxel(basePos + ivec3(0, 0, i), false);
                 setVoxel(basePos + ivec3(0, 0, i), true);
                 setMaterial(basePos + ivec3(0, 0, i), trunkMaterial);
             }
-            };
+        };
 
         // 1. Generate trees that are rooted in THIS chunk.
         {
@@ -792,7 +863,7 @@ public:
             return generateMeshLod(neighbors);
 		}
 
-        if (solidVoxels.load() == 0) {
+        if (solidVoxels.load() + transparentVoxels.load() == 0) {
             setState(ChunkState::Air);
             return true; // Return success, as there's nothing to do.
         }
@@ -801,6 +872,24 @@ public:
             return false;
         }
 
+        {
+            std::lock_guard<std::mutex> lock(meshDataMutex);
+            indexData.clear();
+            vertexData.clear();
+        }
+
+        bool solid = generateSolidMesh(neighbors);
+        bool transparent = generateTransparentMesh(neighbors);
+
+        if (state.load() == ChunkState::Unloading) {
+            return false;
+        }
+
+        setState(ChunkState::MeshReady);
+        return transparent;
+    }
+
+    bool generateSolidMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
         ivec3 aoStates[6][4][3] = {
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
@@ -847,7 +936,7 @@ public:
             if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
                 pos.y >= 0 && pos.y < CHUNK_SIZE &&
                 pos.z >= 0 && pos.z < CHUNK_SIZE) {
-                return !getVoxel(pos);
+                return !getVoxel(pos) || getTransparentVoxel(pos);
             }
 
             // Position is outside current chunk - check neighbor chunks
@@ -950,11 +1039,8 @@ public:
 
                 return packed;
             };
-        
-        std::lock_guard<std::mutex> lock(meshDataMutex);
-        indexData.clear();
-        vertexData.clear();
 
+        std::lock_guard<std::mutex> lock(meshDataMutex);
         try {
             for (int x = 0; x < CHUNK_SIZE; ++x) {
                 for (int y = 0; y < CHUNK_SIZE; ++y) {
@@ -1020,11 +1106,226 @@ public:
             return false;
         }
 
-        if (state.load() == ChunkState::Unloading) {
+        return true;
+    }
+
+    bool generateTransparentMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        ivec3 aoStates[6][4][3] = {
+            {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
+            {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
+            {ivec3(1, 1, 0),ivec3(1, 0, 1),ivec3(1, 1, 1),},
+            {ivec3(1, -1, 0),ivec3(1, 0, 1),ivec3(1, -1, 1),}},
+
+            {{ivec3(-1, -1, 0), ivec3(-1, 0, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, 1), ivec3(-1, 1, 1)},
+            {ivec3(-1, 1, 0), ivec3(-1, 0, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, -1, 0), ivec3(-1, 0, -1), ivec3(-1, -1, -1)}},
+
+            {{ivec3(-1, 1, 0), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(-1, 1, 0), ivec3(0, 1, 1), ivec3(-1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(1, 1, 0), ivec3(0, 1, -1), ivec3(1, 1, -1)}},
+
+            {{ivec3(-1, -1, 0), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(-1, -1, 0), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(1, -1, 0), ivec3(0, -1, 1), ivec3(1, -1, 1)}},
+
+            {{ivec3(-1, 0, 1), ivec3(0, -1, 1), ivec3(-1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, -1, 1), ivec3(1, -1, 1)},
+            {ivec3(1, 0, 1), ivec3(0, 1, 1), ivec3(1, 1, 1)},
+            {ivec3(-1, 0, 1), ivec3(0, 1, 1), ivec3(-1, 1, 1)}},
+
+            {{ivec3(1, 0, -1), ivec3(0, -1, -1), ivec3(1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, -1, -1), ivec3(-1, -1, -1)},
+            {ivec3(-1, 0, -1), ivec3(0, 1, -1), ivec3(-1, 1, -1)},
+            {ivec3(1, 0, -1) ,ivec3(0, 1, -1), ivec3(1, 1, -1)}},
+        };
+
+        ivec3 neighborOffsets[6] = {
+            ivec3(1, 0, 0),   // Right
+            ivec3(-1, 0, 0),  // Left
+            ivec3(0, 1, 0),   // Front
+            ivec3(0, -1, 0),  // Back
+            ivec3(0, 0, 1),   // Top
+            ivec3(0, 0, -1)   // Bottom
+        };
+
+        auto isEmptyVoxel = [this, &neighbors](ivec3 pos, int faceIndex = -1) -> bool {
+            // Check if position is within current chunk bounds
+            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+                pos.y >= 0 && pos.y < CHUNK_SIZE &&
+                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                return !getTransparentVoxel(pos) && !getVoxel(pos);
+            }
+
+            // Position is outside current chunk - check neighbor chunks
+            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
+                // Check if neighbor is still valid (not being destroyed)
+                if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
+                    return true; // Treat as empty if neighbor is being unloaded
+                }
+
+                ivec3 neighborPos = pos;
+
+                // CRITICAL: Map out-of-bounds coordinates to neighbor chunk space
+                switch (faceIndex) {
+                case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
+                    if (pos.x == CHUNK_SIZE) neighborPos.x = 0;
+                    break;
+                case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
+                    if (pos.x == -1) neighborPos.x = CHUNK_SIZE - 1;
+                    break;
+                case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
+                    if (pos.y == CHUNK_SIZE) neighborPos.y = 0;
+                    break;
+                case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
+                    if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
+                    break;
+                case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
+                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
+                    break;
+                case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
+                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
+                    break;
+                }
+
+                // Validate neighbor position and check voxel
+                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
+                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+
+                    bool neighborHasVoxel = neighbors[faceIndex]->getTransparentVoxel(neighborPos);
+                    return !neighborHasVoxel;
+                }
+            }
+
+            // No neighbor available - consider it empty (exposed to air)
+            return true;
+            };
+
+        auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
+            ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
+            ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
+            ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
+
+            auto getNeighborFaceIndex = [](ivec3 offset) -> int {
+                if (offset.x >= CHUNK_SIZE) return 0;
+                if (offset.x < 0) return 1;
+                if (offset.y >= CHUNK_SIZE) return 2;
+                if (offset.y < 0) return 3;
+                if (offset.z >= CHUNK_SIZE) return 4;
+                if (offset.z < 0) return 5;
+                return -1;
+                };
+
+            bool side1 = !isEmptyVoxel(side1Pos, getNeighborFaceIndex(side1Pos));
+            bool side2 = !isEmptyVoxel(side2Pos, getNeighborFaceIndex(side2Pos));
+            bool corner = !isEmptyVoxel(cornerPos, getNeighborFaceIndex(cornerPos));
+
+            if (side1 && side2) {
+                return 0;
+            }
+            return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
+            };
+
+        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+            uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
+                // Validate input ranges
+                // normal_index should be 0-7 (3 bits)
+                // vertex_index should be 0-3 (2 bits)
+                normal_index &= 0x7;   // Mask to 3 bits
+                vertex_index &= 0x3;   // Mask to 2 bits
+
+                uint32_t packed = 0;
+
+                // Position X: bits 0-7
+                packed |= static_cast<uint32_t>(position_x);
+
+                // Position Y: bits 8-15
+                packed |= static_cast<uint32_t>(position_y) << 8;
+
+                // Position Z: bits 16-23
+                packed |= static_cast<uint32_t>(position_z) << 16;
+
+                // Normal Index: bits 24-26
+                packed |= static_cast<uint32_t>(normal_index) << 24;
+
+                // Vertex Index: bits 27-28
+                packed |= static_cast<uint32_t>(vertex_index) << 27;
+
+                // AO Index: bits 29-30
+                packed |= static_cast<uint32_t>(ao_index) << 29;
+
+                return packed;
+            };
+
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        try {
+            for (int x = 0; x < CHUNK_SIZE; ++x) {
+                for (int y = 0; y < CHUNK_SIZE; ++y) {
+                    for (int z = 0; z < CHUNK_SIZE; ++z) {
+                        // Check if chunk is still valid during processing
+                        if (state.load() == ChunkState::Unloading) {
+                            return false;
+                        }
+
+                        ivec3 currentPos = ivec3(x, y, z);
+
+                        if (getTransparentVoxel(currentPos)) {
+                            ivec3 voxelPos = currentPos + position;
+
+                            // Check each face for culling (including cross-chunk)
+                            for (int face = 0; face < 6; ++face) {
+                                ivec3 neighborPos = currentPos + neighborOffsets[face];
+
+                                if (isEmptyVoxel(neighborPos, face)) {
+                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
+
+                                    std::array<float, 4> aoValues;
+                                    for (int vertex = 0; vertex < 4; ++vertex) {
+                                        aoValues[vertex] = calculateAmbientOcclusion(currentPos, face, vertex);
+                                    }
+
+                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+
+                                    for (int vertex = 0; vertex < 4; ++vertex) {
+                                        uint8_t pv = static_cast<uint8_t>(vertex);
+                                        VertexAttributes vert;
+                                        vert.data = packData(x, y, z, face, vertex, aoValues[vertex]);
+                                        vertexData.push_back(vert);
+                                    }
+
+                                    if (flipQuad) {
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 3);
+
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 2);
+                                        indexData.push_back(baseIndex + 3);
+                                    }
+                                    else {
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 1);
+                                        indexData.push_back(baseIndex + 2);
+
+                                        indexData.push_back(baseIndex + 0);
+                                        indexData.push_back(baseIndex + 2);
+                                        indexData.push_back(baseIndex + 3);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error during mesh generation: " << e.what() << std::endl;
             return false;
         }
 
-        setState(ChunkState::MeshReady);
         return true;
     }
 
