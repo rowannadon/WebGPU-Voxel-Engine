@@ -24,6 +24,7 @@ struct PipelineConfig {
     bool depthWriteEnabled = true;
     CompareFunction depthCompare = CompareFunction::Less;
     bool useVertexBuffers = true;  // New flag to control vertex buffer usage
+    bool useColorTarget = true;
 };
 
 class PipelineManager {

@@ -50,23 +50,30 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
 
-    // Blend state
     BlendState blendState;
-    blendState.color.srcFactor = BlendFactor::SrcAlpha;
-    blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
-    blendState.color.operation = BlendOperation::Add;
-    blendState.alpha.srcFactor = BlendFactor::Zero;
-    blendState.alpha.dstFactor = BlendFactor::One;
-    blendState.alpha.operation = BlendOperation::Add;
-
-    // Color target state
     ColorTargetState colorTarget;
-    colorTarget.format = surfaceFormat;
-    colorTarget.blend = &blendState;
-    colorTarget.writeMask = ColorWriteMask::All;
 
-    fragmentState.targetCount = 1;
-    fragmentState.targets = &colorTarget;
+    if (config.useColorTarget) {
+        // Blend state
+        blendState.color.srcFactor = BlendFactor::SrcAlpha;
+        blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
+        blendState.color.operation = BlendOperation::Add;
+        blendState.alpha.srcFactor = BlendFactor::Zero;
+        blendState.alpha.dstFactor = BlendFactor::One;
+        blendState.alpha.operation = BlendOperation::Add;
+
+        // Color target state
+        colorTarget.format = surfaceFormat;
+        colorTarget.blend = &blendState;
+        colorTarget.writeMask = ColorWriteMask::All;
+
+        fragmentState.targetCount = 1;
+        fragmentState.targets = &colorTarget;
+    }
+    else {
+        fragmentState.targetCount = 0;
+        fragmentState.targets = nullptr;
+    }
 
     // Depth stencil state
     DepthStencilState depthStencilState = Default;

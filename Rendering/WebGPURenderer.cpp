@@ -19,8 +19,10 @@ bool WebGPURenderer::initialize() {
 
 	initMultiSampleTexture(config);
 	initDepthTexture(config);
-	initRenderPipeline(config);      // Voxel pipeline
-	initSkyPipeline(config);         // Sky pipeline - ADD THIS
+	initShadowTexture();
+	initShadowPipeline();
+	initRenderPipeline(config);
+	initSkyPipeline(config);
 	initUniformBuffers();
 	initTextures();
 	initBindGroup();
@@ -126,6 +128,53 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 		skyRenderPass.release();
 	}
 
+	// === SHADOW RENDER PASS ===
+	{
+		RenderPassDescriptor renderPassDesc = {};
+
+		renderPassDesc.colorAttachmentCount = 0;
+
+		RenderPassDepthStencilAttachment depthStencilAttachment;
+		depthStencilAttachment.view = textureManager->getTextureView("shadow_view");
+		depthStencilAttachment.depthClearValue = 1.0f;
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;  // Keep depth from sky
+		depthStencilAttachment.depthStoreOp = StoreOp::Store;
+		depthStencilAttachment.depthReadOnly = false;
+		depthStencilAttachment.stencilClearValue = 0;
+		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.stencilReadOnly = true;
+
+		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.timestampWrites = nullptr;
+
+		RenderPassEncoder shadowRenderPass = encoder.beginRenderPass(renderPassDesc);
+		shadowRenderPass.setPipeline(pipelineManager->getPipeline("shadow_pipeline"));
+		shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
+		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+
+		auto pool = bufferManager->getMeshBufferPool("mesh_pool");
+		shadowRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
+		shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
+
+		for (const auto& daic : chunkRenderData) {
+			if (daic.indexCount > 0) {
+				shadowRenderPass.drawIndexed(
+					daic.indexCount,
+					daic.instanceCount,
+					daic.firstIndex,
+					daic.baseVertex,
+					daic.firstInstance
+				);
+			}
+		}
+
+		shadowRenderPass.end();
+		shadowRenderPass.release();
+	}
+
 	// === VOXEL RENDER PASS ===
 	{
 		RenderPassDescriptor renderPassDesc = {};
@@ -195,87 +244,6 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 	context->getDevice().tick();
 }
 
-void WebGPURenderer::renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
-	// write frame uniforms
-	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
-
-	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
-	if (!targetView) return;
-
-	CommandEncoderDescriptor encoderDesc = Default;
-	encoderDesc.label = "My command encoder";
-	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
-
-	RenderPassDescriptor renderPassDesc = {};
-	RenderPassColorAttachment renderPassColorAttachment = {};
-	renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
-	renderPassColorAttachment.resolveTarget = targetView;
-	renderPassColorAttachment.loadOp = LoadOp::Clear;
-	renderPassColorAttachment.storeOp = StoreOp::Store;
-	renderPassColorAttachment.clearValue = Color{ 0.2,0.25, 0.35, 1.0 };
-#ifndef WEBGPU_BACKEND_WGPU
-	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-#endif
-	 
-	renderPassDesc.colorAttachmentCount = 1;
-	renderPassDesc.colorAttachments = &renderPassColorAttachment;
-
-	RenderPassDepthStencilAttachment depthStencilAttachment;
-	depthStencilAttachment.view = textureManager->getTextureView("depth_view");
-	depthStencilAttachment.depthClearValue = 1.0f;
-	depthStencilAttachment.depthLoadOp = LoadOp::Clear;
-	depthStencilAttachment.depthStoreOp = StoreOp::Store;
-	depthStencilAttachment.depthReadOnly = false;
-	depthStencilAttachment.stencilClearValue = 0;
-	depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
-	depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
-	depthStencilAttachment.stencilReadOnly = true;
-
-	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
-
-	renderPassDesc.timestampWrites = nullptr;
-
-	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
-
-	renderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
-
-	renderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
-	renderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
-	renderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
-	renderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
-
-	auto pool = bufferManager->getMeshBufferPool("mesh_pool");
-
-	renderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
-	renderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
-
-	for (const auto& daic : chunkRenderData) {
-		if (daic.indexCount > 0) {
-			renderPass.drawIndexed(
-				daic.indexCount,     // indexCount
-				daic.instanceCount,  // instanceCount  
-				daic.firstIndex,     // firstIndex
-				daic.baseVertex,     // baseVertex
-				daic.firstInstance   // firstInstance
-			);
-		}
-	}
-
-	renderPass.end();
-	renderPass.release();
-
-	CommandBufferDescriptor cmdBufferDescriptor = {};
-	cmdBufferDescriptor.label = "Command buffer";
-	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
-	encoder.release();
-
-	context->getQueue().submit(1, &command);
-	command.release();
-	targetView.release();
-	context->getSurface().present();
-	context->getDevice().tick();
-}
-
 bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
 	int width, height;
 	glfwGetFramebufferSize(context->getWindow(), &width, &height);
@@ -304,6 +272,45 @@ bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
 	TextureView multiSampleTextureView = textureManager->createTextureView("multisample_texture", "multisample_view", multiSampleTextureViewDesc);
 
 	return multiSampleTextureView != nullptr;
+}
+
+bool WebGPURenderer::initShadowTexture() {
+	TextureFormat depthTextureFormat = TextureFormat::Depth32Float;
+	TextureDescriptor depthTextureDesc;
+	depthTextureDesc.dimension = TextureDimension::_2D;
+	depthTextureDesc.format = depthTextureFormat;
+	depthTextureDesc.mipLevelCount = 1;
+	depthTextureDesc.sampleCount = 1;
+	depthTextureDesc.size = { 16384, 16384, 1 };
+	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
+	depthTextureDesc.viewFormatCount = 0;
+	depthTextureDesc.viewFormats = nullptr;
+	Texture depthTexture = textureManager->createTexture("shadow_texture", depthTextureDesc);
+
+	TextureViewDescriptor depthTextureViewDesc;
+	depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
+	depthTextureViewDesc.baseArrayLayer = 0;
+	depthTextureViewDesc.arrayLayerCount = 1;
+	depthTextureViewDesc.baseMipLevel = 0;
+	depthTextureViewDesc.mipLevelCount = 1;
+	depthTextureViewDesc.dimension = TextureViewDimension::_2D;
+	depthTextureViewDesc.format = depthTextureFormat;
+	TextureView depthTextureView = textureManager->createTextureView("shadow_texture", "shadow_view", depthTextureViewDesc);
+
+	SamplerDescriptor samplerDesc;
+	samplerDesc.addressModeU = AddressMode::ClampToEdge;
+	samplerDesc.addressModeV = AddressMode::ClampToEdge;
+	samplerDesc.addressModeW = AddressMode::ClampToEdge;
+	samplerDesc.magFilter = FilterMode::Linear;
+	samplerDesc.minFilter = FilterMode::Linear;
+	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
+	samplerDesc.lodMinClamp = 0.0f;
+	samplerDesc.lodMaxClamp = 8.0f;
+	samplerDesc.compare = CompareFunction::Less;
+	samplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("shadow_sampler", samplerDesc);
+
+	return depthTextureView != nullptr;
 }
 
 bool WebGPURenderer::initDepthTexture(RenderConfig renderConfig) {
@@ -373,16 +380,15 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	globalUniforms[2].visibility = ShaderStage::Fragment;
 	globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
 
-	// The fog atlas binding and sampler
+	// The shadow texture binding and sampler
 	globalUniforms[3].binding = 3;
-	globalUniforms[3].visibility = ShaderStage::Fragment;
-	globalUniforms[3].texture.sampleType = TextureSampleType::Float;
-	globalUniforms[3].texture.viewDimension = TextureViewDimension::_3D;
+	globalUniforms[3].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
+	globalUniforms[3].texture.sampleType = TextureSampleType::Depth;
+	globalUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
 
-	// The fog sampler binding
 	globalUniforms[4].binding = 4;
-	globalUniforms[4].visibility = ShaderStage::Fragment;
-	globalUniforms[4].sampler.type = SamplerBindingType::Filtering;
+	globalUniforms[4].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
+	globalUniforms[4].sampler.type = SamplerBindingType::Comparison;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
@@ -402,8 +408,58 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	return true;
 }
 
-bool WebGPURenderer::initComputePipeline() {
-	
+bool WebGPURenderer::initShadowPipeline() {
+	PipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/shadow_shader.wgsl";
+	config.colorFormat = TextureFormat::Undefined;
+	config.depthFormat = TextureFormat::Depth32Float;
+	config.sampleCount = 1;
+	config.cullMode = CullMode::None;
+	config.depthWriteEnabled = true;
+	config.depthCompare = CompareFunction::Less;
+	config.fragmentShaderName = "shadow_fs_main";  // Fragment shader entry point
+	config.vertexShaderName = "shadow_vs_main";  // Vertex shader entry point
+	config.useColorTarget = false;
+
+	// vertex attributes
+	std::vector<VertexAttribute> vertexAttribs(1);
+	// data attribute
+	vertexAttribs[0].shaderLocation = 0;
+	vertexAttribs[0].format = VertexFormat::Uint32;
+	vertexAttribs[0].offset = 0;
+	config.vertexAttributes = vertexAttribs;
+
+	// uniforms binding
+	std::vector<BindGroupLayoutEntry> globalUniforms(3, Default);
+	globalUniforms[0].binding = 0;
+	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
+	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
+
+	// The texture atlas binding and sampler
+	globalUniforms[1].binding = 1;
+	globalUniforms[1].visibility = ShaderStage::Fragment;
+	globalUniforms[1].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[1].texture.viewDimension = TextureViewDimension::_2D;
+
+	globalUniforms[2].binding = 2;
+	globalUniforms[2].visibility = ShaderStage::Fragment;
+	globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("shadow_global_uniforms", globalUniforms)
+	);
+	config.bindGroupLayouts.push_back(
+		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
+	);
+	config.bindGroupLayouts.push_back(
+		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()
+	);
+	config.bindGroupLayouts.push_back(
+		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
+	);
+
+	pipelineManager->createRenderPipeline("shadow_pipeline", config);
 
 	return true;
 }
@@ -434,49 +490,27 @@ bool WebGPURenderer::initTextures() {
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 
-	SamplerDescriptor fogSamplerDesc;
-	fogSamplerDesc.addressModeU = AddressMode::Repeat;
-	fogSamplerDesc.addressModeV = AddressMode::Repeat;
-	fogSamplerDesc.addressModeW = AddressMode::Repeat;
-	fogSamplerDesc.magFilter = FilterMode::Nearest;
-	fogSamplerDesc.minFilter = FilterMode::Nearest;
-	fogSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
-	fogSamplerDesc.lodMinClamp = 0.0f;
-	fogSamplerDesc.lodMaxClamp = 8.0f;
-	fogSamplerDesc.compare = CompareFunction::Undefined;
-	fogSamplerDesc.maxAnisotropy = 1;
-	textureManager->createSampler("fog_sampler", fogSamplerDesc);
+	
 
-	TextureDescriptor textureDesc = {};
-	textureDesc.dimension = TextureDimension::_3D;
-	textureDesc.format = TextureFormat::RGBA16Float; // 2 bytes per voxel (VoxelMaterial)
-	textureDesc.mipLevelCount = 1;
-	textureDesc.sampleCount = 1;
-	textureDesc.size = { 32, 32, 32 };
-	textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
-	textureDesc.viewFormatCount = 0;
-	textureDesc.viewFormats = nullptr;
-	textureDesc.label = "LUT 3D Material Texture";
-
-	textureManager->createTexture("fog_texture", textureDesc);
-
-	TextureViewDescriptor viewDesc = {};
-	viewDesc.aspect = TextureAspect::All;
-	viewDesc.baseArrayLayer = 0;
-	viewDesc.arrayLayerCount = 1;
-	viewDesc.baseMipLevel = 0;
-	viewDesc.mipLevelCount = 1;
-	viewDesc.dimension = TextureViewDimension::_3D;
-	viewDesc.format = TextureFormat::RGBA16Float;
-	viewDesc.label = "LUT 3D Material Texture View";
-
-	textureManager->createTextureView("fog_texture", "fog_view", viewDesc);
-
-	return textureManager->getTextureView("atlas_view") != nullptr &&
-		textureManager->getTextureView("fog_view") != nullptr;
+	return textureManager->getTextureView("atlas_view") != nullptr;
 }
 
 bool WebGPURenderer::initBindGroup() {
+	std::vector<BindGroupEntry> shadowBindings(3);
+
+	shadowBindings[0].binding = 0;
+	shadowBindings[0].buffer = bufferManager->getBuffer("uniform_buffer");
+	shadowBindings[0].offset = 0;
+	shadowBindings[0].size = sizeof(MyUniforms);
+
+	shadowBindings[1].binding = 1;
+	shadowBindings[1].textureView = textureManager->getTextureView("atlas_view");
+
+	shadowBindings[2].binding = 2;
+	shadowBindings[2].sampler = textureManager->getSampler("atlas_sampler");
+
+	BindGroup shadowBindGroup = pipelineManager->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
+
 	std::vector<BindGroupEntry> bindings(5);
 
 	bindings[0].binding = 0;
@@ -491,14 +525,14 @@ bool WebGPURenderer::initBindGroup() {
 	bindings[2].sampler = textureManager->getSampler("atlas_sampler");
 
 	bindings[3].binding = 3;
-	bindings[3].textureView = textureManager->getTextureView("fog_view");
+	bindings[3].textureView = textureManager->getTextureView("shadow_view");
 
 	bindings[4].binding = 4;
-	bindings[4].sampler = textureManager->getSampler("fog_sampler");
+	bindings[4].sampler = textureManager->getSampler("shadow_sampler");
 
 	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
 
-	return bindGroup != nullptr;
+	return bindGroup != nullptr && shadowBindGroup != nullptr;
 }
 
 GLFWwindow* WebGPURenderer::getWindow() {

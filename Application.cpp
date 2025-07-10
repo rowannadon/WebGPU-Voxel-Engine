@@ -22,6 +22,18 @@ bool Application::Initialize() {
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
     uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.01f, 2500.0f);
+
+    glm::vec3 sceneCenter = camera.position; // Use camera position as scene center initially
+    float sceneRadius = getSceneRadius();
+
+    auto [lightView, lightProj] = calculateLightMatrices(uniforms.time, sceneCenter, sceneRadius);
+    uniforms.lightViewMatrix = lightView;
+    uniforms.lightProjectionMatrix = lightProj;
+
+    auto [sunDirection, sunPosition] = getSunInfo(uniforms.time, sceneCenter, sceneRadius);
+    uniforms.lightDirection = sunDirection;
+    uniforms.lightPosition = sunPosition;
+
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
 
     camera.updateCameraVectors();
@@ -88,6 +100,19 @@ void Application::MainLoop() {
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
     uniforms.time = currentFrame;
     uniforms.cameraWorldPos = camera.position;
+
+    glm::vec3 sceneCenter = camera.position; // Center shadow map around camera
+    float sceneRadius = getSceneRadius(); // Adjust based on your render distance
+
+    auto [lightView, lightProj] = calculateLightMatrices(uniforms.time, sceneCenter, sceneRadius);
+    uniforms.lightViewMatrix = lightView;
+    uniforms.lightProjectionMatrix = lightProj;
+
+    auto [sunDirection, sunPosition] = getSunInfo(uniforms.time, sceneCenter, sceneRadius);
+    uniforms.lightDirection = sunDirection;
+    uniforms.lightPosition = sunPosition;
+
+    //std::cout << "lightdirection: " << uniforms.lightDirection.x << " " << uniforms.lightDirection.y << " " << uniforms.lightDirection.z << "\n";
 
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();

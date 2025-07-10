@@ -57,7 +57,9 @@ private:
     int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
+    static constexpr int MAX_ACTIVE_CHUNKS = 4050;
     static constexpr int WORLD_MIN = 0;
     static constexpr int WORLD_MAX = 18;
 
@@ -189,30 +191,28 @@ private:
         pendingChunkCreation.swap(empty_pq);
 
         // Configuration
-        const int maxChunksPerIteration = 32;  // Limit chunks added per call
-        //const int maxActiveChunks = 8000;
 
         //// Count active chunks
-        //int activeChunks = 0;
-        //for (auto pair : chunks) {
-        //    if (pair.second->getState() == ChunkState::Active) {
-        //        activeChunks++;
-        //    }
-        //}
+        int activeChunks = 0;
+        for (auto pair : chunks) {
+            if (pair.second->getState() == ChunkState::Active) {
+                activeChunks++;
+            }
+        }
 
         // Don't add more chunks if we're at the limit
-        /*if (activeChunks >= maxActiveChunks) {
+        if (activeChunks >= MAX_ACTIVE_CHUNKS) {
             return;
-        }*/
+        }
 
         int chunksAdded = 0;
 
         // Onion skin approach: iterate by distance layers
-        for (int radius = 0; radius <= renderDistance && chunksAdded < maxChunksPerIteration; ++radius) {
+        for (int radius = 0; radius <= renderDistance && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++radius) {
             // For each distance layer, check all positions at that Manhattan distance
-            for (int x = -radius; x <= radius && chunksAdded < maxChunksPerIteration; ++x) {
-                for (int y = -radius; y <= radius && chunksAdded < maxChunksPerIteration; ++y) {
-                    for (int z = -renderDistance; z <= renderDistance && chunksAdded < maxChunksPerIteration; ++z) {
+            for (int x = -radius; x <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++x) {
+                for (int y = -radius; y <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++y) {
+                    for (int z = -renderDistance; z <= renderDistance && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++z) {
                         // Only process chunks that are exactly at this radius (onion skin)
                         int manhattanDist = abs(x) + abs(y) + abs(z);
                         if (manhattanDist != radius) {
@@ -236,7 +236,7 @@ private:
                             //std::cout << "pendingCreationQueueSize: " << pendingChunkCreation.size() << "\n";
 
                             // Stop if we've reached the limit for this iteration
-                            if (chunksAdded >= maxChunksPerIteration) {
+                            if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) {
                                 break;
                             }
                         }

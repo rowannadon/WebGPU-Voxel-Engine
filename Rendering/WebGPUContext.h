@@ -6,6 +6,8 @@
 #include "../glm/ext.hpp"
 #include "../magic_enum.hpp"
 
+#include "../Uniforms.h"
+
 using namespace wgpu;
 using glm::mat4x4;
 using glm::vec4;
@@ -21,17 +23,7 @@ struct RenderConfig {
     int samples = 4;
 };
 
-struct MyUniforms {
-    mat4x4 projectionMatrix;
-    mat4x4 viewMatrix;
-    mat4x4 modelMatrix;
-    ivec3 highlightedVoxelPos;
-    float time;
-    vec3 cameraWorldPos;
-    float _pad[1];
-};
 
-static_assert(sizeof(MyUniforms) % 16 == 0);
 
 class WebGPUContext {
 public:

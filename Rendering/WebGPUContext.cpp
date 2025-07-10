@@ -184,7 +184,7 @@ RequiredLimits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
 
     // For the depth buffer, we enable textures (up to the size of the window):
     requiredLimits.limits.maxTextureDimension1D = 2048;
-    requiredLimits.limits.maxTextureDimension2D = 2048;
+    requiredLimits.limits.maxTextureDimension2D = 16384;
     requiredLimits.limits.maxTextureDimension3D = 2048;
     requiredLimits.limits.maxTextureArrayLayers = 1;
 

@@ -4,9 +4,16 @@ struct MyUniforms {
     projectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
+    lightViewMatrix: mat4x4f,
+    lightProjectionMatrix: mat4x4f,
+    lightDirection: vec3f,
+    padding: f32,
     highlightedVoxelPos: vec3i,
     time: f32,
     cameraWorldPos: vec3f,
+    padding2: f32,
+    lightPosition: vec3f,
+    padding1: u32,
 };
 
 struct SkyVertexInput {
@@ -16,6 +23,7 @@ struct SkyVertexInput {
 struct SkyVertexOutput {
     @builtin(position) position: vec4f,
     @location(0) world_dir: vec3f,
+    @location(1) fog_distance: f32,
 };
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
@@ -25,18 +33,13 @@ const PLANET_RADIUS: f32 = 6371e2;
 const ATMOSPHERE_RADIUS: f32 = 6471e2;
 const RAYLEIGH_SCALE_HEIGHT: f32 = 8e4;
 const MIE_SCALE_HEIGHT: f32 = 1.2e3;
-const RAYLEIGH_SCATTERING: vec3f = vec3f(5.8e-6, 13.5e-6, 33.1e-6) * 1.2;
+const RAYLEIGH_SCATTERING: vec3f = vec3f(5.8e-6, 13.5e-6, 33.1e-6) * 2.2;
 const MIE_SCATTERING: vec3f = vec3f(3.996e-6, 3.996e-6, 3.996e-6)*0.01;
 const MIE_EXTINCTION: vec3f = vec3f(4.44e-6, 4.44e-6, 4.44e-6)*2.0;
 const RAYLEIGH_PHASE_SCALE: f32 = 3.0 / (16.0 * 3.14159265359);
 const MIE_PHASE_G: f32 = 0.8;
 const SUN_ANGULAR_RADIUS: f32 = 0.00935;
 const SUN_INTENSITY: f32 = 18.0;
-
-fn get_sun_direction(time: f32) -> vec3f {
-    let sun_angle = time * 0.2 + 1.5;
-    return normalize(vec3f(sin(sun_angle), 0.5, cos(sun_angle)));
-}
 
 fn rayleigh_phase(cos_theta: f32) -> f32 {
     return RAYLEIGH_PHASE_SCALE * (1.0 + cos_theta * cos_theta);
@@ -155,6 +158,10 @@ fn applyDitherToPixelColor(pixelColor: vec3f, pixelPos: vec2f) -> vec3f {
     return pixelColor + noiseDither;
 }
 
+fn softClamp(x: f32, a: f32, b: f32) -> f32 {
+    return smoothstep(0., 1., (2./3.)*(x - a)/(b - a) + (1./6.))*(b - a) + a;
+}
+
 @vertex
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -166,6 +173,8 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     
     let vertex_pos = vertices[in.vertex_idx];
     out.position = vec4f(vertex_pos, 0.999999, 1.0);
+
+    let world_position = uMyUniforms.modelMatrix * out.position;
     
     let camera_pos = uMyUniforms.cameraWorldPos;
     let view_right = vec3f(uMyUniforms.viewMatrix[0].x, uMyUniforms.viewMatrix[1].x, uMyUniforms.viewMatrix[2].x);
@@ -182,14 +191,18 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     );
     
     out.world_dir = ray_dir;
+
+    out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));     
     
     return out;
 }
 
 @fragment
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
-    let sun_direction = get_sun_direction(uMyUniforms.time);
-    let camera_altitude = f32(uMyUniforms.cameraWorldPos.z*2) - 180.0;
+    let sun_direction = uMyUniforms.lightDirection;
+    let camera_altitude = f32(uMyUniforms.cameraWorldPos.z) - 180.0;
+
+    let day_night = softClamp(uMyUniforms.lightDirection.z, 0.00, 1.0);
     
     let sky_color = calculate_scattering(normalize(in.world_dir), sun_direction, camera_altitude);
     
@@ -211,9 +224,15 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let dithered_color = applyDitherToPixelColor(mixed_color, pixel_pos);
     
     // Apply tone mapping to the dithered color
-    let l = dot(dithered_color, vec3f(0.2126, 0.7152, 0.0722));
-    let tc = dithered_color / (dithered_color + 1.0);
-    let final_color = mix(dithered_color / (l + 1.0), tc, tc);
+    // let l = dot(dithered_color, vec3f(0.2126, 0.7152, 0.0722));
+    // let tc = dithered_color / (dithered_color + 1.0);
+    // let baseColor = mix(dithered_color / (l + 1.0), tc, tc);
+
+    let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.004)*2, 0.0, 1.0);
+    let fogColor = vec3(0.7,0.8,1.0);
+    let fogColor2 = vec3(0.002, 0.002, 0.004);
+
+    let finalColor = mix(dithered_color, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
     
-    return vec4f(final_color, 1.0);
+    return vec4f(finalColor, 1.0);
 }
