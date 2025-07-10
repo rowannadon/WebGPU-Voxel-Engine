@@ -603,13 +603,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let sunColor = vec3f(0.95, 0.80, 0.70);
     let inverseSunColor = vec3f(0.15, 0.25, 0.30);
 
-    // FIXED: Calculate shadow factor independent of day/night cycle
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
-    // FIXED: Calculate sun intensity based on light direction, not just Z component
     let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
     
-    // FIXED: Use a more nuanced day/night calculation for color temperature
     let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
 
     let shadow_intensity = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
@@ -652,7 +649,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     var specularColor = vec3f(0.0);
     
-    // FIXED: Apply specular lighting with shadows whenever sun is above horizon
     if (sun_intensity > 0.0) {
         let sunSpecular = calculate_blinn_phong_specular(
             normal, 

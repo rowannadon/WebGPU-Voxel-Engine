@@ -202,7 +202,9 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_direction = uMyUniforms.lightDirection;
     let camera_altitude = f32(uMyUniforms.cameraWorldPos.z) - 180.0;
 
-    let day_night = softClamp(uMyUniforms.lightDirection.z, 0.00, 1.0);
+    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
+
+    let shadow_intensity = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
     
     let sky_color = calculate_scattering(normalize(in.world_dir), sun_direction, camera_altitude);
     
