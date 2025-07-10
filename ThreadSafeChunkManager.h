@@ -54,7 +54,7 @@ private:
 	int numActiveChunks = 0;
 	int lastNumActiveChunks = 0;
 
-    int renderDistance = 32;
+    int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 32;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
@@ -220,7 +220,7 @@ private:
                         }
 
                         // Check if within render distance (Euclidean)
-                        float distSq = x * x + y * y + z * z;
+                        float distSq = x * x + y * y;
                         if (distSq > renderDistance * renderDistance) {
                             continue;
                         }

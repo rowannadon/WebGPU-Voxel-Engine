@@ -199,7 +199,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     let sun_color = vec3f(1.0, 0.9, 0.7) * SUN_INTENSITY * 0.1;
     
-    let final_sky = sky_color + (sun_disk + sun_glow) * sun_color;
+    let final_sky = sky_color + (sun_disk + sun_glow) * sun_color + vec3f(0.04, 0.05, 0.07);
     
     let horizon_factor = smoothstep(-0.1, 0.3, in.world_dir.z);
     let horizon_color = mix(vec3f(0.8, 0.9, 1.0), vec3f(0.5, 0.7, 1.0), horizon_factor);

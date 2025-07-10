@@ -99,7 +99,7 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     // Material 1: Dirt - very low shininess, earthy brown specular
     MaterialProperties(vec3f(0.08, 0.06, 0.04), 2.0, 0.02),
     // Material 2: Grass - very low shininess, green tint
-    MaterialProperties(vec3f(0.1, 0.15, 0.1), 4.0, 0.2),
+    MaterialProperties(vec3f(0.1, 0.15, 0.1), 6.0, 0.15),
     // Material 3: Limestone - low shininess, light neutral specular
     MaterialProperties(vec3f(0.25, 0.25, 0.22), 12.0, 0.25),
     // Material 4: Brick - low shininess, warm reddish specular
@@ -113,7 +113,7 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     // Material 8: Log - low shininess, warm brown specular
     MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
     // Material 9: Leaf - very low shininess, green organic specular
-    MaterialProperties(vec3f(0.08, 0.10, 0.06), 3.0, 0.4)
+    MaterialProperties(vec3f(0.2, 0.25, 0.2), 5.0, 1.0)
 );
 
 fn get_material_properties(material_id: u32) -> MaterialProperties {
@@ -648,7 +648,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     // Get material properties for specular calculation
-    let materialProps = get_material_properties(0);
+    let materialProps = get_material_properties(material_id);
 
     let sunDirection = get_sun_direction(uMyUniforms.time);
     let inverseSunDirection = vec3f(sunDirection.x, sunDirection.y, 0.0);
@@ -682,7 +682,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     let light_color = vec3(0.95, 0.75, 0.55);
 
-    let ambient = (vec3f(0.5) * day_night) + 0.1;
+    let ambient = (vec3f(0.5) * day_night) + 0.0;
     let shading = max(max(distanceAdjustedSunShading * sunColor * day_night + distanceAdjustedInverseSunShading * inverseSunColor * ((day_night * 0.5)+0.5), (light_level / 24.0) * light_color + 0.1), ambient);
 
     // Calculate view and light directions for specular
@@ -692,7 +692,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var specularColor = vec3f(0.0);
     
     // Sun specular (only during day)
-    if (day_night > 0.1) {
+    if (day_night > 0.0) {
         let sunSpecular = calculate_blinn_phong_specular(
             normal, 
             sunDirection, 
