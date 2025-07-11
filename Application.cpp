@@ -54,7 +54,7 @@ void Application::Terminate() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 60.0f;
+    constexpr float TARGET_FPS = 120.0f;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
@@ -719,7 +719,7 @@ void Application::processGPUUploads() {
     std::lock_guard<std::mutex> lock(gpuUploadMutex);
 
     // Limit uploads per frame to prevent stutter
-    const int MAX_UPLOADS_PER_FRAME = 10000;
+    const int MAX_UPLOADS_PER_FRAME = 64;
     int uploadsThisFrame = 0;
 
     while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {

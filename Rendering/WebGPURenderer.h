@@ -9,6 +9,7 @@
 #include "TextureManager.h"
 #include "WebGPUContext.h"
 #include "../ThreadSafeChunk.h"
+#include "BenchmarkManager.h"
 
 using namespace wgpu;
 using glm::mat4x4;
@@ -22,6 +23,7 @@ private:
     std::unique_ptr<PipelineManager> pipelineManager;
     std::unique_ptr<BufferManager> bufferManager;
     std::unique_ptr<TextureManager> textureManager;
+    std::unique_ptr<BenchmarkManager> benchmarkManager;
 
     const float PI = 3.14159265358979323846f;
     MyUniforms uniforms;
@@ -39,6 +41,7 @@ public:
     bool initTextures();
     bool initUniformBuffers();
     bool initBindGroup();
+    bool initBenchmark();
 
     PipelineManager* getPipelineManager();
     BufferManager* getBufferManager();

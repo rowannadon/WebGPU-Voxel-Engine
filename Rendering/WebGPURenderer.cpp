@@ -11,11 +11,14 @@ bool WebGPURenderer::initialize() {
 	pipelineManager = std::make_unique<PipelineManager>(context->getDevice(), context->getSurfaceFormat());
 	bufferManager = std::make_unique<BufferManager>(context->getDevice(), context->getQueue());
 	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
+	benchmarkManager = std::make_unique<BenchmarkManager>(context->getDevice(), context->getQueue());
 
 	textureManager->createTexturePool("texture_pool");
 	textureManager->createTexturePool("texture_pool_light");
 	bufferManager->createBufferPool("chunkdata_pool");
 	bufferManager->createMeshBufferPool("mesh_pool");
+	benchmarkManager->initialize();
+	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 
 	initMultiSampleTexture(config);
 	initDepthTexture(config);
@@ -90,7 +93,10 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 	encoderDesc.label = "Frame command encoder";
 	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
 
-	// === SKY RENDER PASS ===
+	// Begin frame timing
+	benchmarkManager->beginFrame("frame_timer", encoder);
+
+	 //=== SKY RENDER PASS ===
 	{
 		RenderPassDescriptor renderPassDesc = {};
 		RenderPassColorAttachment renderPassColorAttachment = {};
@@ -232,16 +238,33 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 		voxelRenderPass.release();
 	}
 
+	// End frame timing
+	benchmarkManager->endFrame("frame_timer", encoder);
+
 	CommandBufferDescriptor cmdBufferDescriptor = {};
 	cmdBufferDescriptor.label = "Frame command buffer";
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
 
+	// CRITICAL FIX: Submit command buffer BEFORE processing timing
 	context->getQueue().submit(1, &command);
 	command.release();
+
+	// CRITICAL FIX: Tick the device to process async operations
+#ifdef WEBGPU_BACKEND_DAWN
+	context->getDevice().tick();
+#endif
+
+	// Now process timing (this will print frame time by default)
+	benchmarkManager->processFrameTime("frame_timer");
+
 	targetView.release();
 	context->getSurface().present();
+
+	// Additional tick for good measure (especially important for Dawn)
+#ifdef WEBGPU_BACKEND_DAWN
 	context->getDevice().tick();
+#endif
 }
 
 bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
@@ -281,7 +304,7 @@ bool WebGPURenderer::initShadowTexture() {
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
 	depthTextureDesc.sampleCount = 1;
-	depthTextureDesc.size = { 16384, 16384, 1 };
+	depthTextureDesc.size = { 1024, 1024, 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;

@@ -7,13 +7,18 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
 
     // Make sure the uncaptured error callback is called as soon as an error
     // occurs rather than at the next call to "wgpuDeviceTick".
-    DawnTogglesDescriptor toggles;
+    DawnTogglesDescriptor toggles = Default;
     toggles.chain.next = nullptr;
     toggles.chain.sType = SType::DawnTogglesDescriptor;
+
+    std::vector<const char*> enabledToggles = {
+    "allow_unsafe_apis",
+    "enable_immediate_error_handling",
+    };
+
     toggles.disabledToggleCount = 0;
-    toggles.enabledToggleCount = 1;
-    const char* toggleName = "enable_immediate_error_handling";
-    toggles.enabledToggles = &toggleName;
+    toggles.enabledToggleCount = enabledToggles.size();
+    toggles.enabledToggles = enabledToggles.data();
     desc.nextInChain = &toggles.chain;
 
     // Create the webgpu instance
@@ -65,10 +70,15 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
     RequiredLimits requiredLimits = GetRequiredLimits(adapter);
     deviceDesc.nextInChain = nullptr;
     deviceDesc.label = "My Device"; // anything works here, that's your call
-    deviceDesc.requiredFeatureCount = 0; // we do not require any specific feature
     deviceDesc.requiredLimits = &requiredLimits;
     deviceDesc.defaultQueue.nextInChain = nullptr;
     deviceDesc.defaultQueue.label = "The default queue";
+    std::vector<FeatureName> requiredFeatures = {
+    FeatureName::TimestampQuery,
+    };
+    deviceDesc.requiredFeatures = (const WGPUFeatureName*)requiredFeatures.data();
+    deviceDesc.requiredFeatureCount = (uint32_t)requiredFeatures.size();
+
 
     // A function that is invoked whenever the device stops being available.
     deviceDesc.deviceLostCallback = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
@@ -79,6 +89,10 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
 
     device = adapter.requestDevice(deviceDesc);
     std::cout << "Got device: " << device << std::endl;
+
+    if (!device.hasFeature(FeatureName::TimestampQuery)) {
+        std::cout << "Timestamp queries are not supported!" << std::endl;
+    }
 
     uncapturedErrorCallbackHandle = device.setUncapturedErrorCallback([](ErrorType type, char const* message) {
         std::cout << "Uncaptured device error: type " << type;

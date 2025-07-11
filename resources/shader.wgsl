@@ -233,10 +233,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.0005 * (1.0 - n_dot_l), 0.0001);
+    let bias = max(0.001 * (1.0 - n_dot_l), 0.0005);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 16384.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 1024.0; // Assuming 2048x2048 shadow map
     var shadow = 0.0;
     let samples = 16; // Increased from 9
     
@@ -679,7 +679,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
-    let ao_adjusted = in.ao * distanceAdjustedAoFactor;
+    let aoStrength = dot(viewDir, normal);
+    let ao_adjusted = mix(1.0, in.ao, aoStrength) * distanceAdjustedAoFactor;
 
     var baseColor = clamp((textureColor.rgb/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
     

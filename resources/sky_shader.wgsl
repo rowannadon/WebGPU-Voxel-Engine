@@ -162,7 +162,7 @@ fn softClamp(x: f32, a: f32, b: f32) -> f32 {
     return smoothstep(0., 1., (2./3.)*(x - a)/(b - a) + (1./6.))*(b - a) + a;
 }
 
-@vertex
+@vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
     
@@ -197,7 +197,7 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     return out;
 }
 
-@fragment
+@fragment 
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_direction = uMyUniforms.lightDirection;
     let camera_altitude = f32(uMyUniforms.cameraWorldPos.z) - 180.0;
@@ -225,16 +225,18 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let pixel_pos = vec2f(in.position.x, in.position.y);
     let dithered_color = applyDitherToPixelColor(mixed_color, pixel_pos);
     
-    // Apply tone mapping to the dithered color
-    // let l = dot(dithered_color, vec3f(0.2126, 0.7152, 0.0722));
-    // let tc = dithered_color / (dithered_color + 1.0);
-    // let baseColor = mix(dithered_color / (l + 1.0), tc, tc);
+    
 
     let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.004)*2, 0.0, 1.0);
     let fogColor = vec3(0.7,0.8,1.0);
     let fogColor2 = vec3(0.002, 0.002, 0.004);
 
     let finalColor = mix(dithered_color, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
+
+    //Apply tone mapping to the dithered color
+    let l = dot(finalColor, vec3f(0.2126, 0.7152, 0.0722));
+    let tc = finalColor / (finalColor + 1.0);
+    let baseColor = mix(finalColor / (l + 1.0), tc, tc);
     
-    return vec4f(finalColor, 1.0);
+    return vec4f(baseColor, 1.0);
 }
