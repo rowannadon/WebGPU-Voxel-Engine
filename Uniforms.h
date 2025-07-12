@@ -23,8 +23,15 @@ struct MyUniforms {
 };
 
 inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCenter, float sceneRadius) {
-    float sun_angle = time * 0.05f;
-    glm::vec3 sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.2f, cos(sun_angle)));
+    
+    float sun_angle = time * 0.1f;
+    glm::vec3 sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.75f, cos(sun_angle)));
+
+    if (cos(sun_angle) < 0.0f) {
+        sun_angle = time * 0.1;
+        sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.75f, cos(sun_angle)));
+    }
+
     glm::vec3 sunPosition = sceneCenter + sunDirection * sceneRadius * 4.0f;
 
     return { sunDirection, sunPosition };

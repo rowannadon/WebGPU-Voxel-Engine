@@ -43,7 +43,7 @@ public:
         chunkDataBufferDesc.size = TOTAL_SIZE;
         chunkDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Storage;
         chunkDataBufferDesc.mappedAtCreation = false;
-        chunkDataBufferDesc.label = "Chunk Data Storage Buffer";
+        chunkDataBufferDesc.label = StringView("Chunk Data Storage Buffer");
 
         buffer = device.createBuffer(chunkDataBufferDesc);
 

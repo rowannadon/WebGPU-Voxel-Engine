@@ -540,11 +540,6 @@ private:
             return false;
         }
 
-        if (chunk->getSolidVoxels() == 0) {
-            chunk->setState(ChunkState::Air);
-            return true;
-        }
-
         ChunkState currentState = chunk->getState();
         if (currentState != ChunkState::GeneratingMesh) {
             error_message = "Chunk not in TopsoilReady state";

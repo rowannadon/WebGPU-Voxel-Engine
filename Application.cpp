@@ -7,7 +7,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    gpu.initialize();
+    if (!gpu.initialize()) return false;
     pip = gpu.getPipelineManager();
     buf = gpu.getBufferManager();
     tex = gpu.getTextureManager();
@@ -54,7 +54,7 @@ void Application::Terminate() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 120.0f;
+    constexpr float TARGET_FPS = 60.0f;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
@@ -117,8 +117,8 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
-    std::vector<DAIC> renderData = chunkManager.getChunkDAICs();
-    if (!renderData.empty()) {
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj);
+    if (!renderData.first.empty()) {
         gpu.renderFrame(uniforms, renderData);
     }
 

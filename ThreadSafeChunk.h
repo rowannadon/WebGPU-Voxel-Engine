@@ -7,6 +7,7 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#include <shared_mutex>
 #include <chrono>
 #include "VertexAttributes.h"
 #include <array>
@@ -27,7 +28,7 @@ struct DAIC {
     uint32_t indexCount;
     uint32_t instanceCount;
     uint32_t firstIndex;
-    int32_t baseVertex;
+    uint32_t baseVertex;
     uint32_t firstInstance;
 };
 
@@ -55,7 +56,6 @@ public:
     std::atomic<int> solidVoxels{ 0 };
     std::atomic<int> transparentVoxels{ 0 };
     std::array<int, 6> neighborLightSlots = { 0 };
-
 
 private:
     uint32_t lod = 0;
@@ -134,6 +134,7 @@ public:
     void setState(ChunkState newState) { state.store(newState); }
 
     int getSolidVoxels() const { return solidVoxels.load(); }
+    int getTransparentVoxels() const { return transparentVoxels.load(); }
     const ivec3& getPosition() const { return position; }
     void setPosition(const ivec3& pos) { position = pos; }
     std::string getResourceId() { return resourceId; }
@@ -510,7 +511,7 @@ public:
                 for (int x = 0; x < CHUNK_SIZE; x++) {
                     ivec3 worldPos = ivec3(x, y, z) + position;
                     float noiseValue = noiseData[index++];
-                    if (noiseValue > -0.4) {
+                    if (noiseValue > 0) {
                         setVoxel(vec3(x, y, z), true);
                     }
                     //f/*loat height = worldGen.sample2D(vec2(x + position.x, y + position.y));
@@ -814,7 +815,7 @@ public:
                 // Calculate a deterministic height based on the tree's absolute world position
                 // to ensure consistency across chunk boundaries.
                 ivec3 worldTreePos = this->position + localTreePos;
-                int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4); // Range 4-6
+                int treeHeight = 8 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4); // Range 4-6
 
                 placeTreeShape(localTreePos, treeHeight);
             }
@@ -849,7 +850,7 @@ public:
                 for (const ivec3& neighborTreeLocalPos : neighbor->getTreeData()) {
                     // ...calculate its absolute world position to get a deterministic height.
                     ivec3 worldTreePos = neighborWorldOrigin + neighborTreeLocalPos;
-                    int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4);
+                    int treeHeight = 8 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4);
 
                     // ...transform its base position into THIS chunk's local coordinate system.
                     ivec3 transformedBasePos = neighborTreeLocalPos + transformOffset;
@@ -864,6 +865,15 @@ public:
     }
 
     bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+        for (const auto& neighbor : neighbors) {
+            if (neighbor && neighbor->getState() < ChunkState::TreesReady) {
+                // Neighbor became invalid, retry later
+                std::cout << "reverting chunk" << "\n";
+                setState(ChunkState::TreesReady); // Revert state
+                return false;
+            }
+        }
+
         if (lod > 0) {
             return generateMeshLod(neighbors);
 		}

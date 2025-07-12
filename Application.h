@@ -3,7 +3,6 @@
 #include <GLFW/glfw3.h>
 #include "glm/glm.hpp"
 #include "glm/ext.hpp"
-#include <glfw3webgpu.h>
 #include "webgpu-utils.h"
 #include "ThreadSafeChunkManager.h"
 #include "Ray.h"
@@ -56,10 +55,6 @@ private:
     void processInput();
     void breakBlock();
 	void placeBlock();
-
-    void propagateLight(ivec3 position, std::shared_ptr<ThreadSafeChunk> chunk);
-    void propagateGlobalLight(ivec3 worldPosition, int lightLevel);
-    void Application::recalculateLightingArea(ivec3 centerPos, int radius);
 
 private:
     struct FirstPersonCamera {

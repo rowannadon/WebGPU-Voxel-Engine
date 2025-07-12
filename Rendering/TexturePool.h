@@ -15,7 +15,7 @@ class TexturePool {
     TextureView view;
     std::unordered_map <std::string, int> map;
     std::unique_ptr<std::atomic<bool>[]> slotOccupancy;
-    size_t totalSlots;
+    
 
     BindGroupLayout bindGroupLayout;
     BindGroup bindGroup;
@@ -26,9 +26,9 @@ class TexturePool {
     const uint32_t CHUNK_SIZE = 32;
     const uint32_t MAX_TEXTURE_SIZE = 640;
     const uint32_t CHUNKS_PER_ROW = MAX_TEXTURE_SIZE / CHUNK_SIZE;
+    size_t totalSlots = CHUNKS_PER_ROW * CHUNKS_PER_ROW * CHUNKS_PER_ROW;
 
     void initArray() {
-        totalSlots = CHUNKS_PER_ROW * CHUNKS_PER_ROW * CHUNKS_PER_ROW;
         slotOccupancy = std::make_unique<std::atomic<bool>[]>(totalSlots);
 
         for (size_t i = 0; i < totalSlots; ++i) {
@@ -44,7 +44,7 @@ class TexturePool {
         textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
         textureDesc.viewFormatCount = 0;
         textureDesc.viewFormats = nullptr;
-        textureDesc.label = "Chunk 3D Material Texture";
+        textureDesc.label = StringView("Chunk 3D Material Texture");
 
         texture = device.createTexture(textureDesc);
 
@@ -56,7 +56,7 @@ class TexturePool {
         viewDesc.mipLevelCount = 1;
         viewDesc.dimension = TextureViewDimension::_3D;
         viewDesc.format = TextureFormat::RG8Unorm;
-        viewDesc.label = "Chunk 3D Material Texture View";
+        viewDesc.label = StringView("Chunk 3D Material Texture View");
 
         view = texture.createView(viewDesc);
 
@@ -183,7 +183,7 @@ public:
         int index = map.find(id)->second;
         ivec3 pos = get3DPos(index);
 
-        ImageCopyTexture destination = {};
+        TexelCopyTextureInfo destination = {};
         destination.texture = texture;
         destination.mipLevel = 0;
         destination.origin = { 
@@ -194,7 +194,7 @@ public:
         destination.aspect = TextureAspect::All;
 
         // Set up the source data layout
-        TextureDataLayout source = {};
+        TexelCopyBufferLayout source = {};
         source.offset = 0;
         source.bytesPerRow = CHUNK_SIZE * sizeof(VoxelMaterial);
         source.rowsPerImage = CHUNK_SIZE;

@@ -27,7 +27,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     }
 
     pipelineDesc.vertex.module = shaderModule;
-    pipelineDesc.vertex.entryPoint = config.vertexShaderName.c_str();
+    pipelineDesc.vertex.entryPoint = StringView(config.vertexShaderName);
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = nullptr;
 
@@ -46,7 +46,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     FragmentState fragmentState;
     pipelineDesc.fragment = &fragmentState;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = config.fragmentShaderName.c_str();
+    fragmentState.entryPoint = StringView(config.fragmentShaderName);
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
 
@@ -78,7 +78,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     // Depth stencil state
     DepthStencilState depthStencilState = Default;
     depthStencilState.depthCompare = config.depthCompare;
-    depthStencilState.depthWriteEnabled = config.depthWriteEnabled;
+    depthStencilState.depthWriteEnabled = config.depthWriteEnabled ? OptionalBool::True : OptionalBool::False;
     depthStencilState.format = config.depthFormat;
     depthStencilState.stencilReadMask = 0;
     depthStencilState.stencilWriteMask = 0;
@@ -193,8 +193,8 @@ ShaderModule PipelineManager::loadShaderModule(const std::filesystem::path& path
 
     ShaderModuleWGSLDescriptor shaderCodeDesc{};
     shaderCodeDesc.chain.next = nullptr;
-    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
-    shaderCodeDesc.code = shaderSource.c_str();
+    shaderCodeDesc.chain.sType = SType::ShaderSourceWGSL;
+    shaderCodeDesc.code = StringView(shaderSource);
 
     ShaderModuleDescriptor shaderDesc{};
 #ifdef WEBGPU_BACKEND_WGPU

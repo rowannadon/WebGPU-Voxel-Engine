@@ -1,3 +1,5 @@
+# My CMakeLists.txt 
+
 cmake_minimum_required(VERSION 3.0...3.25)
 project(
     LearnWebGPU # name of the project, which will also be the name of the visual studio solution if you use it
@@ -15,11 +17,12 @@ add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
 # add_subdirectory(glm)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h webgpu-utils.h webgpu-utils.cpp "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h"  "Rendering/BenchmarkManager.cpp")
+add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.
 option(DEV_MODE "Set up development helper settings" ON)
+option(WEBGPU_BUILD_FROM_SOURCE "Build from source" ON)
 
 # Add the 'webgpu' target as a dependency of our App
 # target_include_directories(App PRIVATE .)

@@ -1,6 +1,5 @@
 #include <webgpu/webgpu.hpp>
 #include <GLFW/glfw3.h>
-#include <glfw3webgpu.h>
 #include <unordered_map>
 #include "../glm/glm.hpp"
 #include "../glm/ext.hpp"
@@ -52,10 +51,7 @@ public:
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
     bool initSkyPipeline(RenderConfig renderConfig);
-    void renderSky(MyUniforms& uniforms);
-    void renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData);
-
-    void renderChunks(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData);
+    void renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData);
     void terminate();
 };
 

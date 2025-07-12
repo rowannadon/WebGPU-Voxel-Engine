@@ -83,18 +83,32 @@ bool WebGPURenderer::initSkyPipeline(RenderConfig renderConfig) {
 	return true;
 }
 
-void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRenderData) {
+void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData) {
 	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
 
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
 	if (!targetView) return;
 
 	CommandEncoderDescriptor encoderDesc = Default;
-	encoderDesc.label = "Frame command encoder";
+	encoderDesc.label = StringView("Frame command encoder");
 	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
 
 	// Begin frame timing
 	benchmarkManager->beginFrame("frame_timer", encoder);
+
+	BufferDescriptor indirectBufferDesc = Default;
+	indirectBufferDesc.size = sizeof(DAIC) * chunkRenderData.first.size();
+	indirectBufferDesc.mappedAtCreation = false;
+	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
+	Buffer indirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), indirectBufferDesc.size);
+
+	BufferDescriptor shadowIndirectBufferDesc = Default;
+	shadowIndirectBufferDesc.size = sizeof(DAIC) * chunkRenderData.second.size();
+	shadowIndirectBufferDesc.mappedAtCreation = false;
+	shadowIndirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
+	Buffer shadowIndirectBuffer = context->getDevice().createBuffer(shadowIndirectBufferDesc);
+	context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), shadowIndirectBufferDesc.size);
 
 	 //=== SKY RENDER PASS ===
 	{
@@ -165,18 +179,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 		shadowRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
 		shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
 
-		for (const auto& daic : chunkRenderData) {
-			if (daic.indexCount > 0) {
-				shadowRenderPass.drawIndexed(
-					daic.indexCount,
-					daic.instanceCount,
-					daic.firstIndex,
-					daic.baseVertex,
-					daic.firstInstance
-				);
-			}
-		}
-
+		shadowRenderPass.multiDrawIndexedIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
+		
 		shadowRenderPass.end();
 		shadowRenderPass.release();
 	}
@@ -222,31 +226,23 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::vector<DAIC> chunkRe
 		voxelRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
 		voxelRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
 
-		for (const auto& daic : chunkRenderData) {
-			if (daic.indexCount > 0) {
-				voxelRenderPass.drawIndexed(
-					daic.indexCount,
-					daic.instanceCount,
-					daic.firstIndex,
-					daic.baseVertex,
-					daic.firstInstance
-				);
-			}
-		}
+		voxelRenderPass.multiDrawIndexedIndirect(indirectBuffer, 0, chunkRenderData.first.size(), nullptr, 0);
 
 		voxelRenderPass.end();
 		voxelRenderPass.release();
 	}
 
+	indirectBuffer.release();
+	shadowIndirectBuffer.release();
+
 	// End frame timing
 	benchmarkManager->endFrame("frame_timer", encoder);
 
 	CommandBufferDescriptor cmdBufferDescriptor = {};
-	cmdBufferDescriptor.label = "Frame command buffer";
+	cmdBufferDescriptor.label = StringView("Frame command buffer");
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
 
-	// CRITICAL FIX: Submit command buffer BEFORE processing timing
 	context->getQueue().submit(1, &command);
 	command.release();
 
@@ -304,7 +300,7 @@ bool WebGPURenderer::initShadowTexture() {
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
 	depthTextureDesc.sampleCount = 1;
-	depthTextureDesc.size = { 1024, 1024, 1 };
+	depthTextureDesc.size = { 4096, 4096, 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;
@@ -567,13 +563,13 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 	context->getSurface().getCurrentTexture(&surfaceTexture);
 	Texture texture = surfaceTexture.texture;
 
-	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::Success) {
+	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::SuccessOptimal) {
 		return { surfaceTexture, nullptr };
 	}
 
 	TextureViewDescriptor viewDescriptor;
 	viewDescriptor.nextInChain = nullptr;
-	viewDescriptor.label = "Surface texture view";
+	viewDescriptor.label = StringView("Surface texture view");
 	viewDescriptor.format = texture.getFormat();
 	viewDescriptor.dimension = TextureViewDimension::_2D;
 	viewDescriptor.baseMipLevel = 0;

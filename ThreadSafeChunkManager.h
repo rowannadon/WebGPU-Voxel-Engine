@@ -12,6 +12,7 @@
 #include "Rendering/TextureManager.h"
 #include "Rendering/BufferManager.h"
 #include "Rendering/PipelineManager.h"
+#include "Frustum.h"
 
 using glm::vec3;
 using glm::ivec3;
@@ -54,13 +55,14 @@ private:
 	int numActiveChunks = 0;
 	int lastNumActiveChunks = 0;
 
-    int renderDistance = 64;
+    int renderDistance = 32;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int LOD_CHUNK_LEVEL = 32;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 16;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
+    static constexpr int LOD_CHUNK_LEVEL = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
     static constexpr int MAX_ACTIVE_CHUNKS = 4050;
-    static constexpr int WORLD_MIN = 0;
+    static constexpr int MAX_TOTAL_CHUNKS = 64000;
+    static constexpr int WORLD_MIN = -1;
     static constexpr int WORLD_MAX = 18;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
@@ -69,18 +71,20 @@ private:
     TextureManager* tex;
 
 public:
-    ThreadSafeChunkManager() {
-        workerSystem = std::make_unique<ChunkWorkerSystem>();
-    }
+    ThreadSafeChunkManager() = default;
 
     void init(TextureManager* t, BufferManager* b) {
+        workerSystem = std::make_unique<ChunkWorkerSystem>();
+
         tex = t;
         buf = b;
+
+        chunks.reserve(MAX_TOTAL_CHUNKS);
     }
 
     ~ThreadSafeChunkManager() {
         workerSystem.reset(); // Shutdown workers first
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::unique_lock<std::shared_mutex> lock(chunksMutex);
         chunks.clear();
     }
 
@@ -96,8 +100,7 @@ public:
     // Get chunks ready for GPU upload
     std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
         std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
-
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second &&
                 pair.second->getState() == ChunkState::MeshReady) {
@@ -108,22 +111,38 @@ public:
         return readyChunks;
     }
 
-    std::vector<DAIC> getChunkDAICs() {
-        std::vector<DAIC> data;
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(glm::mat4x4 view, glm::mat4x4 proj, glm::mat4x4 lightView, glm::mat4x4 lightProj) {
+        Frustum cameraFrustum;
+        cameraFrustum.extractPlanes(proj * view);
 
+        Frustum shadowFrustum;
+        shadowFrustum.extractPlanes(lightProj * lightView);
+
+        std::vector<DAIC> data;
+        std::vector<DAIC> shadowData;
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         data.reserve(chunks.size());
         for (const auto& pair : chunks) {
             std::optional<DAIC> rd = pair.second->getDAIC();
-            if (rd != std::nullopt)
-                data.push_back(rd.value());
+            if (rd != std::nullopt && rd.value().indexCount > 0) {
+                vec3 chunkPos = vec3(pair.second->getPosition());
+
+                // Test if the 32x32x32 chunk intersects the frustum
+                if (cameraFrustum.isCubeInside(chunkPos, 32.0f)) {
+                    data.push_back(rd.value());
+                }
+
+                if (shadowFrustum.isCubeInside(chunkPos, 32.0f)) {
+                    shadowData.push_back(rd.value());
+                }
+            }
         }
 
-        return data;
+        return { data, shadowData };
     }
 
     void updateChunkDataBuffers(BufferManager* buf) {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->hasChunkDataBuffer()) {
                 // Update the buffer with current chunk position
@@ -143,7 +162,7 @@ public:
             chunkPos + ivec3(0, 0, -1)   // Bottom
         };
 
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (int i = 0; i < 6; ++i) {
             auto it = chunks.find(neighborPositions[i]);
             if (it != chunks.end()) {
@@ -159,7 +178,7 @@ private:
             std::vector<ivec3> chunksToRemove;
             chunksToRemove.reserve(128);
 
-            std::unique_lock<std::shared_mutex> lock(chunksMutex);
+            
             for (const auto& pair : chunks) {
                 ivec3 chunkPos = pair.first;
                 float distanceX = glm::abs(chunkPos.x - playerPos.x);
@@ -173,6 +192,7 @@ private:
                 }
             }
 
+            //std::unique_lock<std::shared_mutex> lock(chunksMutex);
             for (auto chunkPos : chunksToRemove) {
                 auto it = chunks.find(chunkPos);
                 if (it != chunks.end()) {
@@ -193,6 +213,7 @@ private:
         // Configuration
 
         //// Count active chunks
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         int activeChunks = 0;
         for (auto pair : chunks) {
             if (pair.second->getState() == ChunkState::Active) {
@@ -228,7 +249,6 @@ private:
                         ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
 
                         // If chunk doesn't exist, add it to the queue
-                        std::shared_lock<std::shared_mutex> lock(chunksMutex);
                         if (chunkPos.z > WORLD_MIN && chunkPos.z < WORLD_MAX && chunks.find(chunkPos) == chunks.end()) {
                             pendingChunkCreation.push({ chunkPos, distSq });
                             chunksAdded++;
@@ -252,7 +272,8 @@ private:
             ChunkPriority nextChunk = pendingChunkCreation.top();
             pendingChunkCreation.pop();
 
-            std::unique_lock<std::shared_mutex> lock(chunksMutex);
+            //std::unique_lock<std::shared_mutex> lock(chunksMutex);
+
             if (chunks.find(nextChunk.position) == chunks.end()) {
                 float distanceFromPlayer = 
                     glm::abs(nextChunk.position.x - playerChunkPos.x) + 
@@ -261,9 +282,9 @@ private:
 
                 uint32_t lodlevel = 0;
 
-    //            if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
-    //                lodlevel = 1;
-				//}
+                /*if (distanceFromPlayer > LOD_CHUNK_LEVEL) {
+                    lodlevel = 1;
+				}*/
 
                 auto chunkDeleter = [tex = this->tex, buf = this->buf](ThreadSafeChunk* chunk) {
                     if (chunk) {
@@ -277,6 +298,7 @@ private:
 
                 auto* newChunkRaw = new ThreadSafeChunk(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 auto newChunk = std::shared_ptr<ThreadSafeChunk>(newChunkRaw, chunkDeleter);
+                
                 chunks[nextChunk.position] = newChunk;
 
                 newChunk->setState(ChunkState::GeneratingTerrain);
@@ -288,7 +310,7 @@ private:
     }
 
     void progressChunks() {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second) {
                 std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
@@ -302,7 +324,7 @@ private:
                         if (neighbor) {
                             ChunkState neighborState = neighbor->getState();
                             // Neighbor must AT LEAST be TerrainReady
-                            if (neighborState < ChunkState::TerrainReady && neighborState != ChunkState::Empty) { // Empty is ok if we are just starting
+                            if (neighborState < ChunkState::TerrainReady && neighborState != ChunkState::Empty) {
                                 allNeighborsReady = false;
                                 break;
                             }
@@ -362,8 +384,9 @@ private:
                     }
 
                     if (allNeighborsReady) {
+                        std::array<std::shared_ptr<ThreadSafeChunk>, 6> freshNeighbors = getNeighbors(chunkPos);
                         chunk->setState(ChunkState::GeneratingMesh);
-                        workerSystem->queueMeshGeneration(chunk, chunkPos, neighbors);
+                        workerSystem->queueMeshGeneration(chunk, chunkPos, freshNeighbors);
                     }
                 }
             }
@@ -376,7 +399,7 @@ public:
     void printChunkStates() {
         std::unordered_map<ChunkState, int> stateCounts;
         int totalChunks = 0;
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
 
         lastNumActiveChunks = numActiveChunks;
         {
@@ -415,12 +438,12 @@ public:
     }
 
     size_t getChunkCount() const {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         return chunks.size();
     }
 
     std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
     }

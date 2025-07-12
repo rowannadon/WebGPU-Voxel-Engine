@@ -50,7 +50,7 @@ public:
         vertexBufferDesc.size = VERTEX_BUFFER_SIZE;
         vertexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
         vertexBufferDesc.mappedAtCreation = false;
-        vertexBufferDesc.label = "Mesh Pool Vertex Buffer";
+        vertexBufferDesc.label = StringView("Mesh Pool Vertex Buffer");
         vertexBuffer = device.createBuffer(vertexBufferDesc);
 
         // Create index buffer
@@ -58,7 +58,7 @@ public:
         indexBufferDesc.size = INDEX_BUFFER_SIZE;
         indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
         indexBufferDesc.mappedAtCreation = false;
-        indexBufferDesc.label = "Mesh Pool Index Buffer";
+        indexBufferDesc.label = StringView("Mesh Pool Index Buffer");
         indexBuffer = device.createBuffer(indexBufferDesc);
 
         std::cout << "MeshBufferPool initialized: " << NUM_BUFFERS << " slots, "

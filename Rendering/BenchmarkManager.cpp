@@ -5,21 +5,6 @@
 BenchmarkManager::BenchmarkManager(Device d, Queue q) : device(d), queue(q), timestampSupported(false) {}
 
 bool BenchmarkManager::initialize() {
-    // Check if timestamp queries are supported
-    /*std::vector<FeatureName> features;
-    size_t featureCount = device.enumerateFeatures(nullptr);
-    if (featureCount > 0) {
-        features.resize(featureCount);
-        device.enumerateFeatures(features.data());
-
-        for (const auto& feature : features) {
-            if (feature == FeatureName::TimestampQuery) {
-                timestampSupported = true;
-                break;
-            }
-        }
-    }*/
-
     timestampSupported = device.hasFeature(FeatureName::TimestampQuery);
 
     if (!timestampSupported) {
@@ -44,7 +29,7 @@ QuerySet BenchmarkManager::createQuerySet(const std::string& name, uint32_t quer
     querySetDesc.count = queryCount;
     query->querySet = device.createQuerySet(querySetDesc);
     query->queryCount = queryCount;
-    query->mapHandle = nullptr;
+    query->isMapped = false;
 
     // Create resolve buffer (GPU-visible)
     BufferDescriptor resolveBufferDesc = {};
@@ -72,6 +57,15 @@ QuerySet BenchmarkManager::getQuerySet(const std::string& name) {
     return nullptr;
 }
 
+bool BenchmarkManager::isQueryBusy(const std::string& name) {
+    auto query = queries.find(name);
+    if (query == queries.end()) {
+        return false;
+    }
+
+    return query->second->isMapped;
+}
+
 void BenchmarkManager::writeTimestamp(const std::string& queryName, CommandEncoder& encoder, uint32_t queryIndex) {
     if (!timestampSupported) return;
 
@@ -85,7 +79,7 @@ void BenchmarkManager::resolveTimestamps(const std::string& queryName, CommandEn
     if (!timestampSupported) return;
 
     auto query = queries.find(queryName);
-    if (query != queries.end() && !query->second->mapHandle) {
+    if (query != queries.end() && !query->second->isMapped) {
         encoder.resolveQuerySet(
             query->second->querySet,
             0,
@@ -107,47 +101,50 @@ void BenchmarkManager::readTimestamps(const std::string& queryName, std::functio
     if (!timestampSupported) return;
 
     auto query = queries.find(queryName);
-    if (query == queries.end() || query->second->mapHandle) {
+    if (query == queries.end() || query->second->isMapped) {
         return;
     }
 
     auto queryPtr = query->second;
     queryPtr->callback = callback;
+    queryPtr->isMapped = true;
 
-    // Map the readback buffer
-    queryPtr->mapHandle = queryPtr->readbackBuffer.mapAsync(
-        MapMode::Read,
-        0,
-        queryPtr->queryCount * sizeof(uint64_t),
-        [this, queryPtr](BufferMapAsyncStatus status) {
-            if (status != BufferMapAsyncStatus::Success) {
-                std::cerr << "Could not map buffer! status = " << status << std::endl;
-            }
-            else {
-                const uint64_t* timestampData = (const uint64_t*)queryPtr->readbackBuffer.getConstMappedRange(
-                    0, queryPtr->queryCount * sizeof(uint64_t)
-                );
-
-                if (timestampData) {
-                    double frameTime = calculateFrameTime(timestampData, queryPtr->queryCount);
-
-                    if (queryPtr->callback) {
-                        queryPtr->callback(frameTime);
-                    }
-                    else {
-                        // Default: print frame time
-                        std::cout << std::fixed << std::setprecision(3)
-                            << "GPU Frame Time: " << frameTime << " ms" << std::endl;
-                    }
-                }
-
-                queryPtr->readbackBuffer.unmap();
-            }
-
-            // Release the callback handle
-            queryPtr->mapHandle.reset();
-        }
-    );
+    // Updated callback signature - now takes status and message
+    //queryPtr->mapHandle = queryPtr->readbackBuffer.mapAsync(
+    //    wgpu::MapMode::Read,
+    //    0,
+    //    queryPtr->queryCount * sizeof(uint64_t),
+    //    wgpu::CallbackMode::AllowProcessEvents,
+    //    [this, queryPtr](wgpu::MapAsyncStatus status, wgpu::StringView message) {
+    //        if (status != wgpu::MapAsyncStatus::Success) {
+    //            std::cerr << "Could not map buffer! status = " << static_cast<int>(status);
+    //            if (message.data && message.length > 0) {
+    //                std::cerr << " message: " << std::string(message.data, message.length);
+    //            }
+    //            std::cerr << std::endl;
+    //        }
+    //        else {
+    //            const uint64_t* timestampData = (const uint64_t*)queryPtr->readbackBuffer.getConstMappedRange(
+    //                0, queryPtr->queryCount * sizeof(uint64_t)
+    //            );
+    //            if (timestampData) {
+    //                double frameTime = calculateFrameTime(timestampData, queryPtr->queryCount);
+    //                if (queryPtr->callback) {
+    //                    queryPtr->callback(frameTime);
+    //                }
+    //                else {
+    //                    // Default: print frame time
+    //                    std::cout << std::fixed << std::setprecision(3)
+    //                        << "GPU Frame Time: " << frameTime << " ms" << std::endl;
+    //                }
+    //            }
+    //            queryPtr->readbackBuffer.unmap();
+    //        }
+    //        // Reset mapping state
+    //        queryPtr->isMapped = false;
+    //        queryPtr->callback = nullptr;
+    //    }
+    //);
 }
 
 double BenchmarkManager::calculateFrameTime(const uint64_t* timestamps, uint32_t count) {
@@ -188,6 +185,13 @@ void BenchmarkManager::deleteQuery(const std::string& name) {
     if (query != queries.end()) {
         auto queryPtr = query->second;
 
+        // Wait for any pending mapping operations to complete
+        if (queryPtr->isMapped) {
+            // In a real implementation, you might want to wait for the future
+            // or handle this more gracefully
+            std::cerr << "Warning: Deleting query while mapping is in progress" << std::endl;
+        }
+
         if (queryPtr->querySet) {
             queryPtr->querySet.destroy();
             queryPtr->querySet.release();
@@ -210,6 +214,10 @@ void BenchmarkManager::deleteQuery(const std::string& name) {
 void BenchmarkManager::terminate() {
     for (auto& pair : queries) {
         auto queryPtr = pair.second;
+
+        if (queryPtr->isMapped) {
+            std::cerr << "Warning: Terminating with active mapping operations" << std::endl;
+        }
 
         if (queryPtr->querySet) {
             queryPtr->querySet.destroy();

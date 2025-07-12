@@ -1,4 +1,4 @@
-// Updated main shader with shadow mapping support
+// Updated main shader with dynamic sun color based on sun elevation
 // shader.wgsl
 
 struct VertexInput {
@@ -104,6 +104,35 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
     MaterialProperties(vec3f(0.2, 0.25, 0.2), 5.0, 1.0)
 );
+
+// Function to calculate dynamic sun color based on elevation
+fn get_sun_color(sun_elevation: f32) -> vec3f {
+    // Normalize sun elevation to 0-1 range (0 = horizon, 1 = zenith)
+    let elevation_factor = clamp(sun_elevation, 0.0, 1.0);
+    
+    // Define color stops for the sun
+    let sunset_color = vec3f(1.0, 0.4, 0.1);      // Deep orange-red
+    let golden_hour_color = vec3f(1.0, 0.7, 0.3);  // Golden orange
+    let midday_color = vec3f(0.95, 0.90, 0.85);    // Warm white
+    
+    // Create smooth transitions between colors
+    var sun_color: vec3f;
+    
+    if (elevation_factor < 0.15) {
+        // Very low sun (sunset/sunrise) - deep orange-red
+        let t = elevation_factor / 0.15;
+        sun_color = mix(sunset_color, golden_hour_color, smoothstep(0.0, 1.0, t));
+    } else if (elevation_factor < 0.4) {
+        // Low to medium sun (golden hour) - golden orange to warm white
+        let t = (elevation_factor - 0.15) / 0.25;
+        sun_color = mix(golden_hour_color, midday_color, smoothstep(0.0, 1.0, t));
+    } else {
+        // High sun (midday) - warm white
+        sun_color = midday_color;
+    }
+    
+    return sun_color;
+}
 
 fn get_material_properties(material_id: u32) -> MaterialProperties {
     let index = clamp(material_id - 1u, 0u, 8u);
@@ -233,10 +262,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.001 * (1.0 - n_dot_l), 0.0005);
+    let bias = max(0.01 * (1.0 - n_dot_l), 0.004);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 1024.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 4096.0; // Assuming 2048x2048 shadow map
     var shadow = 0.0;
     let samples = 16; // Increased from 9
     
@@ -365,10 +394,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let base_uv = faceUVsIndependent[data.normal_index][data.vertex_index];
         uv = base_uv * CHUNK_SIZE;
 
-        if ((chunkData.lod > 0u) && (data.normal_index == 4u || data.normal_index == 5u)) {
-            out.position.z -= 0.00001;
-        }
-
         let chunk_world_pos_vec = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
         let local_world_pos = position - chunk_world_pos_vec;
         out.chunk_edge_factor = calculate_chunk_edge_factor(local_world_pos, data.normal_index);
@@ -479,8 +504,6 @@ fn calculate_blinn_phong_specular(
     
     return lightColor * materialProps.specularColor * specularFactor * fadeAdjustedIntensity;
 }
-
-// Fixed shadow implementation - key changes in fragment shader
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
@@ -600,7 +623,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let sunShading = dot(sunDirection, normal);
     let inverseSunShading = dot(inverseSunDirection, normal);
 
-    let sunColor = vec3f(0.95, 0.80, 0.70);
+    // Use dynamic sun color based on elevation
+    let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
     let inverseSunColor = vec3f(0.15, 0.25, 0.30);
 
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
@@ -627,10 +651,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
 
     let light_color = vec3(0.95, 0.75, 0.55);
-    let ambient = (vec3f(0.5) * day_night) + 0.1;
+    let ambient = (vec3f(0.2) * day_night) + 0.05;
     
-    // FIXED: Apply shadows whenever there's sun light, not just during full day
-    // Calculate base sun lighting
+    // Calculate base sun lighting using dynamic sun color
     let base_sun_lighting = distanceAdjustedSunShading * sunColor * day_night;
     
     // Apply shadow to sun lighting - shadows should be visible whenever sun is above horizon
@@ -638,9 +661,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Calculate other lighting components
     let inverse_sun_shading = distanceAdjustedInverseSunShading * inverseSunColor / 4.0;
-    let artificial_lighting = (light_level / 24.0) * light_color + 0.15;
+    let artificial_lighting = (light_level / 24.0) * light_color + 0.1;
     
-    // FIXED: Combine all lighting with proper shadow application
     let total_lighting = max(max(shadowed_sun_lighting + inverse_sun_shading, artificial_lighting), ambient);
     
     let shading = total_lighting;
@@ -654,7 +676,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
             normal, 
             sunDirection, 
             viewDir, 
-            sunColor * sun_intensity * shadow_factor,  // Apply shadow to specular
+            sunColor * sun_intensity * shadow_factor,  // Apply shadow and dynamic color to specular
             materialProps, 
             shadingFadeFactor
         );
@@ -679,7 +701,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
-    let aoStrength = dot(viewDir, normal);
+    let aoStrength = smoothClamp(dot(viewDir, normal), 0.2, 1.0);
     let ao_adjusted = mix(1.0, in.ao, aoStrength) * distanceAdjustedAoFactor;
 
     var baseColor = clamp((textureColor.rgb/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));

@@ -1,38 +1,43 @@
-cmake_minimum_required(VERSION 3.0.0...3.24 FATAL_ERROR)
-project(webgpu-backend-dawn VERSION 1.0.0)
+# This file is part of the "Learn WebGPU for C++" book. webgpu/CMakeLists.txt
+#   https://eliemichel.github.io/LearnWebGPU
+# 
+# MIT License
+# Copyright (c) 2022-2025 Elie Michel and the wgpu-native authors
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
 
-message(STATUS "Using Dawn backend for WebGPU")
+set(DAWN_VERSION "7187" CACHE STRING "\
+	Version of the Dawn release to use. Must correspond to the number after 'chromium/' \
+	in the tag name of an existing release on DAWN_MIRROR. \
+	Warning: The webgpu.hpp file provided in include/ may not be compatible with other \
+	versions than the default.")
 
-add_library(webgpu INTERFACE)
+set(DAWN_SOURCE_MIRROR "https://dawn.googlesource.com/dawn" CACHE STRING "\
+	The repository where to find Dawn source code.")
 
-if (EMSCRIPTEN)
+set(DAWN_BINARY_MIRROR "https://github.com/eliemichel/dawn-prebuilt" CACHE STRING "\
+	The repository where to find Dawn precompiled releases. This is ultimately supposed \
+	to be https://github.com/google/dawn, where official binaries will be auto-released, \
+	but in the meantime we use a different mirror.")
 
-	target_include_directories(webgpu INTERFACE
-		"${CMAKE_CURRENT_SOURCE_DIR}/include-emscripten"
-	)
-
-	# This is used to advertise the flavor of WebGPU that this zip provides
-	target_compile_definitions(webgpu INTERFACE WEBGPU_BACKEND_EMSCRIPTEN)
-
-	target_link_options(webgpu INTERFACE
-		-sUSE_WEBGPU # Handle WebGPU symbols
-	)
-
-else (EMSCRIPTEN)
-
-	include(cmake/FetchDawn.cmake)
-
-	target_link_libraries(webgpu INTERFACE webgpu_dawn)
-	target_include_directories(webgpu INTERFACE
-		"${CMAKE_CURRENT_SOURCE_DIR}/include"
-		"${CMAKE_BINARY_DIR}/_deps/dawn-src/include"
-	)
-
-	# This is used to advertise the flavor of WebGPU that this zip provides
-	target_compile_definitions(webgpu INTERFACE WEBGPU_BACKEND_DAWN)
-
-endif (EMSCRIPTEN)
-
-# Does nothing, as this dawn-based distribution of WebGPU is statically linked
-function(target_copy_webgpu_binaries Target)
-endfunction()
+if (WEBGPU_BUILD_FROM_SOURCE)
+	include(FetchDawnSource.cmake)
+else()
+	include(FetchDawnPrecompiled.cmake)
+endif()

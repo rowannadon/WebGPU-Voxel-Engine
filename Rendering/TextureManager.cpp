@@ -18,9 +18,9 @@ std::shared_ptr<TexturePool> TextureManager::getTexturePool(std::string name) {
     return nullptr;
 }
 
-void TextureManager::writeTexture(const ImageCopyTexture& destination,
+void TextureManager::writeTexture(const TexelCopyTextureInfo& destination,
     const void* data, size_t size,
-    const TextureDataLayout& source,
+    const TexelCopyBufferLayout& source,
     const Extent3D& writeSize) {
 
     queue.writeTexture(destination, data, size, source, writeSize);
@@ -132,13 +132,13 @@ void TextureManager::writeMipMaps(
 {
 
     // Arguments telling which part of the texture we upload to
-    ImageCopyTexture destination;
+    TexelCopyTextureInfo destination;
     destination.texture = texture;
     destination.origin = { 0, 0, 0 };
     destination.aspect = TextureAspect::All;
 
     // Arguments telling how the C++ side pixel memory is laid out
-    TextureDataLayout source;
+    TexelCopyBufferLayout source;
     source.offset = 0;
 
     // Create image data
