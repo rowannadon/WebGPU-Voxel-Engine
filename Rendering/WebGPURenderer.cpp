@@ -101,14 +101,18 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	indirectBufferDesc.mappedAtCreation = false;
 	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
 	Buffer indirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
-	context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), indirectBufferDesc.size);
+	if (chunkRenderData.first.size() > 0) {
+		context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), indirectBufferDesc.size);
+	}
 
 	BufferDescriptor shadowIndirectBufferDesc = Default;
 	shadowIndirectBufferDesc.size = sizeof(DAIC) * chunkRenderData.second.size();
 	shadowIndirectBufferDesc.mappedAtCreation = false;
 	shadowIndirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
 	Buffer shadowIndirectBuffer = context->getDevice().createBuffer(shadowIndirectBufferDesc);
-	context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), shadowIndirectBufferDesc.size);
+	if (chunkRenderData.second.size() > 0) {
+		context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), shadowIndirectBufferDesc.size);
+	}
 
 	 //=== SKY RENDER PASS ===
 	{
@@ -149,7 +153,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	}
 
 	// === SHADOW RENDER PASS ===
-	{
+	if (chunkRenderData.second.size() > 0) {
 		RenderPassDescriptor renderPassDesc = {};
 
 		renderPassDesc.colorAttachmentCount = 0;
@@ -186,7 +190,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	}
 
 	// === VOXEL RENDER PASS ===
-	{
+	if (chunkRenderData.first.size() > 0) {
 		RenderPassDescriptor renderPassDesc = {};
 		RenderPassColorAttachment renderPassColorAttachment = {};
 		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
