@@ -1743,13 +1743,20 @@ HANDLE(Buffer)
 			std::unique_ptr<Lambda> lambda(reinterpret_cast<Lambda*>(userdata1));
 			(*lambda)(static_cast<MapAsyncStatus>(status), message);
 		};
-		BufferMapCallbackInfo callbackInfo = {
-			/* nextInChain = */ nullptr,
-			/* mode = */ callbackMode,
-			/* callback = */ cCallback,
-			/* userdata1 = */ (void*)lambda,
-			/* userdata2 = */ nullptr,
-		};
+		//BufferMapCallbackInfo callbackInfo = {
+		//	/* nextInChain = */ nullptr,
+		//	/* mode = */ callbackMode,
+		//	/* callback = */ cCallback,
+		//	/* userdata1 = */ (void*)lambda,
+		//	/* userdata2 = */ nullptr,
+		//};
+		WGPUBufferMapCallbackInfo callbackInfo = {};
+		callbackInfo.nextInChain = nullptr;
+		callbackInfo.mode = static_cast<WGPUCallbackMode>(callbackMode);
+		callbackInfo.callback = cCallback;
+		callbackInfo.userdata1 = (void*)lambda;
+		callbackInfo.userdata2 = nullptr;
+
 		return wgpuBufferMapAsync(m_raw, static_cast<WGPUMapMode>(mode), offset, size, callbackInfo);
 	}
 	Status readMappedRange(size_t offset, void * data, size_t size) const;
@@ -1980,13 +1987,20 @@ HANDLE(Queue)
 			std::unique_ptr<Lambda> lambda(reinterpret_cast<Lambda*>(userdata1));
 			(*lambda)(static_cast<QueueWorkDoneStatus>(status));
 		};
-		QueueWorkDoneCallbackInfo callbackInfo = {
-			/* nextInChain = */ nullptr,
-			/* mode = */ callbackMode,
-			/* callback = */ cCallback,
-			/* userdata1 = */ (void*)lambda,
-			/* userdata2 = */ nullptr,
-		};
+		//QueueWorkDoneCallbackInfo callbackInfo = {
+		//	/* nextInChain = */ nullptr,
+		//	/* mode = */ callbackMode,
+		//	/* callback = */ cCallback,
+		//	/* userdata1 = */ (void*)lambda,
+		//	/* userdata2 = */ nullptr,
+		//};
+		WGPUQueueWorkDoneCallbackInfo callbackInfo = {};
+		callbackInfo.nextInChain = nullptr;
+		callbackInfo.mode = static_cast<WGPUCallbackMode>(callbackMode);
+		callbackInfo.callback = cCallback;
+		callbackInfo.userdata1 = (void*)lambda;
+		callbackInfo.userdata2 = nullptr;
+
 		return wgpuQueueOnSubmittedWorkDone(m_raw, callbackInfo);
 	}
 	void setLabel(StringView label) const;

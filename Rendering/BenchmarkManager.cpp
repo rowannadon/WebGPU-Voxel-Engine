@@ -99,52 +99,52 @@ void BenchmarkManager::resolveTimestamps(const std::string& queryName, CommandEn
 
 void BenchmarkManager::readTimestamps(const std::string& queryName, std::function<void(double)> callback) {
     if (!timestampSupported) return;
-
     auto query = queries.find(queryName);
     if (query == queries.end() || query->second->isMapped) {
         return;
     }
-
     auto queryPtr = query->second;
     queryPtr->callback = callback;
-    queryPtr->isMapped = true;
+    queryPtr->isMapped = true;    if (queryPtr->readbackBuffer.getMapState() != wgpu::BufferMapState::Unmapped) {
+        queryPtr->readbackBuffer.unmap();
+    }
 
-    // Updated callback signature - now takes status and message
-    //queryPtr->mapHandle = queryPtr->readbackBuffer.mapAsync(
-    //    wgpu::MapMode::Read,
-    //    0,
-    //    queryPtr->queryCount * sizeof(uint64_t),
-    //    wgpu::CallbackMode::AllowProcessEvents,
-    //    [this, queryPtr](wgpu::MapAsyncStatus status, wgpu::StringView message) {
-    //        if (status != wgpu::MapAsyncStatus::Success) {
-    //            std::cerr << "Could not map buffer! status = " << static_cast<int>(status);
-    //            if (message.data && message.length > 0) {
-    //                std::cerr << " message: " << std::string(message.data, message.length);
-    //            }
-    //            std::cerr << std::endl;
-    //        }
-    //        else {
-    //            const uint64_t* timestampData = (const uint64_t*)queryPtr->readbackBuffer.getConstMappedRange(
-    //                0, queryPtr->queryCount * sizeof(uint64_t)
-    //            );
-    //            if (timestampData) {
-    //                double frameTime = calculateFrameTime(timestampData, queryPtr->queryCount);
-    //                if (queryPtr->callback) {
-    //                    queryPtr->callback(frameTime);
-    //                }
-    //                else {
-    //                    // Default: print frame time
-    //                    std::cout << std::fixed << std::setprecision(3)
-    //                        << "GPU Frame Time: " << frameTime << " ms" << std::endl;
-    //                }
-    //            }
-    //            queryPtr->readbackBuffer.unmap();
-    //        }
-    //        // Reset mapping state
-    //        queryPtr->isMapped = false;
-    //        queryPtr->callback = nullptr;
-    //    }
-    //);
+    // Fixed: Reorder parameters to match new signature
+    queryPtr->mapHandle = queryPtr->readbackBuffer.mapAsync(
+        wgpu::MapMode::Read,                    // mode
+        0,                                      // offset
+        queryPtr->queryCount * sizeof(uint64_t), // size
+        wgpu::CallbackMode::AllowProcessEvents,  // callbackMode
+        [this, queryPtr](wgpu::MapAsyncStatus status, wgpu::StringView message) { // callback
+            if (status != wgpu::MapAsyncStatus::Success) {
+                std::cerr << "Could not map buffer! status = " << static_cast<int>(status);
+                if (message.data && message.length > 0) {
+                    std::cerr << " message: " << std::string(message.data, message.length);
+                }
+                std::cerr << std::endl;
+            }
+            else {
+                const uint64_t* timestampData = (const uint64_t*)queryPtr->readbackBuffer.getConstMappedRange(
+                    0, queryPtr->queryCount * sizeof(uint64_t)
+                );
+                if (timestampData) {
+                    double frameTime = calculateFrameTime(timestampData, queryPtr->queryCount);
+                    if (queryPtr->callback) {
+                        queryPtr->callback(frameTime);
+                    }
+                    else {
+                        // Default: print frame time
+                        std::cout << std::fixed << std::setprecision(3)
+                            << "GPU Frame Time: " << frameTime << " ms" << std::endl;
+                    }
+                }
+                queryPtr->readbackBuffer.unmap();
+            }
+            // Reset mapping state
+            queryPtr->isMapped = false;
+            queryPtr->callback = nullptr;
+        }
+    );
 }
 
 double BenchmarkManager::calculateFrameTime(const uint64_t* timestamps, uint32_t count) {

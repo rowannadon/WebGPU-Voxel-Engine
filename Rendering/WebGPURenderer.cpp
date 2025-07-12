@@ -248,6 +248,13 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	encoder.release();
 
 	context->getQueue().submit(1, &command);
+	context->getQueue().onSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
+		[&](wgpu::QueueWorkDoneStatus status) {
+			if (status == wgpu::QueueWorkDoneStatus::Success) {
+				benchmarkManager->processFrameTime("frame_timing");
+			}
+		});
+
 	command.release();
 
 	// CRITICAL FIX: Tick the device to process async operations
@@ -256,7 +263,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 #endif
 
 	// Now process timing (this will print frame time by default)
-	benchmarkManager->processFrameTime("frame_timer");
+	//benchmarkManager->processFrameTime("frame_timer");
 
 	targetView.release();
 	context->getSurface().present();

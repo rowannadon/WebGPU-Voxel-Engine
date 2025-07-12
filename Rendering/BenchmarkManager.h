@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <thread>
 #include <functional>
 #include <webgpu/webgpu.hpp>
 using namespace wgpu;
