@@ -59,9 +59,9 @@ private:
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
     static constexpr int MAX_ACTIVE_CHUNKS = 4050;
-    static constexpr int MAX_TOTAL_CHUNKS = 64000;
+    static constexpr int MAX_TOTAL_CHUNKS = 32000;
     static constexpr int WORLD_MIN = -1;
     static constexpr int WORLD_MAX = 18;
 
@@ -100,7 +100,7 @@ public:
     // Get chunks ready for GPU upload
     std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
         std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second &&
                 pair.second->getState() == ChunkState::MeshReady) {
@@ -120,7 +120,7 @@ public:
 
         std::vector<DAIC> data;
         std::vector<DAIC> shadowData;
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         data.reserve(chunks.size());
         for (const auto& pair : chunks) {
             std::optional<DAIC> rd = pair.second->getDAIC();
@@ -142,7 +142,7 @@ public:
     }
 
     void updateChunkDataBuffers(BufferManager* buf) {
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->hasChunkDataBuffer()) {
                 // Update the buffer with current chunk position
@@ -162,7 +162,7 @@ public:
             chunkPos + ivec3(0, 0, -1)   // Bottom
         };
 
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (int i = 0; i < 6; ++i) {
             auto it = chunks.find(neighborPositions[i]);
             if (it != chunks.end()) {
@@ -213,7 +213,7 @@ private:
         // Configuration
 
         //// Count active chunks
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         int activeChunks = 0;
         for (auto pair : chunks) {
             if (pair.second->getState() == ChunkState::Active) {
@@ -310,7 +310,7 @@ private:
     }
 
     void progressChunks() {
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (const auto& pair : chunks) {
             if (pair.second) {
                 std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
@@ -399,7 +399,7 @@ public:
     void printChunkStates() {
         std::unordered_map<ChunkState, int> stateCounts;
         int totalChunks = 0;
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
 
         lastNumActiveChunks = numActiveChunks;
         {
@@ -438,12 +438,12 @@ public:
     }
 
     size_t getChunkCount() const {
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         return chunks.size();
     }
 
     std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
     }

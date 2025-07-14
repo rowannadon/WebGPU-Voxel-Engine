@@ -20,13 +20,27 @@ bool WebGPURenderer::initialize() {
 	benchmarkManager->initialize();
 	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 
-	initMultiSampleTexture(config);
-	initDepthTexture(config);
+	// create resources
+	initTransmittanceTexture();
+	initMultiScatteringTexture();
+	initSkyViewTexture();
+	initAerialPerspectiveTexture();
+
+	initMultiSampleTexture();
+	initDepthTexture();
 	initShadowTexture();
+
+	// create pipelines
+	initTransmittancePipeline();
+	initMultiScatteringPipeline();
+	initSkyViewPipeline();
+	initAerialPerspectivePipeline();
 	initShadowPipeline();
-	initRenderPipeline(config);
-	initSkyPipeline(config);
+	initRenderPipeline();
+	initSkyPipeline();
+
 	initUniformBuffers();
+
 	initTextures();
 	initBindGroup();
 
@@ -49,12 +63,171 @@ BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
 }
 
-bool WebGPURenderer::initSkyPipeline(RenderConfig renderConfig) {
+bool WebGPURenderer::initAerialPerspectivePipeline() {
+	ComputePipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/aerial_perspective_cs.wgsl";
+	config.computeShaderName = "render_aerial_perspective_lut";
+
+	std::vector<BindGroupLayoutEntry> aerialPerspectiveUniforms(6, Default);
+	aerialPerspectiveUniforms[0].binding = 0;
+	aerialPerspectiveUniforms[0].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[0].buffer.type = BufferBindingType::Uniform;
+	aerialPerspectiveUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
+	aerialPerspectiveUniforms[0].buffer.hasDynamicOffset = false;
+
+	aerialPerspectiveUniforms[1].binding = 1;
+	aerialPerspectiveUniforms[1].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[1].buffer.type = BufferBindingType::Uniform;
+	aerialPerspectiveUniforms[1].buffer.minBindingSize = sizeof(MyUniforms);
+
+	aerialPerspectiveUniforms[2].binding = 2;
+	aerialPerspectiveUniforms[2].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[2].sampler.type = SamplerBindingType::Filtering;
+
+	aerialPerspectiveUniforms[3].binding = 3;
+	aerialPerspectiveUniforms[3].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[3].texture.sampleType = TextureSampleType::Float;
+	aerialPerspectiveUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
+
+	aerialPerspectiveUniforms[4].binding = 4;
+	aerialPerspectiveUniforms[4].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[4].texture.sampleType = TextureSampleType::Float;
+	aerialPerspectiveUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
+
+	aerialPerspectiveUniforms[5].binding = 5;
+	aerialPerspectiveUniforms[5].visibility = ShaderStage::Compute;
+	aerialPerspectiveUniforms[5].storageTexture.access = StorageTextureAccess::WriteOnly;
+	aerialPerspectiveUniforms[5].storageTexture.format = TextureFormat::RGBA16Float;
+	aerialPerspectiveUniforms[5].storageTexture.viewDimension = TextureViewDimension::_3D;
+
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("aerialperspective_uniforms", aerialPerspectiveUniforms)
+	);
+
+	pipelineManager->createComputePipeline("aerialperspective_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initSkyViewPipeline() {
+	ComputePipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/skyview_cs.wgsl";
+	config.computeShaderName = "render_sky_view_lut";
+
+	std::vector<BindGroupLayoutEntry> skyViewUniforms(6, Default);
+	skyViewUniforms[0].binding = 0;
+	skyViewUniforms[0].visibility = ShaderStage::Compute;
+	skyViewUniforms[0].buffer.type = BufferBindingType::Uniform;
+	skyViewUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
+	skyViewUniforms[0].buffer.hasDynamicOffset = false;
+
+	skyViewUniforms[1].binding = 1;
+	skyViewUniforms[1].visibility = ShaderStage::Compute;
+	skyViewUniforms[1].buffer.type = BufferBindingType::Uniform;
+	skyViewUniforms[1].buffer.minBindingSize = sizeof(MyUniforms);
+
+	skyViewUniforms[2].binding = 2;
+	skyViewUniforms[2].visibility = ShaderStage::Compute;
+	skyViewUniforms[2].sampler.type = SamplerBindingType::Filtering;
+
+	skyViewUniforms[3].binding = 3;
+	skyViewUniforms[3].visibility = ShaderStage::Compute;
+	skyViewUniforms[3].texture.sampleType = TextureSampleType::Float;
+	skyViewUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
+
+	skyViewUniforms[4].binding = 4;
+	skyViewUniforms[4].visibility = ShaderStage::Compute;
+	skyViewUniforms[4].texture.sampleType = TextureSampleType::Float;
+	skyViewUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
+
+	skyViewUniforms[5].binding = 5;
+	skyViewUniforms[5].visibility = ShaderStage::Compute;
+	skyViewUniforms[5].storageTexture.access = StorageTextureAccess::WriteOnly;
+	skyViewUniforms[5].storageTexture.format = TextureFormat::RGBA16Float;
+	skyViewUniforms[5].storageTexture.viewDimension = TextureViewDimension::_2D;
+
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("skyview_uniforms", skyViewUniforms)
+	);
+
+	pipelineManager->createComputePipeline("skyview_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initMultiScatteringPipeline() {
+	ComputePipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/multiscattering_cs.wgsl";
+	config.computeShaderName = "render_multi_scattering_lut";
+
+	std::vector<BindGroupLayoutEntry> multiScatteringUniforms(4, Default);
+	multiScatteringUniforms[0].binding = 0;
+	multiScatteringUniforms[0].visibility = ShaderStage::Compute;
+	multiScatteringUniforms[0].buffer.type = BufferBindingType::Uniform;
+	multiScatteringUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
+	multiScatteringUniforms[0].buffer.hasDynamicOffset = false;
+
+	multiScatteringUniforms[1].binding = 1;
+	multiScatteringUniforms[1].visibility = ShaderStage::Compute;
+	multiScatteringUniforms[1].sampler.type = SamplerBindingType::Filtering;
+
+	multiScatteringUniforms[2].binding = 2;
+	multiScatteringUniforms[2].visibility = ShaderStage::Compute;
+	multiScatteringUniforms[2].texture.sampleType = TextureSampleType::Float;
+	multiScatteringUniforms[2].texture.viewDimension = TextureViewDimension::_2D;
+	multiScatteringUniforms[2].texture.multisampled = false;
+
+	multiScatteringUniforms[3].binding = 3;
+	multiScatteringUniforms[3].visibility = ShaderStage::Compute;
+	multiScatteringUniforms[3].storageTexture.access = StorageTextureAccess::WriteOnly;
+	multiScatteringUniforms[3].storageTexture.format = TextureFormat::RGBA16Float;
+	multiScatteringUniforms[3].storageTexture.viewDimension = TextureViewDimension::_2D;
+
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("multiscattering_uniforms", multiScatteringUniforms)
+	);
+
+	pipelineManager->createComputePipeline("multiscattering_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initTransmittancePipeline() {
+	ComputePipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/transmittance_cs.wgsl";
+	config.computeShaderName = "render_transmittance_lut";
+
+	std::vector<BindGroupLayoutEntry> transmittanceUniforms(2, Default);
+	transmittanceUniforms[0].binding = 0;
+	transmittanceUniforms[0].visibility = ShaderStage::Compute;
+	transmittanceUniforms[0].buffer.type = BufferBindingType::Uniform;
+	transmittanceUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
+	transmittanceUniforms[0].buffer.hasDynamicOffset = false;
+
+	transmittanceUniforms[1].binding = 1;
+	transmittanceUniforms[1].visibility = ShaderStage::Compute;
+	transmittanceUniforms[1].storageTexture.access = StorageTextureAccess::WriteOnly;
+	transmittanceUniforms[1].storageTexture.format = TextureFormat::RGBA16Float;
+	transmittanceUniforms[1].storageTexture.viewDimension = TextureViewDimension::_2D;
+
+	config.bindGroupLayouts.push_back(
+		pipelineManager->createBindGroupLayout("transmittance_uniforms", transmittanceUniforms)
+	);
+
+	pipelineManager->createComputePipeline("transmittance_pipeline", config);
+
+	return true;
+}
+
+bool WebGPURenderer::initSkyPipeline() {
 	PipelineConfig config;
 	config.shaderPath = RESOURCE_DIR "/sky_shader.wgsl";
 	config.colorFormat = TextureFormat::BGRA8Unorm;
-	config.depthFormat = TextureFormat::Depth24Plus;
-	config.sampleCount = renderConfig.samples;
+	config.depthFormat = TextureFormat::Depth32Float;
+	config.sampleCount = 4;
 	config.cullMode = CullMode::None;  // No culling for sky
 	config.depthWriteEnabled = false;  // Don't write to depth buffer
 	config.depthCompare = CompareFunction::LessEqual;  // Allow drawing at far plane
@@ -65,17 +238,56 @@ bool WebGPURenderer::initSkyPipeline(RenderConfig renderConfig) {
 	// Clear vertex attributes since we don't need them
 	config.vertexAttributes.clear();
 
-	// IMPORTANT: Use the same bind group layout as the voxel pipeline
-	// This way we can share the same bind group
-	std::vector<BindGroupLayoutEntry> globalUniforms(1, Default);
-	globalUniforms[0].binding = 0;
-	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
-	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
+	// atmosphere uniforms
+	std::vector<BindGroupLayoutEntry> skyUniforms(8, Default);
+	skyUniforms[0].binding = 0;
+	skyUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[0].buffer.type = BufferBindingType::Uniform;
+	skyUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
 
-	// Use the existing "global_uniforms" layout instead of creating a new one
+	// global uniforms
+	skyUniforms[1].binding = 1;
+	skyUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[1].buffer.type = BufferBindingType::Uniform;
+	skyUniforms[1].buffer.minBindingSize = sizeof(MyUniforms);
+
+	// lut sampler
+	skyUniforms[2].binding = 2;
+	skyUniforms[2].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[2].sampler.type = SamplerBindingType::Filtering;
+
+	// transmittance texture
+	skyUniforms[3].binding = 3;
+	skyUniforms[3].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[3].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
+
+	// sky view texture
+	skyUniforms[4].binding = 4;
+	skyUniforms[4].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[4].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
+
+	// aerial perspective texture
+	skyUniforms[5].binding = 5;
+	skyUniforms[5].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[5].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[5].texture.viewDimension = TextureViewDimension::_3D;
+
+	// NEW: Depth texture for reading terrain depth
+	skyUniforms[6].binding = 6;
+	skyUniforms[6].visibility = ShaderStage::Fragment;
+	skyUniforms[6].texture.sampleType = TextureSampleType::Depth;
+	skyUniforms[6].texture.multisampled = true;
+	skyUniforms[6].texture.viewDimension = TextureViewDimension::_2D;
+
+	// NEW: Depth sampler
+	skyUniforms[7].binding = 7;
+	skyUniforms[7].visibility = ShaderStage::Fragment;
+	skyUniforms[7].sampler.type = SamplerBindingType::NonFiltering;
+
 	config.bindGroupLayouts.push_back(
-		pipelineManager->getBindGroupLayout("global_uniforms")
+		pipelineManager->createBindGroupLayout("sky_uniforms", skyUniforms)
 	);
 
 	pipelineManager->createRenderPipeline("sky_pipeline", config);
@@ -114,42 +326,69 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), shadowIndirectBufferDesc.size);
 	}
 
-	 //=== SKY RENDER PASS ===
+
+	//=== TRANSMITTANCE COMPUTE PASS ===
 	{
-		RenderPassDescriptor renderPassDesc = {};
-		RenderPassColorAttachment renderPassColorAttachment = {};
-		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
-		renderPassColorAttachment.resolveTarget = targetView;
-		renderPassColorAttachment.loadOp = LoadOp::Clear;
-		renderPassColorAttachment.storeOp = StoreOp::Store;
-		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
-#ifndef WEBGPU_BACKEND_WGPU
-		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+		ComputePassDescriptor computePassDesc;
+		computePassDesc.timestampWrites = nullptr;
+		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
+		computePass.setPipeline(pipelineManager->getComputePipeline("transmittance_pipeline"));
+		computePass.setBindGroup(0, pipelineManager->getBindGroup("transmittance_uniforms_group"), 0, nullptr);
+
+		computePass.dispatchWorkgroups(16, 4, 1);
+		computePass.end();
+
+#if !defined(WEBGPU_BACKEND_WGPU)
+		wgpuComputePassEncoderRelease(computePass);
 #endif
+	}
 
-		renderPassDesc.colorAttachmentCount = 1;
-		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+	//=== MULTI-SCATTERING COMPUTE PASS ===
+	{
+		ComputePassDescriptor computePassDesc;
+		computePassDesc.timestampWrites = nullptr;
+		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
+		computePass.setPipeline(pipelineManager->getComputePipeline("multiscattering_pipeline"));
+		computePass.setBindGroup(0, pipelineManager->getBindGroup("multiscattering_uniforms_group"), 0, nullptr);
 
-		RenderPassDepthStencilAttachment depthStencilAttachment;
-		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
-		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
-		depthStencilAttachment.depthStoreOp = StoreOp::Store;
-		depthStencilAttachment.depthReadOnly = false;
-		depthStencilAttachment.stencilClearValue = 0;
-		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
-		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
-		depthStencilAttachment.stencilReadOnly = true;
+		computePass.dispatchWorkgroups(32, 32, 1);
+		computePass.end();
 
-		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
-		renderPassDesc.timestampWrites = nullptr;
+#if !defined(WEBGPU_BACKEND_WGPU)
+		wgpuComputePassEncoderRelease(computePass);
+#endif
+	}
 
-		RenderPassEncoder skyRenderPass = encoder.beginRenderPass(renderPassDesc);
-		skyRenderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
-		skyRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
-		skyRenderPass.draw(6, 1, 0, 0);  // Draw fullscreen quad
-		skyRenderPass.end();
-		skyRenderPass.release();
+	//=== SKY VIEW COMPUTE PASS ===
+	{
+		ComputePassDescriptor computePassDesc;
+		computePassDesc.timestampWrites = nullptr;
+		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
+		computePass.setPipeline(pipelineManager->getComputePipeline("skyview_pipeline"));
+		computePass.setBindGroup(0, pipelineManager->getBindGroup("skyview_uniforms_group"), 0, nullptr);
+
+		computePass.dispatchWorkgroups(16, 16, 1);
+		computePass.end();
+
+#if !defined(WEBGPU_BACKEND_WGPU)
+		wgpuComputePassEncoderRelease(computePass);
+#endif
+	}
+
+	//=== AERIAL PERSPECTIVE COMPUTE PASS ===
+	{
+		ComputePassDescriptor computePassDesc;
+		computePassDesc.timestampWrites = nullptr;
+		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
+		computePass.setPipeline(pipelineManager->getComputePipeline("aerialperspective_pipeline"));
+		computePass.setBindGroup(0, pipelineManager->getBindGroup("aerialperspective_uniforms_group"), 0, nullptr);
+
+		computePass.dispatchWorkgroups(16, 16, 1);
+		computePass.end();
+
+#if !defined(WEBGPU_BACKEND_WGPU)
+		wgpuComputePassEncoderRelease(computePass);
+#endif
 	}
 
 	// === SHADOW RENDER PASS ===
@@ -195,7 +434,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassColorAttachment renderPassColorAttachment = {};
 		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
 		renderPassColorAttachment.resolveTarget = targetView;
-		renderPassColorAttachment.loadOp = LoadOp::Load;  // Keep sky background
+		renderPassColorAttachment.loadOp = LoadOp::Clear;  // Keep sky background
 		renderPassColorAttachment.storeOp = StoreOp::Store;
 		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
@@ -208,7 +447,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Load;  // Keep depth from sky
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear; // clear depth from sky
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
@@ -234,6 +473,44 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 
 		voxelRenderPass.end();
 		voxelRenderPass.release();
+	}
+
+	// SKY RENDER PASS
+	{
+		RenderPassDescriptor renderPassDesc = {};
+		RenderPassColorAttachment renderPassColorAttachment = {};
+		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
+		renderPassColorAttachment.resolveTarget = targetView;
+		renderPassColorAttachment.loadOp = LoadOp::Load;  // Keep existing terrain rendering
+		renderPassColorAttachment.storeOp = StoreOp::Store;
+		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+
+		renderPassDesc.colorAttachmentCount = 1;
+		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+		RenderPassDepthStencilAttachment depthStencilAttachment;
+		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
+		depthStencilAttachment.depthClearValue = 1.0f;
+		depthStencilAttachment.depthLoadOp = LoadOp::Undefined;  // Keep existing depth values
+		depthStencilAttachment.depthStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.depthReadOnly = true;  // Don't modify depth in sky pass
+		depthStencilAttachment.stencilClearValue = 0;
+		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.stencilReadOnly = true;
+
+		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.timestampWrites = nullptr;
+
+		RenderPassEncoder skyRenderPass = encoder.beginRenderPass(renderPassDesc);
+		skyRenderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
+		skyRenderPass.setBindGroup(0, pipelineManager->getBindGroup("sky_uniforms_group"), 0, nullptr);
+		skyRenderPass.draw(6, 1, 0, 0);  // Draw fullscreen quad
+		skyRenderPass.end();
+		skyRenderPass.release();
 	}
 
 	indirectBuffer.release();
@@ -274,7 +551,107 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 #endif
 }
 
-bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
+bool WebGPURenderer::initTransmittanceTexture() {
+	TextureDescriptor transmittanceTextureDesc;
+	transmittanceTextureDesc.dimension = TextureDimension::_2D;
+	transmittanceTextureDesc.format = TextureFormat::RGBA16Float;
+	transmittanceTextureDesc.mipLevelCount = 1;
+	transmittanceTextureDesc.sampleCount = 1;
+	transmittanceTextureDesc.size = { 256, 64, 1 };
+	transmittanceTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	transmittanceTextureDesc.viewFormatCount = 0;
+	transmittanceTextureDesc.viewFormats = nullptr;
+	Texture transmittanceTexture = textureManager->createTexture("transmittance_texture", transmittanceTextureDesc);
+
+	TextureViewDescriptor transmittanceTextureViewDesc;
+	transmittanceTextureViewDesc.aspect = TextureAspect::All;
+	transmittanceTextureViewDesc.baseArrayLayer = 0;
+	transmittanceTextureViewDesc.arrayLayerCount = 1;
+	transmittanceTextureViewDesc.baseMipLevel = 0;
+	transmittanceTextureViewDesc.mipLevelCount = 1;
+	transmittanceTextureViewDesc.dimension = TextureViewDimension::_2D;
+	transmittanceTextureViewDesc.format = TextureFormat::RGBA16Float;
+	TextureView transmittanceTextureView = textureManager->createTextureView("transmittance_texture", "transmittance_view", transmittanceTextureViewDesc);
+
+	return transmittanceTextureView != nullptr;
+}
+
+bool WebGPURenderer::initMultiScatteringTexture() {
+	TextureDescriptor multiScatteringTextureDesc;
+	multiScatteringTextureDesc.dimension = TextureDimension::_2D;
+	multiScatteringTextureDesc.format = TextureFormat::RGBA16Float;
+	multiScatteringTextureDesc.mipLevelCount = 1;
+	multiScatteringTextureDesc.sampleCount = 1;
+	multiScatteringTextureDesc.size = { 32, 32, 1 };
+	multiScatteringTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	multiScatteringTextureDesc.viewFormatCount = 0;
+	multiScatteringTextureDesc.viewFormats = nullptr;
+	Texture multiScatteringTexture = textureManager->createTexture("multiscattering_texture", multiScatteringTextureDesc);
+
+	TextureViewDescriptor  multiScatteringTextureViewDesc;
+	multiScatteringTextureViewDesc.aspect = TextureAspect::All;
+	multiScatteringTextureViewDesc.baseArrayLayer = 0;
+	multiScatteringTextureViewDesc.arrayLayerCount = 1;
+	multiScatteringTextureViewDesc.baseMipLevel = 0;
+	multiScatteringTextureViewDesc.mipLevelCount = 1;
+	multiScatteringTextureViewDesc.dimension = TextureViewDimension::_2D;
+	multiScatteringTextureViewDesc.format = TextureFormat::RGBA16Float;
+	TextureView multiScatteringTextureView = textureManager->createTextureView("multiscattering_texture", "multiscattering_view", multiScatteringTextureViewDesc);
+
+	return multiScatteringTextureView != nullptr;
+}
+
+bool WebGPURenderer::initSkyViewTexture() {
+	TextureDescriptor skyViewTextureDesc;
+	skyViewTextureDesc.dimension = TextureDimension::_2D;
+	skyViewTextureDesc.format = TextureFormat::RGBA16Float;
+	skyViewTextureDesc.mipLevelCount = 1;
+	skyViewTextureDesc.sampleCount = 1;
+	skyViewTextureDesc.size = { 192, 108, 1 };
+	skyViewTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	skyViewTextureDesc.viewFormatCount = 0;
+	skyViewTextureDesc.viewFormats = nullptr;
+	Texture skyViewTexture = textureManager->createTexture("skyview_texture", skyViewTextureDesc);
+
+	TextureViewDescriptor  skyViewTextureViewDesc;
+	skyViewTextureViewDesc.aspect = TextureAspect::All;
+	skyViewTextureViewDesc.baseArrayLayer = 0;
+	skyViewTextureViewDesc.arrayLayerCount = 1;
+	skyViewTextureViewDesc.baseMipLevel = 0;
+	skyViewTextureViewDesc.mipLevelCount = 1;
+	skyViewTextureViewDesc.dimension = TextureViewDimension::_2D;
+	skyViewTextureViewDesc.format = TextureFormat::RGBA16Float;
+	TextureView skyViewTextureView = textureManager->createTextureView("skyview_texture", "skyview_view", skyViewTextureViewDesc);
+
+	return skyViewTextureView != nullptr;
+}
+
+bool WebGPURenderer::initAerialPerspectiveTexture() {
+	TextureDescriptor aerialPerspectiveTextureDesc;
+	aerialPerspectiveTextureDesc.dimension = TextureDimension::_3D;
+	aerialPerspectiveTextureDesc.format = TextureFormat::RGBA16Float;
+	aerialPerspectiveTextureDesc.mipLevelCount = 1;
+	aerialPerspectiveTextureDesc.sampleCount = 1;
+	aerialPerspectiveTextureDesc.size = { 32, 32, 32 };
+	aerialPerspectiveTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	aerialPerspectiveTextureDesc.viewFormatCount = 0;
+	aerialPerspectiveTextureDesc.viewFormats = nullptr;
+	Texture aerialPerspectiveTexture = textureManager->createTexture("aerialperspective_texture", aerialPerspectiveTextureDesc);
+
+	TextureViewDescriptor  aerialPerspectiveTextureViewDesc;
+	aerialPerspectiveTextureViewDesc.aspect = TextureAspect::All;
+	aerialPerspectiveTextureViewDesc.baseArrayLayer = 0;
+	aerialPerspectiveTextureViewDesc.arrayLayerCount = 1;
+	aerialPerspectiveTextureViewDesc.baseMipLevel = 0;
+	aerialPerspectiveTextureViewDesc.mipLevelCount = 1;
+	aerialPerspectiveTextureViewDesc.dimension = TextureViewDimension::_3D;
+	aerialPerspectiveTextureViewDesc.format = TextureFormat::RGBA16Float;
+	TextureView aerialPerspectiveTextureView = textureManager->createTextureView("aerialperspective_texture", "aerialperspective_view", aerialPerspectiveTextureViewDesc);
+
+	return aerialPerspectiveTextureView != nullptr;
+}
+
+bool WebGPURenderer::initMultiSampleTexture() {
 	int width, height;
 	glfwGetFramebufferSize(context->getWindow(), &width, &height);
 
@@ -284,7 +661,7 @@ bool WebGPURenderer::initMultiSampleTexture(RenderConfig renderConfig) {
 	multiSampleTextureDesc.dimension = TextureDimension::_2D;
 	multiSampleTextureDesc.format = multiSampleTextureFormat;
 	multiSampleTextureDesc.mipLevelCount = 1;
-	multiSampleTextureDesc.sampleCount = renderConfig.samples;
+	multiSampleTextureDesc.sampleCount = 4;
 	multiSampleTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
 	multiSampleTextureDesc.usage = TextureUsage::RenderAttachment;
 	multiSampleTextureDesc.viewFormatCount = 0;
@@ -343,18 +720,18 @@ bool WebGPURenderer::initShadowTexture() {
 	return depthTextureView != nullptr;
 }
 
-bool WebGPURenderer::initDepthTexture(RenderConfig renderConfig) {
+bool WebGPURenderer::initDepthTexture() {
 	int width, height;
 	glfwGetFramebufferSize(context->getWindow(), &width, &height);
 
-	TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
+	TextureFormat depthTextureFormat = TextureFormat::Depth32Float;
 	TextureDescriptor depthTextureDesc;
 	depthTextureDesc.dimension = TextureDimension::_2D;
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
-	depthTextureDesc.sampleCount = renderConfig.samples;
+	depthTextureDesc.sampleCount = 4;
 	depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-	depthTextureDesc.usage = TextureUsage::RenderAttachment;
+	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;
 	Texture depthTexture = textureManager->createTexture("depth_texture", depthTextureDesc);
@@ -369,15 +746,33 @@ bool WebGPURenderer::initDepthTexture(RenderConfig renderConfig) {
 	depthTextureViewDesc.format = depthTextureFormat;
 	TextureView depthTextureView = textureManager->createTextureView("depth_texture", "depth_view", depthTextureViewDesc);
 
-	return depthTextureView != nullptr;
+
+	TextureViewDescriptor depthSampleViewDesc = depthTextureViewDesc; // Copy settings
+	TextureView depthSampleView = textureManager->createTextureView("depth_texture", "depth_sample_view", depthSampleViewDesc);
+
+	// Create a sampler for depth texture reading
+	SamplerDescriptor depthSamplerDesc;
+	depthSamplerDesc.addressModeU = AddressMode::ClampToEdge;
+	depthSamplerDesc.addressModeV = AddressMode::ClampToEdge;
+	depthSamplerDesc.addressModeW = AddressMode::ClampToEdge;
+	depthSamplerDesc.magFilter = FilterMode::Nearest;
+	depthSamplerDesc.minFilter = FilterMode::Nearest;
+	depthSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
+	depthSamplerDesc.lodMinClamp = 0.0f;
+	depthSamplerDesc.lodMaxClamp = 1.0f;
+	depthSamplerDesc.compare = CompareFunction::Undefined;
+	depthSamplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("depth_sampler", depthSamplerDesc);
+
+	return depthTextureView != nullptr && depthSampleView != nullptr;
 }
 
-bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
+bool WebGPURenderer::initRenderPipeline() {
 	PipelineConfig config;
 	config.shaderPath = RESOURCE_DIR "/shader.wgsl";
 	config.colorFormat = TextureFormat::BGRA8Unorm;
-	config.depthFormat = TextureFormat::Depth24Plus;
-	config.sampleCount = renderConfig.samples;
+	config.depthFormat = TextureFormat::Depth32Float;
+	config.sampleCount = 4;
 	config.cullMode = CullMode::Back;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
@@ -393,32 +788,56 @@ bool WebGPURenderer::initRenderPipeline(RenderConfig renderConfig) {
 	config.vertexAttributes = vertexAttribs;
 
 	// uniforms binding
-	std::vector<BindGroupLayoutEntry> globalUniforms(5, Default);
+	std::vector<BindGroupLayoutEntry> globalUniforms(10, Default);
 	globalUniforms[0].binding = 0;
 	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
 	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
 
-	// The texture atlas binding and sampler
 	globalUniforms[1].binding = 1;
-	globalUniforms[1].visibility = ShaderStage::Fragment;
-	globalUniforms[1].texture.sampleType = TextureSampleType::Float;
-	globalUniforms[1].texture.viewDimension = TextureViewDimension::_2D;
+	globalUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	globalUniforms[1].buffer.type = BufferBindingType::Uniform;
+	globalUniforms[1].buffer.minBindingSize = sizeof(Atmosphere);
 
-	// The texture sampler binding
+	// The texture atlas binding and sampler
 	globalUniforms[2].binding = 2;
 	globalUniforms[2].visibility = ShaderStage::Fragment;
-	globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
+	globalUniforms[2].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[2].texture.viewDimension = TextureViewDimension::_2D;
+
+	// The texture sampler binding
+	globalUniforms[3].binding = 3;
+	globalUniforms[3].visibility = ShaderStage::Fragment;
+	globalUniforms[3].sampler.type = SamplerBindingType::Filtering;
 
 	// The shadow texture binding and sampler
-	globalUniforms[3].binding = 3;
-	globalUniforms[3].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-	globalUniforms[3].texture.sampleType = TextureSampleType::Depth;
-	globalUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
-
 	globalUniforms[4].binding = 4;
 	globalUniforms[4].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-	globalUniforms[4].sampler.type = SamplerBindingType::Comparison;
+	globalUniforms[4].texture.sampleType = TextureSampleType::Depth;
+	globalUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
+
+	globalUniforms[5].binding = 5;
+	globalUniforms[5].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
+	globalUniforms[5].sampler.type = SamplerBindingType::Comparison;
+
+	globalUniforms[6].binding = 6;
+	globalUniforms[6].visibility = ShaderStage::Fragment;
+	globalUniforms[6].sampler.type = SamplerBindingType::Filtering;
+
+	globalUniforms[7].binding = 7;
+	globalUniforms[7].visibility = ShaderStage::Fragment;
+	globalUniforms[7].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[7].texture.viewDimension = TextureViewDimension::_2D;
+
+	globalUniforms[8].binding = 8;
+	globalUniforms[8].visibility = ShaderStage::Fragment;
+	globalUniforms[8].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[8].texture.viewDimension = TextureViewDimension::_2D;
+
+	globalUniforms[9].binding = 9;
+	globalUniforms[9].visibility = ShaderStage::Fragment;
+	globalUniforms[9].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[9].texture.viewDimension = TextureViewDimension::_3D;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
@@ -501,10 +920,33 @@ bool WebGPURenderer::initUniformBuffers() {
 	bufferDesc.mappedAtCreation = false;
 	Buffer uniformBuffer = bufferManager->createBuffer("uniform_buffer", bufferDesc);
 
+	BufferDescriptor atmosphereBufferDesc;
+	atmosphereBufferDesc.size = sizeof(Atmosphere);
+	atmosphereBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	atmosphereBufferDesc.mappedAtCreation = false;
+	Buffer atmosphereBuffer = bufferManager->createBuffer("atmosphere_buffer", atmosphereBufferDesc);
+
+	Atmosphere atmosphere = getDefaultAtmosphere();
+
+	bufferManager->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
+	
 	return uniformBuffer != nullptr;
 }
 
 bool WebGPURenderer::initTextures() {
+	SamplerDescriptor lutSamplerDesc;
+	lutSamplerDesc.addressModeU = AddressMode::Repeat;
+	lutSamplerDesc.addressModeV = AddressMode::Repeat;
+	lutSamplerDesc.addressModeW = AddressMode::Repeat;
+	lutSamplerDesc.magFilter = FilterMode::Linear;
+	lutSamplerDesc.minFilter = FilterMode::Linear;
+	lutSamplerDesc.mipmapFilter = MipmapFilterMode::Linear;
+	lutSamplerDesc.lodMinClamp = 0.0f;
+	lutSamplerDesc.lodMaxClamp = 8.0f;
+	lutSamplerDesc.compare = CompareFunction::Undefined;
+	lutSamplerDesc.maxAnisotropy = 1;
+	textureManager->createSampler("lut_sampler", lutSamplerDesc);
+
 	SamplerDescriptor samplerDesc;
 	samplerDesc.addressModeU = AddressMode::Repeat;
 	samplerDesc.addressModeV = AddressMode::Repeat;
@@ -541,7 +983,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup shadowBindGroup = pipelineManager->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
 
-	std::vector<BindGroupEntry> bindings(5);
+	std::vector<BindGroupEntry> bindings(10);
 
 	bindings[0].binding = 0;
 	bindings[0].buffer = bufferManager->getBuffer("uniform_buffer");
@@ -549,20 +991,158 @@ bool WebGPURenderer::initBindGroup() {
 	bindings[0].size = sizeof(MyUniforms);
 
 	bindings[1].binding = 1;
-	bindings[1].textureView = textureManager->getTextureView("atlas_view");
+	bindings[1].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	bindings[1].offset = 0;
+	bindings[1].size = sizeof(Atmosphere);
 
 	bindings[2].binding = 2;
-	bindings[2].sampler = textureManager->getSampler("atlas_sampler");
+	bindings[2].textureView = textureManager->getTextureView("atlas_view");
 
 	bindings[3].binding = 3;
-	bindings[3].textureView = textureManager->getTextureView("shadow_view");
+	bindings[3].sampler = textureManager->getSampler("atlas_sampler");
 
 	bindings[4].binding = 4;
-	bindings[4].sampler = textureManager->getSampler("shadow_sampler");
+	bindings[4].textureView = textureManager->getTextureView("shadow_view");
+
+	bindings[5].binding = 5;
+	bindings[5].sampler = textureManager->getSampler("shadow_sampler");
+
+	bindings[6].binding = 6;
+	bindings[6].sampler = textureManager->getSampler("lut_sampler");
+
+	bindings[7].binding = 7;
+	bindings[7].textureView = textureManager->getTextureView("transmittance_view");
+
+	bindings[8].binding = 8;
+	bindings[8].textureView = textureManager->getTextureView("skyview_view");
+
+	bindings[9].binding = 9;
+	bindings[9].textureView = textureManager->getTextureView("aerialperspective_view");
 
 	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
 
-	return bindGroup != nullptr && shadowBindGroup != nullptr;
+	std::vector<BindGroupEntry> transmittanceBindings(2);
+
+	transmittanceBindings[0].binding = 0;
+	transmittanceBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	transmittanceBindings[0].offset = 0;
+	transmittanceBindings[0].size = sizeof(Atmosphere);
+
+	transmittanceBindings[1].binding = 1;
+	transmittanceBindings[1].textureView = textureManager->getTextureView("transmittance_view");
+
+	BindGroup transmittanceBindGroup = pipelineManager->createBindGroup("transmittance_uniforms_group", "transmittance_uniforms", transmittanceBindings);
+
+	std::vector<BindGroupEntry> multiScatteringBindings(4);
+
+	multiScatteringBindings[0].binding = 0;
+	multiScatteringBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	multiScatteringBindings[0].offset = 0;
+	multiScatteringBindings[0].size = sizeof(Atmosphere);
+
+	multiScatteringBindings[1].binding = 1;
+	multiScatteringBindings[1].sampler = textureManager->getSampler("lut_sampler");
+
+	multiScatteringBindings[2].binding = 2;
+	multiScatteringBindings[2].textureView = textureManager->getTextureView("transmittance_view");
+
+	multiScatteringBindings[3].binding = 3;
+	multiScatteringBindings[3].textureView = textureManager->getTextureView("multiscattering_view");
+
+	BindGroup multiScatteringBindGroup = pipelineManager->createBindGroup("multiscattering_uniforms_group", "multiscattering_uniforms", multiScatteringBindings);
+
+	std::vector<BindGroupEntry> skyViewBindings(6);
+
+	skyViewBindings[0].binding = 0;
+	skyViewBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	skyViewBindings[0].offset = 0;
+	skyViewBindings[0].size = sizeof(Atmosphere);
+
+	skyViewBindings[1].binding = 1;
+	skyViewBindings[1].buffer = bufferManager->getBuffer("uniform_buffer");
+	skyViewBindings[1].offset = 0;
+	skyViewBindings[1].size = sizeof(MyUniforms);
+
+	skyViewBindings[2].binding = 2;
+	skyViewBindings[2].sampler = textureManager->getSampler("lut_sampler");
+
+	skyViewBindings[3].binding = 3;
+	skyViewBindings[3].textureView = textureManager->getTextureView("transmittance_view");
+
+	skyViewBindings[4].binding = 4;
+	skyViewBindings[4].textureView = textureManager->getTextureView("multiscattering_view");
+
+	skyViewBindings[5].binding = 5;
+	skyViewBindings[5].textureView = textureManager->getTextureView("skyview_view");
+
+	BindGroup skyViewBindGroup = pipelineManager->createBindGroup("skyview_uniforms_group", "skyview_uniforms", skyViewBindings);
+
+	std::vector<BindGroupEntry> aerialPerspectiveBindings(6);
+
+	aerialPerspectiveBindings[0].binding = 0;
+	aerialPerspectiveBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	aerialPerspectiveBindings[0].offset = 0;
+	aerialPerspectiveBindings[0].size = sizeof(Atmosphere);
+
+	aerialPerspectiveBindings[1].binding = 1;
+	aerialPerspectiveBindings[1].buffer = bufferManager->getBuffer("uniform_buffer");
+	aerialPerspectiveBindings[1].offset = 0;
+	aerialPerspectiveBindings[1].size = sizeof(MyUniforms);
+
+	aerialPerspectiveBindings[2].binding = 2;
+	aerialPerspectiveBindings[2].sampler = textureManager->getSampler("lut_sampler");
+
+	aerialPerspectiveBindings[3].binding = 3;
+	aerialPerspectiveBindings[3].textureView = textureManager->getTextureView("transmittance_view");
+
+	aerialPerspectiveBindings[4].binding = 4;
+	aerialPerspectiveBindings[4].textureView = textureManager->getTextureView("multiscattering_view");
+
+	aerialPerspectiveBindings[5].binding = 5;
+	aerialPerspectiveBindings[5].textureView = textureManager->getTextureView("aerialperspective_view");
+
+	BindGroup aerialPerspectiveBindGroup = pipelineManager->createBindGroup("aerialperspective_uniforms_group", "aerialperspective_uniforms", aerialPerspectiveBindings);
+
+	std::vector<BindGroupEntry> skyBindings(8);
+
+	skyBindings[0].binding = 0;
+	skyBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
+	skyBindings[0].offset = 0;
+	skyBindings[0].size = sizeof(Atmosphere);
+
+	skyBindings[1].binding = 1;
+	skyBindings[1].buffer = bufferManager->getBuffer("uniform_buffer");
+	skyBindings[1].offset = 0;
+	skyBindings[1].size = sizeof(MyUniforms);
+
+	skyBindings[2].binding = 2;
+	skyBindings[2].sampler = textureManager->getSampler("lut_sampler");
+
+	skyBindings[3].binding = 3;
+	skyBindings[3].textureView = textureManager->getTextureView("transmittance_view");
+
+	skyBindings[4].binding = 4;
+	skyBindings[4].textureView = textureManager->getTextureView("skyview_view");
+
+	skyBindings[5].binding = 5;
+	skyBindings[5].textureView = textureManager->getTextureView("aerialperspective_view");
+
+	// NEW: Add depth texture and sampler for sky post-processing
+	skyBindings[6].binding = 6;
+	skyBindings[6].textureView = textureManager->getTextureView("depth_sample_view");
+
+	skyBindings[7].binding = 7;
+	skyBindings[7].sampler = textureManager->getSampler("depth_sampler");
+
+	BindGroup skyBindGroup = pipelineManager->createBindGroup("sky_uniforms_group", "sky_uniforms", skyBindings);
+
+	return bindGroup != nullptr &&
+		shadowBindGroup != nullptr &&
+		transmittanceBindGroup != nullptr &&
+		multiScatteringBindGroup != nullptr &&
+		skyViewBindGroup != nullptr &&
+		aerialPerspectiveBindGroup != nullptr &&
+		skyBindGroup != nullptr;
 }
 
 GLFWwindow* WebGPURenderer::getWindow() {

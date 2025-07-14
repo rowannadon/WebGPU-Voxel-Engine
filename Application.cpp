@@ -22,6 +22,8 @@ bool Application::Initialize() {
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
     uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.01f, 2500.0f);
+    uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
+    uniforms.screenSize = glm::vec2(static_cast<float>(1280), static_cast<float>(720));
 
     glm::vec3 sceneCenter = camera.position; // Use camera position as scene center initially
     float sceneRadius = getSceneRadius();
@@ -38,7 +40,7 @@ bool Application::Initialize() {
 
     camera.updateCameraVectors();
     updateViewMatrix();
-    
+
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     startChunkUpdateThread();
@@ -54,7 +56,7 @@ void Application::Terminate() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 60.0f;
+    constexpr float TARGET_FPS = 143.0f;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
@@ -735,21 +737,33 @@ void Application::processGPUUploads() {
 }
 
 void Application::onResize() {
-    // Terminate
+    // Wait for any pending GPU operations to complete before destroying resources
+    gpu.getContext()->getDevice().tick();
+
+    // Remove old textures and views
     tex->removeTexture("multisample_texture");
     tex->removeTextureView("multisample_view");
 
     tex->removeTexture("depth_texture");
     tex->removeTextureView("depth_view");
+    tex->removeTextureView("depth_sample_view");  // Also remove the sample view if it exists
 
+    // IMPORTANT: Remove the old bind group that references the destroyed texture
+    // This prevents the "Destroyed texture used in submit" error
+    pip->deleteBindGroup("sky_uniforms_group");
+
+    // Reconfigure surface
     gpu.getContext()->unconfigureSurface();
     gpu.getContext()->configureSurface();
 
-    //// Re-init
-    RenderConfig config;
-    gpu.initMultiSampleTexture(config);
-    gpu.initDepthTexture(config);
+    // Re-create textures with new dimensions
+    gpu.initMultiSampleTexture();
+    gpu.initDepthTexture();
 
+    // CRITICAL: Recreate the sky bind group with the new depth texture
+    gpu.initBindGroup();  // This will recreate all bind groups including sky_uniforms_group
+
+    // Update projection matrix
     updateProjectionMatrix(camera.zoom);
 }
 
@@ -783,13 +797,15 @@ void Application::updateProjectionMatrix(int zoom) {
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
     uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.01f, 2500.0f);
+    uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
+    uniforms.screenSize = glm::vec2(static_cast<float>(width), static_cast<float>(height));
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }
 
 void Application::updateViewMatrix() {
     uniforms.viewMatrix = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
-
+    uniforms.inverseViewMatrix = glm::inverse(uniforms.viewMatrix);
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, viewMatrix), &uniforms.viewMatrix, sizeof(MyUniforms::viewMatrix));
 }
 

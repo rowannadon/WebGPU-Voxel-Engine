@@ -16,6 +16,10 @@ struct MyUniforms {
     projectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
+
+    inverseProjectionMatrix: mat4x4f,
+    inverseViewMatrix: mat4x4f,
+
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
@@ -25,7 +29,8 @@ struct MyUniforms {
     cameraWorldPos: vec3f,
     padding2: f32,
     lightPosition: vec3f,
-    padding1: f32,
+    padding1: u32,
+    screenSize: vec2f,
 };
 
 struct ChunkData {

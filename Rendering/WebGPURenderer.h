@@ -9,6 +9,7 @@
 #include "WebGPUContext.h"
 #include "../ThreadSafeChunk.h"
 #include "BenchmarkManager.h"
+#include "../Atmosphere.h"
 
 using namespace wgpu;
 using glm::mat4x4;
@@ -31,16 +32,26 @@ public:
     bool initialize();
 
     void registerMovementCallbacks();
+	bool initTransmittanceTexture();
+    bool initMultiScatteringTexture();
+    bool initSkyViewTexture();
+	bool initAerialPerspectiveTexture();
 
-    bool initMultiSampleTexture(RenderConfig renderConfig);
-    bool initDepthTexture(RenderConfig renderConfig);
+    bool initMultiSampleTexture();
+    bool initDepthTexture();
+
+    bool initTransmittancePipeline();
+	bool initMultiScatteringPipeline();
+    bool initSkyViewPipeline();
+	bool initAerialPerspectivePipeline();
+
+    bool initSkyPipeline();
     bool initShadowTexture();
-    bool initRenderPipeline(RenderConfig renderConfig);
+    bool initRenderPipeline();
     bool initShadowPipeline();
     bool initTextures();
     bool initUniformBuffers();
     bool initBindGroup();
-    bool initBenchmark();
 
     PipelineManager* getPipelineManager();
     BufferManager* getBufferManager();
@@ -50,7 +61,6 @@ public:
 
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
-    bool initSkyPipeline(RenderConfig renderConfig);
     void renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData);
     void terminate();
 };

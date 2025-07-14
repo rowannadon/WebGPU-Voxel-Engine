@@ -6,6 +6,9 @@ struct MyUniforms {
     glm::mat4 viewMatrix;
     glm::mat4 modelMatrix;
 
+	glm::mat4 inverseProjectionMatrix;
+	glm::mat4 inverseViewMatrix;
+
     glm::mat4 lightViewMatrix;
     glm::mat4 lightProjectionMatrix;
 
@@ -20,6 +23,10 @@ struct MyUniforms {
 
     glm::vec3 lightPosition;
     float padding2;  // For 16-byte alignment
+
+	glm::vec2 screenSize;
+
+    float padding4[2];
 };
 
 inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCenter, float sceneRadius) {

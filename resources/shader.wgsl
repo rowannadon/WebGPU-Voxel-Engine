@@ -1,6 +1,23 @@
 // Updated main shader with dynamic sun color based on sun elevation
 // shader.wgsl
 
+const pi: f32 = radians(180.0);
+const tau: f32 = pi * 2.0;
+const golden_ratio: f32 = (1.0 + sqrt(5.0)) / 2.0;
+
+const one_over_four_pi = 1.0 / (2.0 * tau);
+
+const u32_max: f32 = 4294967296.0;
+
+const sphere_solid_angle: f32 = 4.0 * pi;
+
+const t_max_max: f32 = 9000000.0;
+const planet_radius_offset: f32 = 0.01;
+
+const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
+
+const TO_KM_SCALE = 1.0/3280.0;
+
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
     @location(0) data: u32,
@@ -24,6 +41,10 @@ struct MyUniforms {
     projectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
+
+    inverseProjectionMatrix: mat4x4f,
+    inverseViewMatrix: mat4x4f,
+
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
@@ -34,6 +55,7 @@ struct MyUniforms {
     padding2: f32,
     lightPosition: vec3f,
     padding1: u32,
+    screenSize: vec2i,
 };
 
 struct ChunkData {
@@ -64,11 +86,59 @@ struct MaterialProperties {
     specularIntensity: f32,
 };
 
+struct Atmosphere {
+	// Rayleigh scattering coefficients
+	rayleigh_scattering: vec3<f32>,
+	// Rayleigh scattering exponential distribution scale in the atmosphere
+	rayleigh_density_exp_scale: f32,
+
+	// Mie scattering coefficients
+	mie_scattering: vec3<f32>,
+	// Mie scattering exponential distribution scale in the atmosphere
+	mie_density_exp_scale: f32,
+	// Mie extinction coefficients
+	mie_extinction: vec3<f32>,
+	// Mie phase parameter (Cornette-Shanks excentricity or Henyey-Greenstein-Draine droplet diameter)
+	mie_phase_param: f32,
+	// Mie absorption coefficients
+	mie_absorption: vec3<f32>,
+	
+	// Another medium type in the atmosphere
+	absorption_density_0_layer_height: f32,
+	absorption_density_0_constant_term: f32,
+	absorption_density_0_linear_term: f32,
+	absorption_density_1_constant_term: f32,
+	absorption_density_1_linear_term: f32,
+	// This other medium only absorb light, e.g. useful to represent ozone in the earth atmosphere
+	absorption_extinction: vec3<f32>,
+
+	// Radius of the planet (center to ground)
+	bottom_radius: f32,
+
+	// The albedo of the ground.
+	ground_albedo: vec3<f32>,
+
+	// Maximum considered atmosphere height (center to atmosphere top)
+	top_radius: f32,
+
+	// planet center in world space (z up)
+	// used to transform the camera's position to the atmosphere's object space
+	planet_center: vec3<f32>,
+	
+	multi_scattering_factor: f32,
+}
+
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
-@group(0) @binding(1) var textureAtlas: texture_2d<f32>;
-@group(0) @binding(2) var textureSampler: sampler;
-@group(0) @binding(3) var shadowMap: texture_depth_2d;
-@group(0) @binding(4) var shadowSampler: sampler_comparison;
+@group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
+@group(0) @binding(2) var textureAtlas: texture_2d<f32>;
+@group(0) @binding(3) var textureSampler: sampler;
+@group(0) @binding(4) var shadowMap: texture_depth_2d;
+@group(0) @binding(5) var shadowSampler: sampler_comparison;
+
+@group(0) @binding(6) var lut_sampler: sampler;
+@group(0) @binding(7) var transmittance_lut: texture_2d<f32>;
+@group(0) @binding(8) var sky_view_lut: texture_2d<f32>;
+@group(0) @binding(9) var aerial_perspective_lut: texture_3d<f32>;
 
 @group(1) @binding(0) var material_texture_3d: texture_3d<f32>;
 @group(1) @binding(1) var material_sampler_3d: sampler;
@@ -104,6 +174,129 @@ const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
     MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
     MaterialProperties(vec3f(0.2, 0.25, 0.2), 5.0, 1.0)
 );
+
+override SKY_VIEW_LUT_RES_X: f32 = 192.0;
+override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
+
+override INV_DISTANCE_TO_MAX_SAMPLE_COUNT: f32 = 1.0 / 100.0;
+
+override USE_UNIFORM_LONGITUDE_PARAMETERIZATION: bool = false;
+
+override RANDOMIZE_SAMPLE_OFFSET: bool = true;
+override AP_SLICE_COUNT: f32 = 32.0;
+override AP_DISTANCE_PER_SLICE: f32 = 4.0;
+override AP_INV_DISTANCE_PER_SLICE: f32 = 1.0 / AP_DISTANCE_PER_SLICE;
+override IS_REVERSE_Z: bool = true;
+
+const IS_Y_UP = false;
+const IS_RIGHT_HANDED = true;
+
+const RENDER_SUN_DISK = false;
+const RENDER_MOON_DISK = false;
+
+fn get_sun_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, uniforms: MyUniforms) -> vec3<f32> {
+	var sun_luminance = vec3<f32>();
+	// if RENDER_SUN_DISK {
+	// 	sun_luminance += sun_disk_luminance(world_pos, world_dir, atmosphere, uniforms.sun, LIMB_DARKENING_ON_SUN);
+	// }
+	// if RENDER_MOON_DISK && USE_MOON {
+	// 	sun_luminance += sun_disk_luminance(world_pos, world_dir, atmosphere, uniforms.moon, LIMB_DARKENING_ON_MOON);
+	// }
+	return sun_luminance;
+}
+
+fn sky_view_lut_params_to_v(atmosphere: Atmosphere, intersects_ground: bool, cos_view_zenith: f32, view_height: f32) -> f32 {
+    let v_horizon = sqrt(max(view_height * view_height - atmosphere.bottom_radius * atmosphere.bottom_radius, 0.0));
+	let ground_to_horizon = acos(v_horizon / view_height);
+	let zenith_horizon_angle = pi - ground_to_horizon;
+
+	if !intersects_ground {
+		let coord = 1.0 - sqrt(max(1.0 - acos(cos_view_zenith) / zenith_horizon_angle, 0.0));
+		return coord * 0.5;
+	} else {
+		let coord = (acos(cos_view_zenith) - zenith_horizon_angle) / ground_to_horizon;
+		return sqrt(max(coord, 0.0)) * 0.5 + 0.5;
+	}
+}
+
+fn sky_view_lut_params_to_uv(atmosphere: Atmosphere, intersects_ground: bool, cos_view_zenith: f32, cos_light_view: f32, view_height: f32) -> vec2<f32> {
+	return vec2<f32>(
+	    from_unit_to_sub_uvs(sqrt(max(-cos_light_view * 0.5 + 0.5, 0.0)), SKY_VIEW_LUT_RES_X),
+	    from_unit_to_sub_uvs(sky_view_lut_params_to_v(atmosphere, intersects_ground, cos_view_zenith, view_height), SKY_VIEW_LUT_RES_Y)
+	);
+}
+
+fn sky_view_lut_params_to_u_uniform(view_dir: vec3<f32>) -> f32 {
+    var azimuth = 0.0;
+    if IS_Y_UP {
+        azimuth = atan2(view_dir.x, view_dir.z);
+	} else {
+        azimuth = atan2(view_dir.y, view_dir.x);
+	}
+	if IS_RIGHT_HANDED {
+	    azimuth = -azimuth;
+	}
+	if azimuth < 0.0 {
+        return (azimuth + tau) / tau;
+    } else {
+        return azimuth / tau;
+    }
+}
+
+fn from_unit_to_sub_uvs(u: f32, resolution: f32) -> f32 {
+	return (u + 0.5 / resolution) * (resolution / (resolution + 1.0));
+}
+
+fn sky_view_lut_params_to_uv_uniform(atmosphere: Atmosphere, intersects_ground: bool, cos_view_zenith: f32, view_dir: vec3<f32>, view_height: f32) -> vec2<f32> {
+	return vec2<f32>(
+	    from_unit_to_sub_uvs(sky_view_lut_params_to_u_uniform(view_dir), SKY_VIEW_LUT_RES_X),
+	    from_unit_to_sub_uvs(sky_view_lut_params_to_v(atmosphere, intersects_ground, cos_view_zenith, view_height), SKY_VIEW_LUT_RES_Y)
+	);
+}
+
+fn quadratic_has_positive_real_solutions(a: f32, b: f32, c: f32) -> bool {
+	let delta = b * b - 4.0 * a * c;
+	return (delta >= 0.0 && a != 0.0) && (((-b - sqrt(delta)) / (2.0 * a)) >= 0.0 || ((-b + sqrt(delta)) / (2.0 * a)) >= 0.0);
+}
+
+fn ray_intersects_sphere(o: vec3<f32>, d: vec3<f32>, c: vec3<f32>, r: f32) -> bool {
+	let dist = o - c;
+	return quadratic_has_positive_real_solutions(dot(d, d), 2.0 * dot(d, dist), dot(dist, dist) - (r * r));
+}
+
+fn compute_sky_view_lut_uv(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere, config: MyUniforms) -> vec2<f32> {
+	let zenith = normalize(world_pos);
+	let cos_view_zenith = dot(world_dir, zenith);
+	let intersects_ground = ray_intersects_sphere(world_pos, world_dir, vec3<f32>(), atmosphere.bottom_radius);
+
+    if USE_UNIFORM_LONGITUDE_PARAMETERIZATION {
+        return sky_view_lut_params_to_uv_uniform(atmosphere, intersects_ground, cos_view_zenith, world_dir, view_height);
+    } else {
+        let side = normalize(cross(zenith, world_dir));	// assumes non parallel vectors
+        let forward = normalize(cross(side, zenith));	// aligns toward the sun light but perpendicular to up vector
+        let cos_light_view = normalize(vec2<f32>(dot(sun_dir, forward), dot(sun_dir, side))).x;
+        return sky_view_lut_params_to_uv(atmosphere, intersects_ground, cos_view_zenith, cos_light_view, view_height);
+    }
+}
+
+fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere, config: MyUniforms) -> vec4<f32> {
+	let uv = compute_sky_view_lut_uv(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
+	let sky_view = textureSampleLevel(sky_view_lut, lut_sampler, uv, 0);
+	return vec4<f32>(sky_view.rgb + get_sun_luminance(world_pos, world_dir, atmosphere, config), sky_view.a);
+}
+
+fn depth_max() -> f32 {
+	if IS_REVERSE_Z {
+		return 0.0000001;
+	} else {
+		return 1.0;
+	}
+}
+
+fn uv_to_world_dir(uv: vec2<f32>, inv_proj: mat4x4<f32>, inv_view: mat4x4<f32>) -> vec3<f32> {
+	let hom_view_space = inv_proj * vec4<f32>(vec3<f32>(uv * vec2<f32>(2.0, -2.0) - vec2<f32>(1.0, -1.0), depth_max()), 1.0);
+	return normalize((inv_view * vec4<f32>(hom_view_space.xyz / hom_view_space.w, 0.0)).xyz);
+}
 
 // Function to calculate dynamic sun color based on elevation
 fn get_sun_color(sun_elevation: f32) -> vec3f {
@@ -635,7 +828,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let shadow_intensity = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
 
-    let shadingFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
+    let shadingFadeFactor = 1.0; //max(1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance), 0.8);
     
     let flatSunShading = mix(0.5, sunShading, MIN_SHADING_CONTRAST);
     let flatInverseSunShading = mix(0.5, inverseSunShading, MIN_SHADING_CONTRAST);
@@ -645,6 +838,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let atlas_uv = get_atlas_uv(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv);
+    //let textureColor = textureSample(sky_view_lut, lut_sampler, in.uv);
 
     if (textureColor.a < 0.5) {
         discard;
@@ -723,11 +917,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         baseColor = clamp(mix(baseColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(1.0));
     }
 
-    let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
+    // let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
 
-    let fogColor = vec3(0.7,0.8,1.0);
-    let fogColor2 = vec3(0.002, 0.002, 0.004);
+    // let fogColor = vec3(0.7,0.8,1.0);
+    // let fogColor2 = vec3(0.002, 0.002, 0.004);
 
-    let finalColor = mix(baseColor, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
-    return vec4f(finalColor, 1.0);
+    // let finalColor = mix(baseColor, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
+
+    return vec4f(baseColor, 1.0);
 }
