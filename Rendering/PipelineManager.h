@@ -25,6 +25,8 @@ struct PipelineConfig {
     CompareFunction depthCompare = CompareFunction::Less;
     bool useVertexBuffers = true;  // New flag to control vertex buffer usage
     bool useColorTarget = true;
+    bool useCustomBlending = false;
+    BlendState blendState;
 };
 
 struct ComputePipelineConfig {

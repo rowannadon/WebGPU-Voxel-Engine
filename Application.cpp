@@ -56,7 +56,7 @@ void Application::Terminate() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 143.0f;
+    constexpr float TARGET_FPS = 60.0f;
     constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());

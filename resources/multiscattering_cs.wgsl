@@ -1,4 +1,5 @@
-/*
+/* multiscattering_cs.wgsl
+ *
  * Copyright (c) 2024 Lukas Herzberger
  * Copyright (c) 2020 Epic Games, Inc.
  * SPDX-License-Identifier: MIT

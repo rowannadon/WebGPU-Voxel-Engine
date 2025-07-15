@@ -1,4 +1,5 @@
-/*
+/* skyview_cs.wgsl
+ *
  * Copyright (c) 2024-2025 Lukas Herzberger
  * Copyright (c) 2020 Epic Games, Inc.
  * SPDX-License-Identifier: MIT
@@ -92,7 +93,7 @@ override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
 override INV_DISTANCE_TO_MAX_SAMPLE_COUNT: f32 = 1.0 / 100.0;
 
 override USE_UNIFORM_LONGITUDE_PARAMETERIZATION: bool = false;
-override USE_MOON: bool = true;
+override USE_MOON: bool = false;
 
 override WORKGROUP_SIZE_X: u32 = 16;
 override WORKGROUP_SIZE_Y: u32 = 16;
@@ -295,21 +296,21 @@ fn integrate_scattered_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, sun
 	}
 	t_max = min(t_max, t_max_max);
 
-	let sample_count = mix(8, 16, saturate(t_max * INV_DISTANCE_TO_MAX_SAMPLE_COUNT));
+	let sample_count = mix(50, 65, saturate(t_max * INV_DISTANCE_TO_MAX_SAMPLE_COUNT));
 	let sample_count_floored = floor(sample_count);
 	let inv_sample_count_floored = 1.0 / sample_count_floored;
 	let t_max_floored = t_max * sample_count_floored / sample_count;
 	let sample_segment_t = 0.3;
 
 	let sun_direction = normalize(sun_dir);
-	let sun_illuminance = vec3f(10.0, 10.0, 10.0);
+	let sun_illuminance = vec3f(10.0);
 
 	let cos_theta = dot(sun_dir, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);
 	let rayleigh_phase_val = rayleigh_phase(cos_theta);
 
 	var moon_direction = moon_dir;
-	var moon_illuminance = vec3f(0.5, 0.5, 0.5);
+	var moon_illuminance = vec3f(0.5);
 
 	var cos_theta_moon = 0.0;
 	var mie_phase_val_moon = 0.0;

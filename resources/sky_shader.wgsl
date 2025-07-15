@@ -1,4 +1,4 @@
-// SKY SHADER - FIXED
+// sky_shader.wgsl
 
 const pi: f32 = radians(180.0);
 const tau: f32 = pi * 2.0;
@@ -131,16 +131,16 @@ const RENDER_SUN_DISK = true;
 const RENDER_MOON_DISK = false;
 const USE_MOON = false;
 
-const LIMB_DARKENING_ON_MOON = true;
-const LIMB_DARKENING_ON_SUN = true;
+const LIMB_DARKENING_ON_MOON = false;
+const LIMB_DARKENING_ON_SUN = false;
 
-const SUN_ILLUMINANCE: vec3<f32> = vec3<f32>(111000.0, 111000.0, 111000.0); // Lux values for sunlight
-const SUN_DISK_DIAMETER: f32 = 0.00935; // Sun's angular diameter in radians (~0.535 degrees)
-const SUN_DISK_LUMINANCE_SCALE: f32 = 1.0; // Scale factor for sun disk brightness
+const SUN_ILLUMINANCE: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
+const SUN_DISK_DIAMETER: f32 = 0.00935;
+const SUN_DISK_LUMINANCE_SCALE: f32 = 25.0; 
 
-const MOON_ILLUMINANCE: vec3<f32> = vec3<f32>(111000.0, 111000.0, 111000.0); // Lux values for sunlight
-const MOON_DISK_DIAMETER: f32 = 0.00935; // Sun's angular diameter in radians (~0.535 degrees)
-const MOON_DISK_LUMINANCE_SCALE: f32 = 1.0; // Scale factor for sun disk brightness
+const MOON_ILLUMINANCE: vec3<f32> = vec3<f32>(0.05, 0.05, 0.05);
+const MOON_DISK_DIAMETER: f32 = 0.00935; 
+const MOON_DISK_LUMINANCE_SCALE: f32 = 1.0; 
 
 fn get_atmosphere_moonlight_with_dynamic_direction(moon_dir: vec3<f32>) -> AtmosphereLight {
     var light: AtmosphereLight;
@@ -304,7 +304,20 @@ fn compute_sky_view_lut_uv(view_height: f32, world_pos: vec3<f32>, world_dir: ve
 fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere, config: MyUniforms) -> vec4<f32> {
 	let uv = compute_sky_view_lut_uv(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
 	let sky_view = textureSampleLevel(sky_view_lut, lut_sampler, uv, 0);
-	return vec4<f32>(sky_view.rgb + get_sun_luminance(world_pos, world_dir, atmosphere, config), sky_view.a);
+	//Apply tone mapping to the dithered color
+	
+	let sun_luminance = get_sun_luminance(world_pos, world_dir, atmosphere, config);
+	// let sun_dot = dot(normalize(world_dir), sun_dir);
+	// let sun_disk = step(cos(0.009), sun_dot);
+	// let sun_glow = exp(-50.0 * (1.0 - sun_disk)) * 0.5;
+	let color = sky_view.rgb + sun_luminance;
+
+    let l = dot(color, vec3f(0.2126, 0.7152, 0.0722));
+    let tc = color / (color + 1.0);
+    let baseColor = mix(color / (l + 1.0), tc, tc);
+
+	let c_color = pow(baseColor, vec3<f32>(1.0 / 1.2));
+	return vec4<f32>(baseColor, sky_view.a);
 }
 
 fn depth_max() -> f32 {
@@ -343,6 +356,17 @@ fn aerial_perspective_slice_to_depth(slice: f32) -> f32 {
 	return slice * AP_DISTANCE_PER_SLICE;
 }
 
+fn sampleInterleavedGradientNoise(pixelPos: vec2f) -> f32 {
+    let magic = vec3f(0.06711056f, 0.00583715f, 52.9829189f);
+    return fract(magic.z * fract(dot(pixelPos, magic.xy)));
+}
+
+fn applyDitherToPixelColor(pixelColor: vec3f, pixelPos: vec2f) -> vec3f {
+    let scaleBias = vec2f(1.0/255.0, -0.6/255.0);
+    let noiseDither = sampleInterleavedGradientNoise(pixelPos) * scaleBias.x + scaleBias.y;
+    return pixelColor + noiseDither;
+}
+
 @vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -374,13 +398,15 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
 
 	let view_height = length(world_pos);
 
-    // FIXED: Use textureSample instead of textureLoad for depth texture
-	let depth = textureLoad(depth_buffer, pix, 0);
+	var depth = textureLoad(depth_buffer, pix, 0);
+
+	let pixel_pos = vec2f(in.position.x, in.position.y);
 	
-	// If there's geometry at this pixel, don't render sky
-	if (depth < 100.0) {
-		// Render sky only where there's no geometry
-		return use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
+	let color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
+	let dithered_color = applyDitherToPixelColor(color.rgb, pixel_pos);
+
+	if (!is_valid_depth(depth)) {
+		return vec4<f32>(dithered_color, 1.0);
 	}
 
 	let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
@@ -401,5 +427,9 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
 		return vec4<f32>();
 	}
 
-	return vec4((weight * aerial_perspective).rgb, 0.1);
+	let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+
+
+
+	return vec4f(dithered_aerial_perspective, 0.5);
 }

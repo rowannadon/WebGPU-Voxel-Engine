@@ -55,12 +55,17 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
 
     if (config.useColorTarget) {
         // Blend state
+
         blendState.color.srcFactor = BlendFactor::SrcAlpha;
         blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
         blendState.color.operation = BlendOperation::Add;
         blendState.alpha.srcFactor = BlendFactor::Zero;
         blendState.alpha.dstFactor = BlendFactor::One;
         blendState.alpha.operation = BlendOperation::Add;
+
+        if (config.useCustomBlending) {
+            blendState = config.blendState;
+        }
 
         // Color target state
         colorTarget.format = surfaceFormat;

@@ -1,10 +1,12 @@
-/*
+/* aerial_perspective_cs.wgsl
+ *
+ *
  * Copyright (c) 2024 Lukas Herzberger
  * Copyright (c) 2020 Epic Games, Inc.
  * SPDX-License-Identifier: MIT
  */
 
- 
+
 const pi: f32 = radians(180.0);
 const tau: f32 = pi * 2.0;
 const golden_ratio: f32 = (1.0 + sqrt(5.0)) / 2.0;
@@ -322,14 +324,14 @@ fn integrate_scattered_luminance(uv: vec2<f32>, world_pos: vec3<f32>, world_dir:
 	let dt = t_max / sample_count;
 
 	let sun_direction = normalize(config.lightDirection);
-	let sun_illuminance = vec3f(0.9, 0.7, 0.8);
+	let sun_illuminance = vec3f(15.0);
 
 	let cos_theta = dot(sun_direction, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);
 	let rayleigh_phase_val = rayleigh_phase(cos_theta);
 
 	var moon_direction = -config.lightDirection;
-	var moon_illuminance = vec3f(0.4, 0.6, 0.7);
+	var moon_illuminance = vec3f(0.5);
 
 	var cos_theta_moon = 0.0;
 	var mie_phase_val_moon = 0.0;

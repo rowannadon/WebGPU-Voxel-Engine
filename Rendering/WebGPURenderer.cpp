@@ -230,10 +230,19 @@ bool WebGPURenderer::initSkyPipeline() {
 	config.sampleCount = 4;
 	config.cullMode = CullMode::None;  // No culling for sky
 	config.depthWriteEnabled = false;  // Don't write to depth buffer
-	config.depthCompare = CompareFunction::LessEqual;  // Allow drawing at far plane
+	config.depthCompare = CompareFunction::Always;  // Allow drawing at far plane
 	config.vertexShaderName = "sky_vs_main";
 	config.fragmentShaderName = "sky_fs_main";
 	config.useVertexBuffers = false;  // Sky shader generates vertices procedurally
+	config.useColorTarget = true;
+	config.useCustomBlending = true;
+
+	config.blendState.color.operation = BlendOperation::Add;
+	config.blendState.color.srcFactor = BlendFactor::SrcAlpha;      // Use fog's alpha
+	config.blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;  // Blend with existing terrain
+	config.blendState.alpha.operation = BlendOperation::Add;
+	config.blendState.alpha.srcFactor = BlendFactor::One;           // Preserve alpha
+	config.blendState.alpha.dstFactor = BlendFactor::OneMinusSrcAlpha;
 
 	// Clear vertex attributes since we don't need them
 	config.vertexAttributes.clear();
@@ -383,7 +392,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		computePass.setPipeline(pipelineManager->getComputePipeline("aerialperspective_pipeline"));
 		computePass.setBindGroup(0, pipelineManager->getBindGroup("aerialperspective_uniforms_group"), 0, nullptr);
 
-		computePass.dispatchWorkgroups(16, 16, 1);
+		computePass.dispatchWorkgroups(2, 2, 32);
 		computePass.end();
 
 #if !defined(WEBGPU_BACKEND_WGPU)
@@ -688,7 +697,7 @@ bool WebGPURenderer::initShadowTexture() {
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
 	depthTextureDesc.sampleCount = 1;
-	depthTextureDesc.size = { 4096, 4096, 1 };
+	depthTextureDesc.size = { 16384, 16384, 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;
@@ -1180,6 +1189,7 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 }
 
 void WebGPURenderer::terminate() {
+	textureManager->terminate();
 	textureManager->terminate();
 	pipelineManager->terminate();
 	bufferManager->terminate();
