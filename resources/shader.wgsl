@@ -539,7 +539,7 @@ const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>,
 );
 
 const aoLevels = array<f32, 4>(
-    0.25, 0.5, 0.75, 1.0
+    0.25, 0.4, 0.5, 0.75
 );
 
 @vertex
@@ -895,7 +895,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
-    let aoStrength = smoothClamp(dot(viewDir, normal), 0.2, 1.0);
+    let aoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
 
     var baseColor = clamp((textureColor.rgb/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));

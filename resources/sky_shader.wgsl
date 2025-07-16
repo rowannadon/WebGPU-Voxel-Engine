@@ -122,14 +122,14 @@ override RANDOMIZE_SAMPLE_OFFSET: bool = true;
 override AP_SLICE_COUNT: f32 = 32.0;
 override AP_DISTANCE_PER_SLICE: f32 = 4.0;
 override AP_INV_DISTANCE_PER_SLICE: f32 = 1.0 / AP_DISTANCE_PER_SLICE;
-override IS_REVERSE_Z: bool = true;
+override IS_REVERSE_Z: bool = false;
 
 const IS_Y_UP = false;
 const IS_RIGHT_HANDED = true;
 
 const RENDER_SUN_DISK = true;
-const RENDER_MOON_DISK = false;
-const USE_MOON = false;
+const RENDER_MOON_DISK = true;
+const USE_MOON = true;
 
 const LIMB_DARKENING_ON_MOON = false;
 const LIMB_DARKENING_ON_SUN = false;
@@ -321,21 +321,21 @@ fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>
 }
 
 fn depth_max() -> f32 {
-	if IS_REVERSE_Z {
-		return 0.0000001;
-	} else {
-		return 1.0;
-	}
+    if IS_REVERSE_Z {
+        return 0.0000001;
+    } else {
+        return 1.0; 
+    }
 }
 
 // FIXED: Added missing is_valid_depth function
 fn is_valid_depth(depth: f32) -> bool {
     if IS_REVERSE_Z {
-        // For reverse-Z, valid depth is significantly less than 1.0 (meaning geometry is present)
+        // For reverse-Z, valid depth is significantly less than 1.0
         return depth < 0.999999;
     } else {
-        // For standard depth, valid depth is significantly greater than 0.0
-        return depth > 0.000001;
+        // For normal Z, valid depth is significantly less than 1.0 (terrain is closer than far plane)
+        return depth < 0.999999;
     }
 }
 
@@ -367,6 +367,73 @@ fn applyDitherToPixelColor(pixelColor: vec3f, pixelPos: vec2f) -> vec3f {
     return pixelColor + noiseDither;
 }
 
+fn resolve_depth_msaa(pix: vec2<i32>) -> f32 {
+    var resolved_depth: f32;
+    
+    if IS_REVERSE_Z {
+        // For reverse-Z, start with minimum value and find maximum (closest)
+        resolved_depth = 0.0;
+        for (var sample: i32 = 0; sample < 4; sample++) {
+            let sample_depth = textureLoad(depth_buffer, pix, sample);
+            resolved_depth = max(resolved_depth, sample_depth);
+        }
+    } else {
+        // For normal Z, start with maximum value and find minimum (closest)
+        resolved_depth = 1.0;
+        for (var sample: i32 = 0; sample < 4; sample++) {
+            let sample_depth = textureLoad(depth_buffer, pix, sample);
+            resolved_depth = min(resolved_depth, sample_depth);
+        }
+    }
+    
+    return resolved_depth;
+}
+
+// Alternative approach: Use view space distance instead of world space
+fn calculate_view_space_distance(uv: vec2<f32>, depth: f32, inv_proj: mat4x4<f32>) -> f32 {
+    let ndc_coords = vec3<f32>(uv * vec2<f32>(2.0, -2.0) - vec2<f32>(1.0, -1.0), depth);
+    let hom_view_space = inv_proj * vec4<f32>(ndc_coords, 1.0);
+    let view_space = hom_view_space.xyz / hom_view_space.w;
+    
+    // Distance in view space (negative because camera looks down -Z)
+    return abs(view_space.z);
+}
+
+fn random(st: vec2<f32>) -> f32 {
+    return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453123);
+}
+
+fn noise(st: vec2<f32>) -> f32 {
+    let i = floor(st);
+    let f = fract(st);
+    
+    let a = random(i);
+    let b = random(i + vec2<f32>(1.0, 0.0));
+    let c = random(i + vec2<f32>(0.0, 1.0));
+    let d = random(i + vec2<f32>(1.0, 1.0));
+    
+    let u = f * f * (3.0 - 2.0 * f);
+    
+    return mix(a, b, u.x) +
+           (c - a) * u.y * (1.0 - u.x) +
+           (d - b) * u.x * u.y;
+}
+
+const OCTAVES: i32 = 6;
+
+fn fbm(st_input: vec2<f32>) -> f32 {
+    var st = st_input;
+    var value = 0.0;
+    var amplitude = 0.5;
+    
+    for (var i = 0; i < OCTAVES; i++) {
+        value += amplitude * noise(st);
+        st *= 2.0;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
 @vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -384,52 +451,60 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
 
 const TO_KM_SCALE = 1.0/3280.0;
 
+
+
 @fragment 
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let atmosphere = atmosphere_buffer;
-	let config = config_buffer;
+    let config = config_buffer;
 
     let pix = vec2<i32>(floor(in.position.xy));
-	let uv = (vec2<f32>(pix) + 0.5) / config.screenSize;
+    let uv = (vec2<f32>(pix) + 0.5) / config.screenSize;
 
-	let world_dir = uv_to_world_dir(uv, config.inverseProjectionMatrix, config.inverseViewMatrix);
-	var world_pos = (config.cameraWorldPos * TO_KM_SCALE) - atmosphere.planet_center;
-	let sun_dir = normalize(config.lightDirection);
+    let world_dir = uv_to_world_dir(uv, config.inverseProjectionMatrix, config.inverseViewMatrix);
+    var world_pos = (config.cameraWorldPos * TO_KM_SCALE) - atmosphere.planet_center;
+    let sun_dir = normalize(config.lightDirection);
 
-	let view_height = length(world_pos);
+    let view_height = length(world_pos);
+    let depth = resolve_depth_msaa(pix);
 
-	var depth = textureLoad(depth_buffer, pix, 0);
+    let pixel_pos = vec2f(in.position.x, in.position.y);
+    
+    // Get sky color for pixels without terrain
+    let sky_color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
+    let dithered_sky_color = applyDitherToPixelColor(sky_color.rgb, pixel_pos);
 
-	let pixel_pos = vec2f(in.position.x, in.position.y);
-	
-	let color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
-	let dithered_color = applyDitherToPixelColor(color.rgb, pixel_pos);
+    if (!is_valid_depth(depth)) {
+        return vec4<f32>(dithered_sky_color, 1.0);
+    }
 
-	if (!is_valid_depth(depth)) {
-		return vec4<f32>(dithered_color, 1.0);
-	}
-
+    // Use view space distance instead of world space
+    let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
 	let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
-	let t_depth = length(depth_buffer_world_pos - (world_pos + atmosphere.planet_center));
+    
+    var slice = aerial_perspective_depth_to_slice(view_distance * 0.05);
+    
+    var fog_weight = 1.0;
+    if slice < 0.5 {
+        fog_weight = saturate(slice * 2.0);
+        slice = 0.5;
+    }
+    
+    let w = sqrt(slice / AP_SLICE_COUNT);
+    
+    let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
+    
+    if all(aerial_perspective.rgb == vec3<f32>(0.0)) {
+        return vec4<f32>(dithered_sky_color, 1.0);
+    }
 
-	var slice = aerial_perspective_depth_to_slice(t_depth);
-	var weight = 1.0;
-	if slice < 0.5 {
-		// We multiply by weight to fade to 0 at depth 0. That works for luminance and opacity.
-		weight = saturate(slice * 2.0);
-		slice = 0.5;
-	}
-	let w = sqrt(slice / AP_SLICE_COUNT);	// squared distribution
-
-	let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
-
-	if all(aerial_perspective.rgb == vec3<f32>())  {
-		return vec4<f32>();
-	}
-
-	let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+    let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+    var final_fog_alpha = aerial_perspective.a * fog_weight;
 
 
 
-	return vec4f(dithered_aerial_perspective, 0.5);
+	//let noise = fbm(vec2f(depth_buffer_world_pos.x*0.01, depth_buffer_world_pos.y*0.01));
+	
+    
+    return vec4f(dithered_aerial_perspective, final_fog_alpha);
 }

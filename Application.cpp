@@ -100,7 +100,7 @@ void Application::MainLoop() {
     }
 
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
-    uniforms.time = currentFrame;
+    uniforms.time = currentFrame * 0.5;
     uniforms.cameraWorldPos = camera.position;
 
     glm::vec3 sceneCenter = camera.position; // Center shadow map around camera

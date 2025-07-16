@@ -815,7 +815,7 @@ public:
                 // Calculate a deterministic height based on the tree's absolute world position
                 // to ensure consistency across chunk boundaries.
                 ivec3 worldTreePos = this->position + localTreePos;
-                int treeHeight = 8 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4); // Range 4-6
+                int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
                 placeTreeShape(localTreePos, treeHeight);
             }
@@ -850,7 +850,7 @@ public:
                 for (const ivec3& neighborTreeLocalPos : neighbor->getTreeData()) {
                     // ...calculate its absolute world position to get a deterministic height.
                     ivec3 worldTreePos = neighborWorldOrigin + neighborTreeLocalPos;
-                    int treeHeight = 8 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 4);
+                    int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8);
 
                     // ...transform its base position into THIS chunk's local coordinate system.
                     ivec3 transformedBasePos = neighborTreeLocalPos + transformOffset;

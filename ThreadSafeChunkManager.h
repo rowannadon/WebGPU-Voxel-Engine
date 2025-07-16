@@ -55,15 +55,15 @@ private:
 	int numActiveChunks = 0;
 	int lastNumActiveChunks = 0;
 
-    int renderDistance = 32;
+    int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
     static constexpr int MAX_ACTIVE_CHUNKS = 4050;
     static constexpr int MAX_TOTAL_CHUNKS = 32000;
-    static constexpr int WORLD_MIN = -1;
-    static constexpr int WORLD_MAX = 18;
+    static constexpr int WORLD_MIN = -2;
+    static constexpr int WORLD_MAX = 16;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 

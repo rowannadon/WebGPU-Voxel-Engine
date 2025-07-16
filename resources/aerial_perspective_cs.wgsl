@@ -87,16 +87,16 @@ struct Atmosphere {
 	multi_scattering_factor: f32,
 }
 
-override USE_MOON: bool = false;
+override USE_MOON: bool = true;
 
 override WORKGROUP_SIZE_X: u32 = 16;
 override WORKGROUP_SIZE_Y: u32 = 16;
 
-override RANDOMIZE_SAMPLE_OFFSET: bool = true;
+override RANDOMIZE_SAMPLE_OFFSET: bool = false;
 override AP_SLICE_COUNT: f32 = 32.0;
 override AP_DISTANCE_PER_SLICE: f32 = 4.0;
 override AP_INV_DISTANCE_PER_SLICE: f32 = 1.0 / AP_DISTANCE_PER_SLICE;
-override IS_REVERSE_Z: bool = true;
+override IS_REVERSE_Z: bool = false;
 
 @group(0) @binding(0) var<uniform> atmosphere_buffer: Atmosphere;
 @group(0) @binding(1) var<uniform> config_buffer: MyUniforms;
@@ -139,11 +139,11 @@ fn aerial_perspective_slice_to_depth(slice: f32) -> f32 {
 }
 
 fn depth_max() -> f32 {
-	if IS_REVERSE_Z {
-		return 0.0000001;
-	} else {
-		return 1.0;
-	}
+    if IS_REVERSE_Z {
+        return 0.0000001;
+    } else {
+        return 1.0;
+    }
 }
 
 fn uv_to_world_dir(uv: vec2<f32>, inv_proj: mat4x4<f32>, inv_view: mat4x4<f32>) -> vec3<f32> {
@@ -200,6 +200,8 @@ fn transmittance_lut_params_to_uv(atmosphere: Atmosphere, view_height: f32, cos_
 
 	return vec2<f32>(x_mu, x_r);
 }
+
+
 
 fn sample_medium(height: f32, atmosphere: Atmosphere) -> MediumSample {
 	let mie_density: f32 = exp(atmosphere.mie_density_exp_scale * height);
@@ -324,7 +326,7 @@ fn integrate_scattered_luminance(uv: vec2<f32>, world_pos: vec3<f32>, world_dir:
 	let dt = t_max / sample_count;
 
 	let sun_direction = normalize(config.lightDirection);
-	let sun_illuminance = vec3f(15.0);
+	let sun_illuminance = vec3f(8.0);
 
 	let cos_theta = dot(sun_direction, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);

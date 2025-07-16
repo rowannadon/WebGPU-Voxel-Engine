@@ -773,7 +773,7 @@ bool WebGPURenderer::initDepthTexture() {
 	depthSamplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("depth_sampler", depthSamplerDesc);
 
-	return depthTextureView != nullptr && depthSampleView != nullptr;
+	return depthTextureView != nullptr;
 }
 
 bool WebGPURenderer::initRenderPipeline() {
@@ -944,9 +944,9 @@ bool WebGPURenderer::initUniformBuffers() {
 
 bool WebGPURenderer::initTextures() {
 	SamplerDescriptor lutSamplerDesc;
-	lutSamplerDesc.addressModeU = AddressMode::Repeat;
-	lutSamplerDesc.addressModeV = AddressMode::Repeat;
-	lutSamplerDesc.addressModeW = AddressMode::Repeat;
+	lutSamplerDesc.addressModeU = AddressMode::ClampToEdge;
+	lutSamplerDesc.addressModeV = AddressMode::ClampToEdge;
+	lutSamplerDesc.addressModeW = AddressMode::ClampToEdge;
 	lutSamplerDesc.magFilter = FilterMode::Linear;
 	lutSamplerDesc.minFilter = FilterMode::Linear;
 	lutSamplerDesc.mipmapFilter = MipmapFilterMode::Linear;
@@ -970,8 +970,6 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("atlas_sampler", samplerDesc);
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
-
-	
 
 	return textureManager->getTextureView("atlas_view") != nullptr;
 }

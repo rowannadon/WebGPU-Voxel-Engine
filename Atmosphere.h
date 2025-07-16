@@ -46,28 +46,28 @@ struct Atmosphere {
 
 inline Atmosphere getDefaultAtmosphere() {
 	Atmosphere atmosphere = {};
-	const float rayleighScaleHeight = 8.0f;
+	const float rayleighScaleHeight = 8.696f;
 	const float mieScaleHeight = 1.2f;
 
-	atmosphere.bottom_radius = 6460.0f;
+	atmosphere.bottom_radius = 400.0f;
 	atmosphere.top_radius = atmosphere.bottom_radius + 100.0f;
 	atmosphere.planet_center = { 0.0f, 0.0f, -atmosphere.bottom_radius - 1.5f };
 	atmosphere.ground_albedo = { 0.4f, 0.4f, 0.4f };
-	atmosphere.multi_scattering_factor = 4.0f;
+	atmosphere.multi_scattering_factor = 1.0f;
 
 	atmosphere.rayleigh_density_exp_scale = -1.0f / rayleighScaleHeight;
-	atmosphere.rayleigh_scattering = vec3(0.005802f, 0.013558f, 0.033100f) * 1.0f;
+	atmosphere.rayleigh_scattering = vec3(0.006604931f, 0.012344918f, 0.029412623f) * 4.0f;
 
-	atmosphere.mie_density_exp_scale = -1.0f / mieScaleHeight;
+	atmosphere.mie_density_exp_scale = -0.8333f / mieScaleHeight;
 	atmosphere.mie_scattering = vec3(0.003996f, 0.003996f, 0.003996f) * 2.0f;
 	atmosphere.mie_extinction = vec3(0.004440f, 0.004440f, 0.004440f) * 2.0f;
 	atmosphere.mie_phase_param = 0.8f;
 
-	atmosphere.absorption_density_0_layer_height = 25.0f;
+	atmosphere.absorption_density_0_layer_height = 5.0f;
 	atmosphere.absorption_density_0_constant_term = -2.0f / 3.0f;
-	atmosphere.absorption_density_0_linear_term = 1.0f / 15.0f;
+	atmosphere.absorption_density_0_linear_term = 0.0f / 15.0f;
 	atmosphere.absorption_density_1_constant_term = 8.0 / 3.0f;
-	atmosphere.absorption_density_1_linear_term = -1.0f / 15.0f;
+	atmosphere.absorption_density_1_linear_term = -0.0f / 15.0f;
 	atmosphere.absorption_extinction = vec3(0.00229072f, 0.00154036f, 0.0f);
 
 	return atmosphere;

@@ -93,7 +93,7 @@ override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
 override INV_DISTANCE_TO_MAX_SAMPLE_COUNT: f32 = 1.0 / 100.0;
 
 override USE_UNIFORM_LONGITUDE_PARAMETERIZATION: bool = false;
-override USE_MOON: bool = false;
+override USE_MOON: bool = true;
 
 override WORKGROUP_SIZE_X: u32 = 16;
 override WORKGROUP_SIZE_Y: u32 = 16;
@@ -303,7 +303,7 @@ fn integrate_scattered_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, sun
 	let sample_segment_t = 0.3;
 
 	let sun_direction = normalize(sun_dir);
-	let sun_illuminance = vec3f(10.0);
+	let sun_illuminance = vec3f(32.0);
 
 	let cos_theta = dot(sun_dir, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);

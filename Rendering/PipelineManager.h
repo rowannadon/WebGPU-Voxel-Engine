@@ -17,7 +17,7 @@ struct PipelineConfig {
     std::vector<VertexAttribute> vertexAttributes;
     std::vector<BindGroupLayout> bindGroupLayouts;
     TextureFormat colorFormat = TextureFormat::BGRA8Unorm;
-    TextureFormat depthFormat = TextureFormat::Depth24Plus;
+    TextureFormat depthFormat = TextureFormat::Depth32Float;
     uint32_t sampleCount = 4;
     PrimitiveTopology topology = PrimitiveTopology::TriangleList;
     CullMode cullMode = CullMode::Back;
