@@ -105,6 +105,9 @@ override IS_REVERSE_Z: bool = false;
 @group(0) @binding(4) var multi_scattering_lut: texture_2d<f32>;
 @group(0) @binding(5) var aerial_perspective_lut: texture_storage_3d<rgba16float, write>;
 
+const SUN_LUMINANCE = 8.0;
+const MOON_LUMINANCE = 0.5;
+
 struct SingleScatteringResult {
 	luminance: vec3<f32>,				// Scattered light (luminance)
 	transmittance: vec3<f32>,			// Transmittance in [0,1] (unitless)
@@ -326,14 +329,14 @@ fn integrate_scattered_luminance(uv: vec2<f32>, world_pos: vec3<f32>, world_dir:
 	let dt = t_max / sample_count;
 
 	let sun_direction = normalize(config.lightDirection);
-	let sun_illuminance = vec3f(8.0);
+	let sun_illuminance = vec3f(SUN_LUMINANCE);
 
 	let cos_theta = dot(sun_direction, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);
 	let rayleigh_phase_val = rayleigh_phase(cos_theta);
 
 	var moon_direction = -config.lightDirection;
-	var moon_illuminance = vec3f(0.5);
+	var moon_illuminance = vec3f(MOON_LUMINANCE);
 
 	var cos_theta_moon = 0.0;
 	var mie_phase_val_moon = 0.0;

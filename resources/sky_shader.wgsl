@@ -16,31 +16,31 @@ const planet_radius_offset: f32 = 0.01;
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 // Cloud configuration constants
-const CLOUD_LAYER_START: f32 = 0.0;  // km above ground
-const CLOUD_LAYER_END: f32 = 3.0;    // km above ground
+const CLOUD_LAYER_START: f32 = 2.0;  // km above ground
+const CLOUD_LAYER_END: f32 = 8.0;    // km above ground
 const CLOUD_LAYER_THICKNESS: f32 = CLOUD_LAYER_END - CLOUD_LAYER_START;
 
-const CLOUD_DENSITY_MULTIPLIER: f32 = 100.0;
-const CLOUD_COVERAGE: f32 = 0.4;
-const CLOUD_ABSORPTION: f32 = 0.35;
-const CLOUD_SCATTERING: f32 = 0.6;
+const CLOUD_DENSITY_MULTIPLIER: f32 = 0.8;
+const CLOUD_COVERAGE: f32 = 0.65;
+const CLOUD_ABSORPTION: f32 = 0.01;
+const CLOUD_SCATTERING: f32 = 0.4;
 
 const CLOUD_MARCH_STEPS: i32 = 32;
 const CLOUD_LIGHT_STEPS: i32 = 6;
 
-const CLOUD_SCALE: f32 = 0.0008;  // Scale for noise sampling (adjusted for feet to km)
-const CLOUD_DETAIL_SCALE: f32 = 0.003;
-const CLOUD_CURL_SCALE: f32 = 0.001;
+const CLOUD_SCALE: f32 = 0.01;
+const CLOUD_DETAIL_SCALE: f32 = 0.3;
+const CLOUD_CURL_SCALE: f32 = 0.1;
 
-const CLOUD_SPEED: f32 = 0.00008;  // Cloud movement speed
-const CLOUD_DETAIL_SPEED: f32 = 0.0002;
+const CLOUD_SPEED: f32 = 0.5;  // Cloud movement speed
+const CLOUD_DETAIL_SPEED: f32 = 0.2;
 
 const CLOUD_EDGE_FADE: f32 = 0.15;  // Fade clouds at layer edges
 const CLOUD_HORIZON_FADE: f32 = 0.8;  // Fade clouds near horizon
 
-const CLOUD_FORWARD_SCATTERING: f32 = 0.8;
-const CLOUD_BACKWARD_SCATTERING: f32 = 0.3;
-const CLOUD_SCATTERING_ANISOTROPY: f32 = 0.6;
+const CLOUD_FORWARD_SCATTERING: f32 = 0.3;
+const CLOUD_BACKWARD_SCATTERING: f32 = 0.003;
+const CLOUD_SCATTERING_ANISOTROPY: f32 = 0.006;
 
 struct MyUniforms {
     projectionMatrix: mat4x4f,
@@ -524,8 +524,7 @@ fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>
     let tc = color / (color + 1.0);
     let baseColor = mix(color / (l + 1.0), tc, tc);
 
-	let c_color = pow(baseColor, vec3<f32>(1.0 / 1.2));
-	return vec4<f32>(baseColor, sky_view.a);
+	return vec4<f32>(color, sky_view.a);
 }
 
 fn depth_max() -> f32 {
@@ -571,26 +570,6 @@ fn applyDitherToPixelColor(pixelColor: vec3f, pixelPos: vec2f) -> vec3f {
     let scaleBias = vec2f(1.0/255.0, -0.6/255.0);
     let noiseDither = sampleInterleavedGradientNoise(pixelPos) * scaleBias.x + scaleBias.y;
     return pixelColor + noiseDither;
-}
-
-fn resolve_depth_msaa(pix: vec2<i32>) -> f32 {
-    var resolved_depth: f32;
-    
-    if IS_REVERSE_Z {
-        resolved_depth = 0.0;
-        for (var sample: i32 = 0; sample < 4; sample++) {
-            let sample_depth = textureLoad(depth_buffer, pix, sample);
-            resolved_depth = max(resolved_depth, sample_depth);
-        }
-    } else {
-        resolved_depth = 1.0;
-        for (var sample: i32 = 0; sample < 4; sample++) {
-            let sample_depth = textureLoad(depth_buffer, pix, sample);
-            resolved_depth = min(resolved_depth, sample_depth);
-        }
-    }
-    
-    return resolved_depth;
 }
 
 fn calculate_view_space_distance(uv: vec2<f32>, depth: f32, inv_proj: mat4x4<f32>) -> f32 {
@@ -664,30 +643,33 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_dir = normalize(config.lightDirection);
 
     let view_height = length(world_pos);
-    let depth = resolve_depth_msaa(pix);
+    //let depth = resolve_depth_msaa(pix);
+    let depth = textureLoad(depth_buffer, pix, 0);
 
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
     // Get sky color
     let sky_color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
-    let dithered_sky_color = applyDitherToPixelColor(sky_color.rgb, pixel_pos);
+    
 
     // Calculate maximum ray distance
-    var max_ray_distance = 100.0; // km
-    if (is_valid_depth(depth)) {
-        let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
-        max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
-    }
+    // var max_ray_distance = 100.0; // km
+    // if (is_valid_depth(depth)) {
+    //     let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
+    //     max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
+    // }
 
     // Raymarch through clouds
-    let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance);
+    // let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance);
     
     // Composite clouds with sky
-    let final_color = mix(dithered_sky_color, cloud_result.rgb, cloud_result.a);
+    // let final_color = mix(sky_color.rgb, cloud_result.rgb, cloud_result.a);
+
+    let dithered = applyDitherToPixelColor(sky_color.rgb, pixel_pos);
     
     // Handle terrain depth
     if (!is_valid_depth(depth)) {
-        return vec4<f32>(final_color, 1.0);
+        return vec4<f32>(dithered, 1.0);
     }
 
     // Apply aerial perspective for terrain
@@ -706,9 +688,6 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
     
-    if all(aerial_perspective.rgb == vec3<f32>(0.0)) {
-        return vec4<f32>(final_color, 1.0);
-    }
 
     let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
     let final_fog_alpha = aerial_perspective.a * fog_weight;

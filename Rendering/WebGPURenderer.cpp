@@ -821,7 +821,7 @@ bool WebGPURenderer::initShadowTexture() {
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
 	depthTextureDesc.sampleCount = 1;
-	depthTextureDesc.size = { 4096, 4096, 1 };
+	depthTextureDesc.size = { 16384, 16384, 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;
@@ -996,7 +996,7 @@ bool WebGPURenderer::initShadowPipeline() {
 	config.colorFormat = TextureFormat::Undefined;
 	config.depthFormat = TextureFormat::Depth32Float;
 	config.sampleCount = 1;
-	config.cullMode = CullMode::Front;
+	config.cullMode = CullMode::None;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
 	config.fragmentShaderName = "shadow_fs_main";  // Fragment shader entry point
