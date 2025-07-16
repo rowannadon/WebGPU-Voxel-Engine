@@ -143,6 +143,7 @@ private:
     TextureManager *tex;
     BufferManager *buf;
     GLFWwindow* window;
+    int refreshRate = 60;
 
     FirstPersonCamera camera;
     std::mutex cameraMutex;

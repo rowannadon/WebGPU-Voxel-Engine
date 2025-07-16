@@ -10,6 +10,7 @@
 #include "../ThreadSafeChunk.h"
 #include "BenchmarkManager.h"
 #include "../Atmosphere.h"
+#include "../Noise.h"
 
 using namespace wgpu;
 using glm::mat4x4;
@@ -36,10 +37,13 @@ public:
     bool initMultiScatteringTexture();
     bool initSkyViewTexture();
 	bool initAerialPerspectiveTexture();
+    bool initCloudNoiseTextures();
 
     bool initMultiSampleTexture();
     bool initDepthTexture();
 
+    bool initCloudNoisePipeline();
+    bool initCloudBlueNoisePipeline();
     bool initTransmittancePipeline();
 	bool initMultiScatteringPipeline();
     bool initSkyViewPipeline();

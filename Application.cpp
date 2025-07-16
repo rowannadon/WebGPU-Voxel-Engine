@@ -17,6 +17,14 @@ bool Application::Initialize() {
 
     registerMovementCallbacks();
 
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+	std::cout << "Monitor refresh rate: " << mode->refreshRate << " Hz" << std::endl;
+
+    if (mode) {
+        refreshRate = mode->refreshRate;
+    }
+
     // initialize uniforms
     uniforms.time = 1.0f;
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
@@ -56,8 +64,8 @@ void Application::Terminate() {
 }
 
 void Application::MainLoop() {
-    constexpr float TARGET_FPS = 60.0f;
-    constexpr float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
+    float TARGET_FPS = static_cast<float>(refreshRate);
+    float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
     float currentFrame = static_cast<float>(glfwGetTime());
     deltaTime = currentFrame - lastFrame;

@@ -61,7 +61,7 @@ struct Atmosphere {
 override SAMPLE_COUNT: u32 = 40;
 
 override WORKGROUP_SIZE_X: u32 = 16;
-override WORKGROUP_SIZE_Y: u32 = 4;
+override WORKGROUP_SIZE_Y: u32 = 16;
 
 @group(0) @binding(0) var<uniform> atmosphere_buffer: Atmosphere;
 @group(0) @binding(1) var transmittance_lut : texture_storage_2d<rgba16float, write>;

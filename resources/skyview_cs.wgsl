@@ -303,7 +303,7 @@ fn integrate_scattered_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, sun
 	let sample_segment_t = 0.3;
 
 	let sun_direction = normalize(sun_dir);
-	let sun_illuminance = vec3f(32.0);
+	let sun_illuminance = vec3f(8.0);
 
 	let cos_theta = dot(sun_dir, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);

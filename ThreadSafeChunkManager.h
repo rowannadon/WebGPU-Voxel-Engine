@@ -62,8 +62,8 @@ private:
     static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
     static constexpr int MAX_ACTIVE_CHUNKS = 4050;
     static constexpr int MAX_TOTAL_CHUNKS = 32000;
-    static constexpr int WORLD_MIN = -2;
-    static constexpr int WORLD_MAX = 16;
+    static constexpr int WORLD_MIN = -8;
+    static constexpr int WORLD_MAX = 32;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
