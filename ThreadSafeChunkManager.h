@@ -60,9 +60,9 @@ private:
     static constexpr int LOD_CHUNK_LEVEL = 8;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
-    static constexpr int MAX_ACTIVE_CHUNKS = 4050;
+    static constexpr int MAX_ACTIVE_CHUNKS = 8000;
     static constexpr int MAX_TOTAL_CHUNKS = 32000;
-    static constexpr int WORLD_MIN = -8;
+    static constexpr int WORLD_MIN = -4;
     static constexpr int WORLD_MAX = 32;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
@@ -122,6 +122,7 @@ public:
         std::vector<DAIC> shadowData;
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         data.reserve(chunks.size());
+        shadowData.reserve(chunks.size());
         for (const auto& pair : chunks) {
             std::optional<DAIC> rd = pair.second->getDAIC();
             if (rd != std::nullopt && rd.value().indexCount > 0) {

@@ -16,27 +16,27 @@ const planet_radius_offset: f32 = 0.01;
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 // Cloud configuration constants
-const CLOUD_LAYER_START: f32 = 2.0;  // km above ground
-const CLOUD_LAYER_END: f32 = 8.0;    // km above ground
+const CLOUD_LAYER_START: f32 =35.0;  // km above ground
+const CLOUD_LAYER_END: f32 = 44.0;    // km above ground
 const CLOUD_LAYER_THICKNESS: f32 = CLOUD_LAYER_END - CLOUD_LAYER_START;
 
 const CLOUD_DENSITY_MULTIPLIER: f32 = 0.8;
 const CLOUD_COVERAGE: f32 = 0.65;
-const CLOUD_ABSORPTION: f32 = 0.01;
-const CLOUD_SCATTERING: f32 = 0.4;
+const CLOUD_ABSORPTION: f32 = 0.3;
+const CLOUD_SCATTERING: f32 = 0.2;
 
 const CLOUD_MARCH_STEPS: i32 = 32;
 const CLOUD_LIGHT_STEPS: i32 = 6;
 
 const CLOUD_SCALE: f32 = 0.01;
-const CLOUD_DETAIL_SCALE: f32 = 0.3;
-const CLOUD_CURL_SCALE: f32 = 0.1;
+const CLOUD_DETAIL_SCALE: f32 = 0.05;
+const CLOUD_CURL_SCALE: f32 = 0.01;
 
-const CLOUD_SPEED: f32 = 0.5;  // Cloud movement speed
-const CLOUD_DETAIL_SPEED: f32 = 0.2;
+const CLOUD_SPEED: f32 = 0.05;  // Cloud movement speed
+const CLOUD_DETAIL_SPEED: f32 = 0.02;
 
 const CLOUD_EDGE_FADE: f32 = 0.15;  // Fade clouds at layer edges
-const CLOUD_HORIZON_FADE: f32 = 0.8;  // Fade clouds near horizon
+const CLOUD_HORIZON_FADE: f32 = 0.2;  // Fade clouds near horizon
 
 const CLOUD_FORWARD_SCATTERING: f32 = 0.3;
 const CLOUD_BACKWARD_SCATTERING: f32 = 0.003;
@@ -653,19 +653,19 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
 
     // Calculate maximum ray distance
-    // var max_ray_distance = 100.0; // km
-    // if (is_valid_depth(depth)) {
-    //     let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
-    //     max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
-    // }
+    var max_ray_distance = 100.0; // km
+    if (is_valid_depth(depth)) {
+        let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
+        max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
+    }
 
     // Raymarch through clouds
-    // let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance);
+    let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance);
     
     // Composite clouds with sky
-    // let final_color = mix(sky_color.rgb, cloud_result.rgb, cloud_result.a);
+    let final_color = mix(sky_color.rgb, cloud_result.rgb, cloud_result.a);
 
-    let dithered = applyDitherToPixelColor(sky_color.rgb, pixel_pos);
+    let dithered = applyDitherToPixelColor(final_color, pixel_pos);
     
     // Handle terrain depth
     if (!is_valid_depth(depth)) {
@@ -676,7 +676,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
     let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
     
-    var slice = aerial_perspective_depth_to_slice(view_distance * 0.05);
+    var slice = aerial_perspective_depth_to_slice(view_distance * 0.02);
     
     var fog_weight = 1.0;
     if slice < 0.5 {

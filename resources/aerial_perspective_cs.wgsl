@@ -105,7 +105,7 @@ override IS_REVERSE_Z: bool = false;
 @group(0) @binding(4) var multi_scattering_lut: texture_2d<f32>;
 @group(0) @binding(5) var aerial_perspective_lut: texture_storage_3d<rgba16float, write>;
 
-const SUN_LUMINANCE = 8.0;
+const SUN_LUMINANCE = 10.0;
 const MOON_LUMINANCE = 0.5;
 
 struct SingleScatteringResult {

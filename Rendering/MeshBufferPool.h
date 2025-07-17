@@ -15,10 +15,10 @@ class MeshBufferPool {
     std::unique_ptr<std::atomic<bool>[]> slotOccupancy;
     std::mutex dataMutex;
 
-    const int NUM_BUFFERS = 4096;
+    const int NUM_BUFFERS = 8196;
     const int totalSlots = NUM_BUFFERS;
-    const int MAX_VERTICES_PER_CHUNK = 32768;
-    const int MAX_INDICES_PER_CHUNK = 32768;
+    const int MAX_VERTICES_PER_CHUNK = 16384;
+    const int MAX_INDICES_PER_CHUNK = 25000;
 
     // Calculate aligned sizes
     const size_t VERTEX_STRIDE = sizeof(VertexAttributes);

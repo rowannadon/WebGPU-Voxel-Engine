@@ -122,8 +122,6 @@ void Application::MainLoop() {
     uniforms.lightDirection = sunDirection;
     uniforms.lightPosition = sunPosition;
 
-    //std::cout << "lightdirection: " << uniforms.lightDirection.x << " " << uniforms.lightDirection.y << " " << uniforms.lightDirection.z << "\n";
-
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 

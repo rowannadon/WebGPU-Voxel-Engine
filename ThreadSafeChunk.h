@@ -161,8 +161,8 @@ public:
         daic.instanceCount = 1;
 
         // These should be offsets in ELEMENTS, not bytes
-        daic.firstIndex = static_cast<uint32_t>(meshSlot * 32768); // Assuming max 16384 indices per chunk
-        daic.baseVertex = static_cast<int32_t>(meshSlot * 32768);  // Assuming max 16384 vertices per chunk
+        daic.firstIndex = static_cast<uint32_t>(meshSlot * 25000); // Assuming max 16384 indices per chunk
+        daic.baseVertex = static_cast<int32_t>(meshSlot * 16384);  // Assuming max 16384 vertices per chunk
         daic.firstInstance = static_cast<uint32_t>(dataSlot);
 
         return daic;
