@@ -223,5 +223,6 @@ private:
     Noise cloudNoise;
     Noise blueNoise;
     Atmosphere atmosphere;
+    Clouds clouds;
 };
 

@@ -277,57 +277,58 @@ bool WebGPURenderer::initSkyPipeline() {
 	config.vertexAttributes.clear();
 
 	// atmosphere uniforms
-	std::vector<BindGroupLayoutEntry> skyUniforms(11, Default);
+	std::vector<BindGroupLayoutEntry> skyUniforms(12, Default);
 	skyUniforms[0].binding = 0;
 	skyUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[0].buffer.type = BufferBindingType::Uniform;
 	skyUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
 
-	// global uniforms
+	// clouds uniforms
 	skyUniforms[1].binding = 1;
 	skyUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[1].buffer.type = BufferBindingType::Uniform;
-	skyUniforms[1].buffer.minBindingSize = sizeof(MyUniforms);
+	skyUniforms[1].buffer.minBindingSize = sizeof(Clouds);
 
-	// lut sampler
+	// global uniforms
 	skyUniforms[2].binding = 2;
 	skyUniforms[2].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-	skyUniforms[2].sampler.type = SamplerBindingType::Filtering;
+	skyUniforms[2].buffer.type = BufferBindingType::Uniform;
+	skyUniforms[2].buffer.minBindingSize = sizeof(MyUniforms);
 
-	// transmittance texture
+	// lut sampler
 	skyUniforms[3].binding = 3;
 	skyUniforms[3].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-	skyUniforms[3].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[3].texture.viewDimension = TextureViewDimension::_2D;
+	skyUniforms[3].sampler.type = SamplerBindingType::Filtering;
 
-	// sky view texture
+	// transmittance texture
 	skyUniforms[4].binding = 4;
 	skyUniforms[4].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[4].texture.sampleType = TextureSampleType::Float;
 	skyUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
 
-	// aerial perspective texture
+	// sky view texture
 	skyUniforms[5].binding = 5;
 	skyUniforms[5].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[5].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[5].texture.viewDimension = TextureViewDimension::_3D;
+	skyUniforms[5].texture.viewDimension = TextureViewDimension::_2D;
+
+	// aerial perspective texture
+	skyUniforms[6].binding = 6;
+	skyUniforms[6].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	skyUniforms[6].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[6].texture.viewDimension = TextureViewDimension::_3D;
 
 	// NEW: Depth texture for reading terrain depth
-	skyUniforms[6].binding = 6;
-	skyUniforms[6].visibility = ShaderStage::Fragment;
-	skyUniforms[6].texture.sampleType = TextureSampleType::Depth;
-	skyUniforms[6].texture.multisampled = true;
-	skyUniforms[6].texture.viewDimension = TextureViewDimension::_2D;
-
-	// NEW: Depth sampler
 	skyUniforms[7].binding = 7;
 	skyUniforms[7].visibility = ShaderStage::Fragment;
-	skyUniforms[7].sampler.type = SamplerBindingType::NonFiltering;
+	skyUniforms[7].texture.sampleType = TextureSampleType::Depth;
+	skyUniforms[7].texture.multisampled = true;
+	skyUniforms[7].texture.viewDimension = TextureViewDimension::_2D;
 
+	// NEW: Depth sampler
 	skyUniforms[8].binding = 8;
 	skyUniforms[8].visibility = ShaderStage::Fragment;
-	skyUniforms[8].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[8].texture.viewDimension = TextureViewDimension::_2D;
+	skyUniforms[8].sampler.type = SamplerBindingType::NonFiltering;
 
 	skyUniforms[9].binding = 9;
 	skyUniforms[9].visibility = ShaderStage::Fragment;
@@ -336,7 +337,12 @@ bool WebGPURenderer::initSkyPipeline() {
 
 	skyUniforms[10].binding = 10;
 	skyUniforms[10].visibility = ShaderStage::Fragment;
-	skyUniforms[10].sampler.type = SamplerBindingType::Filtering;
+	skyUniforms[10].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
+
+	skyUniforms[11].binding = 11;
+	skyUniforms[11].visibility = ShaderStage::Fragment;
+	skyUniforms[11].sampler.type = SamplerBindingType::Filtering;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("sky_uniforms", skyUniforms)
@@ -1088,19 +1094,25 @@ bool WebGPURenderer::initUniformBuffers() {
 	atmosphereBufferDesc.mappedAtCreation = false;
 	Buffer atmosphereBuffer = bufferManager->createBuffer("atmosphere_buffer", atmosphereBufferDesc);
 
+	BufferDescriptor cloudsBufferDesc;
+	cloudsBufferDesc.size = sizeof(Clouds);
+	cloudsBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	cloudsBufferDesc.mappedAtCreation = false;
+	Buffer cloudBuffer = bufferManager->createBuffer("cloud_buffer", atmosphereBufferDesc);
+
 	BufferDescriptor noiseBufferDesc;
 	noiseBufferDesc.size = sizeof(Noise);
 	noiseBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
 	noiseBufferDesc.mappedAtCreation = false;
 	Buffer noiseBuffer = bufferManager->createBuffer("noise_buffer", noiseBufferDesc);
 
-	BufferDescriptor noise2BufferDesc;
-	noise2BufferDesc.size = sizeof(Noise);
-	noise2BufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	noise2BufferDesc.mappedAtCreation = false;
-	Buffer noise2Buffer = bufferManager->createBuffer("bluenoise_buffer", noise2BufferDesc);
+	BufferDescriptor blueNoiseBufferDesc;
+	blueNoiseBufferDesc.size = sizeof(Noise);
+	blueNoiseBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	blueNoiseBufferDesc.mappedAtCreation = false;
+	Buffer blueNoiseBuffer = bufferManager->createBuffer("bluenoise_buffer", blueNoiseBufferDesc);
 	
-	return uniformBuffer != nullptr;
+	return uniformBuffer != nullptr && atmosphereBuffer != nullptr && cloudBuffer != nullptr;
 }
 
 bool WebGPURenderer::initTextures() {
@@ -1273,7 +1285,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup aerialPerspectiveBindGroup = pipelineManager->createBindGroup("aerialperspective_uniforms_group", "aerialperspective_uniforms", aerialPerspectiveBindings);
 
-	std::vector<BindGroupEntry> skyBindings(11);
+	std::vector<BindGroupEntry> skyBindings(12);
 
 	skyBindings[0].binding = 0;
 	skyBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
@@ -1281,37 +1293,42 @@ bool WebGPURenderer::initBindGroup() {
 	skyBindings[0].size = sizeof(Atmosphere);
 
 	skyBindings[1].binding = 1;
-	skyBindings[1].buffer = bufferManager->getBuffer("uniform_buffer");
+	skyBindings[1].buffer = bufferManager->getBuffer("cloud_buffer");
 	skyBindings[1].offset = 0;
-	skyBindings[1].size = sizeof(MyUniforms);
+	skyBindings[1].size = sizeof(Clouds);
 
 	skyBindings[2].binding = 2;
-	skyBindings[2].sampler = textureManager->getSampler("lut_sampler");
+	skyBindings[2].buffer = bufferManager->getBuffer("uniform_buffer");
+	skyBindings[2].offset = 0;
+	skyBindings[2].size = sizeof(MyUniforms);
 
 	skyBindings[3].binding = 3;
-	skyBindings[3].textureView = textureManager->getTextureView("transmittance_view");
+	skyBindings[3].sampler = textureManager->getSampler("lut_sampler");
 
 	skyBindings[4].binding = 4;
-	skyBindings[4].textureView = textureManager->getTextureView("skyview_view");
+	skyBindings[4].textureView = textureManager->getTextureView("transmittance_view");
 
 	skyBindings[5].binding = 5;
-	skyBindings[5].textureView = textureManager->getTextureView("aerialperspective_view");
+	skyBindings[5].textureView = textureManager->getTextureView("skyview_view");
+
+	skyBindings[6].binding = 6;
+	skyBindings[6].textureView = textureManager->getTextureView("aerialperspective_view");
 
 	// NEW: Add depth texture and sampler for sky post-processing
-	skyBindings[6].binding = 6;
-	skyBindings[6].textureView = textureManager->getTextureView("depth_sample_view");
-
 	skyBindings[7].binding = 7;
-	skyBindings[7].sampler = textureManager->getSampler("depth_sampler");
+	skyBindings[7].textureView = textureManager->getTextureView("depth_sample_view");
 
 	skyBindings[8].binding = 8;
-	skyBindings[8].textureView = textureManager->getTextureView("skynoise_view");
+	skyBindings[8].sampler = textureManager->getSampler("depth_sampler");
 
 	skyBindings[9].binding = 9;
-	skyBindings[9].textureView = textureManager->getTextureView("cloudbluenoise_view");
+	skyBindings[9].textureView = textureManager->getTextureView("cloudnoise_view");
 
 	skyBindings[10].binding = 10;
-	skyBindings[10].sampler = textureManager->getSampler("cloudnoise_sampler");
+	skyBindings[10].textureView = textureManager->getTextureView("cloudbluenoise_view");
+
+	skyBindings[11].binding = 11;
+	skyBindings[11].sampler = textureManager->getSampler("cloudnoise_sampler");
 
 	BindGroup skyBindGroup = pipelineManager->createBindGroup("sky_uniforms_group", "sky_uniforms", skyBindings);
 
