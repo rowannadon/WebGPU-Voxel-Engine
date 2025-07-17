@@ -1114,6 +1114,8 @@ bool WebGPURenderer::initTextures() {
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 
+	Texture cloudTexture = textureManager->loadTexture("skynoise", "skynoise_view", RESOURCE_DIR "/worley_bubbly.png");
+
 	return textureManager->getTextureView("atlas_view") != nullptr;
 }
 
@@ -1285,7 +1287,7 @@ bool WebGPURenderer::initBindGroup() {
 	skyBindings[7].sampler = textureManager->getSampler("depth_sampler");
 
 	skyBindings[8].binding = 8;
-	skyBindings[8].textureView = textureManager->getTextureView("cloudnoise_view");
+	skyBindings[8].textureView = textureManager->getTextureView("skynoise_view");
 
 	skyBindings[9].binding = 9;
 	skyBindings[9].textureView = textureManager->getTextureView("cloudbluenoise_view");

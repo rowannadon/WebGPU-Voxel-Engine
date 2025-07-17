@@ -326,7 +326,7 @@ fn integrate_scattered_luminance(uv: vec2<f32>, world_pos: vec3<f32>, world_dir:
 	let dt = t_max / sample_count;
 
 	let sun_direction = normalize(config.lightDirection);
-	let sun_illuminance = vec3f(8.0);
+	let sun_illuminance = vec3f(16.0);
 
 	let cos_theta = dot(sun_direction, world_dir);
 	let mie_phase_val = mie_phase(cos_theta, atmosphere.mie_phase_param);

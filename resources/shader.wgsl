@@ -657,8 +657,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 }
 
 fn sample_light(lightSlot: u32, pos: vec3f, offset: vec3f) -> f32 {
-    let CHUNKS_PER_ROW = 640u / 32u;
-    let TOTAL_TEXTURE_SIZE = 640.0;
+    let CHUNKS_PER_ROW = 768u / 32u;
+    let TOTAL_TEXTURE_SIZE = 768.0;
     
     let ox = lightSlot % CHUNKS_PER_ROW;
     let oy = (lightSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
@@ -705,8 +705,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     var material_id: u32;
     
-    let CHUNKS_PER_ROW = 640u / 32u;
-    let TOTAL_TEXTURE_SIZE = 640.0;
+    let CHUNKS_PER_ROW = 768u / 32u;
+    let TOTAL_TEXTURE_SIZE = 768.0;
     
     let ox = chunkData.textureSlot % CHUNKS_PER_ROW;
     let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;

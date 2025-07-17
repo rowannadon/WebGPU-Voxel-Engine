@@ -24,7 +24,7 @@ class TexturePool {
     std::mutex dataMutex;
 
     const uint32_t CHUNK_SIZE = 32;
-    const uint32_t MAX_TEXTURE_SIZE = 640;
+    const uint32_t MAX_TEXTURE_SIZE = 768;
     const uint32_t CHUNKS_PER_ROW = MAX_TEXTURE_SIZE / CHUNK_SIZE;
     size_t totalSlots = CHUNKS_PER_ROW * CHUNKS_PER_ROW * CHUNKS_PER_ROW;
 

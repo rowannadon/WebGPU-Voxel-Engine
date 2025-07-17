@@ -19,7 +19,7 @@ class BufferPool {
     BindGroupLayout bindGroupLayout;
     BindGroup bindGroup;
 
-    const int NUM_BUFFERS = 8000;
+    const int NUM_BUFFERS = 12288;
     const int totalSlots = NUM_BUFFERS;
     const int TOTAL_SIZE = NUM_BUFFERS * sizeof(ChunkData);
 

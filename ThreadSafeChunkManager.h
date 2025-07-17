@@ -58,9 +58,9 @@ private:
     int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 6;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
-    static constexpr int MAX_ACTIVE_CHUNKS = 4050;
+    static constexpr int MAX_ACTIVE_CHUNKS = 12288;
     static constexpr int MAX_TOTAL_CHUNKS = 32000;
     static constexpr int WORLD_MIN = -8;
     static constexpr int WORLD_MAX = 32;

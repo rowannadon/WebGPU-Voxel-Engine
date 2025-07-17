@@ -116,11 +116,14 @@ public:
             transparentVoxelData.resize(BYTES_NEEDED, 0);
         }
 
+        // initialize material data
+        if (materialData.size() != TOTAL_VOXELS) {
+            materialData.resize(TOTAL_VOXELS);
+        }
         
-
-        /*if (lightData.size() != TOTAL_VOXELS) {
+        if (lightData.size() != TOTAL_VOXELS) {
             lightData.resize(TOTAL_VOXELS);
-        }*/
+        }
 
         resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
     }
@@ -530,10 +533,7 @@ public:
             return;
         }
         
-        // initialize material data
-        if (materialData.size() != TOTAL_VOXELS) {
-            materialData.resize(TOTAL_VOXELS);
-        }
+
 
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
