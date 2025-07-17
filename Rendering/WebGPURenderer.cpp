@@ -348,7 +348,6 @@ bool WebGPURenderer::initSkyPipeline() {
 }
 
 void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData) {
-	context->getQueue().writeBuffer(bufferManager->getBuffer("uniform_buffer"), 0, &uniforms, sizeof(MyUniforms));
 
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
 	if (!targetView) return;
@@ -583,8 +582,38 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		skyRenderPass.setPipeline(pipelineManager->getPipeline("sky_pipeline"));
 		skyRenderPass.setBindGroup(0, pipelineManager->getBindGroup("sky_uniforms_group"), 0, nullptr);
 		skyRenderPass.draw(6, 1, 0, 0);  // Draw fullscreen quad
+
 		skyRenderPass.end();
 		skyRenderPass.release();
+	}
+
+	// GUI RENDER PASS
+	{
+		RenderPassDescriptor renderPassDesc = {};
+		RenderPassColorAttachment renderPassColorAttachment = {};
+		renderPassColorAttachment.view = targetView;
+		//renderPassColorAttachment.resolveTarget = targetView;
+		renderPassColorAttachment.loadOp = LoadOp::Load;  // Keep existing terrain rendering
+		renderPassColorAttachment.storeOp = StoreOp::Store;
+		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
+
+		renderPassDesc.colorAttachmentCount = 1;
+		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+
+		renderPassDesc.depthStencilAttachment = nullptr;
+		renderPassDesc.timestampWrites = nullptr;
+
+		RenderPassEncoder imguiRenderPass = encoder.beginRenderPass(renderPassDesc);
+
+		// Render ImGUI
+		ImGui::Render();
+		ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), imguiRenderPass);
+
+		imguiRenderPass.end();
+		imguiRenderPass.release();
 	}
 
 	indirectBuffer.release();
@@ -599,12 +628,12 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	encoder.release();
 
 	context->getQueue().submit(1, &command);
-	context->getQueue().onSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
+	/*context->getQueue().onSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
 		[&](wgpu::QueueWorkDoneStatus status) {
 			if (status == wgpu::QueueWorkDoneStatus::Success) {
 				benchmarkManager->processFrameTime("frame_timing");
 			}
-		});
+		});*/
 
 	command.release();
 
@@ -1070,17 +1099,6 @@ bool WebGPURenderer::initUniformBuffers() {
 	noise2BufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
 	noise2BufferDesc.mappedAtCreation = false;
 	Buffer noise2Buffer = bufferManager->createBuffer("bluenoise_buffer", noise2BufferDesc);
-
-	int seed = 0;
-	Noise noise = getCumulusNoise(seed);
-	bufferManager->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
-
-	Noise noise2 = getCumulusBlueNoise(seed);
-	bufferManager->writeBuffer("bluenoise_buffer", 0, &noise2, sizeof(Noise));
-
-	Atmosphere atmosphere = getDefaultAtmosphere();
-
-	bufferManager->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
 	
 	return uniformBuffer != nullptr;
 }

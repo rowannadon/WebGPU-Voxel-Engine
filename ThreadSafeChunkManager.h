@@ -58,12 +58,12 @@ private:
     int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 16;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
     static constexpr int MAX_ACTIVE_CHUNKS = 12288;
     static constexpr int MAX_TOTAL_CHUNKS = 32000;
-    static constexpr int WORLD_MIN = -8;
-    static constexpr int WORLD_MAX = 32;
+    static constexpr int WORLD_MIN = -2;
+    static constexpr int WORLD_MAX = 16;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -443,7 +443,7 @@ public:
     }
 
     std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+        std::shared_lock<std::shared_mutex> lock(chunksMutex);
         auto it = chunks.find(pos);
         return (it != chunks.end()) ? it->second : nullptr;
     }

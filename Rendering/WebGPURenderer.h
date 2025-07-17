@@ -12,6 +12,9 @@
 #include "../Atmosphere.h"
 #include "../Noise.h"
 
+#include "../imgui/imgui.h"
+#include "../imgui/backends/imgui_impl_wgpu.h"
+
 using namespace wgpu;
 using glm::mat4x4;
 using glm::vec4;
@@ -28,6 +31,9 @@ private:
 
     const float PI = 3.14159265358979323846f;
     MyUniforms uniforms;
+
+    // Add this for ImGUI support
+    RenderPassEncoder currentCommandEncoder = nullptr;
 
 public:
     bool initialize();
@@ -66,6 +72,7 @@ public:
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
     void renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData);
+
     void terminate();
 };
 

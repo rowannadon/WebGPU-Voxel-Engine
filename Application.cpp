@@ -14,7 +14,6 @@ bool Application::Initialize() {
     window = gpu.getWindow();
 
     chunkManager.init(tex, buf);
-
     registerMovementCallbacks();
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
@@ -46,8 +45,24 @@ bool Application::Initialize() {
 
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
 
+    int seed = 0;
+    cloudNoise = getCumulusNoise(seed);
+    buf->writeBuffer("noise_buffer", 0, &cloudNoise, sizeof(Noise));
+
+    blueNoise = getCumulusBlueNoise(seed);
+    buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
+
+    atmosphere = getDefaultAtmosphere();
+
+    buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
+
     camera.updateCameraVectors();
     updateViewMatrix();
+
+    if (!initImGUI()) {
+        std::cerr << "Failed to initialize ImGUI" << std::endl;
+        return false;
+    }
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -55,12 +70,56 @@ bool Application::Initialize() {
     return true;
 }
 
+
+
 void Application::Terminate() {
     stopChunkUpdateThread();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
+    terminateImGUI();
+
     gpu.terminate();
+}
+
+void Application::terminateImGUI() {
+    ImGui_ImplWGPU_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
+
+bool Application::initImGUI() {
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+
+    // Setup Platform/Renderer backends
+    if (!ImGui_ImplGlfw_InitForOther(window, true)) {
+        std::cerr << "Failed to initialize ImGui GLFW backend" << std::endl;
+        return false;
+    }
+
+    ImGui_ImplWGPU_InitInfo webgpu_init_info = {};
+    webgpu_init_info.Device = gpu.getContext()->getDevice();
+    webgpu_init_info.NumFramesInFlight = 3;
+    webgpu_init_info.RenderTargetFormat = gpu.getContext()->getSurfaceFormat();
+    webgpu_init_info.DepthStencilFormat = TextureFormat::Undefined;
+
+    webgpu_init_info.PipelineMultisampleState.count = 1;
+    webgpu_init_info.PipelineMultisampleState.alphaToCoverageEnabled = false;
+
+    if (!ImGui_ImplWGPU_Init(&webgpu_init_info)) {
+        std::cerr << "Failed to initialize ImGui WebGPU backend" << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 void Application::MainLoop() {
@@ -73,7 +132,15 @@ void Application::MainLoop() {
 
     // Poll events first to minimize input lag
     glfwPollEvents();
-    processInput();
+
+    // Update ImGUI frame
+    updateImGUIFrame();
+
+    // Process input (only if ImGUI doesn't want input)
+    ImGuiIO& io = ImGui::GetIO();
+    if (!io.WantCaptureKeyboard && !io.WantCaptureMouse) {
+        processInput();
+    }
 
     // Early exit if frame budget is already exceeded
     float frameStartTime = currentFrame;
@@ -97,18 +164,27 @@ void Application::MainLoop() {
         placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
     }
 
-    if (shouldBreakBlock) {
-        breakBlock();
-        shouldBreakBlock = false;
+    // Only process block interactions if ImGUI doesn't want mouse input
+    if (!io.WantCaptureMouse) {
+        if (shouldBreakBlock) {
+            breakBlock();
+            shouldBreakBlock = false;
+        }
+
+        if (shouldPlaceBlock) {
+            placeBlock();
+            shouldPlaceBlock = false;
+        }
     }
 
-    if (shouldPlaceBlock) {
-        placeBlock();
-        shouldPlaceBlock = false;
+    if (imguiState.useManualTime) {
+        uniforms.time = imguiState.manualTime;
+    }
+    else if (!imguiState.pauseTime) {
+        uniforms.time = currentFrame * imguiState.timeMultiplier;
     }
 
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
-    uniforms.time = currentFrame * 0.5;
     uniforms.cameraWorldPos = camera.position;
 
     glm::vec3 sceneCenter = camera.position; // Center shadow map around camera
@@ -122,12 +198,18 @@ void Application::MainLoop() {
     uniforms.lightDirection = sunDirection;
     uniforms.lightPosition = sunPosition;
 
-    //std::cout << "lightdirection: " << uniforms.lightDirection.x << " " << uniforms.lightDirection.y << " " << uniforms.lightDirection.z << "\n";
+    buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
+    buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
+    buf->writeBuffer("noise_buffer", 0, &cloudNoise, sizeof(Noise));
+    buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
 
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
     std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj);
+    
+    renderImGUI();
+    
     if (!renderData.first.empty()) {
         gpu.renderFrame(uniforms, renderData);
     }
@@ -188,6 +270,94 @@ void Application::MainLoop() {
             // Busy wait for precise timing
             std::this_thread::yield();
         }
+    }
+}
+
+void Application::updateImGUIFrame() {
+    // Start the Dear ImGui frame
+    ImGui_ImplWGPU_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+}
+
+void Application::renderImGUI() {
+    // Main control window
+    if (imguiState.showMainWindow) {
+        ImGui::Begin("Engine Controls", &imguiState.showMainWindow);
+
+        // Time Controls
+        if (ImGui::CollapsingHeader("Time Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Pause Time", &imguiState.pauseTime);
+
+            if (!imguiState.pauseTime) {
+                ImGui::SliderFloat("Time Multiplier", &imguiState.timeMultiplier, 0.0f, 5.0f, "%.2f");
+                ImGui::SameLine();
+                if (ImGui::Button("Reset##time")) {
+                    imguiState.timeMultiplier = 0.5f;
+                }
+            }
+
+            ImGui::Checkbox("Use Manual Time", &imguiState.useManualTime);
+            if (imguiState.useManualTime) {
+                ImGui::SliderFloat("Manual Time", &imguiState.manualTime, 0.0f, 100.0f, "%.2f");
+            }
+
+            ImGui::Text("Current Time: %.2f", uniforms.time);
+        }
+
+        // Camera Controls
+        if (imguiState.showCameraControls && ImGui::CollapsingHeader("Camera Controls")) {
+            ImGui::SliderFloat("Movement Speed", &camera.movementSpeed, 5.0f, 500.0f, "%.1f");
+            ImGui::SliderFloat("Mouse Sensitivity", &camera.mouseSensitivity, 0.01f, 1.0f, "%.3f");
+            ImGui::SliderFloat("FOV", &camera.zoom, 10.0f, 180.0f, "%.1f");
+
+            if (ImGui::Button("Reset Camera")) {
+                camera.position = vec3(5.0f, 0.0f, 200.0f);
+                camera.yaw = 180.0f;
+                camera.pitch = 0.0f;
+                camera.zoom = 85.0f;
+                camera.updateCameraVectors();
+                updateViewMatrix();
+                updateProjectionMatrix(camera.zoom);
+            }
+
+            ImGui::Text("Position: %.1f, %.1f, %.1f", camera.position.x, camera.position.y, camera.position.z);
+            ImGui::Text("Yaw: %.1f, Pitch: %.1f", camera.yaw, camera.pitch);
+        }
+
+        // Performance Metrics
+        if (imguiState.showPerformanceMetrics && ImGui::CollapsingHeader("Performance")) {
+            float averageFrameTime = frameTimes.empty() ? 0.0f :
+                std::accumulate(frameTimes.begin(), frameTimes.end(), 0.0f) / frameTimes.size();
+            float averageFPS = averageFrameTime > 0 ? 1.0f / averageFrameTime : 0.0f;
+
+            ImGui::Text("Average FPS: %.1f", averageFPS);
+            ImGui::Text("Frame Time: %.2f ms", averageFrameTime * 1000.0f);
+            ImGui::Text("Current Frame: %.2f ms", frameTime * 1000.0f);
+
+            // Frame time graph
+            if (frameTimes.size() > 10) {
+                std::vector<float> frameTimeMs;
+                for (float ft : frameTimes) {
+                    frameTimeMs.push_back(ft * 1000.0f);
+                }
+                ImGui::PlotLines("Frame Time (ms)", frameTimeMs.data(), frameTimeMs.size(), 0, nullptr, 0.0f, 50.0f, ImVec2(0, 80));
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Atmosphere")) {
+            ImGui::SliderFloat("Bottom radius", &atmosphere.bottom_radius, 10.0f, 10000.0f, "%.1f");
+
+            ImGui::SliderFloat("Multiscattering factor", &atmosphere.multi_scattering_factor, 0.1f, 10.0f, "%.2f");
+        }
+
+        // Debug Options
+        if (ImGui::CollapsingHeader("Debug")) {
+            ImGui::Text("Block Looking At: %d, %d, %d", lookingAtBlockPos.x, lookingAtBlockPos.y, lookingAtBlockPos.z);
+            ImGui::Text("Block Place Position: %d, %d, %d", placeBlockPos.x, placeBlockPos.y, placeBlockPos.z);
+        }
+
+        ImGui::End();
     }
 }
 
@@ -850,6 +1020,11 @@ void Application::onMouseMove(double xpos, double ypos) {
 }
 
 void Application::onMouseButton(int button, int action, int /* modifiers */) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) {
+        return; // ImGUI is handling this input
+    }
+
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
             // Left click focuses the window and enables camera control
@@ -880,6 +1055,11 @@ void Application::onScroll(double /* xoffset */, double yoffset) {
 }
 
 void Application::onKey(int key, int scancode, int action, int mods) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureKeyboard) {
+        return; // ImGUI is handling this input
+    }
+
     bool keyPressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
     bool keyReleased = (action == GLFW_RELEASE);
 

@@ -10,6 +10,10 @@
 
 //#include "magic_enum.hpp"
 
+#include "imgui/imgui.h"
+#include "imgui/backends/imgui_impl_glfw.h"
+#include "imgui/backends/imgui_impl_wgpu.h"
+
 #include <set>
 #include <iostream>
 #include <cassert>
@@ -41,6 +45,12 @@ private:
     void stopChunkUpdateThread();
     void chunkUpdateThreadFunction();
     void processGPUUploads();
+
+    // ImGUI methods
+    bool initImGUI();
+    void renderImGUI();
+    void terminateImGUI();
+    void updateImGUIFrame();
 
     // Event handlers
     void registerMovementCallbacks();
@@ -134,6 +144,28 @@ private:
         ivec3 localPosition;
     };
 
+    // ImGUI state
+    struct ImGUIState {
+        bool showMainWindow = true;
+        bool showDemo = true;
+        float timeMultiplier = 0.5f;  // Multiplier for time (originally hardcoded as 0.5)
+        bool pauseTime = false;       // Allow pausing time
+        float manualTime = 0.0f;      // Manual time override
+        bool useManualTime = false;   // Use manual time instead of automatic
+
+        // Camera controls
+        bool showCameraControls = true;
+
+        // Performance metrics
+        bool showPerformanceMetrics = true;
+
+        // Lighting controls
+        bool showLightingControls = true;
+        vec3 lightDirection = vec3(0.3f, 0.3f, -0.7f);
+        vec3 lightColor = vec3(1.0f, 1.0f, 0.9f);
+        float lightIntensity = 1.0f;
+    };
+
     // Global light propagation queue for cross-chunk lighting
     std::queue<LightPropagationItem> globalLightQueue;
     std::mutex globalLightMutex;
@@ -149,6 +181,7 @@ private:
     std::mutex cameraMutex;
     MouseState mouseState;
     KeyStates keyStates;
+    ImGUIState imguiState;  // Add ImGUI state
 
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
@@ -176,7 +209,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.03f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.08f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
@@ -187,5 +220,8 @@ private:
     std::mutex gpuUploadMutex;
 
     MyUniforms uniforms;
+    Noise cloudNoise;
+    Noise blueNoise;
+    Atmosphere atmosphere;
 };
 
