@@ -49,7 +49,7 @@ bool Application::Initialize() {
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
 
     int seed = 0;
-    cloudNoise = getCumulusNoise(seed);
+    cloudNoise = getWhiteNoise64(seed);
     buf->writeBuffer("noise_buffer", 0, &cloudNoise, sizeof(Noise));
 
     blueNoise = getCumulusBlueNoise(seed);
@@ -431,11 +431,21 @@ void Application::renderImGUI() {
 
             ImGui::SliderFloat("Forward scattering", &clouds.forward_scattering, 0.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Backward scattering", &clouds.backward_scattering, 0.0f, 1.0f, "%.2f");
+
+            ImGui::SliderFloat("Height", &clouds.cloud_height, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Thickness", &clouds.cloud_thickness, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Density multiplier", &clouds.cloud_density_multiplier, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Phase G1", &clouds.phase_g1, -1.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Phase G2", &clouds.phase_g2, -1.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Phase blend", &clouds.phase_blend, -1.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Sun brightness", &clouds.sun_brightness, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Powder strength", &clouds.powder_strength, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Multi-scattering", &clouds.multi_scattering, 0.0f, 1.0f, "%.2f");
         }
 
         if (ImGui::CollapsingHeader("Cloud Noise")) {
             ImGui::Text("Noise texture 1");
-            ImGui::Image((void*)tex->getTextureView("cloudnoise_view"), ImVec2(512, 512));
+            ImGui::Image((void*)tex->getTextureView("cloudnoise_view"), ImVec2(64, 64));
 
             ImGui::SliderInt("Octaves", (int*)&cloudNoise.octaves, 1, 8, "%d");
             ImGui::SliderFloat("Frequency", &cloudNoise.frequency, 0.01f, 10.0f, "%.2f");

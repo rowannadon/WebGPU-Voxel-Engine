@@ -1,4 +1,4 @@
-// sky_shader.wgsl - Enhanced with volumetric cloud rendering
+// sky_shader.wgsl - Enhanced with Shadertoy-style volumetric cloud rendering
 
 const pi: f32 = radians(180.0);
 const tau: f32 = pi * 2.0;
@@ -15,6 +15,12 @@ const planet_radius_offset: f32 = 0.01;
 
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
+const rLOG2: f32 = 1.0 / log(2.0);
+const hPi: f32 = pi * 0.5;
+const rPi: f32 = 1.0 / pi;
+
+// Earth radius in meters (converted to km in shader)
+const earthRadius: f32 = 6371.0;
 
 struct Clouds {
     layer_start: f32,
@@ -36,6 +42,17 @@ struct Clouds {
     forward_scattering: f32,
     backward_scattering: f32,
     scattering_anisotropy: f32,
+    // New parameters for Shadertoy-style implementation
+    cloud_height: f32,
+    cloud_thickness: f32,
+    cloud_density_multiplier: f32,
+    shadow_steps: u32,
+    phase_g1: f32,
+    phase_g2: f32,
+    phase_blend: f32,
+    sun_brightness: f32,
+    powder_strength: f32,
+    multi_scattering: f32,
     padding: f32,
 }
 
@@ -170,207 +187,306 @@ const MOON_DISK_LUMINANCE_SCALE: f32 = 1.0;
 
 const TO_KM_SCALE = 1.0/3280.0;
 
-// Cloud utility functions
-fn sample_cloud_noise(pos: vec3<f32>) -> vec4<f32> {
-    let wind_offset = config_buffer.time * cloud_buffer.speed;
-    let uv = pos.xy + vec2<f32>(wind_offset * 0.5, wind_offset * 0.3);
-    return textureSampleLevel(cloud_noise_texture, cloud_sampler, uv, 0);
+// Utility functions
+fn d0(x: f32) -> f32 {
+    return abs(x) + 1e-8;
 }
 
-fn sample_cloud_detail(pos: vec3<f32>) -> vec4<f32> {
-    let wind_offset = config_buffer.time * cloud_buffer.detail_speed;
-    let uv = pos.xy + vec2<f32>(wind_offset * 0.8, wind_offset * 0.6);
-    return textureSampleLevel(cloud_detail_texture, cloud_sampler, uv, 0);
+fn d02(x: f32) -> f32 {
+    return abs(x) + 1e-3;
 }
 
-fn get_cloud_density(world_pos: vec3<f32>, cloud_buffer: Clouds) -> f32 {
-    let height = length(world_pos);
-    let planet_radius = atmosphere_buffer.bottom_radius;
-    let altitude = height - planet_radius;
+fn rsi(position: vec3<f32>, direction: vec3<f32>, radius: f32) -> vec2<f32> {
+    let PoD = dot(position, direction);
+    let radiusSquared = radius * radius;
     
-    if (altitude < cloud_buffer.layer_start || altitude > cloud_buffer.layer_end) {
+    let delta = PoD * PoD + radiusSquared - dot(position, position);
+    if (delta < 0.0) {
+        return vec2<f32>(-1.0);
+    }
+    
+    let sqrt_delta = sqrt(delta);
+    return -PoD + vec2<f32>(-sqrt_delta, sqrt_delta);
+}
+
+fn hgPhase(x: f32, g: f32) -> f32 {
+    let g2 = g * g;
+    return 0.25 * ((1.0 - g2) * pow(1.0 + g2 - 2.0 * g * x, -1.5));
+}
+
+fn phase2Lobes(x: f32, g1: f32, g2: f32, blend: f32) -> f32 {
+    let lobe1 = hgPhase(x, g1);
+    let lobe2 = hgPhase(x, g2);
+    return mix(lobe2, lobe1, blend);
+}
+
+fn powder(od: f32) -> f32 {
+    return 1.0 - exp2(-od * 2.0);
+}
+
+fn calculateScatterIntegral(opticalDepth: f32, coeff: f32) -> f32 {
+    let a = -coeff * rLOG2;
+    let b = -1.0 / coeff;
+    let c = 1.0 / coeff;
+    
+    return exp2(a * opticalDepth) * b + c;
+}
+
+fn get_3d_noise(pos: vec3<f32>) -> f32 {
+    let p = floor(pos.z);
+    let f = pos.z - p;
+    
+    // Use smoothstep for better interpolation
+    let smooth_f = f * f * (3.0 - 2.0 * f);
+    
+    let inv_noise_res = 1.0 / 64.0;
+    let z_stretch = 17.0 * inv_noise_res;
+    
+    // Round coordinates to reduce jitter from floating point precision
+    let rounded_pos = floor(pos * 1000.0) / 1000.0;
+    let coord = rounded_pos.xy * inv_noise_res + (p * z_stretch);
+    let coord2 = coord + z_stretch;
+    
+    let noise1 = textureSampleLevel(cloud_noise_texture, cloud_sampler, coord, 0).r;
+    let noise2 = textureSampleLevel(cloud_noise_texture, cloud_sampler, coord2, 0).r;
+    
+    return mix(noise1, noise2, smooth_f);
+}
+
+fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
+    // p is already in world space relative to planet center
+    // Just need to get the height (distance from planet center)
+    let current_height = length(p);
+    let altitude = current_height - atmosphere_buffer.bottom_radius;
+    
+    let cloudMinHeight = cloud_buffer.cloud_height;
+    let cloudMaxHeight = cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
+    
+    if (altitude < cloudMinHeight || altitude > cloudMaxHeight) {
         return 0.0;
     }
     
-    let layer_progress = (altitude - cloud_buffer.layer_start) / cloud_buffer.layer_thickness;
+    let time = config_buffer.time * cloud_buffer.speed;
+    let movement = vec3<f32>(time, 0.0, time * 0.8);
     
-    // Simple height gradient
-    let height_gradient = smoothstep(0.0, cloud_buffer.edge_fade, layer_progress) * 
-                         smoothstep(1.0, 1.0 - cloud_buffer.edge_fade, layer_progress);
+    // Use the world position directly for noise sampling
+    let cloudCoord = (p * cloud_buffer.scale) + movement;
     
-    // Primary cloud shape
-    let cloud_sample_pos = world_pos * cloud_buffer.scale;
-    let base_noise = sample_cloud_noise(cloud_sample_pos);
-    let large_features = sample_cloud_noise(cloud_sample_pos * 0.6);
+    var noise = get_3d_noise(cloudCoord) * 0.5;
+    noise += get_3d_noise(cloudCoord * 2.0 + movement) * 0.25;
+    noise += get_3d_noise(cloudCoord * 7.0 - movement) * 0.125;
+    noise += get_3d_noise((cloudCoord + movement) * 16.0) * 0.0625;
     
-    let cloud_shape = base_noise.r * 0.7 + large_features.g * 0.3;
-    let cloud_coverage = base_noise.g;
+    let top = 0.004;
+    let bottom = 0.01;
     
-    // Coverage mask
-    let coverage_threshold = 1.0 - cloud_buffer.coverage;
-    let cloud_mask = smoothstep(coverage_threshold - 0.1, coverage_threshold + 0.1, cloud_coverage);
+    let horizonHeight = altitude - cloudMinHeight;
+    let threshold = (1.0 - exp2(-bottom * horizonHeight)) * exp2(-top * horizonHeight);
     
-    // Detail erosion
-    let detail_sample_pos = world_pos * cloud_buffer.detail_scale;
-    let detail_noise = sample_cloud_detail(detail_sample_pos);
-    let detail_erosion = detail_noise.r * 0.25; // Gentle erosion
+    // Use the same threshold as Shadertoy - more aggressive coverage
+    let clouds = smoothstep(0.55, 0.6, noise);
     
-    let final_shape = clamp(cloud_shape - detail_erosion, 0.0, 1.0);
-    let density = final_shape * height_gradient * cloud_mask * cloud_buffer.density;
-    
-    return density;
+    return clouds * threshold * cloud_buffer.cloud_density_multiplier;
 }
 
-fn get_cloud_lighting(world_pos: vec3<f32>, view_dir: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds ) -> vec3<f32> {
-    let sun_elevation = sun_dir.z;
-    let sun_intensity = max(0.05, sun_elevation)*0.75;
+fn getSunVisibility(p: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds) -> f32 {
+    let steps = min(i32(cloud_buffer.shadow_steps), 32); // Clamp max steps
+    if (steps <= 0) {
+        return 1.0;
+    }
     
-    // Enhanced phase function calculation
-    let cos_angle = dot(view_dir, sun_dir);
+    // Ensure sun direction is pointing upward (toward sun) - Z-up
+    if (sun_dir.z <= 0.0) {
+        return 0.1; // Very little light if sun is below horizon
+    }
     
-    // Dual-lobe phase function for more realistic scattering
-    let forward_lobe = mix(cloud_buffer.backward_scattering, cloud_buffer.forward_scattering, 
-                          smoothstep(-1.0, 1.0, cos_angle));
+    let rSteps = cloud_buffer.cloud_thickness / f32(steps);
     
-    // Henyey-Greenstein with strong forward scattering
-    let g1 = 0.7;  // Strong forward scattering
-    let g2 = -0.3; // Weak backward scattering
-    let hg1 = (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * cos_angle, 1.5);
-    let hg2 = (1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * cos_angle, 1.5);
+    let increment = sun_dir * rSteps;
+    var position = p; // Start from the current position
     
-    // Combine phase functions with proper weighting
-    let dual_hg = mix(hg2, hg1, 0.8); // Favor forward scattering
-    let combined_phase = mix(forward_lobe, dual_hg * 0.8, 0.6);
+    var transmittance = 0.0;
     
-    // Sample transmittance to sun
-    let height = length(world_pos);
-    let zenith = world_pos / height;
-    let cos_view_zenith = dot(sun_dir, zenith);
-    let uv = transmittance_lut_params_to_uv(atmosphere_buffer, height, cos_view_zenith);
-    let transmittance = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
-    
-    // Better light attenuation with multiple scattering approximation
-    var light_attenuation = 1.0;
-    var multi_scatter_contribution = 0.0;
-    let step_size = 0.15;
-
-    let max_light_steps = 8;
-    
-    for (var i = 0; i < max_light_steps; i++) {
-        let sample_pos = world_pos + sun_dir * f32(i) * step_size;
-        let density = get_cloud_density(sample_pos, cloud_buffer);
+    for (var i = 0; i < steps; i++) {
+        if (i >= 32) { break; } // Hard limit to prevent infinite loops
         
+        position += increment; // Move toward the sun
+        
+        // Use the same time offset as the main cloud function for consistency
+        let density = getClouds(position, cloud_buffer);
         if (density > 0.0) {
-            let attenuation_step = exp(-density * cloud_buffer.absorption * step_size);
-            light_attenuation *= attenuation_step;
-            
-            // Simple multiple scattering approximation
-            let scatter_contrib = density * (1.0 - attenuation_step) * 0.3;
-            multi_scatter_contribution += scatter_contrib * light_attenuation;
+            transmittance += density;
         }
     }
     
-    // Much brighter, more saturated sun colors
-    let sunset_color = vec3<f32>(1.2, 0.4, 0.1);      // Brighter orange
-    let golden_hour_color = vec3<f32>(1.2, 0.9, 0.5)*0.8;  // Warmer and brighter
-    let midday_color = vec3<f32>(1.3, 1.25, 1.2)*0.8;      // Very bright white
+    return exp2(-transmittance * rSteps);
+}
+
+fn calcAtmosphericScatterTop(sun_dir: vec3<f32>) -> vec3<f32> {
+    let ln2 = log(2.0);
+    let lDotU = dot(sun_dir, vec3<f32>(0.0, 0.0, 1.0)); // Z-up
     
-    var sun_color: vec3<f32>;
-    if (sun_elevation < 0.15) {
-        let t = sun_elevation / 0.15;
-        sun_color = mix(sunset_color, golden_hour_color, smoothstep(0.0, 1.0, t));
-    } else if (sun_elevation < 0.4) {
-        let t = (sun_elevation - 0.15) / 0.25;
-        sun_color = mix(golden_hour_color, midday_color, smoothstep(0.0, 1.0, t));
-    } else {
-        sun_color = midday_color;
-    }
+    // Simplified atmospheric scattering for top lighting
+    let rayleighCoeff = vec3<f32>(0.27, 0.5, 1.0) * 1e-5;
+    let mieCoeff = vec3<f32>(0.5e-6);
+    let totalCoeff = rayleighCoeff + mieCoeff;
     
-    // Enhanced lighting calculation with much brighter direct light
-    let direct_light = transmittance * sun_color * sun_intensity * light_attenuation * combined_phase * 1.5;
+    let opticalDepth = 100000.0 / max(1.0 * 2.0 - 0.01, 0.01);
+    let opticalDepthLight = 100000.0 / max(lDotU * 2.0 - 0.01, 0.01);
     
-    // Multiple scattering contribution
-    let multi_scatter = transmittance * sun_color * multi_scatter_contribution * 0.4;
+    let scatterView = totalCoeff * opticalDepth;
+    let absorbView = exp2(-scatterView);
     
-    // Improved ambient light with better sky dome simulation
-    let sky_zenith = vec3<f32>(0.3, 0.5, 1.0);
-    let sky_horizon = vec3<f32>(0.8, 0.9, 1.0);
-    let warm_ambient = vec3<f32>(1.0, 0.8, 0.7);
+    let scatterLight = totalCoeff * opticalDepthLight;
+    let absorbLight = exp2(-scatterLight);
     
-    let zenith_factor = max(0.0, zenith.z);
-    let sky_color = mix(sky_horizon, sky_zenith, zenith_factor);
-    let ambient_color = mix(sky_color, warm_ambient, sun_intensity);
-    let ambient_light = ambient_color * 0.25 * max(0.4, sun_intensity);
+    // Fix: Apply d02 component-wise for vectors
+    let absorbSun = vec3<f32>(
+        d02(absorbLight.x - absorbView.x) / d02((scatterLight.x - scatterView.x) * ln2),
+        d02(absorbLight.y - absorbView.y) / d02((scatterLight.y - scatterView.y) * ln2),
+        d02(absorbLight.z - absorbView.z) / d02((scatterLight.z - scatterView.z) * ln2)
+    );
     
-    // Enhanced subsurface scattering for cloud edges
-    let subsurface_strength = max(0.0, dot(view_dir, -sun_dir));
-    let subsurface_phase = pow(subsurface_strength, 2.0);
-    let subsurface_light = sun_color * subsurface_phase * light_attenuation * 0.4;
+    let mieScatter = mieCoeff * opticalDepth * 0.25;
+    let rayleighScatter = rayleighCoeff * opticalDepth * 0.375;
     
-    // Silver lining effect for cloud edges
-    let rim_lighting = pow(1.0 - abs(cos_angle), 3.0) * 0.3;
-    let rim_light = sun_color * rim_lighting * light_attenuation;
+    let scatterSun = mieScatter + rayleighScatter;
     
-    return direct_light + multi_scatter + ambient_light + subsurface_light + rim_light;
+    return (scatterSun * absorbSun) * cloud_buffer.sun_brightness;
+}
+
+fn getVolumetricCloudsScattering(
+    opticalDepth: f32,
+    phase: f32,
+    p: vec3<f32>,
+    sun_color: vec3<f32>,
+    sky_light: vec3<f32>,
+    sun_dir: vec3<f32>,
+    cloud_buffer: Clouds
+) -> vec3<f32> {
+    // Clamp optical depth to prevent extreme values
+    let clamped_od = clamp(opticalDepth, 0.0, 10.0);
+    
+    let integral = calculateScatterIntegral(clamped_od, 1.11);
+    
+    let beersPowder = powder(clamped_od * log(2.0)) * cloud_buffer.powder_strength;
+    
+    let sun_visibility = getSunVisibility(p, sun_dir, cloud_buffer);
+    let sunlighting = (sun_color * sun_visibility * beersPowder) * phase * hPi * cloud_buffer.sun_brightness;
+    let skylighting = sky_light * 0.25 * rPi;
+    
+    let result = (sunlighting + skylighting) * integral * pi;
+    
+    // Clamp result to prevent extreme values
+    return clamp(result, vec3<f32>(0.0), vec3<f32>(100.0));
 }
 
 fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32, cloud_buffer: Clouds) -> vec4<f32> {
+    let steps = min(i32(cloud_buffer.march_steps), 64); // Clamp max steps
+    if (steps <= 0) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    
+    // Cloud layer radii from planet center
     let planet_radius = atmosphere_buffer.bottom_radius;
-    let cloud_layer_start_radius = planet_radius + cloud_buffer.layer_start;
-    let cloud_layer_end_radius = planet_radius + cloud_buffer.layer_end;
+    let cloud_inner_radius = planet_radius + cloud_buffer.cloud_height;
+    let cloud_outer_radius = planet_radius + cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
     
-    let start_distance = ray_sphere_intersect(world_pos, world_dir, cloud_layer_start_radius);
-    let end_distance = ray_sphere_intersect(world_pos, world_dir, cloud_layer_end_radius);
+    // Ray-sphere intersection for cloud layer
+    let inner_intersect = rsi(world_pos, world_dir, cloud_inner_radius);
+    let outer_intersect = rsi(world_pos, world_dir, cloud_outer_radius);
     
-    if (start_distance < 0.0 || start_distance > max_distance) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
+    // Determine entry and exit points
+    var t_start = -1.0;
+    var t_end = -1.0;
     
-    let march_start = max(start_distance, 0.0);
-    let march_end = min(end_distance, max_distance);
-    let march_distance = march_end - march_start;
+    let current_height = length(world_pos);
     
-    if (march_distance <= 0.0) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
-    }
-    
-    let step_size = march_distance / f32(cloud_buffer.march_steps);
-    let sun_dir = normalize(config_buffer.lightDirection);
-    
-    var accumulated_color = vec3<f32>(0.0);
-    var accumulated_alpha = 0.0;
-    
-    // Check if we're looking toward or away from the sun for debugging
-    let view_sun_angle = dot(world_dir, sun_dir);
-    
-    let noise_seed = dot(world_pos.xy, vec2<f32>(12.9898, 78.233)) + config_buffer.time * 0.1;
-    let noise_offset = fract(sin(noise_seed) * 43758.5453) * step_size * 0.3;
-    
-    let march_steps = 32;
-
-    for (var i = 0; i < march_steps; i++) {
-        if (accumulated_alpha > 0.98) { break; }
-        
-        let t = march_start + (f32(i) + 0.5) * step_size + noise_offset;
-        let sample_pos = world_pos + world_dir * t;
-        
-        let density = get_cloud_density(sample_pos, cloud_buffer);
-        
-        if (density > 0.01) {
-            let light_color = get_cloud_lighting(sample_pos, world_dir, sun_dir, cloud_buffer);
-            
-            // Standard extinction
-            let extinction = density * (cloud_buffer.absorption + cloud_buffer.scattering);
-            let sample_alpha = 1.0 - exp(-extinction * step_size);
-            
-            // Energy conserving alpha blending
-            let alpha_weight = sample_alpha * (1.0 - accumulated_alpha);
-            accumulated_color += light_color * alpha_weight;
-            accumulated_alpha += alpha_weight;
+    if (current_height < cloud_inner_radius) {
+        // Camera is below cloud layer
+        if (inner_intersect.y > 0.0) {
+            t_start = inner_intersect.y;
+            t_end = outer_intersect.y;
+        }
+    } else if (current_height < cloud_outer_radius) {
+        // Camera is inside cloud layer
+        t_start = 0.0;
+        t_end = outer_intersect.y;
+    } else {
+        // Camera is above cloud layer
+        if (outer_intersect.x > 0.0) {
+            t_start = outer_intersect.x;
+            t_end = inner_intersect.x;
         }
     }
     
-    return vec4<f32>(accumulated_color, accumulated_alpha);
+    // Check if we have a valid intersection
+    if (t_start < 0.0 || t_end < 0.0 || t_start >= t_end) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    
+    // Clamp to max distance
+    t_start = max(t_start, 0.0);
+    t_end = min(t_end, max_distance);
+    
+    if (t_start >= t_end) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    
+    let march_distance = t_end - t_start;
+    let step_size = march_distance / f32(steps);
+    
+    // Dithering for noise reduction - use world position for stability
+    let noise_seed = dot(floor(world_pos.xy * 100.0), vec2<f32>(12.9898, 78.233));
+    let dither = fract(sin(noise_seed) * 43758.5453);
+    
+    var current_distance = t_start + dither * step_size;
+    
+    var scattering = vec3<f32>(0.0);
+    var transmittance = 1.0;
+    
+    let sun_dir = normalize(config_buffer.lightDirection);
+    
+    // Calculate phase function - this changes with sun angle, which is correct
+    let lDotW = dot(sun_dir, world_dir);
+    let phase = phase2Lobes(lDotW, cloud_buffer.phase_g1, cloud_buffer.phase_g2, cloud_buffer.phase_blend);
+    
+    // Get atmospheric lighting that's consistent with sun position
+    let skyLight = calcAtmosphericScatterTop(sun_dir);
+    
+    // Get sun color from transmittance LUT - this should be consistent
+    let height = length(world_pos);
+    let zenith = normalize(world_pos); // Zenith direction from planet center
+    let cos_view_zenith = dot(sun_dir, zenith);
+    let uv = transmittance_lut_params_to_uv(atmosphere_buffer, height, cos_view_zenith);
+    let sun_color = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
+    
+    for (var i = 0; i < steps; i++) {
+        if (i >= 64) { break; } // Hard limit to prevent infinite loops
+        if (current_distance >= t_end) { break; } // Bounds check
+        
+        let cloudPosition = world_pos + world_dir * current_distance;
+        let opticalDepth = getClouds(cloudPosition, cloud_buffer) * step_size;
+        
+        if (opticalDepth > 0.0) {
+            let scatter_contribution = getVolumetricCloudsScattering(
+                opticalDepth, phase, cloudPosition, sun_color, skyLight, sun_dir, cloud_buffer
+            );
+            
+            scattering += scatter_contribution * transmittance;
+            transmittance *= exp2(-opticalDepth);
+        }
+        
+        current_distance += step_size;
+        
+        if (transmittance < 0.01) {
+            break;
+        }
+    }
+    
+    let final_alpha = 1.0 - transmittance;
+    
+    return vec4<f32>(scattering, final_alpha);
 }
 
 fn ray_sphere_intersect(origin: vec3<f32>, direction: vec3<f32>, radius: f32) -> f32 {
@@ -687,7 +803,6 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sun_dir = normalize(config.lightDirection);
 
     let view_height = length(world_pos);
-    //let depth = resolve_depth_msaa(pix);
     let depth = textureLoad(depth_buffer, pix, 0);
 
     let pixel_pos = vec2f(in.position.x, in.position.y);
@@ -702,11 +817,11 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
         max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
     }
 
-    // Raymarch through clouds
+    // Raymarch through clouds using Shadertoy-style implementation
     let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance, clouds);
     
-    // Composite clouds with sky
-    let final_color = mix(sky_color.rgb, cloud_result.rgb, cloud_result.a);
+    // Simple compositing - clouds over sky
+    let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
 
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     

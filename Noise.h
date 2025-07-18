@@ -35,6 +35,16 @@ inline Noise getCumulusNoise(int seed) {
 	return noise;
 }
 
+inline Noise getWhiteNoise64(int seed) {
+	Noise noise = {};
+
+	noise.textureSize = 64;
+	noise.textureType = 0;
+	noise.seed = seed;
+
+	return noise;
+}
+
 inline Noise getCumulusBlueNoise(int seed) {
 	Noise noise = {};
 

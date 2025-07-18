@@ -666,7 +666,7 @@ bool WebGPURenderer::initCloudNoiseTextures() {
 	cloudNoiseTextureDesc.format = TextureFormat::RGBA8Unorm;
 	cloudNoiseTextureDesc.mipLevelCount = 1;
 	cloudNoiseTextureDesc.sampleCount = 1;
-	cloudNoiseTextureDesc.size = { 512, 512, 1 };
+	cloudNoiseTextureDesc.size = { 64, 64, 1 };
 	cloudNoiseTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
 	cloudNoiseTextureDesc.viewFormatCount = 0;
 	cloudNoiseTextureDesc.viewFormats = nullptr;
