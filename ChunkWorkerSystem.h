@@ -98,33 +98,6 @@ public:
     }
 };
 
-
-
-// Work result for completed tasks
-struct ChunkWorkResult {
-    int work_item_id;
-    ChunkWorkItem::Type work_type;
-    ivec3 position;
-    bool success;
-    std::string error_message;
-    std::chrono::steady_clock::time_point completion_time;
-    std::chrono::milliseconds processing_time;
-
-    // Default constructor
-    ChunkWorkResult()
-        : work_item_id(0), work_type(ChunkWorkItem::GenerateTerrain), position(0, 0, 0),
-        success(false), error_message(""), completion_time(std::chrono::steady_clock::now()),
-        processing_time(std::chrono::milliseconds(0)) {
-    }
-
-    ChunkWorkResult(int id, ChunkWorkItem::Type type, ivec3 pos, bool s,
-        const std::string& error = "", std::chrono::milliseconds proc_time = std::chrono::milliseconds(0))
-        : work_item_id(id), work_type(type), position(pos), success(s),
-        error_message(error), completion_time(std::chrono::steady_clock::now()),
-        processing_time(proc_time) {
-    }
-};
-
 // Thread-safe priority queue for work items
 class ChunkWorkQueue {
 private:
@@ -205,56 +178,10 @@ public:
     }
 };
 
-// Thread-safe queue for completed work results
-class ChunkResultQueue {
-private:
-    std::queue<ChunkWorkResult> queue;
-    mutable std::mutex mtx;
-    std::condition_variable cv;
-    std::atomic<bool> shutdown{ false };
-
-public:
-    void push(const ChunkWorkResult& result) {
-        std::lock_guard<std::mutex> lock(mtx);
-        if (!shutdown) {
-            queue.push(result);
-            cv.notify_one();
-        }
-    }
-
-    bool pop(ChunkWorkResult& result, std::chrono::milliseconds timeout = std::chrono::milliseconds(10)) {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        if (cv.wait_for(lock, timeout, [this] { return !queue.empty() || shutdown; })) {
-            if (shutdown && queue.empty()) {
-                return false;
-            }
-
-            if (!queue.empty()) {
-                result = queue.front();
-                queue.pop();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void requestShutdown() {
-        shutdown = true;
-        cv.notify_all();
-    }
-
-    size_t size() const {
-        std::lock_guard<std::mutex> lock(mtx);
-        return queue.size();
-    }
-};
-
 // Enhanced chunk worker system with thread pool architecture
 class ChunkWorkerSystem {
 private:
     ChunkWorkQueue work_queue;
-    ChunkResultQueue result_queue;
 
     std::vector<std::thread> worker_threads;
     std::thread result_processor_thread;
@@ -297,7 +224,6 @@ public:
 
         // Signal shutdown to queues
         work_queue.requestShutdown();
-        result_queue.requestShutdown();
 
         // Wait for all threads to finish
         for (auto& worker : worker_threads) {
@@ -375,7 +301,6 @@ public:
 
     // Statistics and monitoring
     size_t getQueueSize() const { return work_queue.size(); }
-    size_t getResultQueueSize() const { return result_queue.size(); }
     int getActiveWorkers() const { return active_workers; }
     size_t getTotalProcessed() const { return total_work_items_processed; }
 
@@ -395,7 +320,6 @@ public:
     Statistics getStatistics() const {
         Statistics stats;
         stats.queue_size = getQueueSize();
-        stats.result_queue_size = getResultQueueSize();
         stats.active_workers = getActiveWorkers();
         stats.total_processed = total_work_items_processed;
         stats.terrain_generated = terrain_generated;
@@ -444,11 +368,6 @@ private:
 
                 auto processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time);
-
-                // Create result
-                ChunkWorkResult result(workItem.getId(), workItem.getType(), workItem.getPosition(),
-                    success, error_message, processing_time);
-                result_queue.push(result);
 
                 total_work_items_processed++;
                 if (!success) {

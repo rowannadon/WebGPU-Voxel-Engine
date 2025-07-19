@@ -59,11 +59,11 @@ private:
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 16;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 32;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 16;
     static constexpr int MAX_ACTIVE_CHUNKS = 12288;
-    static constexpr int MAX_TOTAL_CHUNKS = 32000;
-    static constexpr int WORLD_MIN = -2;
-    static constexpr int WORLD_MAX = 16;
+    static constexpr int MAX_TOTAL_CHUNKS = 64000;
+    static constexpr int WORLD_MIN = -4;
+    static constexpr int WORLD_MAX = 18;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -240,7 +240,6 @@ private:
                             continue;
                         }
 
-                        // Check if within render distance (Euclidean)
                         float distSq = x * x + y * y - z;
                         if (distSq > renderDistance * renderDistance) {
                             continue;
@@ -272,7 +271,7 @@ private:
             ChunkPriority nextChunk = pendingChunkCreation.top();
             pendingChunkCreation.pop();
 
-            //std::unique_lock<std::shared_mutex> lock(chunksMutex);
+            std::unique_lock<std::shared_mutex> lock(chunksMutex);
 
             if (chunks.find(nextChunk.position) == chunks.end()) {
                 float distanceFromPlayer = 

@@ -432,6 +432,8 @@ void Application::renderImGUI() {
             ImGui::SliderFloat("Forward scattering", &clouds.forward_scattering, 0.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Backward scattering", &clouds.backward_scattering, 0.0f, 1.0f, "%.2f");
 
+            ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");
+
             ImGui::SliderFloat("Height", &clouds.cloud_height, 0.0f, 100.0f, "%.2f");
             ImGui::SliderFloat("Thickness", &clouds.cloud_thickness, 0.0f, 100.0f, "%.2f");
             ImGui::SliderFloat("Density multiplier", &clouds.cloud_density_multiplier, 0.0f, 1.0f, "%.2f");
