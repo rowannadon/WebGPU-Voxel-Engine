@@ -21,7 +21,7 @@ bool WebGPURenderer::initialize() {
 	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 
 	// create resources
-	initCloudNoiseTextures();
+	initNoiseTextures();
 	initTransmittanceTexture();
 	initMultiScatteringTexture();
 	initSkyViewTexture();
@@ -32,7 +32,7 @@ bool WebGPURenderer::initialize() {
 	initShadowTexture();
 
 	// create pipelines
-	initCloudNoisePipeline();
+	initNoisePipeline();
 	initTransmittancePipeline();
 	initMultiScatteringPipeline();
 	initSkyViewPipeline();
@@ -112,29 +112,29 @@ bool WebGPURenderer::initAerialPerspectivePipeline() {
 	return true;
 }
 
-bool WebGPURenderer::initCloudNoisePipeline() {
+bool WebGPURenderer::initNoisePipeline() {
 	ComputePipelineConfig config;
-	config.shaderPath = RESOURCE_DIR "/cloudnoise_cs.wgsl";
+	config.shaderPath = RESOURCE_DIR "/noise_cs.wgsl";
 	config.computeShaderName = "main";
 
-	std::vector<BindGroupLayoutEntry> cloudNoiseUniforms(2, Default);
-	cloudNoiseUniforms[0].binding = 0;
-	cloudNoiseUniforms[0].visibility = ShaderStage::Compute;
-	cloudNoiseUniforms[0].buffer.type = BufferBindingType::Uniform;
-	cloudNoiseUniforms[0].buffer.minBindingSize = sizeof(Noise);
-	cloudNoiseUniforms[0].buffer.hasDynamicOffset = false;
+	std::vector<BindGroupLayoutEntry> noiseUniforms(2, Default);
+	noiseUniforms[0].binding = 0;
+	noiseUniforms[0].visibility = ShaderStage::Compute;
+	noiseUniforms[0].buffer.type = BufferBindingType::Uniform;
+	noiseUniforms[0].buffer.minBindingSize = sizeof(Noise);
+	noiseUniforms[0].buffer.hasDynamicOffset = false;
 
-	cloudNoiseUniforms[1].binding = 1;
-	cloudNoiseUniforms[1].visibility = ShaderStage::Compute;
-	cloudNoiseUniforms[1].storageTexture.access = StorageTextureAccess::WriteOnly;
-	cloudNoiseUniforms[1].storageTexture.format = TextureFormat::RGBA8Unorm;
-	cloudNoiseUniforms[1].storageTexture.viewDimension = TextureViewDimension::_2D;
+	noiseUniforms[1].binding = 1;
+	noiseUniforms[1].visibility = ShaderStage::Compute;
+	noiseUniforms[1].storageTexture.access = StorageTextureAccess::WriteOnly;
+	noiseUniforms[1].storageTexture.format = TextureFormat::RGBA8Unorm;
+	noiseUniforms[1].storageTexture.viewDimension = TextureViewDimension::_3D;
 
 	config.bindGroupLayouts.push_back(
-		pipelineManager->createBindGroupLayout("cloudnoise_uniforms", cloudNoiseUniforms)
+		pipelineManager->createBindGroupLayout("noise_uniforms", noiseUniforms)
 	);
 
-	pipelineManager->createComputePipeline("cloudnoise_pipeline", config);
+	pipelineManager->createComputePipeline("noise_pipeline", config);
 
 	return true;
 }
@@ -277,7 +277,7 @@ bool WebGPURenderer::initSkyPipeline() {
 	config.vertexAttributes.clear();
 
 	// atmosphere uniforms
-	std::vector<BindGroupLayoutEntry> skyUniforms(12, Default);
+	std::vector<BindGroupLayoutEntry> skyUniforms(11, Default);
 	skyUniforms[0].binding = 0;
 	skyUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[0].buffer.type = BufferBindingType::Uniform;
@@ -333,16 +333,11 @@ bool WebGPURenderer::initSkyPipeline() {
 	skyUniforms[9].binding = 9;
 	skyUniforms[9].visibility = ShaderStage::Fragment;
 	skyUniforms[9].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[9].texture.viewDimension = TextureViewDimension::_2D;
+	skyUniforms[9].texture.viewDimension = TextureViewDimension::_3D;
 
 	skyUniforms[10].binding = 10;
 	skyUniforms[10].visibility = ShaderStage::Fragment;
-	skyUniforms[10].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
-
-	skyUniforms[11].binding = 11;
-	skyUniforms[11].visibility = ShaderStage::Fragment;
-	skyUniforms[11].sampler.type = SamplerBindingType::Filtering;
+	skyUniforms[10].sampler.type = SamplerBindingType::Filtering;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("sky_uniforms", skyUniforms)
@@ -384,20 +379,18 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	}
 
 
-	//=== CLOUD NOISE COMPUTE PASS ===
+	//=== NOISE COMPUTE PASS ===
 	{
 		ComputePassDescriptor computePassDesc;
 		computePassDesc.timestampWrites = nullptr;
 		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
-		computePass.setPipeline(pipelineManager->getComputePipeline("cloudnoise_pipeline"));
+		computePass.setPipeline(pipelineManager->getComputePipeline("noise_pipeline"));
 
-		computePass.setBindGroup(0, pipelineManager->getBindGroup("cloudnoise_uniforms_group"), 0, nullptr);
+		computePass.setBindGroup(0, pipelineManager->getBindGroup("noise_uniforms_group"), 0, nullptr);
 
-		computePass.dispatchWorkgroups(64, 64, 1);
-
-		computePass.setBindGroup(0, pipelineManager->getBindGroup("cloudbluenoise_uniforms_group"), 0, nullptr);
-
-		computePass.dispatchWorkgroups(32, 32, 1);
+		Noise noiseParams = getWhiteNoise3D();
+		
+		computePass.dispatchWorkgroups(noiseParams.textureSize / 4, noiseParams.textureSize / 4, noiseParams.textureSize / 4);
 
 		computePass.end();
 
@@ -660,48 +653,29 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 #endif
 }
 
-bool WebGPURenderer::initCloudNoiseTextures() {
-	TextureDescriptor cloudNoiseTextureDesc;
-	cloudNoiseTextureDesc.dimension = TextureDimension::_2D;
-	cloudNoiseTextureDesc.format = TextureFormat::RGBA8Unorm;
-	cloudNoiseTextureDesc.mipLevelCount = 1;
-	cloudNoiseTextureDesc.sampleCount = 1;
-	cloudNoiseTextureDesc.size = { 64, 64, 1 };
-	cloudNoiseTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
-	cloudNoiseTextureDesc.viewFormatCount = 0;
-	cloudNoiseTextureDesc.viewFormats = nullptr;
-	Texture cloudNoiseTexture = textureManager->createTexture("cloudnoise_texture", cloudNoiseTextureDesc);
+bool WebGPURenderer::initNoiseTextures() {
+	Noise noiseParams = getWhiteNoise3D();
 
-	TextureViewDescriptor  cloudNoiseTextureViewDesc;
-	cloudNoiseTextureViewDesc.aspect = TextureAspect::All;
-	cloudNoiseTextureViewDesc.baseArrayLayer = 0;
-	cloudNoiseTextureViewDesc.arrayLayerCount = 1;
-	cloudNoiseTextureViewDesc.baseMipLevel = 0;
-	cloudNoiseTextureViewDesc.mipLevelCount = 1;
-	cloudNoiseTextureViewDesc.dimension = TextureViewDimension::_2D;
-	cloudNoiseTextureViewDesc.format = TextureFormat::RGBA8Unorm;
-	TextureView cloudNoiseTextureView = textureManager->createTextureView("cloudnoise_texture", "cloudnoise_view", cloudNoiseTextureViewDesc);
+	TextureDescriptor noise2DTextureDesc;
+	noise2DTextureDesc.dimension = TextureDimension::_3D;
+	noise2DTextureDesc.format = TextureFormat::RGBA8Unorm;
+	noise2DTextureDesc.mipLevelCount = 1;
+	noise2DTextureDesc.sampleCount = 1;
+	noise2DTextureDesc.size = { noiseParams.textureSize, noiseParams.textureSize, noiseParams.textureSize };
+	noise2DTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
+	noise2DTextureDesc.viewFormatCount = 0;
+	noise2DTextureDesc.viewFormats = nullptr;
+	Texture noise2DTexture = textureManager->createTexture("noise_texture", noise2DTextureDesc);
 
-	TextureDescriptor cloudBlueNoiseTextureDesc;
-	cloudBlueNoiseTextureDesc.dimension = TextureDimension::_2D;
-	cloudBlueNoiseTextureDesc.format = TextureFormat::RGBA8Unorm;
-	cloudBlueNoiseTextureDesc.mipLevelCount = 1;
-	cloudBlueNoiseTextureDesc.sampleCount = 1;
-	cloudBlueNoiseTextureDesc.size = { 256, 256, 1 };
-	cloudBlueNoiseTextureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding;
-	cloudBlueNoiseTextureDesc.viewFormatCount = 0;
-	cloudBlueNoiseTextureDesc.viewFormats = nullptr;
-	Texture cloudBlueNoiseTexture = textureManager->createTexture("cloudbluenoise_texture", cloudBlueNoiseTextureDesc);
-
-	TextureViewDescriptor  cloudBlueNoiseTextureViewDesc;
-	cloudBlueNoiseTextureViewDesc.aspect = TextureAspect::All;
-	cloudBlueNoiseTextureViewDesc.baseArrayLayer = 0;
-	cloudBlueNoiseTextureViewDesc.arrayLayerCount = 1;
-	cloudBlueNoiseTextureViewDesc.baseMipLevel = 0;
-	cloudBlueNoiseTextureViewDesc.mipLevelCount = 1;
-	cloudBlueNoiseTextureViewDesc.dimension = TextureViewDimension::_2D;
-	cloudBlueNoiseTextureViewDesc.format = TextureFormat::RGBA8Unorm;
-	TextureView cloudBlueNoiseTextureView = textureManager->createTextureView("cloudbluenoise_texture", "cloudbluenoise_view", cloudBlueNoiseTextureViewDesc);
+	TextureViewDescriptor  noiseTextureViewDesc;
+	noiseTextureViewDesc.aspect = TextureAspect::All;
+	noiseTextureViewDesc.baseArrayLayer = 0;
+	noiseTextureViewDesc.arrayLayerCount = 1;
+	noiseTextureViewDesc.baseMipLevel = 0;
+	noiseTextureViewDesc.mipLevelCount = 1;
+	noiseTextureViewDesc.dimension = TextureViewDimension::_3D;
+	noiseTextureViewDesc.format = TextureFormat::RGBA8Unorm;
+	TextureView noise2DTextureView = textureManager->createTextureView("noise_texture", "noise_view", noiseTextureViewDesc);
 
 	SamplerDescriptor samplerDesc;
 	samplerDesc.addressModeU = AddressMode::Repeat;
@@ -714,9 +688,9 @@ bool WebGPURenderer::initCloudNoiseTextures() {
 	samplerDesc.lodMaxClamp = 8.0f;
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
-	textureManager->createSampler("cloudnoise_sampler", samplerDesc);
+	textureManager->createSampler("noise_sampler", samplerDesc);
 
-	return cloudNoiseTextureView != nullptr;
+	return noise2DTextureView != nullptr;
 }
 
 bool WebGPURenderer::initTransmittanceTexture() {
@@ -1105,14 +1079,11 @@ bool WebGPURenderer::initUniformBuffers() {
 	noiseBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
 	noiseBufferDesc.mappedAtCreation = false;
 	Buffer noiseBuffer = bufferManager->createBuffer("noise_buffer", noiseBufferDesc);
-
-	BufferDescriptor blueNoiseBufferDesc;
-	blueNoiseBufferDesc.size = sizeof(Noise);
-	blueNoiseBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	blueNoiseBufferDesc.mappedAtCreation = false;
-	Buffer blueNoiseBuffer = bufferManager->createBuffer("bluenoise_buffer", blueNoiseBufferDesc);
 	
-	return uniformBuffer != nullptr && atmosphereBuffer != nullptr && cloudBuffer != nullptr;
+	return uniformBuffer != nullptr && 
+		atmosphereBuffer != nullptr && 
+		cloudBuffer != nullptr &&
+		noiseBuffer != nullptr;
 }
 
 bool WebGPURenderer::initTextures() {
@@ -1285,7 +1256,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup aerialPerspectiveBindGroup = pipelineManager->createBindGroup("aerialperspective_uniforms_group", "aerialperspective_uniforms", aerialPerspectiveBindings);
 
-	std::vector<BindGroupEntry> skyBindings(12);
+	std::vector<BindGroupEntry> skyBindings(11);
 
 	skyBindings[0].binding = 0;
 	skyBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
@@ -1322,39 +1293,24 @@ bool WebGPURenderer::initBindGroup() {
 	skyBindings[8].sampler = textureManager->getSampler("depth_sampler");
 
 	skyBindings[9].binding = 9;
-	skyBindings[9].textureView = textureManager->getTextureView("cloudnoise_view");
+	skyBindings[9].textureView = textureManager->getTextureView("noise_view");
 
 	skyBindings[10].binding = 10;
-	skyBindings[10].textureView = textureManager->getTextureView("cloudbluenoise_view");
-
-	skyBindings[11].binding = 11;
-	skyBindings[11].sampler = textureManager->getSampler("cloudnoise_sampler");
+	skyBindings[10].sampler = textureManager->getSampler("noise_sampler");
 
 	BindGroup skyBindGroup = pipelineManager->createBindGroup("sky_uniforms_group", "sky_uniforms", skyBindings);
 
-	std::vector<BindGroupEntry> cloudNoiseBindings(2);
+	std::vector<BindGroupEntry> noiseBindings(2);
 
-	cloudNoiseBindings[0].binding = 0;
-	cloudNoiseBindings[0].buffer = bufferManager->getBuffer("noise_buffer");
-	cloudNoiseBindings[0].offset = 0;
-	cloudNoiseBindings[0].size = sizeof(Noise);
+	noiseBindings[0].binding = 0;
+	noiseBindings[0].buffer = bufferManager->getBuffer("noise_buffer");
+	noiseBindings[0].offset = 0;
+	noiseBindings[0].size = sizeof(Noise);
 
-	cloudNoiseBindings[1].binding = 1;
-	cloudNoiseBindings[1].textureView = textureManager->getTextureView("cloudnoise_view");
+	noiseBindings[1].binding = 1;
+	noiseBindings[1].textureView = textureManager->getTextureView("noise_view");
 
-	BindGroup cloudNoiseBindGroup = pipelineManager->createBindGroup("cloudnoise_uniforms_group", "cloudnoise_uniforms", cloudNoiseBindings);
-
-	std::vector<BindGroupEntry> cloudBlueNoiseBindings(2);
-
-	cloudBlueNoiseBindings[0].binding = 0;
-	cloudBlueNoiseBindings[0].buffer = bufferManager->getBuffer("bluenoise_buffer");
-	cloudBlueNoiseBindings[0].offset = 0;
-	cloudBlueNoiseBindings[0].size = sizeof(Noise);
-
-	cloudBlueNoiseBindings[1].binding = 1;
-	cloudBlueNoiseBindings[1].textureView = textureManager->getTextureView("cloudbluenoise_view");
-
-	BindGroup cloudBlueNoiseBindGroup = pipelineManager->createBindGroup("cloudbluenoise_uniforms_group", "cloudnoise_uniforms", cloudBlueNoiseBindings);
+	BindGroup noiseBindGroup = pipelineManager->createBindGroup("noise_uniforms_group", "noise_uniforms", noiseBindings);
 
 	return bindGroup != nullptr &&
 		shadowBindGroup != nullptr &&
@@ -1363,8 +1319,7 @@ bool WebGPURenderer::initBindGroup() {
 		skyViewBindGroup != nullptr &&
 		aerialPerspectiveBindGroup != nullptr &&
 		skyBindGroup != nullptr &&
-		cloudNoiseBindGroup != nullptr;
-		//cloudBlueNoiseBindGroup != nullptr;
+		noiseBindGroup != nullptr;
 }
 
 GLFWwindow* WebGPURenderer::getWindow() {

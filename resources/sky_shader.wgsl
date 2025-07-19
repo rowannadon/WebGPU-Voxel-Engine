@@ -150,9 +150,8 @@ struct SkyVertexOutput {
 @group(0) @binding(6) var aerial_perspective_lut : texture_3d<f32>;
 @group(0) @binding(7) var depth_buffer: texture_depth_multisampled_2d;
 @group(0) @binding(8) var depth_sampler: sampler;
-@group(0) @binding(9) var cloud_noise_texture: texture_2d<f32>;
-@group(0) @binding(10) var cloud_detail_texture: texture_2d<f32>;
-@group(0) @binding(11) var cloud_sampler: sampler;
+@group(0) @binding(9) var cloud_noise_texture: texture_3d<f32>;
+@group(0) @binding(10) var cloud_sampler: sampler;
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
@@ -232,33 +231,13 @@ fn calculateScatterIntegral(opticalDepth: f32, coeff: f32) -> f32 {
     return exp2(a * opticalDepth) * b + c;
 }
 
-fn get_3d_noise(pos: vec3<f32>) -> f32 {
-    let p = floor(pos.z);
-    let f = pos.z - p;
-    
-    // Use smoothstep for better interpolation
-    let smooth_f = f * f * (3.0 - 2.0 * f);
-    
-    let inv_noise_res = 1.0 / 64.0;
-    let z_stretch = 17.0 * inv_noise_res;
-    
-    // Round coordinates to reduce jitter from floating point precision
-    let rounded_pos = floor(pos * 1000.0) / 1000.0;
-    let coord = rounded_pos.xy * inv_noise_res + (p * z_stretch);
-    let coord2 = coord + z_stretch;
-    
-    let noise1 = textureSampleLevel(cloud_noise_texture, cloud_sampler, coord, 0).r;
-    let noise2 = textureSampleLevel(cloud_noise_texture, cloud_sampler, coord2, 0).r;
-    
-    return mix(noise1, noise2, smooth_f);
-}
 
 fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
-    // p is already in world space relative to planet center
-    // Just need to get the height (distance from planet center)
-    let current_height = length(p);
-    let altitude = current_height - atmosphere_buffer.bottom_radius;
+    // p is in world space - use absolute world coordinates for Z, camera-relative for XY
+    let camera_world_pos = config_buffer.cameraWorldPos;
     
+    // Check height bounds using absolute world Z position (fixed height above origin)
+    let altitude = p.z;  // Use absolute world Z position
     let cloudMinHeight = cloud_buffer.cloud_height;
     let cloudMaxHeight = cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
     
@@ -266,53 +245,58 @@ fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
         return 0.0;
     }
     
-    let time = config_buffer.time * cloud_buffer.speed;
-    let movement = vec3<f32>(time, 0.0, time * 0.8);
+    // For horizontal bounds, use camera-relative XY coordinates
+    let camera_relative_xy = p.xy - camera_world_pos.xy;
+    let horizontal_distance = length(camera_relative_xy);
+    let horizon_distance = cloud_buffer.horizon_fade; // Use existing parameter for cylinder radius
     
-    // Use the world position directly for noise sampling
+    if (horizontal_distance > horizon_distance) {
+        return 0.0;
+    }
+    
+    let time = config_buffer.time * cloud_buffer.speed;
+    let movement = vec3<f32>(time, time * 0.8, 0.0); // Keep movement in XY plane
+    
+    // Use world position for noise sampling (maintains world-space consistency)
     let cloudCoord = (p * cloud_buffer.scale) + movement;
     
-    var noise = get_3d_noise(cloudCoord) * 0.5;
-    noise += get_3d_noise(cloudCoord * 2.0 + movement) * 0.25;
-    noise += get_3d_noise(cloudCoord * 7.0 - movement) * 0.125;
-    noise += get_3d_noise((cloudCoord + movement) * 16.0) * 0.0625;
+    var noise1 = textureSampleLevel(cloud_noise_texture, cloud_sampler, cloudCoord, 0).r * 0.5;
+    noise1 += textureSampleLevel(cloud_noise_texture, cloud_sampler, cloudCoord * 2.0 + movement, 0).r * 0.25;
+    noise1 += textureSampleLevel(cloud_noise_texture, cloud_sampler, cloudCoord * 7.0 - movement, 0).r * 0.125;
+    noise1 += textureSampleLevel(cloud_noise_texture, cloud_sampler, (cloudCoord + movement) * 16.0, 0).r * 0.0625;
     
+    // Vertical fade using absolute world Z position
     let top = 0.004;
     let bottom = 0.01;
+    let vertical_height = altitude - cloudMinHeight;
+    let threshold = (1.0 - exp2(-bottom * vertical_height)) * exp2(-top * vertical_height);
     
-    let horizonHeight = altitude - cloudMinHeight;
-    let threshold = (1.0 - exp2(-bottom * horizonHeight)) * exp2(-top * horizonHeight);
+    // Horizontal fade near cylinder edges (camera-relative)
+    let edge_fade_distance = horizon_distance * 0.1; // 10% fade zone
+    let horizontal_fade = 1.0 - smoothstep(horizon_distance - edge_fade_distance, horizon_distance, horizontal_distance);
     
-    // Use the same threshold as Shadertoy - more aggressive coverage
-    let clouds = smoothstep(0.55, 0.6, noise);
+    let clouds = smoothstep(0.55, 0.6, noise1);
     
-    return clouds * threshold * cloud_buffer.cloud_density_multiplier;
+    return clouds * threshold * horizontal_fade * cloud_buffer.cloud_density_multiplier;
 }
 
 fn getSunVisibility(p: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds) -> f32 {
-    let steps = min(i32(cloud_buffer.shadow_steps), 32); // Clamp max steps
+    let steps = min(i32(cloud_buffer.shadow_steps), 32);
     if (steps <= 0) {
         return 1.0;
     }
     
-    // Ensure sun direction is pointing upward (toward sun) - Z-up
-    if (sun_dir.z <= 0.0) {
-        return 0.1; // Very little light if sun is below horizon
-    }
-    
     let rSteps = cloud_buffer.cloud_thickness / f32(steps);
-    
     let increment = sun_dir * rSteps;
-    var position = p; // Start from the current position
+    var position = p;
     
     var transmittance = 0.0;
     
     for (var i = 0; i < steps; i++) {
-        if (i >= 32) { break; } // Hard limit to prevent infinite loops
+        if (i >= 32) { break; }
         
-        position += increment; // Move toward the sun
+        position += increment;
         
-        // Use the same time offset as the main cloud function for consistency
         let density = getClouds(position, cloud_buffer);
         if (density > 0.0) {
             transmittance += density;
@@ -320,6 +304,87 @@ fn getSunVisibility(p: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds) -> f
     }
     
     return exp2(-transmittance * rSteps);
+}
+
+fn ray_cylinder_intersect_fixed_z(origin: vec3<f32>, direction: vec3<f32>, cylinder_center_xy: vec2<f32>, radius: f32, height_min: f32, height_max: f32) -> vec2<f32> {
+    // Convert to cylinder-relative coordinates (only for XY, Z remains absolute)
+    let relative_origin_xy = origin.xy - cylinder_center_xy;
+    let relative_origin = vec3<f32>(relative_origin_xy.x, relative_origin_xy.y, origin.z);
+    
+    // Ray-cylinder intersection in XY plane (Z is absolute world coordinates)
+    let a = direction.x * direction.x + direction.y * direction.y;
+    let b = 2.0 * (relative_origin.x * direction.x + relative_origin.y * direction.y);
+    let c = relative_origin.x * relative_origin.x + relative_origin.y * relative_origin.y - radius * radius;
+    
+    let discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant < 0.0 || a < 1e-6) {
+        return vec2<f32>(-1.0, -1.0); // No intersection
+    }
+    
+    let sqrt_discriminant = sqrt(discriminant);
+    let t1 = (-b - sqrt_discriminant) / (2.0 * a);
+    let t2 = (-b + sqrt_discriminant) / (2.0 * a);
+    
+    // Check height bounds for both intersection points using absolute world Z
+    let z1 = origin.z + t1 * direction.z;  // Absolute world Z position
+    let z2 = origin.z + t2 * direction.z;  // Absolute world Z position
+    
+    var valid_t1 = t1 > 0.0 && z1 >= height_min && z1 <= height_max;
+    var valid_t2 = t2 > 0.0 && z2 >= height_min && z2 <= height_max;
+    
+    // Handle cases where ray intersects cylinder but outside height bounds
+    if (!valid_t1 && !valid_t2) {
+        // Check if ray intersects the height planes within the cylinder radius
+        if (abs(direction.z) > 1e-6) {
+            let t_bottom = (height_min - origin.z) / direction.z;  // Use absolute world Z
+            let t_top = (height_max - origin.z) / direction.z;     // Use absolute world Z
+            
+            // Check if these intersections are within cylinder radius
+            let pos_bottom_xy = relative_origin.xy + direction.xy * t_bottom;
+            let pos_top_xy = relative_origin.xy + direction.xy * t_top;
+            
+            let dist_bottom = length(pos_bottom_xy);
+            let dist_top = length(pos_top_xy);
+            
+            if (t_bottom > 0.0 && dist_bottom <= radius) {
+                if (t_top > 0.0 && dist_top <= radius) {
+                    return vec2<f32>(min(t_bottom, t_top), max(t_bottom, t_top));
+                } else {
+                    valid_t1 = t1 > 0.0;
+                    valid_t2 = t2 > 0.0;
+                    if (valid_t1 && valid_t2) {
+                        return vec2<f32>(t_bottom, max(t1, t2));
+                    } else if (valid_t1) {
+                        return vec2<f32>(t_bottom, t1);
+                    } else if (valid_t2) {
+                        return vec2<f32>(t_bottom, t2);
+                    }
+                }
+            } else if (t_top > 0.0 && dist_top <= radius) {
+                valid_t1 = t1 > 0.0;
+                valid_t2 = t2 > 0.0;
+                if (valid_t1 && valid_t2) {
+                    return vec2<f32>(min(t1, t2), t_top);
+                } else if (valid_t1) {
+                    return vec2<f32>(t1, t_top);
+                } else if (valid_t2) {
+                    return vec2<f32>(t2, t_top);
+                }
+            }
+        }
+        return vec2<f32>(-1.0, -1.0);
+    }
+    
+    if (valid_t1 && valid_t2) {
+        return vec2<f32>(min(t1, t2), max(t1, t2));
+    } else if (valid_t1) {
+        return vec2<f32>(t1, t1);
+    } else if (valid_t2) {
+        return vec2<f32>(t2, t2);
+    }
+    
+    return vec2<f32>(-1.0, -1.0);
 }
 
 fn calcAtmosphericScatterTop(sun_dir: vec3<f32>) -> vec3<f32> {
@@ -382,43 +447,29 @@ fn getVolumetricCloudsScattering(
 }
 
 fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32, cloud_buffer: Clouds) -> vec4<f32> {
-    let steps = min(i32(cloud_buffer.march_steps), 64); // Clamp max steps
+    let steps = min(i32(cloud_buffer.march_steps), 64);
     if (steps <= 0) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
     
-    // Cloud layer radii from planet center
-    let planet_radius = atmosphere_buffer.bottom_radius;
-    let cloud_inner_radius = planet_radius + cloud_buffer.cloud_height;
-    let cloud_outer_radius = planet_radius + cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
+    // Define cylindrical cloud layer: XY follows camera, Z is fixed to world origin
+    let camera_world_pos = config_buffer.cameraWorldPos;
+    let cylinder_radius = cloud_buffer.horizon_fade; // Use existing parameter
+    let height_min = cloud_buffer.cloud_height;      // Fixed height above world origin (0,0,0)
+    let height_max = cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
     
-    // Ray-sphere intersection for cloud layer
-    let inner_intersect = rsi(world_pos, world_dir, cloud_inner_radius);
-    let outer_intersect = rsi(world_pos, world_dir, cloud_outer_radius);
+    // Ray-cylinder intersection with fixed Z height
+    let intersect = ray_cylinder_intersect_fixed_z(
+        world_pos, 
+        world_dir, 
+        camera_world_pos.xy,  // Cylinder center follows camera in XY only
+        cylinder_radius, 
+        height_min, 
+        height_max
+    );
     
-    // Determine entry and exit points
-    var t_start = -1.0;
-    var t_end = -1.0;
-    
-    let current_height = length(world_pos);
-    
-    if (current_height < cloud_inner_radius) {
-        // Camera is below cloud layer
-        if (inner_intersect.y > 0.0) {
-            t_start = inner_intersect.y;
-            t_end = outer_intersect.y;
-        }
-    } else if (current_height < cloud_outer_radius) {
-        // Camera is inside cloud layer
-        t_start = 0.0;
-        t_end = outer_intersect.y;
-    } else {
-        // Camera is above cloud layer
-        if (outer_intersect.x > 0.0) {
-            t_start = outer_intersect.x;
-            t_end = inner_intersect.x;
-        }
-    }
+    var t_start = intersect.x;
+    var t_end = intersect.y;
     
     // Check if we have a valid intersection
     if (t_start < 0.0 || t_end < 0.0 || t_start >= t_end) {
@@ -436,7 +487,7 @@ fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32
     let march_distance = t_end - t_start;
     let step_size = march_distance / f32(steps);
     
-    // Dithering for noise reduction - use world position for stability
+    // Dithering for noise reduction
     let noise_seed = dot(floor(world_pos.xy * 100.0), vec2<f32>(12.9898, 78.233));
     let dither = fract(sin(noise_seed) * 43758.5453);
     
@@ -447,23 +498,19 @@ fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32
     
     let sun_dir = normalize(config_buffer.lightDirection);
     
-    // Calculate phase function - this changes with sun angle, which is correct
+    // Calculate phase function
     let lDotW = dot(sun_dir, world_dir);
     let phase = phase2Lobes(lDotW, cloud_buffer.phase_g1, cloud_buffer.phase_g2, cloud_buffer.phase_blend);
     
-    // Get atmospheric lighting that's consistent with sun position
+    // Get atmospheric lighting
     let skyLight = calcAtmosphericScatterTop(sun_dir);
     
-    // Get sun color from transmittance LUT - this should be consistent
-    let height = length(world_pos);
-    let zenith = normalize(world_pos); // Zenith direction from planet center
-    let cos_view_zenith = dot(sun_dir, zenith);
-    let uv = transmittance_lut_params_to_uv(atmosphere_buffer, height, cos_view_zenith);
-    let sun_color = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
+    // For sun color, we'll use a simple approach since we're not using the atmospheric coordinate system
+    let sun_color = vec3<f32>(1.0, 0.9, 0.8); // Simple warm sun color
     
     for (var i = 0; i < steps; i++) {
-        if (i >= 64) { break; } // Hard limit to prevent infinite loops
-        if (current_distance >= t_end) { break; } // Bounds check
+        if (i >= 64) { break; }
+        if (current_distance >= t_end) { break; }
         
         let cloudPosition = world_pos + world_dir * current_distance;
         let opticalDepth = getClouds(cloudPosition, cloud_buffer) * step_size;
@@ -739,41 +786,6 @@ fn calculate_view_space_distance(uv: vec2<f32>, depth: f32, inv_proj: mat4x4<f32
     return abs(view_space.z);
 }
 
-fn random(st: vec2<f32>) -> f32 {
-    return fract(sin(dot(st, vec2<f32>(12.9898, 78.233))) * 43758.5453123);
-}
-
-fn noise(st: vec2<f32>) -> f32 {
-    let i = floor(st);
-    let f = fract(st);
-    
-    let a = random(i);
-    let b = random(i + vec2<f32>(1.0, 0.0));
-    let c = random(i + vec2<f32>(0.0, 1.0));
-    let d = random(i + vec2<f32>(1.0, 1.0));
-    
-    let u = f * f * (3.0 - 2.0 * f);
-    
-    return mix(a, b, u.x) +
-           (c - a) * u.y * (1.0 - u.x) +
-           (d - b) * u.x * u.y;
-}
-
-const OCTAVES: i32 = 6;
-
-fn fbm(st_input: vec2<f32>) -> f32 {
-    var st = st_input;
-    var value = 0.0;
-    var amplitude = 0.5;
-    
-    for (var i = 0; i < OCTAVES; i++) {
-        value += amplitude * noise(st);
-        st *= 2.0;
-        amplitude *= 0.5;
-    }
-    return value;
-}
-
 @vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -811,14 +823,14 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sky_color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
     
     // Calculate maximum ray distance
-    var max_ray_distance = 100.0; // km
+    var max_ray_distance = 2000.0; // km
     if (is_valid_depth(depth)) {
         let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
         max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
     }
 
     // Raymarch through clouds using Shadertoy-style implementation
-    let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance, clouds);
+    let cloud_result = raymarch_clouds(config.cameraWorldPos, world_dir, max_ray_distance, clouds);
     
     // Simple compositing - clouds over sky
     let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);

@@ -96,18 +96,18 @@ inline Clouds getDefaultClouds() {
 	clouds.scattering = 0.5f;
 	clouds.march_steps = 32;
 	clouds.light_steps = 8;
-	clouds.scale = 0.05;
+	clouds.scale = 0.001f;
 	clouds.detail_scale = 0.05f;
 	clouds.curl_scale = 0.1f;
 	clouds.speed = 0.005f;
 	clouds.detail_speed = 0.02f;
 	clouds.edge_fade = 0.5f;
-	clouds.horizon_fade = 0.5f;
+	clouds.horizon_fade = 1000.0f;
 	clouds.forward_scattering = 0.10f;
 	clouds.backward_scattering = 0.01f;
 	clouds.scattering_anisotropy = 0.009f;
 
-	clouds.cloud_height = 10.0f;           // 1km cloud base height
+	clouds.cloud_height = 400.0f;           // 1km cloud base height
 	clouds.cloud_thickness = 60.0f;        // 1km cloud thickness
 	clouds.cloud_density_multiplier = 0.8f; // Density multiplier
 	clouds.shadow_steps = 8;                 // Shadow ray steps

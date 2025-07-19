@@ -220,7 +220,7 @@ private:
     std::mutex gpuUploadMutex;
 
     MyUniforms uniforms;
-    Noise cloudNoise;
+    Noise noise;
     Noise blueNoise;
     Atmosphere atmosphere;
     Clouds clouds;

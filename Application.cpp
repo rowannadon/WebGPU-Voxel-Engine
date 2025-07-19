@@ -48,12 +48,11 @@ bool Application::Initialize() {
     clouds = getDefaultClouds();
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
 
-    int seed = 0;
-    cloudNoise = getWhiteNoise64(seed);
-    buf->writeBuffer("noise_buffer", 0, &cloudNoise, sizeof(Noise));
+    noise = getWhiteNoise3D();
+    buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
 
-    blueNoise = getCumulusBlueNoise(seed);
-    buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
+    //blueNoise = getCumulusBlueNoise(seed);
+    //buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
 
     atmosphere = getDefaultAtmosphere();
 
@@ -204,8 +203,7 @@ void Application::MainLoop() {
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
     buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
-    buf->writeBuffer("noise_buffer", 0, &cloudNoise, sizeof(Noise));
-    buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
+    buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
 
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
@@ -434,7 +432,7 @@ void Application::renderImGUI() {
 
             ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");
 
-            ImGui::SliderFloat("Height", &clouds.cloud_height, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Height", &clouds.cloud_height, 0.0f, 1000.0f, "%.2f");
             ImGui::SliderFloat("Thickness", &clouds.cloud_thickness, 0.0f, 100.0f, "%.2f");
             ImGui::SliderFloat("Density multiplier", &clouds.cloud_density_multiplier, 0.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Phase G1", &clouds.phase_g1, -1.0f, 1.0f, "%.2f");
@@ -445,33 +443,20 @@ void Application::renderImGUI() {
             ImGui::SliderFloat("Multi-scattering", &clouds.multi_scattering, 0.0f, 1.0f, "%.2f");
         }
 
-        if (ImGui::CollapsingHeader("Cloud Noise")) {
-            ImGui::Text("Noise texture 1");
-            ImGui::Image((void*)tex->getTextureView("cloudnoise_view"), ImVec2(64, 64));
+        if (ImGui::CollapsingHeader("Noise")) {
+            ImGui::Text("Noise texture");
+			Noise noiseParams = getWhiteNoise3D();
 
-            ImGui::SliderInt("Octaves", (int*)&cloudNoise.octaves, 1, 8, "%d");
-            ImGui::SliderFloat("Frequency", &cloudNoise.frequency, 0.01f, 10.0f, "%.2f");
-            ImGui::SliderFloat("Amplitude", &cloudNoise.amplitude, 0.01f, 10.0f, "%.2f");
-            ImGui::SliderFloat("Lacunarity", &cloudNoise.lacunarity, 0.01f, 5.0f, "%.2f");
-            ImGui::SliderFloat("Persistence", &cloudNoise.persistence, 0.01f, 1.0f, "%.2f");
+            //ImGui::Image((void*)tex->getTextureView("noise_view"), ImVec2(noiseParams.textureSize, noiseParams.textureSize));
 
-            if (ImGui::Button("Reset")) {
-                cloudNoise = getCumulusNoise(0);
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Cloud Detail Noise")) {
-            ImGui::Text("Noise texture 1");
-            ImGui::Image((void*)tex->getTextureView("cloudbluenoise_view"), ImVec2(512, 512));
-
-            ImGui::SliderInt("Octaves", (int*)&blueNoise.octaves, 1, 8, "%d");
-            ImGui::SliderFloat("Frequency", &blueNoise.frequency, 0.01f, 10.0f, "%.2f");
-            ImGui::SliderFloat("Amplitude", &blueNoise.amplitude, 0.01f, 10.0f, "%.2f");
-            ImGui::SliderFloat("Lacunarity", &blueNoise.lacunarity, 0.01f, 5.0f, "%.2f");
-            ImGui::SliderFloat("Persistence", &blueNoise.persistence, 0.01f, 1.0f, "%.2f");
+            ImGui::SliderInt("Octaves", (int*)&noise.octaves, 1, 8, "%d");
+            ImGui::SliderFloat("Frequency", &noise.frequency, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Amplitude", &noise.amplitude, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Lacunarity", &noise.lacunarity, 0.01f, 5.0f, "%.2f");
+            ImGui::SliderFloat("Persistence", &noise.persistence, 0.01f, 1.0f, "%.2f");
 
             if (ImGui::Button("Reset")) {
-                cloudNoise = getCumulusBlueNoise(0);
+                noise = getCumulusNoise(0);
             }
         }
 

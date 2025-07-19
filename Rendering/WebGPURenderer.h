@@ -39,28 +39,32 @@ public:
     bool initialize();
 
     void registerMovementCallbacks();
+
+    // textures
 	bool initTransmittanceTexture();
     bool initMultiScatteringTexture();
     bool initSkyViewTexture();
 	bool initAerialPerspectiveTexture();
-    bool initCloudNoiseTextures();
-
+    bool initNoiseTextures();
     bool initMultiSampleTexture();
     bool initDepthTexture();
 
-    bool initCloudNoisePipeline();
-    bool initCloudBlueNoisePipeline();
+    // pipelines
+    bool initNoisePipeline();
     bool initTransmittancePipeline();
 	bool initMultiScatteringPipeline();
     bool initSkyViewPipeline();
 	bool initAerialPerspectivePipeline();
-
     bool initSkyPipeline();
     bool initShadowTexture();
     bool initRenderPipeline();
     bool initShadowPipeline();
     bool initTextures();
+
+    // uniforms
     bool initUniformBuffers();
+
+    // bind groups
     bool initBindGroup();
 
     PipelineManager* getPipelineManager();

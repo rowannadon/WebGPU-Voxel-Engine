@@ -5,7 +5,9 @@ using glm::vec3;
 struct Noise {
 	uint32_t textureSize;
 
-	uint32_t textureType;
+	uint32_t textureDimensions; // 2 = 2D, 3 = 3D
+
+	uint32_t textureType; // 0 = white
 
 	uint32_t seed;
 
@@ -19,6 +21,22 @@ struct Noise {
 
 	float persistence;
 };
+
+inline Noise getWhiteNoise3D() {
+	Noise noise = {};
+
+	noise.textureSize = 32;
+	noise.textureType = 3;
+	noise.textureType = 0;
+	noise.seed = 1234; // unused
+	noise.octaves = 1; // unused
+	noise.frequency = 1.0f; // unused
+	noise.amplitude = 1.0f; // unused
+	noise.lacunarity = 1.0f; // unused
+	noise.persistence = 1.0f; // unused
+
+	return noise;
+}
 
 inline Noise getCumulusNoise(int seed) {
 	Noise noise = {};

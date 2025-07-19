@@ -1,8 +1,9 @@
-// noise_3d_compute.wgsl
+// noise_cs.wgsl
 
 struct NoiseParams {
     texture_size: u32,
-    texture_type: u32, // 0 = cloud base noise, 1 = cloud detail noise, 2 = blue noise
+    texture_dimension: u32,
+    texture_type: u32,
     seed: u32,
     octaves: u32,
     frequency: f32,
@@ -12,7 +13,7 @@ struct NoiseParams {
 };
 
 @group(0) @binding(0) var<uniform> params: NoiseParams;
-@group(0) @binding(1) var noise_texture: texture_storage_3d<rgba8unorm, write>;
+@group(0) @binding(1) var noise_texture_3d: texture_storage_3d<rgba8unorm, write>;
 
 // Simple hash function for random values
 fn hash(p: vec3<u32>) -> vec4<f32> {
@@ -45,6 +46,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Generate random RGBA value using hash
     let noise_value = hash(global_id);
     
-    // Write to 3D texture
-    textureStore(noise_texture, vec3<i32>(global_id), noise_value);
+    textureStore(noise_texture_3d, vec3<i32>(global_id), noise_value);
 }
