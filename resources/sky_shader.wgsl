@@ -177,12 +177,12 @@ const LIMB_DARKENING_ON_MOON = false;
 const LIMB_DARKENING_ON_SUN = false;
 
 const SUN_ILLUMINANCE: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
-const SUN_DISK_DIAMETER: f32 = 0.00935;
-const SUN_DISK_LUMINANCE_SCALE: f32 = 25.0; 
+const SUN_DISK_DIAMETER: f32 = 0.0235;
+const SUN_DISK_LUMINANCE_SCALE: f32 = 100.0; 
 
 const MOON_ILLUMINANCE: vec3<f32> = vec3<f32>(0.05, 0.05, 0.05);
-const MOON_DISK_DIAMETER: f32 = 0.00935; 
-const MOON_DISK_LUMINANCE_SCALE: f32 = 1.0; 
+const MOON_DISK_DIAMETER: f32 = 0.0235; 
+const MOON_DISK_LUMINANCE_SCALE: f32 = 0.5; 
 
 const TO_KM_SCALE = 1.0/3280.0;
 
@@ -233,11 +233,11 @@ fn calculateScatterIntegral(opticalDepth: f32, coeff: f32) -> f32 {
 
 
 fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
-    // p is in world space - use absolute world coordinates for Z, camera-relative for XY
-    let camera_world_pos = config_buffer.cameraWorldPos;
+    // p is already in world space relative to planet center
+    // Just need to get the height (distance from planet center)
+    let current_height = length(p);
+    let altitude = current_height - atmosphere_buffer.bottom_radius;
     
-    // Check height bounds using absolute world Z position (fixed height above origin)
-    let altitude = p.z;  // Use absolute world Z position
     let cloudMinHeight = cloud_buffer.cloud_height;
     let cloudMaxHeight = cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
     
@@ -245,19 +245,10 @@ fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
         return 0.0;
     }
     
-    // For horizontal bounds, use camera-relative XY coordinates
-    let camera_relative_xy = p.xy - camera_world_pos.xy;
-    let horizontal_distance = length(camera_relative_xy);
-    let horizon_distance = cloud_buffer.horizon_fade; // Use existing parameter for cylinder radius
-    
-    if (horizontal_distance > horizon_distance) {
-        return 0.0;
-    }
-    
     let time = config_buffer.time * cloud_buffer.speed;
-    let movement = vec3<f32>(time, time * 0.8, 0.0); // Keep movement in XY plane
+    let movement = vec3<f32>(time, 0.0, time * 0.8);
     
-    // Use world position for noise sampling (maintains world-space consistency)
+    // Use the world position directly for noise sampling
     let cloudCoord = (p * cloud_buffer.scale) + movement;
     
     var noise1 = textureSampleLevel(cloud_noise_texture, cloud_sampler, cloudCoord, 0).r * 0.5;
@@ -265,19 +256,16 @@ fn getClouds(p: vec3<f32>, cloud_buffer: Clouds) -> f32 {
     noise1 += textureSampleLevel(cloud_noise_texture, cloud_sampler, cloudCoord * 7.0 - movement, 0).r * 0.125;
     noise1 += textureSampleLevel(cloud_noise_texture, cloud_sampler, (cloudCoord + movement) * 16.0, 0).r * 0.0625;
     
-    // Vertical fade using absolute world Z position
     let top = 0.004;
     let bottom = 0.01;
-    let vertical_height = altitude - cloudMinHeight;
-    let threshold = (1.0 - exp2(-bottom * vertical_height)) * exp2(-top * vertical_height);
     
-    // Horizontal fade near cylinder edges (camera-relative)
-    let edge_fade_distance = horizon_distance * 0.1; // 10% fade zone
-    let horizontal_fade = 1.0 - smoothstep(horizon_distance - edge_fade_distance, horizon_distance, horizontal_distance);
+    let horizonHeight = altitude - cloudMinHeight;
+    let threshold = (1.0 - exp2(-bottom * horizonHeight)) * exp2(-top * horizonHeight);
     
+    // Use the same threshold as Shadertoy - more aggressive coverage
     let clouds = smoothstep(0.55, 0.6, noise1);
     
-    return clouds * threshold * horizontal_fade * cloud_buffer.cloud_density_multiplier;
+    return clouds * threshold * cloud_buffer.cloud_density_multiplier;
 }
 
 fn getSunVisibility(p: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds) -> f32 {
@@ -447,29 +435,43 @@ fn getVolumetricCloudsScattering(
 }
 
 fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32, cloud_buffer: Clouds) -> vec4<f32> {
-    let steps = min(i32(cloud_buffer.march_steps), 64);
+    let steps = min(i32(cloud_buffer.march_steps), 64); // Clamp max steps
     if (steps <= 0) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
     
-    // Define cylindrical cloud layer: XY follows camera, Z is fixed to world origin
-    let camera_world_pos = config_buffer.cameraWorldPos;
-    let cylinder_radius = cloud_buffer.horizon_fade; // Use existing parameter
-    let height_min = cloud_buffer.cloud_height;      // Fixed height above world origin (0,0,0)
-    let height_max = cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
+    // Cloud layer radii from planet center
+    let planet_radius = atmosphere_buffer.bottom_radius;
+    let cloud_inner_radius = planet_radius + cloud_buffer.cloud_height;
+    let cloud_outer_radius = planet_radius + cloud_buffer.cloud_height + cloud_buffer.cloud_thickness;
     
-    // Ray-cylinder intersection with fixed Z height
-    let intersect = ray_cylinder_intersect_fixed_z(
-        world_pos, 
-        world_dir, 
-        camera_world_pos.xy,  // Cylinder center follows camera in XY only
-        cylinder_radius, 
-        height_min, 
-        height_max
-    );
+    // Ray-sphere intersection for cloud layer
+    let inner_intersect = rsi(world_pos, world_dir, cloud_inner_radius);
+    let outer_intersect = rsi(world_pos, world_dir, cloud_outer_radius);
     
-    var t_start = intersect.x;
-    var t_end = intersect.y;
+    // Determine entry and exit points
+    var t_start = -1.0;
+    var t_end = -1.0;
+    
+    let current_height = length(world_pos);
+    
+    if (current_height < cloud_inner_radius) {
+        // Camera is below cloud layer
+        if (inner_intersect.y > 0.0) {
+            t_start = inner_intersect.y;
+            t_end = outer_intersect.y;
+        }
+    } else if (current_height < cloud_outer_radius) {
+        // Camera is inside cloud layer
+        t_start = 0.0;
+        t_end = outer_intersect.y;
+    } else {
+        // Camera is above cloud layer
+        if (outer_intersect.x > 0.0) {
+            t_start = outer_intersect.x;
+            t_end = inner_intersect.x;
+        }
+    }
     
     // Check if we have a valid intersection
     if (t_start < 0.0 || t_end < 0.0 || t_start >= t_end) {
@@ -487,7 +489,7 @@ fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32
     let march_distance = t_end - t_start;
     let step_size = march_distance / f32(steps);
     
-    // Dithering for noise reduction
+    // Dithering for noise reduction - use world position for stability
     let noise_seed = dot(floor(world_pos.xy * 100.0), vec2<f32>(12.9898, 78.233));
     let dither = fract(sin(noise_seed) * 43758.5453);
     
@@ -498,19 +500,23 @@ fn raymarch_clouds(world_pos: vec3<f32>, world_dir: vec3<f32>, max_distance: f32
     
     let sun_dir = normalize(config_buffer.lightDirection);
     
-    // Calculate phase function
+    // Calculate phase function - this changes with sun angle, which is correct
     let lDotW = dot(sun_dir, world_dir);
     let phase = phase2Lobes(lDotW, cloud_buffer.phase_g1, cloud_buffer.phase_g2, cloud_buffer.phase_blend);
     
-    // Get atmospheric lighting
+    // Get atmospheric lighting that's consistent with sun position
     let skyLight = calcAtmosphericScatterTop(sun_dir);
     
-    // For sun color, we'll use a simple approach since we're not using the atmospheric coordinate system
-    let sun_color = vec3<f32>(1.0, 0.9, 0.8); // Simple warm sun color
+    // Get sun color from transmittance LUT - this should be consistent
+    let height = length(world_pos);
+    let zenith = normalize(world_pos); // Zenith direction from planet center
+    let cos_view_zenith = dot(sun_dir, zenith);
+    let uv = transmittance_lut_params_to_uv(atmosphere_buffer, height, cos_view_zenith);
+    let sun_color = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
     
     for (var i = 0; i < steps; i++) {
-        if (i >= 64) { break; }
-        if (current_distance >= t_end) { break; }
+        if (i >= 64) { break; } // Hard limit to prevent infinite loops
+        if (current_distance >= t_end) { break; } // Bounds check
         
         let cloudPosition = world_pos + world_dir * current_distance;
         let opticalDepth = getClouds(cloudPosition, cloud_buffer) * step_size;
@@ -724,6 +730,7 @@ fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>
 	let sky_view = textureSampleLevel(sky_view_lut, lut_sampler, uv, 0);
 	
 	let sun_luminance = get_sun_luminance(world_pos, world_dir, atmosphere, config);
+
 	let color = sky_view.rgb + sun_luminance;
 
     let l = dot(color, vec3f(0.2126, 0.7152, 0.0722));
@@ -786,6 +793,12 @@ fn calculate_view_space_distance(uv: vec2<f32>, depth: f32, inv_proj: mat4x4<f32
     return abs(view_space.z);
 }
 
+fn filmic(x: vec3<f32>) -> vec3<f32> {
+  let X = max(vec3(0.0), x - 0.004);
+  let result = (X * (6.2 * X + 0.5)) / (X * (6.2 * X + 1.7) + 0.06);
+  return pow(result, vec3(2.2));
+}
+
 @vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -823,17 +836,16 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let sky_color = use_sky_view_lut(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
     
     // Calculate maximum ray distance
-    var max_ray_distance = 2000.0; // km
+    var max_ray_distance = clouds.forward_scattering; // km
     if (is_valid_depth(depth)) {
         let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
         max_ray_distance = min(max_ray_distance, view_distance * TO_KM_SCALE);
     }
 
     // Raymarch through clouds using Shadertoy-style implementation
-    let cloud_result = raymarch_clouds(config.cameraWorldPos, world_dir, max_ray_distance, clouds);
+    let cloud_result = raymarch_clouds(world_pos, world_dir, max_ray_distance, clouds);
     
-    // Simple compositing - clouds over sky
-    let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
+    let final_color = filmic(cloud_result.rgb + sky_color.rgb) * (1.0 - cloud_result.a);
 
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     
@@ -862,5 +874,5 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
     let final_fog_alpha = aerial_perspective.a * fog_weight;
     
-    return vec4f(dithered_aerial_perspective, final_fog_alpha);
+    return vec4f(filmic(dithered_aerial_perspective), final_fog_alpha);
 }

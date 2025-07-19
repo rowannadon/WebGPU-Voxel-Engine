@@ -427,7 +427,7 @@ void Application::renderImGUI() {
             ImGui::SliderFloat("Edge fade", &clouds.edge_fade, 0.0f, 1.5f, "%.2f");
             ImGui::SliderFloat("Horizon fade", &clouds.horizon_fade, 0.0f, 1.0f, "%.2f");
 
-            ImGui::SliderFloat("Forward scattering", &clouds.forward_scattering, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Forward scattering", &clouds.forward_scattering, 0.0f, 1000.0f, "%.2f");
             ImGui::SliderFloat("Backward scattering", &clouds.backward_scattering, 0.0f, 1.0f, "%.2f");
 
             ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");

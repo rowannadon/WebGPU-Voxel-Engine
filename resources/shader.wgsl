@@ -458,7 +458,7 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     let bias = max(0.001 * (1.0 - n_dot_l), 0.0004);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 4096.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 8196.0; // Assuming 2048x2048 shadow map
     var shadow = 0.0;
     let samples = 16; // Increased from 9
     
@@ -696,6 +696,16 @@ fn calculate_blinn_phong_specular(
     let fadeAdjustedIntensity = mix(0.0, materialProps.specularIntensity, shadingFadeFactor);
     
     return lightColor * materialProps.specularColor * specularFactor * fadeAdjustedIntensity;
+}
+
+fn filmic(x: vec3<f32>) -> vec3<f32> {
+  let X = max(vec3(0.0), x - 0.004);
+  let result = (X * (6.2 * X + 0.5)) / (X * (6.2 * X + 1.7) + 0.06);
+  return pow(result, vec3(2.2));
+}
+
+fn reinhard(x: vec3f) -> vec3f {
+  return x / (1.0 + x);
 }
 
 @fragment
