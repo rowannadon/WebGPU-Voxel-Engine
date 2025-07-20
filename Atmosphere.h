@@ -45,78 +45,45 @@ struct Atmosphere {
 };
 
 struct Clouds {
-	float layer_start;
-	float layer_end;
-	float layer_thickness;
-
+	float height;
+	float thickness;
 	float density;
 	float coverage;
-	float absorbtion;
+	float absorption;
 	float scattering;
-
-	int march_steps;
-	int light_steps;
-
-	float scale;
-	float detail_scale;
-	float curl_scale;
-
-	float speed;
-	float detail_speed;
-
-	float edge_fade;
-	float horizon_fade;
-
-	float forward_scattering;
-	float backward_scattering;
-	float scattering_anisotropy;
-
-	float cloud_height;
-	float cloud_thickness;
-	float cloud_density_multiplier;
-	float shadow_steps;
-	float phase_g1; // Forward scattering
-	float phase_g2; // Backward scattering
-	float phase_blend; // Blend between lobes
-	float sun_brightness;
 	float powder_strength;
-	float multi_scattering;
+	float sun_brightness;
+	float phase_g1;
+	float phase_g2;
+	float phase_blend;
+	int march_steps;
+	int shadow_steps;
+	int light_steps;
+	float scale;
+	float speed;
 
 	float padding;
 };
 
 inline Clouds getDefaultClouds() {
 	Clouds clouds = {};
-	clouds.layer_start = 10.0f;
-	clouds.layer_end = 25.0f;
-	clouds.layer_thickness = 15.0f;
-	clouds.density = 0.6f;
-	clouds.coverage = 0.6f;
-	clouds.absorbtion = 0.8f;
-	clouds.scattering = 0.5f;
-	clouds.march_steps = 10;
+	clouds.height = 16.0f;
+	clouds.thickness = 8.0f;
+	clouds.density = 0.1f;
+	clouds.coverage = 0.25f;
+	clouds.absorption = 0.01f;
+	clouds.scattering = 0.3f;
+	clouds.powder_strength = 1.0f;
+	clouds.sun_brightness = 1.0f;
+	clouds.phase_g1 = 0.6f;
+	clouds.phase_g2 = -0.6f;
+	clouds.phase_blend = 0.5f;
+	clouds.march_steps = 16;
+	clouds.shadow_steps = 8;
 	clouds.light_steps = 8;
-	clouds.scale = 0.0004f;
-	clouds.detail_scale = 0.05f;
-	clouds.curl_scale = 0.1f;
-	clouds.speed = 0.005f;
-	clouds.detail_speed = 0.02f;
-	clouds.edge_fade = 0.5f;
-	clouds.horizon_fade = 1000.0f;
-	clouds.forward_scattering = 616.5f;
-	clouds.backward_scattering = 0.01f;
-	clouds.scattering_anisotropy = 0.009f;
-
-	clouds.cloud_height = 308.24f;           // 1km cloud base height
-	clouds.cloud_thickness = 40.0f;        // 1km cloud thickness
-	clouds.cloud_density_multiplier = 0.05f; // Density multiplier
-	clouds.shadow_steps = 8;                 // Shadow ray steps
-	clouds.phase_g1 = -0.30f;                   // Forward scattering
-	clouds.phase_g2 = 0.5f;                  // Backward scattering  
-	clouds.phase_blend = 0.4f;                // Blend between lobes
-	clouds.sun_brightness = 30.54f;             // Sun brightness
-	clouds.powder_strength = 27.12f;            // Powder effect strength
-	clouds.multi_scattering = 0.6f;           // Multi-scattering factor
+	clouds.scale = 10.0f;
+	clouds.speed = 0.001f;
+	clouds.padding;
 
 	return clouds;
 }

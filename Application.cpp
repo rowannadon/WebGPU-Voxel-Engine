@@ -406,41 +406,22 @@ void Application::renderImGUI() {
             if (ImGui::Button("Reset Clouds")) {
                 clouds = getDefaultClouds();
             }
-
-            ImGui::SliderFloat("Layer start", &clouds.layer_start, 0.0f, 50.0f, "%.1f");
-            ImGui::SliderFloat("Layer end", &clouds.layer_end, 0.0f, 100.0f, "%.1f");
-
-            ImGui::SliderFloat("Layer thickness", &clouds.layer_thickness, 0.0f, 50.0f, "%.1f");
-
-            ImGui::SliderFloat("Density", &clouds.density, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Coverage", &clouds.coverage, 0.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Absorption", &clouds.absorbtion, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Height", &clouds.height, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Thickness", &clouds.thickness, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Density", &clouds.density, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Coverage", &clouds.coverage, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Absorption", &clouds.scattering, 0.0f, 3.0f, "%.2f");
             ImGui::SliderFloat("Scattering", &clouds.scattering, 0.0f, 3.0f, "%.2f");
-
-            ImGui::SliderFloat("Scale", &clouds.scale, 0.0f, 0.5f, "%.2f");
-            ImGui::SliderFloat("Detail scale", &clouds.detail_scale, 0.0f, 0.5f, "%.2f");
-            ImGui::SliderFloat("Curl scale", &clouds.curl_scale, 0.0f, 0.5f, "%.2f");
-
-            ImGui::SliderFloat("Speed", &clouds.speed, 0.0f, 0.5f, "%.2f");
-            ImGui::SliderFloat("Detail speed", &clouds.detail_speed, 0.0f, 5.0f, "%.2f");
-
-            ImGui::SliderFloat("Edge fade", &clouds.edge_fade, 0.0f, 1.5f, "%.2f");
-            ImGui::SliderFloat("Horizon fade", &clouds.horizon_fade, 0.0f, 1.0f, "%.2f");
-
-            ImGui::SliderFloat("Forward scattering", &clouds.forward_scattering, 0.0f, 1000.0f, "%.2f");
-            ImGui::SliderFloat("Backward scattering", &clouds.backward_scattering, 0.0f, 1.0f, "%.2f");
-
-            ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");
-
-            ImGui::SliderFloat("Height", &clouds.cloud_height, 0.0f, 1000.0f, "%.2f");
-            ImGui::SliderFloat("Thickness", &clouds.cloud_thickness, 0.0f, 100.0f, "%.2f");
-            ImGui::SliderFloat("Density multiplier", &clouds.cloud_density_multiplier, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Powder strength", &clouds.powder_strength, 0.0f, 50.0f, "%.2f");
+            ImGui::SliderFloat("Sun brightness", &clouds.sun_brightness, 0.0f, 50.0f, "%.2f");
             ImGui::SliderFloat("Phase G1", &clouds.phase_g1, -1.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Phase G2", &clouds.phase_g2, -1.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Phase blend", &clouds.phase_blend, -1.0f, 1.0f, "%.2f");
-            ImGui::SliderFloat("Sun brightness", &clouds.sun_brightness, 0.0f, 100.0f, "%.2f");
-            ImGui::SliderFloat("Powder strength", &clouds.powder_strength, 0.0f, 100.0f, "%.2f");
-            ImGui::SliderFloat("Multi-scattering", &clouds.multi_scattering, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");
+            ImGui::SliderInt("Shadow steps", &clouds.march_steps, 1, 64, "%d");
+            ImGui::SliderInt("Light steps", &clouds.march_steps, 1, 64, "%d");
+            ImGui::SliderFloat("Scale", &clouds.scale, 0.0f, 100.0f, "%.2f");
+            ImGui::SliderFloat("Speed", &clouds.speed, 0.0f, 0.1f, "%.2f");
         }
 
         if (ImGui::CollapsingHeader("Noise")) {

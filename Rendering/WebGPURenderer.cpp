@@ -277,7 +277,7 @@ bool WebGPURenderer::initSkyPipeline() {
 	config.vertexAttributes.clear();
 
 	// atmosphere uniforms
-	std::vector<BindGroupLayoutEntry> skyUniforms(11, Default);
+	std::vector<BindGroupLayoutEntry> skyUniforms(14, Default);
 	skyUniforms[0].binding = 0;
 	skyUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	skyUniforms[0].buffer.type = BufferBindingType::Uniform;
@@ -330,14 +330,34 @@ bool WebGPURenderer::initSkyPipeline() {
 	skyUniforms[8].visibility = ShaderStage::Fragment;
 	skyUniforms[8].sampler.type = SamplerBindingType::NonFiltering;
 
+	// texture sampler
 	skyUniforms[9].binding = 9;
 	skyUniforms[9].visibility = ShaderStage::Fragment;
-	skyUniforms[9].texture.sampleType = TextureSampleType::Float;
-	skyUniforms[9].texture.viewDimension = TextureViewDimension::_3D;
+	skyUniforms[9].sampler.type = SamplerBindingType::Filtering;
 
+	// worley texture
 	skyUniforms[10].binding = 10;
 	skyUniforms[10].visibility = ShaderStage::Fragment;
-	skyUniforms[10].sampler.type = SamplerBindingType::Filtering;
+	skyUniforms[10].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
+
+	// noise 2d texture
+	skyUniforms[11].binding = 11;
+	skyUniforms[11].visibility = ShaderStage::Fragment;
+	skyUniforms[11].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[11].texture.viewDimension = TextureViewDimension::_2D;
+
+	// noise 3d texture
+	skyUniforms[12].binding = 12;
+	skyUniforms[12].visibility = ShaderStage::Fragment;
+	skyUniforms[12].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[12].texture.viewDimension = TextureViewDimension::_3D;
+
+	// noise 2d small texture
+	skyUniforms[13].binding = 13;
+	skyUniforms[13].visibility = ShaderStage::Fragment;
+	skyUniforms[13].texture.sampleType = TextureSampleType::Float;
+	skyUniforms[13].texture.viewDimension = TextureViewDimension::_2D;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("sky_uniforms", skyUniforms)
@@ -1115,7 +1135,11 @@ bool WebGPURenderer::initTextures() {
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 
-	Texture cloudTexture = textureManager->loadTexture("skynoise", "skynoise_view", RESOURCE_DIR "/worley_bubbly.png");
+	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/pebbles.png");
+
+	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/rgba_noise_256.png");
+
+	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/rgba_noise_64.png");
 
 	return textureManager->getTextureView("atlas_view") != nullptr;
 }
@@ -1256,7 +1280,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup aerialPerspectiveBindGroup = pipelineManager->createBindGroup("aerialperspective_uniforms_group", "aerialperspective_uniforms", aerialPerspectiveBindings);
 
-	std::vector<BindGroupEntry> skyBindings(11);
+	std::vector<BindGroupEntry> skyBindings(14);
 
 	skyBindings[0].binding = 0;
 	skyBindings[0].buffer = bufferManager->getBuffer("atmosphere_buffer");
@@ -1293,10 +1317,19 @@ bool WebGPURenderer::initBindGroup() {
 	skyBindings[8].sampler = textureManager->getSampler("depth_sampler");
 
 	skyBindings[9].binding = 9;
-	skyBindings[9].textureView = textureManager->getTextureView("noise_view");
+	skyBindings[9].sampler = textureManager->getSampler("noise_sampler");
 
 	skyBindings[10].binding = 10;
-	skyBindings[10].sampler = textureManager->getSampler("noise_sampler");
+	skyBindings[10].textureView = textureManager->getTextureView("worley_view");
+
+	skyBindings[11].binding = 11;
+	skyBindings[11].textureView = textureManager->getTextureView("cloud_noise_256_view");
+
+	skyBindings[12].binding = 12;
+	skyBindings[12].textureView = textureManager->getTextureView("noise_view");
+
+	skyBindings[13].binding = 13;
+	skyBindings[13].textureView = textureManager->getTextureView("cloud_noise_64_view");
 
 	BindGroup skyBindGroup = pipelineManager->createBindGroup("sky_uniforms_group", "sky_uniforms", skyBindings);
 
