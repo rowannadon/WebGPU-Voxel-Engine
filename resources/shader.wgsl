@@ -87,45 +87,28 @@ struct MaterialProperties {
 };
 
 struct Atmosphere {
-	// Rayleigh scattering coefficients
-	rayleigh_scattering: vec3<f32>,
-	// Rayleigh scattering exponential distribution scale in the atmosphere
-	rayleigh_density_exp_scale: f32,
-
-	// Mie scattering coefficients
-	mie_scattering: vec3<f32>,
-	// Mie scattering exponential distribution scale in the atmosphere
-	mie_density_exp_scale: f32,
-	// Mie extinction coefficients
-	mie_extinction: vec3<f32>,
-	// Mie phase parameter (Cornette-Shanks excentricity or Henyey-Greenstein-Draine droplet diameter)
-	mie_phase_param: f32,
-	// Mie absorption coefficients
-	mie_absorption: vec3<f32>,
-	
-	// Another medium type in the atmosphere
-	absorption_density_0_layer_height: f32,
-	absorption_density_0_constant_term: f32,
-	absorption_density_0_linear_term: f32,
-	absorption_density_1_constant_term: f32,
-	absorption_density_1_linear_term: f32,
-	// This other medium only absorb light, e.g. useful to represent ozone in the earth atmosphere
-	absorption_extinction: vec3<f32>,
-
-	// Radius of the planet (center to ground)
-	bottom_radius: f32,
-
-	// The albedo of the ground.
-	ground_albedo: vec3<f32>,
-
-	// Maximum considered atmosphere height (center to atmosphere top)
-	top_radius: f32,
-
-	// planet center in world space (z up)
-	// used to transform the camera's position to the atmosphere's object space
-	planet_center: vec3<f32>,
-	
-	multi_scattering_factor: f32,
+    rayleigh_scattering: vec3<f32>,
+    rayleigh_density_exp_scale: f32,
+    mie_scattering: vec3<f32>,
+    mie_density_exp_scale: f32,
+    mie_extinction: vec3<f32>,
+    mie_phase_param: f32,
+    mie_absorption: vec3<f32>,
+    absorption_density_0_layer_height: f32,
+    absorption_density_0_constant_term: f32,
+    absorption_density_0_linear_term: f32,
+    absorption_density_1_constant_term: f32,
+    absorption_density_1_linear_term: f32,
+    absorption_extinction: vec3<f32>,
+    bottom_radius: f32,
+    ground_albedo: vec3<f32>,
+    top_radius: f32,
+    planet_center: vec3<f32>,
+    multi_scattering_factor: f32,
+    sky_sun_lum: f32,
+    ap_sun_lum: f32,
+    ap_slice_scale: f32,
+    padding: f32
 }
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
@@ -458,7 +441,7 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     let bias = max(0.001 * (1.0 - n_dot_l), 0.0004);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 8196.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 16384.0; // Assuming 2048x2048 shadow map
     var shadow = 0.0;
     let samples = 16; // Increased from 9
     
@@ -708,6 +691,27 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
+fn sample_depth_dilated(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>, dilation_radius: i32) -> f32 {
+    var max_depth = textureLoad(depth_texture, pix, 0);
+    
+    // Sample in a small radius around the pixel
+    for (var dy = -dilation_radius; dy <= dilation_radius; dy++) {
+        for (var dx = -dilation_radius; dx <= dilation_radius; dx++) {
+            let sample_pos = pix + vec2<i32>(dx, dy);
+            let sample_depth = textureLoad(depth_texture, sample_pos, 0);
+            
+            // For reverse-Z, smaller values are further away
+            if (IS_REVERSE_Z) {
+                max_depth = min(max_depth, sample_depth);
+            } else {
+                max_depth = max(max_depth, sample_depth);
+            }
+        }
+    }
+    
+    return max_depth;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
@@ -899,6 +903,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         );
         specularColor += artificialSpecular * 0.5;
     }
+
+    
 
     let aoFadeNear = 400.0;
     let aoFadeFar = 600.0;

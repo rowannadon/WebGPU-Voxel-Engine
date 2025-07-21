@@ -87,6 +87,10 @@ struct Atmosphere {
     top_radius: f32,
     planet_center: vec3<f32>,
     multi_scattering_factor: f32,
+    sky_sun_lum: f32,
+    ap_sun_lum: f32,
+    ap_slice_scale: f32,
+    padding: f32
 }
 
 struct AtmosphereLight {
@@ -874,6 +878,138 @@ fn filmic(x: vec3<f32>) -> vec3<f32> {
   return pow(result, vec3(2.2));
 }
 
+fn get_multisampled_depth(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
+    // Get the number of samples (typically 4 or 8)
+    let num_samples = 4;
+    
+    var furthest_depth = textureLoad(depth_texture, pix, 0);
+    
+    // Check all samples at this pixel
+    for (var sample_idx = 1; sample_idx < num_samples; sample_idx++) {
+        let sample_depth = textureLoad(depth_texture, pix, sample_idx);
+        
+        // For reverse-Z, smaller values are further away
+        if (IS_REVERSE_Z) {
+            furthest_depth = min(furthest_depth, sample_depth);
+        } else {
+            furthest_depth = max(furthest_depth, sample_depth);
+        }
+    }
+    
+    return furthest_depth;
+}
+
+fn sample_depth_with_edge_detection(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
+    // First, get the furthest depth from all samples at the current pixel
+    let center_depth = get_multisampled_depth(depth_texture, pix);
+    
+    // Check if we might be at an edge by comparing with neighbors
+    var is_edge = false;
+    var furthest_depth = center_depth;
+    
+    // Check 4-connected neighbors
+    let neighbor_offsets = array<vec2<i32>, 4>(
+        vec2<i32>(-1, 0),  // left
+        vec2<i32>(1, 0),   // right
+        vec2<i32>(0, -1),  // top
+        vec2<i32>(0, 1)    // bottom
+    );
+    
+    for (var i = 0; i < 4; i++) {
+        let neighbor_pos = pix + neighbor_offsets[i];
+        let neighbor_depth = get_multisampled_depth(depth_texture, neighbor_pos);
+        
+        // Check if there's a significant depth discontinuity
+        let depth_diff = abs(neighbor_depth - center_depth);
+        if (depth_diff > 0.01) {  // Adjust threshold as needed
+            is_edge = true;
+        }
+        
+        // Keep track of the furthest depth
+        if (IS_REVERSE_Z) {
+            furthest_depth = min(furthest_depth, neighbor_depth);
+        } else {
+            furthest_depth = max(furthest_depth, neighbor_depth);
+        }
+    }
+    
+    // If we're at an edge, return the furthest depth to favor sky
+    if (is_edge) {
+        return furthest_depth;
+    } else {
+        return center_depth;
+    }
+}
+
+fn get_multisampled_depth_with_coverage(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
+    let num_samples = 4;
+    
+    var furthest_depth = textureLoad(depth_texture, pix, 0);
+    var sky_sample_count = 0;
+    var terrain_sample_count = 0;
+    
+    // Check all samples and count sky vs terrain samples
+    for (var sample_idx = 0; sample_idx < num_samples; sample_idx++) {
+        let sample_depth = textureLoad(depth_texture, pix, sample_idx);
+        
+        if (!is_valid_depth(sample_depth)) {
+            sky_sample_count += 1;
+        } else {
+            terrain_sample_count += 1;
+        }
+        
+        // Track furthest depth
+        if (IS_REVERSE_Z) {
+            furthest_depth = min(furthest_depth, sample_depth);
+        } else {
+            furthest_depth = max(furthest_depth, sample_depth);
+        }
+    }
+    
+    // If ANY sample is sky, treat the whole pixel as sky
+    if (sky_sample_count > 0) {
+        return select(1.0, 0.0, IS_REVERSE_Z);
+    }
+    
+    return furthest_depth;
+}
+
+fn sample_depth_with_subpixel_fix(depth_texture: texture_depth_multisampled_2d, frag_coord: vec2<f32>, screen_size: vec2<f32>) -> f32 {
+    // Get the exact pixel coordinate
+    let pix = vec2<i32>(floor(frag_coord));
+    
+    // Check if we're near a pixel boundary (within 0.1 of edge)
+    let fract_coord = fract(frag_coord);
+    let near_edge = (fract_coord.x < 0.1 || fract_coord.x > 0.9 || 
+                     fract_coord.y < 0.1 || fract_coord.y > 0.9);
+    
+    if (near_edge) {
+        // Sample in a cross pattern to catch edges
+        var furthest_depth = get_multisampled_depth_with_coverage(depth_texture, pix);
+        
+        let offsets = array<vec2<i32>, 4>(
+            vec2<i32>(-1, 0), vec2<i32>(1, 0),
+            vec2<i32>(0, -1), vec2<i32>(0, 1)
+        );
+        
+        for (var i = 0; i < 4; i++) {
+            let neighbor_pix = pix + offsets[i];
+            let neighbor_depth = get_multisampled_depth_with_coverage(depth_texture, neighbor_pix);
+            
+            if (IS_REVERSE_Z) {
+                furthest_depth = min(furthest_depth, neighbor_depth);
+            } else {
+                furthest_depth = max(furthest_depth, neighbor_depth);
+            }
+        }
+        
+        return furthest_depth;
+    } else {
+        // Not near edge, just get depth with coverage check
+        return get_multisampled_depth_with_coverage(depth_texture, pix);
+    }
+}
+
 @vertex 
 fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
@@ -908,7 +1044,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     let sun_dir = normalize(config.lightDirection);
     let view_height = length(camera_pos_relative_to_planet);
-    let depth = textureLoad(depth_buffer, pix, 0);
+    let depth = sample_depth_with_subpixel_fix(depth_buffer, in.position.xy, config.screenSize);
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
     // Get sky color
@@ -917,46 +1053,84 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     // Render volumetric clouds with unified approach
     let cloud_result = render_clouds_unified(camera_pos_relative_to_planet, world_dir, sun_dir, 
                                            atmosphere, clouds, config.time, false);
-    
-    // Handle terrain depth - if terrain is closer than clouds, don't render clouds
-    if (is_valid_depth(depth)) {
-        let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
-        
-        // Convert view distance to world space distance for comparison with clouds
-        let world_depth_distance = view_distance * TO_KM_SCALE;
-        
-        // Simple heuristic: if terrain is very close (< cloud height), reduce cloud influence
-        let terrain_cloud_fade = smoothstep(0.0, clouds.height * 0.5, world_depth_distance);
-        let final_cloud_alpha = cloud_result.a * terrain_cloud_fade;
-        
-        // Composite clouds with sky, respecting terrain
-        let final_color = cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha);
-        let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
-        
-        // Apply aerial perspective for terrain
-        let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
-        
-        var slice = aerial_perspective_depth_to_slice(view_distance * 0.02);
-        
-        var fog_weight = 1.0;
-        if slice < 0.5 {
-            fog_weight = saturate(slice * 2.0);
-            slice = 0.5;
-        }
-        
-        let w = sqrt(slice / AP_SLICE_COUNT);
-        
-        let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
-        
-        let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
-        let final_fog_alpha = aerial_perspective.a * fog_weight;
-        
-        return vec4f(filmic(dithered_aerial_perspective), final_fog_alpha);
-    }
-    
+
     // No terrain - composite clouds with sky normally
     let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     
-    return vec4<f32>(dithered, 1.0);
+   if (is_valid_depth(depth)) {
+    let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
+    
+    // Convert view distance to world space distance for comparison with clouds
+    let world_depth_distance = view_distance * TO_KM_SCALE;
+    
+    // Simple heuristic: if terrain is very close (< cloud height), reduce cloud influence
+    let terrain_cloud_fade = smoothstep(0.0, clouds.height * 0.5, world_depth_distance);
+    let final_cloud_alpha = cloud_result.a * terrain_cloud_fade;
+    
+    // Composite clouds with sky, respecting terrain
+    let final_color = cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha);
+    let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
+    
+    // Apply aerial perspective for terrain
+    let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
+    
+    // Calculate height-based fog multiplier
+    // depth_buffer_world_pos is in km, convert back to feet for height calculation
+    let world_pos_feet = depth_buffer_world_pos / TO_KM_SCALE;
+    
+    // Get the height (Y coordinate in feet)
+    let terrain_height = world_pos_feet.z;
+    
+    // Define fog height parameters (in feet)
+    let fog_height_min = 200.0;      // Sea level - maximum fog
+    let fog_height_max = 600.0;   // 5000 feet - minimal fog
+    
+    // Calculate height-based fog multiplier (1.0 at sea level, 0.0 at fog_height_max)
+    let height_fog_factor = 1.0 - saturate((terrain_height - fog_height_min) / (fog_height_max - fog_height_min));
+    
+    // Squared for faster falloff at higher altitudes
+    let height_fog_multiplier = height_fog_factor * height_fog_factor;
+    
+    // Calculate distance-based fog
+    // Define distance fog parameters (in km)
+    let fog_distance_start = 1.0;   // Start of distance fog (10 km)
+    let fog_distance_end = 2.0;     // Full fog at this distance (50 km)
+    
+    // Calculate distance fog factor based on world space distance
+    let distance_fog_factor = saturate((world_depth_distance - fog_distance_start) / (fog_distance_end - fog_distance_start));
+    
+    // Optional: Apply a curve to distance fog for more control
+    let distance_fog_multiplier = distance_fog_factor * distance_fog_factor;
+    
+    // Combine height and distance fog factors
+    // Use max to ensure fog appears in either low areas OR at distance
+    let combined_fog_multiplier = max(height_fog_multiplier, distance_fog_multiplier);
+    
+    // Alternative combination methods:
+    // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
+    // 2. Multiplicative blend: let combined_fog_multiplier = 1.0 - (1.0 - height_fog_multiplier) * (1.0 - distance_fog_multiplier);
+    
+    var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
+    
+    var fog_weight = 1.0;
+    if slice < 0.5 {
+        fog_weight = saturate(slice * 2.0);
+        slice = 0.5;
+    }
+    
+    let w = sqrt(slice / AP_SLICE_COUNT);
+    
+    let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
+    
+    let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+    
+    // Apply combined fog multiplier to the final fog alpha
+    let final_fog_alpha = aerial_perspective.a * fog_weight * combined_fog_multiplier;
+    
+    return vec4f(dithered_aerial_perspective, final_fog_alpha);
+}
+
+    
+    return vec4<f32>(filmic(dithered), 1.0);
 }

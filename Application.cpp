@@ -1,12 +1,18 @@
 // Application.cpp
 
 #define WEBGPU_CPP_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include "Application.h"
+#include "./stb_image_write.h"
 
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
+    saveTexture();
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
     if (!gpu.initialize()) return false;
     pip = gpu.getPipelineManager();
     buf = gpu.getBufferManager();
@@ -15,6 +21,8 @@ bool Application::Initialize() {
 
     chunkManager.init(tex, buf);
     registerMovementCallbacks();
+
+    
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
@@ -72,7 +80,40 @@ bool Application::Initialize() {
     return true;
 }
 
+void Application::saveTexture() {
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EwBmZoZAGQAhABMAPQqXPw0ABQAAAAAAAEAHAAAAAAA/AAAAAAAAAAAAgL8BGwANAAYAAAD2KNw/GwALAAEAAAAAAAAAAQAAAAAAAAAAheuRPwCuR6G/AIXrUT8APQrXPgAAAEBAAAAAgD8=");
+    
+    int width = 512;
+    int height = 512;
+    
+    std::vector<float> noiseData(width * height);
+    fnGenerator->GenUniformGrid2D(noiseData.data(), 0, 0, width, height, 0.008f, 0);
 
+    // Convert float data (-1.0 to 1.0) to unsigned char (0 to 255)
+    std::vector<unsigned char> imageData(width * height * 3); // RGB channels
+
+    for (int i = 0; i < width * height; ++i) {
+        // Clamp and normalize the noise value from [-1.0, 1.0] to [0, 255]
+        float normalizedValue = std::clamp((noiseData[i] + 1.0f) * 0.5f, 0.0f, 1.0f);
+        unsigned char pixelValue = static_cast<unsigned char>(normalizedValue * 255.0f);
+
+        // Set R, G, B channels to the same value (grayscale)
+        imageData[i * 3 + 0] = pixelValue; // Red
+        imageData[i * 3 + 1] = pixelValue; // Green  
+        imageData[i * 3 + 2] = pixelValue; // Blue
+    }
+
+    // Save as PNG
+    const char* filename = "../../../resources/noise_texture.png";
+    int result = stbi_write_png(filename, width, height, 3, imageData.data(), width * 3);
+
+    if (result) {
+        printf("Successfully saved noise texture to %s\n", filename);
+    }
+    else {
+        printf("Failed to save noise texture\n");
+    }
+}
 
 void Application::Terminate() {
     stopChunkUpdateThread();
@@ -348,37 +389,43 @@ void Application::renderImGUI() {
         }
 
         if (ImGui::CollapsingHeader("Atmosphere")) {
+            ImGui::Text("Transmittance LUT");
+            ImGui::Image((void*)tex->getTextureView("transmittance_view"), ImVec2(256, 64));
+
+            ImGui::Text("Sky view LUT");
+            ImGui::Image((void*)tex->getTextureView("skyview_view"), ImVec2(192, 108));
+
             if (ImGui::Button("Reset Atmosphere")) {
                 atmosphere = getDefaultAtmosphere();
             }
-
+            ImGui::Text("Planet size");
             ImGui::SliderFloat("Bottom radius", &atmosphere.bottom_radius, 10.0f, 10000.0f, "%.1f");
             ImGui::SliderFloat("Top radius", &atmosphere.top_radius, 10.0f, 10000.0f, "%.1f");
 
-            ImGui::SliderFloat("Multiscattering factor", &atmosphere.multi_scattering_factor, 0.1f, 10.0f, "%.2f");
+            ImGui::Text("Planet center");
+            ImGui::SliderFloat("pX:", &atmosphere.planet_center.x, -10000.0f, 10000.0f, "%.2f");
+            ImGui::SliderFloat("pY:", &atmosphere.planet_center.y, -10000.0f, 10000.0f, "%.2f");
+            ImGui::SliderFloat("pZ:", &atmosphere.planet_center.z, -10000.0f, 10000.0f, "%.2f");
+
             ImGui::Text("Ground Albedo");
             ImGui::SliderFloat("gR:", &atmosphere.ground_albedo.r, 0.001f, 1.0f, "%.2f");
             ImGui::SliderFloat("gG:", &atmosphere.ground_albedo.g, 0.001f, 1.0f, "%.2f");
             ImGui::SliderFloat("gB:", &atmosphere.ground_albedo.b, 0.001f, 1.0f, "%.2f");
 
-            ImGui::Text("Planet Center");
-            ImGui::SliderFloat("pX:", &atmosphere.planet_center.x, -10000.0f, 10000.0f, "%.2f");
-            ImGui::SliderFloat("pY:", &atmosphere.planet_center.y, -10000.0f, 10000.0f, "%.2f");
-            ImGui::SliderFloat("pZ:", &atmosphere.planet_center.z, -10000.0f, 10000.0f, "%.2f");
+            ImGui::SliderFloat("Multiscattering factor", &atmosphere.multi_scattering_factor, 0.1f, 10.0f, "%.2f");
 
-            ImGui::SliderFloat("rayleigh_density_exp_scale", &atmosphere.rayleigh_density_exp_scale, -10.0f, 10.0f, "%.2f");
 
             ImGui::Text("Rayleigh scattering");
-            ImGui::SliderFloat("rR:", &atmosphere.rayleigh_scattering.r, 0.001f, 1.0f, "%.2f");
-            ImGui::SliderFloat("rG:", &atmosphere.rayleigh_scattering.g, 0.001f, 1.0f, "%.2f");
-            ImGui::SliderFloat("rB:", &atmosphere.rayleigh_scattering.b, 0.001f, 1.0f, "%.2f");
-
-            ImGui::SliderFloat("mie_density_exp_scale", &atmosphere.rayleigh_density_exp_scale, -10.0f, 10.0f, "%.2f");
+            ImGui::SliderFloat("rayleigh_density_exp_scale", &atmosphere.rayleigh_density_exp_scale, -10.0f, 10.0f, "%.2f");
+            ImGui::SliderFloat("rR:", &atmosphere.rayleigh_scattering.r, 0.0f, 0.2f, "%.2f");
+            ImGui::SliderFloat("rG:", &atmosphere.rayleigh_scattering.g, 0.0f, 0.2f, "%.2f");
+            ImGui::SliderFloat("rB:", &atmosphere.rayleigh_scattering.b, 0.0f, 0.2f, "%.2f");
 
             ImGui::Text("Mie scattering");
-            ImGui::SliderFloat("msR:", &atmosphere.mie_scattering.r, 0.001f, 1.0f, "%.2f");
-            ImGui::SliderFloat("msG:", &atmosphere.mie_scattering.g, 0.001f, 1.0f, "%.2f");
-            ImGui::SliderFloat("msB:", &atmosphere.mie_scattering.b, 0.001f, 1.0f, "%.2f");
+            ImGui::SliderFloat("mie_density_exp_scale", &atmosphere.mie_density_exp_scale, -10.0f, 10.0f, "%.2f");
+            ImGui::SliderFloat("msR:", &atmosphere.mie_scattering.r, 0.0f, 0.2f, "%.2f");
+            ImGui::SliderFloat("msG:", &atmosphere.mie_scattering.g, 0.0f, 0.2f, "%.2f");
+            ImGui::SliderFloat("msB:", &atmosphere.mie_scattering.b, 0.0f, 0.2f, "%.2f");
 
             ImGui::Text("Mie extinction");
             ImGui::SliderFloat("meR:", &atmosphere.mie_extinction.r, 0.001f, 1.0f, "%.2f");
@@ -387,19 +434,23 @@ void Application::renderImGUI() {
 
             ImGui::SliderFloat("mie_phase_param", &atmosphere.rayleigh_density_exp_scale, 0.001f, 10.0, "%.2f");
 
-
+            ImGui::Text("Ozone");
             ImGui::SliderFloat("Absorbtion layer 0 height", &atmosphere.absorption_density_0_layer_height, 0.0f, 25.0, "%.2f");
             ImGui::SliderFloat("Absorbtion layer 0 constant", &atmosphere.absorption_density_0_constant_term, -10.0f, 10.0, "%.2f");
             ImGui::SliderFloat("Absorbtion layer 0 linear", &atmosphere.absorption_density_0_linear_term, -10.0f, 10.0, "%.2f");
 
-            ImGui::SliderFloat("Absorbtion layer 1 constant", &atmosphere.absorption_density_0_constant_term, -10.0f, 10.0, "%.2f");
-            ImGui::SliderFloat("Absorbtion layer 1 linear", &atmosphere.absorption_density_0_linear_term, -10.0f, 10.0, "%.2f");
+            ImGui::SliderFloat("Absorbtion layer 1 constant", &atmosphere.absorption_density_1_constant_term, -10.0f, 10.0, "%.2f");
+            ImGui::SliderFloat("Absorbtion layer 1 linear", &atmosphere.absorption_density_1_linear_term, -10.0f, 10.0, "%.2f");
 
             ImGui::Text("Absorption extinction");
             ImGui::SliderFloat("oR:", &atmosphere.mie_extinction.r, 0.001f, 1.0f, "%.2f");
             ImGui::SliderFloat("oG:", &atmosphere.mie_extinction.g, 0.001f, 1.0f, "%.2f");
             ImGui::SliderFloat("oB:", &atmosphere.mie_extinction.b, 0.001f, 1.0f, "%.2f");
 
+            ImGui::SliderFloat("Sky sun luminance:", &atmosphere.sky_sun_lum, 0.0f, 64.0f, "%.1f");
+            ImGui::SliderFloat("Atmosphere sun luminance:", &atmosphere.ap_sun_lum, 0.0f, 64.0f, "%.1f");
+
+            ImGui::SliderFloat("Atmosphere slice scale:", &atmosphere.ap_slice_scale, 0.0f, 0.2f, "%.3f");
         }
 
         if (ImGui::CollapsingHeader("Clouds")) {
@@ -410,25 +461,23 @@ void Application::renderImGUI() {
             ImGui::SliderFloat("Thickness", &clouds.thickness, 0.0f, 100.0f, "%.2f");
             ImGui::SliderFloat("Density", &clouds.density, 0.0f, 3.0f, "%.2f");
             ImGui::SliderFloat("Coverage", &clouds.coverage, 0.0f, 3.0f, "%.2f");
-            ImGui::SliderFloat("Absorption", &clouds.scattering, 0.0f, 3.0f, "%.2f");
+            ImGui::SliderFloat("Absorption", &clouds.absorption, 0.0f, 3.0f, "%.2f");
             ImGui::SliderFloat("Scattering", &clouds.scattering, 0.0f, 3.0f, "%.2f");
             ImGui::SliderFloat("Powder strength", &clouds.powder_strength, 0.0f, 50.0f, "%.2f");
             ImGui::SliderFloat("Sun brightness", &clouds.sun_brightness, 0.0f, 50.0f, "%.2f");
             ImGui::SliderFloat("Phase G1", &clouds.phase_g1, -1.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Phase G2", &clouds.phase_g2, -1.0f, 1.0f, "%.2f");
             ImGui::SliderFloat("Phase blend", &clouds.phase_blend, -1.0f, 1.0f, "%.2f");
-            ImGui::SliderInt("March steps", &clouds.march_steps, 1, 64, "%d");
-            ImGui::SliderInt("Shadow steps", &clouds.march_steps, 1, 64, "%d");
-            ImGui::SliderInt("Light steps", &clouds.march_steps, 1, 64, "%d");
+            ImGui::SliderInt("March steps", &clouds.march_steps, 1, 128, "%d");
+            ImGui::SliderInt("Light steps", &clouds.light_steps, 1, 128, "%d");
             ImGui::SliderFloat("Scale", &clouds.scale, 0.0f, 100.0f, "%.2f");
-            ImGui::SliderFloat("Speed", &clouds.speed, 0.0f, 0.1f, "%.2f");
+            ImGui::SliderFloat("Speed", &clouds.speed, 0.0f, 1.0f, "%.2f");
         }
 
         if (ImGui::CollapsingHeader("Noise")) {
             ImGui::Text("Noise texture");
 			Noise noiseParams = getWhiteNoise3D();
 
-            //ImGui::Image((void*)tex->getTextureView("noise_view"), ImVec2(noiseParams.textureSize, noiseParams.textureSize));
 
             ImGui::SliderInt("Octaves", (int*)&noise.octaves, 1, 8, "%d");
             ImGui::SliderFloat("Frequency", &noise.frequency, 0.01f, 10.0f, "%.2f");

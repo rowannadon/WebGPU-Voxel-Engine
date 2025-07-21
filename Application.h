@@ -26,6 +26,7 @@
 #include <array>
 #include <thread>
 #include <numeric>
+#include <FastNoise/FastNoise.h>
 
 using namespace wgpu;
 
@@ -39,6 +40,8 @@ public:
     void Terminate();
     void MainLoop();
     bool IsRunning();
+
+    void saveTexture();
 
 private:
     void startChunkUpdateThread();

@@ -850,7 +850,7 @@ bool WebGPURenderer::initShadowTexture() {
 	depthTextureDesc.format = depthTextureFormat;
 	depthTextureDesc.mipLevelCount = 1;
 	depthTextureDesc.sampleCount = 1;
-	depthTextureDesc.size = { 8196, 8196, 1 };
+	depthTextureDesc.size = { 16384, 16384, 1 };
 	depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 	depthTextureDesc.viewFormatCount = 0;
 	depthTextureDesc.viewFormats = nullptr;
@@ -1025,7 +1025,7 @@ bool WebGPURenderer::initShadowPipeline() {
 	config.colorFormat = TextureFormat::Undefined;
 	config.depthFormat = TextureFormat::Depth32Float;
 	config.sampleCount = 1;
-	config.cullMode = CullMode::Front;
+	config.cullMode = CullMode::None;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
 	config.fragmentShaderName = "shadow_fs_main";  // Fragment shader entry point
@@ -1121,9 +1121,9 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("lut_sampler", lutSamplerDesc);
 
 	SamplerDescriptor samplerDesc;
-	samplerDesc.addressModeU = AddressMode::Repeat;
-	samplerDesc.addressModeV = AddressMode::Repeat;
-	samplerDesc.addressModeW = AddressMode::Repeat;
+	samplerDesc.addressModeU = AddressMode::ClampToEdge;
+	samplerDesc.addressModeV = AddressMode::ClampToEdge;
+	samplerDesc.addressModeW = AddressMode::ClampToEdge;
 	samplerDesc.magFilter = FilterMode::Nearest;
 	samplerDesc.minFilter = FilterMode::Nearest;
 	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
@@ -1135,7 +1135,7 @@ bool WebGPURenderer::initTextures() {
 
 	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
 
-	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/pebbles.png");
+	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 
 	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/rgba_noise_256.png");
 
