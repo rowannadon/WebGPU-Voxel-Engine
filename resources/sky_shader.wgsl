@@ -1,4 +1,4 @@
-// sky_shader.wgsl - Fixed coordinate system for proper cloud sphere rendering with volumetric clouds
+// unified_cloud_shader.wgsl - Combined cloud density from shader 1 with lighting from shader 2
 //
 // COORDINATE SYSTEM:
 // - Terrain shader uses feet as base unit (1 unit = 1 foot)
@@ -11,14 +11,10 @@ const tau: f32 = pi * 2.0;
 const golden_ratio: f32 = (1.0 + sqrt(5.0)) / 2.0;
 
 const one_over_four_pi = 1.0 / (2.0 * tau);
-
 const u32_max: f32 = 4294967296.0;
-
 const sphere_solid_angle: f32 = 4.0 * pi;
-
 const t_max_max: f32 = 9000000.0;
 const planet_radius_offset: f32 = 0.01;
-
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const rLOG2: f32 = 1.0 / log(2.0);
@@ -57,10 +53,8 @@ struct MyUniforms {
     projectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
-
     inverseProjectionMatrix: mat4x4f,
     inverseViewMatrix: mat4x4f,
-
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
@@ -75,49 +69,31 @@ struct MyUniforms {
 };
 
 struct Atmosphere {
-	// Rayleigh scattering coefficients
-	rayleigh_scattering: vec3<f32>,
-	// Rayleigh scattering exponential distribution scale in the atmosphere
-	rayleigh_density_exp_scale: f32,
-	// Mie scattering coefficients
-	mie_scattering: vec3<f32>,
-	// Mie scattering exponential distribution scale in the atmosphere
-	mie_density_exp_scale: f32,
-	// Mie extinction coefficients
-	mie_extinction: vec3<f32>,
-	// Mie phase parameter (Cornette-Shanks excentricity or Henyey-Greenstein-Draine droplet diameter)
-	mie_phase_param: f32,
-	// Mie absorption coefficients
-	mie_absorption: vec3<f32>,
-	// Another medium type in the atmosphere
-	absorption_density_0_layer_height: f32,
-	absorption_density_0_constant_term: f32,
-	absorption_density_0_linear_term: f32,
-	absorption_density_1_constant_term: f32,
-	absorption_density_1_linear_term: f32,
-	// This other medium only absorb light, e.g. useful to represent ozone in the earth atmosphere
-	absorption_extinction: vec3<f32>,
-	// Radius of the planet (center to ground) - in kilometers
-	bottom_radius: f32,
-	// The albedo of the ground.
-	ground_albedo: vec3<f32>,
-	// Maximum considered atmosphere height (center to atmosphere top) - in kilometers
-	top_radius: f32,
-	// planet center in world space (z up) - in kilometers
-	// used to transform the camera's position to the atmosphere's object space
-	planet_center: vec3<f32>,
-	multi_scattering_factor: f32,
+    rayleigh_scattering: vec3<f32>,
+    rayleigh_density_exp_scale: f32,
+    mie_scattering: vec3<f32>,
+    mie_density_exp_scale: f32,
+    mie_extinction: vec3<f32>,
+    mie_phase_param: f32,
+    mie_absorption: vec3<f32>,
+    absorption_density_0_layer_height: f32,
+    absorption_density_0_constant_term: f32,
+    absorption_density_0_linear_term: f32,
+    absorption_density_1_constant_term: f32,
+    absorption_density_1_linear_term: f32,
+    absorption_extinction: vec3<f32>,
+    bottom_radius: f32,
+    ground_albedo: vec3<f32>,
+    top_radius: f32,
+    planet_center: vec3<f32>,
+    multi_scattering_factor: f32,
 }
 
 struct AtmosphereLight {
-	// Sun light's illuminance
-	illuminance: vec3<f32>,
-	// Sun disk's angular diameter in radians
-	disk_diameter: f32,
-	// Sun light's direction (direction pointing to the sun)
-	direction: vec3<f32>,
-	// Sun disk's luminance
-	disk_luminance_scale: f32,
+    illuminance: vec3<f32>,
+    disk_diameter: f32,
+    direction: vec3<f32>,
+    disk_luminance_scale: f32,
 }
 
 struct SkyVertexInput {
@@ -137,7 +113,7 @@ struct SkyVertexOutput {
 @group(0) @binding(6) var aerial_perspective_lut : texture_3d<f32>;
 @group(0) @binding(7) var depth_buffer: texture_depth_multisampled_2d;
 @group(0) @binding(8) var depth_sampler: sampler;
-// Cloud noise textures
+// Cloud noise textures (from shader 1)
 @group(0) @binding(9) var cloud_sampler: sampler;
 @group(0) @binding(10) var worley_texture: texture_2d<f32>; // 512x512 inverted worley
 @group(0) @binding(11) var noise_2d_texture: texture_2d<f32>; // 256x256 random rgba
@@ -146,11 +122,8 @@ struct SkyVertexOutput {
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
-
 override INV_DISTANCE_TO_MAX_SAMPLE_COUNT: f32 = 1.0 / 100.0;
-
 override USE_UNIFORM_LONGITUDE_PARAMETERIZATION: bool = false;
-
 override RANDOMIZE_SAMPLE_OFFSET: bool = true;
 override AP_SLICE_COUNT: f32 = 32.0;
 override AP_DISTANCE_PER_SLICE: f32 = 4.0;
@@ -159,27 +132,46 @@ override IS_REVERSE_Z: bool = false;
 
 const IS_Y_UP = false;
 const IS_RIGHT_HANDED = true;
-
 const RENDER_SUN_DISK = true;
 const RENDER_MOON_DISK = true;
 const USE_MOON = true;
-
 const LIMB_DARKENING_ON_MOON = false;
 const LIMB_DARKENING_ON_SUN = false;
 
 const SUN_ILLUMINANCE: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
 const SUN_DISK_DIAMETER: f32 = 0.0235;
 const SUN_DISK_LUMINANCE_SCALE: f32 = 100.0; 
-
 const MOON_ILLUMINANCE: vec3<f32> = vec3<f32>(0.05, 0.05, 0.05);
 const MOON_DISK_DIAMETER: f32 = 0.0235; 
 const MOON_DISK_LUMINANCE_SCALE: f32 = 0.5; 
-
 const TO_KM_SCALE = 1.0/3280.0;
 
 // Cloud constants
 const SUN_POWER: vec3<f32> = vec3<f32>(1.0, 0.9, 0.6) * 750.0;
 
+// Utility functions from shader 2
+fn d0(x: f32) -> f32 {
+    return abs(x) + 1e-8;
+}
+
+fn d02(x: f32) -> f32 {
+    return abs(x) + 1e-3;
+}
+
+fn rsi(position: vec3<f32>, direction: vec3<f32>, radius: f32) -> vec2<f32> {
+    let PoD = dot(position, direction);
+    let radiusSquared = radius * radius;
+    
+    let delta = PoD * PoD + radiusSquared - dot(position, position);
+    if (delta < 0.0) {
+        return vec2<f32>(-1.0);
+    }
+    
+    let sqrt_delta = sqrt(delta);
+    return -PoD + vec2<f32>(-sqrt_delta, sqrt_delta);
+}
+
+// Noise functions from shader 1
 fn hash_single(n: f32) -> f32 {
     return fract(sin(n) * 43758.5453);
 }
@@ -220,29 +212,7 @@ fn fbm(p: vec3<f32>) -> f32 {
     return f;
 }
 
-fn intersect_sphere(origin: vec3<f32>, dir: vec3<f32>, sphere_pos: vec3<f32>, sphere_rad: f32) -> f32 {
-    let oc = origin - sphere_pos;
-    let b = 2.0 * dot(dir, oc);
-    let c = dot(oc, oc) - sphere_rad * sphere_rad;
-    let disc = b * b - 4.0 * c;
-    
-    if (disc < 0.0) {
-        return -1.0;
-    }
-    
-    let q = (-b + select(-sqrt(disc), sqrt(disc), b < 0.0)) / 2.0;
-    let t0 = q;
-    let t1 = c / q;
-    let t_min = min(t0, t1);
-    let t_max = max(t0, t1);
-    
-    if (t_max < 0.0) {
-        return -1.0;
-    }
-    
-    return select(t_max, t_min, t_min >= 0.0);
-}
-
+// Cloud density sampling from shader 1 (the sophisticated version)
 fn sample_clouds(p: vec3<f32>, cloud_height_out: ptr<function, f32>, fast: bool, clouds: Clouds, 
                 time: f32, atmosphere: Atmosphere) -> f32 {
     // p is already relative to planet center, so just calculate height from origin
@@ -288,180 +258,62 @@ fn sample_clouds(p: vec3<f32>, cloud_height_out: ptr<function, f32>, fast: bool,
     return large_weather * 0.2 * min(1.0, 5.0 * den) * clouds.density;
 }
 
-fn render_clouds(org: vec3<f32>, dir: vec3<f32>, sun_direction: vec3<f32>, atmosphere: Atmosphere, 
-                 clouds: Clouds, time: f32, fast: bool) -> vec4<f32> {
-    let planet_center = vec3<f32>(0.0);
-    let atm_start = atmosphere.bottom_radius + clouds.height;
-    let atm_end = atm_start + clouds.thickness;
-    
-    let nb_sample = select(clouds.march_steps, 13, fast);
-    
-    var color = vec3<f32>(0.0);
-    let dist_to_atm_start = intersect_sphere(org, dir, planet_center, atm_start);
-    let dist_to_atm_end = intersect_sphere(org, dir, planet_center, atm_end);
-    
-    // Setup ray marching bounds
-    let camera_height = length(org) - atmosphere.bottom_radius;
-    var start_dist = dist_to_atm_start;
-    var end_dist = dist_to_atm_end;
-    
-    if (camera_height >= clouds.height && camera_height <= (clouds.height + clouds.thickness)) {
-        start_dist = 0.0;
-        if (dist_to_atm_end < 0.0) {
-            return vec4<f32>(0.0);
-        }
-        end_dist = dist_to_atm_end;
-    } else if (dist_to_atm_start < 0.0 || dist_to_atm_end < 0.0) {
-        return vec4<f32>(0.0);
-    }
-    
-    // Check planet intersection
-    let dist_to_planet_surface = intersect_sphere(org, dir, planet_center, atmosphere.bottom_radius);
-    if (dist_to_planet_surface > 0.0 && dist_to_planet_surface < end_dist) {
-        end_dist = dist_to_planet_surface;
-    }
-    
-    if (start_dist >= end_dist) {
-        return vec4<f32>(0.0);
-    }
-    
-    var p = org + start_dist * dir;
-    let step_s = (end_dist - start_dist) / f32(nb_sample);
-    var transmittance = 1.0;
-    
-    let mu = dot(sun_direction, dir);
-    let phase_function = dual_henyey_greenstein(mu, clouds.phase_g1, clouds.phase_g2, clouds.phase_blend);
-    
-    // Jitter starting position
-    p += dir * step_s * hash_single(dot(dir, vec3<f32>(12.256, 2.646, 6.356)) + time);
-    
-    var accumulated_light = vec3<f32>(0.0);
-    
-    for (var i = 0; i < nb_sample; i++) {
-        var cloud_height: f32;
-        let density = sample_clouds(p, &cloud_height, fast, clouds, time, atmosphere);
-        
-        if (density > 0.0) {
-            // Get ambient light - this is always present
-            let ambient_light = get_ambient_sky_light(p, atmosphere);
-            
-            // Calculate soft shadow factor
-            let shadow_factor = calculate_planet_shadow(p, sun_direction, atmosphere);
-            
-            var lighting = vec3<f32>(0.0);
-            
-            // Always calculate direct lighting, then attenuate by shadow
-            let direct_lighting = light_ray(p, phase_function, density, mu, sun_direction, 
-                                          cloud_height, fast, clouds, time, atmosphere);
-            
-            // Blend between full lighting and shadowed based on shadow factor
-            lighting = direct_lighting * shadow_factor;
-            
-            // Always add ambient, but reduce it where we have direct light
-            let ambient_strength = mix(1.2, 0.4, shadow_factor); // More ambient in shadow
-            lighting += ambient_light * 1.2;
-            
-            // Subtle rim lighting in partial shadow
-            if (shadow_factor < 0.8) {
-                let forward_scatter = max(0.0, mu) * 0.15 * (1.0 - shadow_factor);
-                lighting += ambient_light * forward_scatter;
-            }
-            
-            // Apply cloud scattering albedo
-            lighting *= clouds.scattering;
-            
-            // Energy-conserving integration
-            let extinction = density * step_s * clouds.absorption;
-            let clamp_extinction = max(extinction, 0.0001); // Prevent division by zero
-            
-            // Analytical integration of light along the step
-            accumulated_light += lighting * transmittance * (1.0 - exp(-extinction)) / (clouds.absorption + 0.0001);
-            
-            // Update transmittance
-            transmittance *= exp(-extinction);
-            
-            if (transmittance < 0.01) {
-                break;
-            }
-        }
-        
-        p += dir * step_s;
-    }
-    
-    // Final opacity is how much light was blocked
-    let opacity = 1.0 - transmittance;
-    
-    return vec4<f32>(accumulated_light, opacity);
-}
-
-fn numerical_mie_fit(costh: f32) -> f32 {
-    let best_params = array<f32, 10>(
-        9.805233e-06, -6.500000e+01, -5.500000e+01, 8.194068e-01, 1.388198e-01,
-        -8.370334e+01, 7.810083e+00, 2.054747e-03, 2.600563e-02, -4.552125e-12
-    );
-    
-    let p1 = costh + best_params[3];
-    let exp_values = vec4<f32>(
-        exp(best_params[1] * costh + best_params[2]),
-        exp(best_params[5] * p1 * p1),
-        exp(best_params[6] * costh),
-        exp(best_params[9] * costh)
-    );
-    let exp_weights = vec4<f32>(best_params[0], best_params[4], best_params[7], best_params[8]);
-    
-    return dot(exp_values, exp_weights);
-}
-
-fn henyey_greenstein(mu: f32, g: f32) -> f32 {
+// Phase functions from both shaders
+fn hgPhase(x: f32, g: f32) -> f32 {
     let g2 = g * g;
-    return (1.0 - g2) / (pow(1.0 + g2 - 2.0 * g * mu, 1.5) * 4.0 * pi);
+    return 0.25 * ((1.0 - g2) * pow(1.0 + g2 - 2.0 * g * x, -1.5));
 }
 
-fn dual_henyey_greenstein(mu: f32, g1: f32, g2: f32, blend: f32) -> f32 {
-    return mix(henyey_greenstein(mu, g1), henyey_greenstein(mu, g2), blend);
+fn phase2Lobes(x: f32, g1: f32, g2: f32, blend: f32) -> f32 {
+    let lobe1 = hgPhase(x, g1);
+    let lobe2 = hgPhase(x, g2);
+    return mix(lobe2, lobe1, blend);
 }
 
-fn light_ray(p: vec3<f32>, phase_function: f32, dC: f32, mu: f32, sun_direction: vec3<f32>, 
-             cloud_height: f32, fast: bool, clouds: Clouds, time: f32, atmosphere: Atmosphere) -> vec3<f32> {
-    let nb_sample_light = select(clouds.light_steps, clouds.shadow_steps, fast);
-    let z_max_l = clouds.thickness;
-    let step_l = z_max_l / f32(nb_sample_light);
+// Lighting functions from shader 2
+fn powder(od: f32) -> f32 {
+    return 1.0 - exp2(-od * 2.0);
+}
+
+fn calculateScatterIntegral(opticalDepth: f32, coeff: f32) -> f32 {
+    let a = -coeff * rLOG2;
+    let b = -1.0 / coeff;
+    let c = 1.0 / coeff;
     
-    var light_ray_den = 0.0;
-    let start_offset = step_l * hash_single(dot(p, vec3<f32>(12.256, 2.646, 6.356)) + time);
-    
-    // Accumulate density along light ray
-    for (var j = 0; j < nb_sample_light; j++) {
-        var temp_height: f32;
-        let sample_pos = p + sun_direction * (start_offset + f32(j) * step_l);
-        let sample_density = sample_clouds(sample_pos, &temp_height, fast, clouds, time, atmosphere);
-        light_ray_den += sample_density;
+    return exp2(a * opticalDepth) * b + c;
+}
+
+// Enhanced sun visibility using shader 1's density sampling but simplified like shader 2
+fn getSunVisibility(p: vec3<f32>, sun_dir: vec3<f32>, cloud_buffer: Clouds) -> f32 {
+    let steps = min(cloud_buffer.shadow_steps, 32);
+    if (steps <= 0) {
+        return 1.0;
     }
     
-    // Convert accumulated density to optical depth
-    let optical_depth = light_ray_den * step_l;
+    let rSteps = cloud_buffer.thickness / f32(steps);
+    let increment = sun_dir * rSteps;
+    var position = p;
     
-    // Beer-Lambert law with multiple scattering approximation
-    let primary_attenuation = exp(-optical_depth * clouds.absorption);
+    var transmittance = 0.0;
     
-    // Multiple scattering contribution (fake but looks good)
-    let secondary_scattering = 0.6 * exp(-optical_depth * 0.25) * max(0.0, 1.0 - primary_attenuation);
-    let tertiary_scattering = 0.3 * exp(-optical_depth * 0.05) * max(0.0, 1.0 - primary_attenuation - secondary_scattering);
+    for (var i = 0; i < steps; i++) {
+        if (i >= 32) { break; }
+        
+        position += increment;
+        
+        var cloud_height: f32;
+        let density = sample_clouds(position, &cloud_height, true, cloud_buffer, 
+                                   config_buffer.time, atmosphere_buffer);
+        if (density > 0.0) {
+            transmittance += density;
+        }
+    }
     
-    let total_attenuation = primary_attenuation + secondary_scattering + tertiary_scattering;
-    
-    // Powder effect - clouds look more solid at grazing angles
-    let powder_strength = 1.0 - exp(-dC * 8.0);
-    var powder_effect = mix(1.0, powder_strength, smoothstep(0.0, 0.5, cloud_height));
-    powder_effect *= mix(1.0, 0.5, clamp(-mu, 0.0, 1.0)); // Reduce powder at grazing angles
-    
-    // Get atmospheric sun color at this position
-    let sun_color = get_sun_light_color(p, sun_direction, atmosphere, clouds);
-    
-    // Return lit color
-    return sun_color * total_attenuation * phase_function * powder_effect * clouds.sun_brightness;
+    // CRITICAL: Use exp2 like shader 2, not exp
+    return exp2(-transmittance * rSteps);
 }
 
+// Planet shadow from shader 1
 fn calculate_planet_shadow(pos: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere) -> f32 {
     // Angular radius of sun as seen from cloud position
     let sun_angular_radius = 0.00465; // ~0.267 degrees in radians
@@ -499,34 +351,41 @@ fn calculate_planet_shadow(pos: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmos
     }
 }
 
-fn get_ambient_at_position(pos: vec3<f32>, atmosphere: Atmosphere, cloud_height: f32) -> vec3<f32> {
-    let height = length(pos);
-    let up_dir = pos / height;
+// Atmospheric scattering from shader 2
+fn calcAtmosphericScatterTop(sun_dir: vec3<f32>) -> vec3<f32> {
+    let ln2 = log(2.0);
+    let lDotU = dot(sun_dir, vec3<f32>(0.0, 0.0, 1.0)); // Z-up
     
-    // Sample sky view LUT in multiple directions for ambient
-    var ambient = vec3<f32>(0.0);
-    let sample_count = 6;
+    // Simplified atmospheric scattering for top lighting
+    let rayleighCoeff = vec3<f32>(0.27, 0.5, 1.0) * 1e-5;
+    let mieCoeff = vec3<f32>(0.5e-6);
+    let totalCoeff = rayleighCoeff + mieCoeff;
     
-    for (var i = 0; i < sample_count; i++) {
-        let angle = f32(i) * (2.0 * pi / f32(sample_count));
-        let sample_dir = vec3<f32>(cos(angle) * 0.7, sin(angle) * 0.7, 0.7);
-        let world_sample_dir = normalize(sample_dir);
-        
-        // Use simplified sky view sampling
-        let cos_zenith = dot(world_sample_dir, up_dir);
-        let intersects_ground = cos_zenith < -sqrt(1.0 - (atmosphere.bottom_radius / height) * (atmosphere.bottom_radius / height));
-        
-        // Sample sky view LUT (simplified without sun direction dependency for ambient)
-        let v = sky_view_lut_params_to_v(atmosphere, intersects_ground, cos_zenith, height);
-        let uv = vec2<f32>(0.5, from_unit_to_sub_uvs(v, SKY_VIEW_LUT_RES_Y));
-        
-        ambient += textureSampleLevel(sky_view_lut, lut_sampler, uv, 0).rgb;
-    }
+    let opticalDepth = 100000.0 / max(1.0 * 2.0 - 0.01, 0.01);
+    let opticalDepthLight = 100000.0 / max(lDotU * 2.0 - 0.01, 0.01);
     
-    // Weight by cloud height (less ambient deeper in clouds)
-    return ambient / f32(sample_count) * mix(0.8, 0.3, cloud_height);
+    let scatterView = totalCoeff * opticalDepth;
+    let absorbView = exp2(-scatterView);
+    
+    let scatterLight = totalCoeff * opticalDepthLight;
+    let absorbLight = exp2(-scatterLight);
+    
+    // Apply d02 component-wise for vectors
+    let absorbSun = vec3<f32>(
+        d02(absorbLight.x - absorbView.x) / d02((scatterLight.x - scatterView.x) * ln2),
+        d02(absorbLight.y - absorbView.y) / d02((scatterLight.y - scatterView.y) * ln2),
+        d02(absorbLight.z - absorbView.z) / d02((scatterLight.z - scatterView.z) * ln2)
+    );
+    
+    let mieScatter = mieCoeff * opticalDepth * 0.25;
+    let rayleighScatter = rayleighCoeff * opticalDepth * 0.375;
+    
+    let scatterSun = mieScatter + rayleighScatter;
+    
+    return (scatterSun * absorbSun) * cloud_buffer.sun_brightness;
 }
 
+// Ambient light calculation from shader 1
 fn get_ambient_sky_light(pos: vec3<f32>, atmosphere: Atmosphere) -> vec3<f32> {
     let height = length(pos);
     let up_dir = pos / height;
@@ -549,30 +408,7 @@ fn get_ambient_sky_light(pos: vec3<f32>, atmosphere: Atmosphere) -> vec3<f32> {
     return total_ambient;
 }
 
-fn ray_sphere_intersection(origin: vec3<f32>, dir: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
-    let oc = origin - center;
-    let b = dot(oc, dir);
-    let c = dot(oc, oc) - radius * radius;
-    let discriminant = b * b - c;
-    
-    if (discriminant < 0.0) {
-        return -1.0;
-    }
-    
-    let sqrt_d = sqrt(discriminant);
-    let t0 = -b - sqrt_d;
-    let t1 = -b + sqrt_d;
-    
-    // Return the nearest positive intersection
-    if (t0 > 0.0) {
-        return t0;
-    } else if (t1 > 0.0) {
-        return t1;
-    }
-    
-    return -1.0;
-}
-
+// Get sun color from transmittance LUT
 fn get_sun_light_color(pos: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere, clouds: Clouds) -> vec3<f32> {
     let height = length(pos);
     
@@ -635,6 +471,176 @@ fn get_sun_light_color(pos: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmospher
     // Apply transmittance and return
     return transmittance_to_sun * sun_color * SUN_ILLUMINANCE * intensity_factor * clouds.sun_brightness;
 }
+
+// Shader 2 style volumetric scattering - CRITICAL for proper lighting
+fn getVolumetricCloudsScatteringV2(
+    opticalDepth: f32,
+    phase: f32,
+    p: vec3<f32>,
+    sun_color: vec3<f32>,
+    sky_light: vec3<f32>,
+    sun_dir: vec3<f32>,
+    cloud_buffer: Clouds,
+    cloud_height: f32
+) -> vec3<f32> {
+    // Clamp optical depth to prevent extreme values
+    let clamped_od = clamp(opticalDepth, 0.0, 10.0);
+    
+    // CRITICAL: Use shader 2's integral calculation exactly
+    let integral = calculateScatterIntegral(clamped_od, 1.11);
+    
+    // CRITICAL: Use shader 2's powder function exactly
+    let beersPowder = powder(clamped_od * log(2.0)) * cloud_buffer.powder_strength;
+    
+    // Get sun visibility with shader 1's density sampling for better shadows
+    let sun_visibility = getSunVisibility(p, sun_dir, cloud_buffer);
+    
+    // CRITICAL: Shader 2's exact lighting calculation
+    let sunlighting = (sun_color * sun_visibility * beersPowder) * phase * hPi * cloud_buffer.sun_brightness;
+    let skylighting = sky_light * 0.25 * rPi;
+    
+    // CRITICAL: Return WITHOUT multiplying by scattering albedo inside the function
+    // This is key to shader 2's dramatic lighting!
+    let result = (sunlighting + skylighting) * integral * pi;
+    
+    // Clamp result to prevent extreme values but keep high dynamic range
+    return clamp(result, vec3<f32>(0.0), vec3<f32>(100.0));
+}
+
+// Main cloud rendering combining both approaches
+fn render_clouds_unified(org: vec3<f32>, dir: vec3<f32>, sun_direction: vec3<f32>, atmosphere: Atmosphere, 
+                        clouds: Clouds, time: f32, fast: bool) -> vec4<f32> {
+    let planet_center = vec3<f32>(0.0);
+    let atm_start = atmosphere.bottom_radius + clouds.height;
+    let atm_end = atm_start + clouds.thickness;
+    
+    let nb_sample = select(clouds.march_steps, 13, fast);
+    
+    // Ray-sphere intersection for cloud layer
+    let inner_intersect = rsi(org, dir, atm_start);
+    let outer_intersect = rsi(org, dir, atm_end);
+    
+    // Setup ray marching bounds
+    let camera_height = length(org) - atmosphere.bottom_radius;
+    var start_dist = -1.0;
+    var end_dist = -1.0;
+    
+    if (camera_height < clouds.height) {
+        // Below clouds
+        if (inner_intersect.y > 0.0) {
+            start_dist = inner_intersect.y;
+            end_dist = outer_intersect.y;
+        }
+    } else if (camera_height < clouds.height + clouds.thickness) {
+        // Inside clouds
+        start_dist = 0.0;
+        end_dist = outer_intersect.y;
+    } else {
+        // Above clouds
+        if (outer_intersect.x > 0.0) {
+            start_dist = outer_intersect.x;
+            end_dist = inner_intersect.x;
+        }
+    }
+    
+    if (start_dist < 0.0 || end_dist < 0.0 || start_dist >= end_dist) {
+        return vec4<f32>(0.0);
+    }
+    
+    // Check planet intersection
+    let dist_to_planet_surface = ray_sphere_intersect(org, dir, atmosphere.bottom_radius);
+    if (dist_to_planet_surface > 0.0 && dist_to_planet_surface < end_dist) {
+        end_dist = dist_to_planet_surface;
+    }
+    
+    if (start_dist >= end_dist) {
+        return vec4<f32>(0.0);
+    }
+    
+    var p = org + start_dist * dir;
+    let step_s = (end_dist - start_dist) / f32(nb_sample);
+    
+    // Use shader 1's stable dithering approach - based on ray direction and time, not position
+    // This prevents jittering when the camera moves
+    p += dir * step_s * hash_single(dot(dir, vec3<f32>(12.256, 2.646, 6.356)) + time);
+    
+    var scattering = vec3<f32>(0.0);
+    var transmittance = 1.0;
+    
+    // Calculate phase function once - CRITICAL for consistent lighting
+    let mu = dot(sun_direction, dir);
+    let phase_function = phase2Lobes(mu, clouds.phase_g1, clouds.phase_g2, clouds.phase_blend);
+    
+    // Get atmospheric lighting
+    let skyLight = calcAtmosphericScatterTop(sun_direction);
+    
+    // Get sun color from transmittance LUT
+    let height = length(org);
+    let zenith = normalize(org);
+    let cos_view_zenith = dot(sun_direction, zenith);
+    let uv = transmittance_lut_params_to_uv(atmosphere, height, cos_view_zenith);
+    let sun_color = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
+    
+    for (var i = 0; i < nb_sample; i++) {
+        var cloud_height: f32;
+        let density = sample_clouds(p, &cloud_height, fast, clouds, time, atmosphere);
+        
+        if (density > 0.0) {
+            // CRITICAL: Pass density * step_size as optical depth, just like shader 2
+            let opticalDepth = density * step_s;
+            
+            // Get volumetric scattering - shader 2 style
+            let scatter_contribution = getVolumetricCloudsScatteringV2(
+                opticalDepth, phase_function, p, sun_color, skyLight, sun_direction, 
+                clouds, cloud_height
+            );
+            
+            // CRITICAL: Direct accumulation like shader 2, not energy-conserving
+            scattering += scatter_contribution * transmittance;
+            
+            // Update transmittance
+            transmittance *= exp2(-opticalDepth);
+        }
+        
+        p += dir * step_s;
+        
+        if (transmittance < 0.01) {
+            break;
+        }
+    }
+    
+    let final_alpha = 1.0 - transmittance;
+    
+    return vec4<f32>(scattering, final_alpha);
+}
+
+// Helper function for ray-sphere intersection
+fn ray_sphere_intersect(origin: vec3<f32>, direction: vec3<f32>, radius: f32) -> f32 {
+    let oc = origin;
+    let a = dot(direction, direction);
+    let b = 2.0 * dot(oc, direction);
+    let c = dot(oc, oc) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant < 0.0) {
+        return -1.0;
+    }
+    
+    let sqrt_discriminant = sqrt(discriminant);
+    let t1 = (-b - sqrt_discriminant) / (2.0 * a);
+    let t2 = (-b + sqrt_discriminant) / (2.0 * a);
+    
+    if (t1 > 0.0) {
+        return t1;
+    } else if (t2 > 0.0) {
+        return t2;
+    } else {
+        return -1.0;
+    }
+}
+
+// [Include all the remaining utility functions from both shaders - atmospheric LUT functions, tone mapping, etc.]
+// These remain unchanged from the original shaders
 
 fn get_atmosphere_moonlight_with_dynamic_direction(moon_dir: vec3<f32>) -> AtmosphereLight {
     var light: AtmosphereLight;
@@ -894,12 +900,10 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
 
     let world_dir = uv_to_world_dir(uv, config.inverseProjectionMatrix, config.inverseViewMatrix);
     
-    // FIXED: Proper coordinate system handling
     // Camera position in world space (feet), convert to km
     let camera_world_pos_km = config.cameraWorldPos * TO_KM_SCALE;
     
-    // Planet center should be in km as well (if it's in feet, convert it)
-    // For atmosphere rendering, we need position relative to planet center
+    // Position relative to planet center
     let camera_pos_relative_to_planet = camera_world_pos_km - atmosphere.planet_center;
     
     let sun_dir = normalize(config.lightDirection);
@@ -907,12 +911,12 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let depth = textureLoad(depth_buffer, pix, 0);
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
-    // Get sky color (atmosphere system expects position relative to planet center)
+    // Get sky color
     let sky_color = use_sky_view_lut(view_height, camera_pos_relative_to_planet, world_dir, sun_dir, atmosphere, config);
     
-    // Render volumetric clouds using the same coordinate system as atmosphere
-    let cloud_result = render_clouds(camera_pos_relative_to_planet, world_dir, sun_dir, 
-                                    atmosphere, clouds, config.time, false);
+    // Render volumetric clouds with unified approach
+    let cloud_result = render_clouds_unified(camera_pos_relative_to_planet, world_dir, sun_dir, 
+                                           atmosphere, clouds, config.time, false);
     
     // Handle terrain depth - if terrain is closer than clouds, don't render clouds
     if (is_valid_depth(depth)) {
@@ -926,7 +930,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
         let final_cloud_alpha = cloud_result.a * terrain_cloud_fade;
         
         // Composite clouds with sky, respecting terrain
-        let final_color = filmic(cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha));
+        let final_color = cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha);
         let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
         
         // Apply aerial perspective for terrain
@@ -951,48 +955,8 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     }
     
     // No terrain - composite clouds with sky normally
-    let final_color = filmic(cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a));
-
+    let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     
-    // No terrain - composite clouds with sky normally
-    let final_color_no_terrain = filmic(cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a));
-    let dithered_no_terrain = applyDitherToPixelColor(final_color_no_terrain.rgb, pixel_pos);
-    
-    // Handle terrain depth
-    if (!is_valid_depth(depth)) {
-        return vec4<f32>(dithered_no_terrain, 1.0);
-    }
-
-    // Apply terrain depth-based cloud culling
-    let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
-    let world_depth_distance = view_distance * TO_KM_SCALE;
-    
-    // Fade clouds if terrain is closer than cloud base height
-    let terrain_cloud_fade = smoothstep(0.0, clouds.height * 0.5, world_depth_distance);
-    let final_cloud_result = vec4<f32>(cloud_result.rgb, cloud_result.a * terrain_cloud_fade);
-    
-    // Composite terrain-aware clouds with sky
-    let final_color_with_terrain = filmic(final_cloud_result.rgb + sky_color.rgb * (1.0 - final_cloud_result.a));
-    let dithered_with_terrain = applyDitherToPixelColor(final_color_with_terrain.rgb, pixel_pos);
-
-    // Apply aerial perspective for terrain
-    let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
-    
-    var slice = aerial_perspective_depth_to_slice(view_distance * 0.02);
-    
-    var fog_weight = 1.0;
-    if slice < 0.5 {
-        fog_weight = saturate(slice * 2.0);
-        slice = 0.5;
-    }
-    
-    let w = sqrt(slice / AP_SLICE_COUNT);
-    
-    let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
-    
-    let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
-    let final_fog_alpha = aerial_perspective.a * fog_weight;
-    
-    return vec4f(filmic(dithered_aerial_perspective), final_fog_alpha);
+    return vec4<f32>(dithered, 1.0);
 }

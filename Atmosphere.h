@@ -67,22 +67,22 @@ struct Clouds {
 
 inline Clouds getDefaultClouds() {
 	Clouds clouds = {};
-	clouds.height = 16.0f;
-	clouds.thickness = 8.0f;
-	clouds.density = 0.1f;
+	clouds.height = 10.0f;
+	clouds.thickness = 20.0f;
+	clouds.density = 1.0f;
 	clouds.coverage = 0.25f;
 	clouds.absorption = 0.01f;
 	clouds.scattering = 0.3f;
 	clouds.powder_strength = 1.0f;
-	clouds.sun_brightness = 1.0f;
-	clouds.phase_g1 = 0.6f;
-	clouds.phase_g2 = -0.6f;
-	clouds.phase_blend = 0.5f;
-	clouds.march_steps = 16;
+	clouds.sun_brightness = 2.0f;
+	clouds.phase_g1 = 0.4f;
+	clouds.phase_g2 = -0.15f;
+	clouds.phase_blend = 0.45f;
+	clouds.march_steps = 32;
 	clouds.shadow_steps = 8;
 	clouds.light_steps = 8;
 	clouds.scale = 10.0f;
-	clouds.speed = 0.001f;
+	clouds.speed = 0.02f;
 	clouds.padding;
 
 	return clouds;
@@ -93,9 +93,9 @@ inline Atmosphere getDefaultAtmosphere() {
 	const float rayleighScaleHeight = 8.696f;
 	const float mieScaleHeight = 1.2f;
 
-	atmosphere.bottom_radius = 400.0f;
-	atmosphere.top_radius = 400.0f + 100.0f;
-	atmosphere.planet_center = { 0.0f, 0.0f, -400.0f - 1.5f };
+	atmosphere.bottom_radius = 1000.0f;
+	atmosphere.top_radius = 1000.0f + 100.0f;
+	atmosphere.planet_center = { 0.0f, 0.0f, -1000.0f - 1.5f };
 	atmosphere.ground_albedo = { 0.4f, 0.4f, 0.4f };
 	atmosphere.multi_scattering_factor = 1.0f;
 
