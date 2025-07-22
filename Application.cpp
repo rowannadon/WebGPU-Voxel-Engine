@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    //saveTexture();
+    //saveHeightTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -83,8 +83,45 @@ bool Application::Initialize() {
     return true;
 }
 
+void Application::saveHeightTexture() {
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EACkcB1AGwAXAAAAgL8AAIA/AAAAAAAAgD8TAIXrkT8PAAMAAAAAAABABwAAKVwPPwC4HoU/ARcAAACAvwAAgD8AAAAAAACAPyEADQAGAAAAFK4HQAcAAOF6FD8AAAAAAAAAAACAvwEbACAABQABAAAAAAAAAAAAAAAAAAAAAAAAAAEAAMP1KD8AAAAAPwAfhWu/AArXIz0=");
+
+    int width = 512;
+    int height = 512;
+
+    std::vector<float> noiseData(width * height);
+    fnGenerator->GenUniformGrid2D(noiseData.data(), -256, -256, width, height, 0.008f, 0);
+
+
+
+    // Convert float data (-1.0 to 1.0) to unsigned char (0 to 255)
+    std::vector<unsigned char> imageData(width * height * 3); // RGB channels
+
+    for (int i = 0; i < width * height; ++i) {
+        // Clamp and normalize the noise value from [-1.0, 1.0] to [0, 255]
+        float normalizedValue = std::clamp((noiseData[i] + 1.0f) * 0.5f, 0.0f, 1.0f);
+        unsigned char pixelValue = static_cast<unsigned char>(normalizedValue * 255.0f);
+
+        // Set R, G, B channels to the same value (grayscale)
+        imageData[i * 3 + 0] = pixelValue; // Red
+        imageData[i * 3 + 1] = pixelValue; // Green  
+        imageData[i * 3 + 2] = pixelValue; // Blue
+    }
+
+    // Save as PNG
+    const char* filename = "../../../resources/heightmap.png";
+    int result = stbi_write_png(filename, width, height, 3, imageData.data(), width * 3);
+
+    if (result) {
+        printf("Successfully saved noise texture to %s\n", filename);
+    }
+    else {
+        printf("Failed to save noise texture\n");
+    }
+}
+
 void Application::saveTexture() {
-    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EwBmZoZAGQAhABMAPQqXPw0ABQAAAAAAAEAHAAAAAAA/AAAAAAAAAAAAgL8BGwANAAYAAAD2KNw/GwALAAEAAAAAAAAAAQAAAAAAAAAAheuRPwCuR6G/AIXrUT8APQrXPgAAAEBAAAAAgD8=");
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EACkcB1AGwAXAAAAgL8AAIA/AAAAAAAAgD8TAIXrkT8PAAMAAAAAAABABwAAKVwPPwC4HoU/ARcAAACAvwAAgD8AAAAAAACAPyEADQAGAAAAFK4HQAcAAOF6FD8AAAAAAAAAAACAvwEbAAUAAQAAAAAAAAAAAAAAAAAAAAAAAAAAH4VrvwAK1yM9");
     
     int width = 512;
     int height = 512;
@@ -1185,10 +1222,10 @@ void Application::onMouseMove(double xpos, double ypos) {
 }
 
 void Application::onMouseButton(int button, int action, int /* modifiers */) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse) {
-        return; // ImGUI is handling this input
-    }
+    //ImGuiIO& io = ImGui::GetIO();
+    //if (io.WantCaptureMouse) {
+    //    return; // ImGUI is handling this input
+    //}
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
@@ -1211,11 +1248,11 @@ void Application::onMouseButton(int button, int action, int /* modifiers */) {
 }
 
 void Application::onScroll(double /* xoffset */, double yoffset) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse) {
-        return; // ImGUI is handling this input
+    //ImGuiIO& io = ImGui::GetIO();
+    //if (io.WantCaptureMouse) {
+    //    return; // ImGUI is handling this input
 
-    }
+    //}
     camera.zoom -= 10 * static_cast<float>(yoffset);
     if (camera.zoom < 1.0f)
         camera.zoom = 1.0f;
@@ -1225,10 +1262,10 @@ void Application::onScroll(double /* xoffset */, double yoffset) {
 }
 
 void Application::onKey(int key, int scancode, int action, int mods) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureKeyboard) {
-        return; // ImGUI is handling this input
-    }
+    //ImGuiIO& io = ImGui::GetIO();
+    //if (io.WantCaptureKeyboard) {
+    //    return; // ImGUI is handling this input
+    //}
 
     bool keyPressed = (action == GLFW_PRESS || action == GLFW_REPEAT);
     bool keyReleased = (action == GLFW_RELEASE);

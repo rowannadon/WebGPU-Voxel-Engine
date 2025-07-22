@@ -514,11 +514,12 @@ public:
                     if (noiseValue > 0) {
                         setVoxel(vec3(x, y, z), true);
                     }
-                    //f/*loat height = worldGen.sample2D(vec2(x + position.x, y + position.y));
-                    //int targetHeight = static_cast<int>(height * 116.0f);
-                    //for (int z = 0; z < targetHeight - position.z; z++) {
-                    //    setVoxel(vec3(x, y, z), true);
-                    //}*/
+                    /*float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+                    int targetHeight = static_cast<int>(height * 200.0f);
+                    for (int z = 0; z < targetHeight - position.z; z++) {
+                        setVoxel(vec3(x, y, z), true);
+                    }*/
+
                 }
             }
         }
@@ -688,7 +689,7 @@ public:
                             case 0:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
-                                if (rand() % 32 == 0) {
+                                if (pos.z > (- 10 + rand() % 20) && rand() % 32 == 0) {
                                     if (positionAbove.z < CHUNK_SIZE && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
                                         
