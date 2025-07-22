@@ -11,7 +11,7 @@
 #include "BenchmarkManager.h"
 #include "../Atmosphere.h"
 #include "../Noise.h"
-
+#include "../Terrain.h"
 #include "../imgui/imgui.h"
 #include "../imgui/backends/imgui_impl_wgpu.h"
 
@@ -49,6 +49,8 @@ public:
     bool initCloudTextures();
     bool initMultiSampleTexture();
     bool initDepthTexture();
+    bool initShadowTexture();
+
 
     // pipelines
     bool initNoisePipeline();
@@ -57,9 +59,12 @@ public:
     bool initSkyViewPipeline();
 	bool initAerialPerspectivePipeline();
     bool initSkyPipeline();
-    bool initShadowTexture();
     bool initRenderPipeline();
     bool initShadowPipeline();
+    bool initTerrainPipeline();
+    bool initTerrainTexture();
+
+
     bool initTextures();
 
     // uniforms

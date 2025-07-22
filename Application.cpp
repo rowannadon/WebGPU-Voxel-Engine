@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    saveTexture();
+    //saveTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -58,6 +58,9 @@ bool Application::Initialize() {
 
     noise = getWhiteNoise3D();
     buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
+
+    terrain = getDefaultTerrain();
+    buf->writeBuffer("terrain_buffer", 0, &terrain, sizeof(Terrain));
 
     //blueNoise = getCumulusBlueNoise(seed);
     //buf->writeBuffer("bluenoise_buffer", 0, &blueNoise, sizeof(Noise));
@@ -245,6 +248,7 @@ void Application::MainLoop() {
     buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
     buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
+    buf->writeBuffer("terrain_buffer", 0, &terrain, sizeof(Terrain));
 
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
@@ -388,6 +392,29 @@ void Application::renderImGUI() {
             }
         }
 
+        if (ImGui::CollapsingHeader("Terrain")) {
+            ImGui::Text("Terrain texture");
+            ImGui::Image((void*)tex->getTextureView("terrain_view"), ImVec2(1024, 1024));
+
+            ImGui::Text("Island shape");
+            ImGui::SliderFloat("Scale", &terrain.noiseScale, 0.01f, 30.0f, "%.2f");
+            ImGui::SliderFloat("Octaves", &terrain.noiseOctaves, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Persistance", &terrain.noisePersistence, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Amplitude", &terrain.noiseAmplitude, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Island falloff", &terrain.islandFalloff, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Water level", &terrain.waterLevel, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Land sharpness", &terrain.landSharpness, 0.01f, 10.0f, "%.2f");
+
+            ImGui::Text("Erosion");
+            ImGui::SliderFloat("Erosion strength", &terrain.erosionStrength, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion octaves", &terrain.erosionOctaves, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion gain", &terrain.erosionGain, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion lacunarity", &terrain.erosionLacunarity, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion tiles", &terrain.erosionTiles, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion slope strength", &terrain.erosionSlopeStrength, 0.01f, 10.0f, "%.2f");
+            ImGui::SliderFloat("Erosion branch strength", &terrain.erosionBranchStrength, 0.01f, 10.0f, "%.2f");
+        }
+
         if (ImGui::CollapsingHeader("Atmosphere")) {
             ImGui::Text("Transmittance LUT");
             ImGui::Image((void*)tex->getTextureView("transmittance_view"), ImVec2(256, 64));
@@ -413,7 +440,6 @@ void Application::renderImGUI() {
             ImGui::SliderFloat("gB:", &atmosphere.ground_albedo.b, 0.001f, 1.0f, "%.2f");
 
             ImGui::SliderFloat("Multiscattering factor", &atmosphere.multi_scattering_factor, 0.1f, 10.0f, "%.2f");
-
 
             ImGui::Text("Rayleigh scattering");
             ImGui::SliderFloat("rayleigh_density_exp_scale", &atmosphere.rayleigh_density_exp_scale, -10.0f, 10.0f, "%.2f");

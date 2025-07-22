@@ -242,7 +242,7 @@ Limits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
     // Extra limit requirement
     requiredLimits.maxDynamicUniformBuffersPerPipelineLayout = 1;
 
-    requiredLimits.maxComputeInvocationsPerWorkgroup = 32 * 32;
+    requiredLimits.maxComputeInvocationsPerWorkgroup = 1024;
 
     requiredLimits.maxSamplersPerShaderStage = 1;
 

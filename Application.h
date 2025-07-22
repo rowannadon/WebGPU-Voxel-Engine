@@ -227,5 +227,6 @@ private:
     Noise blueNoise;
     Atmosphere atmosphere;
     Clouds clouds;
+    Terrain terrain;
 };
 

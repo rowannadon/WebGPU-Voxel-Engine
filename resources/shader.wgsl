@@ -441,7 +441,7 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     let bias = max(0.001 * (1.0 - n_dot_l), 0.0004);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 16384.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 4096.0; // Assuming 2048x2048 shadow map
     var shadow = 0.0;
     let samples = 16; // Increased from 9
     
