@@ -35,11 +35,11 @@ struct IVec3Equal {
     }
 };
 
-struct ChunkPriority {
+struct ChunkPriorityOld {
     ivec3 position;
     float distanceSquared;
 
-    bool operator<(const ChunkPriority& other) const {
+    bool operator<(const ChunkPriorityOld& other) const {
         return distanceSquared > other.distanceSquared; // Min-heap (closest first)
     }
 };
@@ -49,15 +49,6 @@ private:
     std::unordered_map<ivec3, std::shared_ptr<ThreadSafeChunk>, IVec3Hash, IVec3Equal> chunks;
     mutable std::shared_mutex chunksMutex;
 
-    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> activeChunkPositions;
-    ivec3 lastPlayerChunkPos{ INT_MAX, INT_MAX, INT_MAX }; // Force initial update
-    // Pre-computed offsets for chunk boundaries
-    struct BoundaryOffsets {
-        std::vector<ivec3> inner;  // Chunks that should be loaded
-        std::vector<ivec3> outer;  // Chunks that should be unloaded
-    };
-    std::unordered_map<int, BoundaryOffsets> boundaryCache;
-    
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
     ivec3 playerChunkPos;
@@ -74,7 +65,7 @@ private:
     static constexpr int WORLD_MIN = -18;
     static constexpr int WORLD_MAX = 18;
 
-    std::priority_queue<ChunkPriority> pendingChunkCreation;
+    std::priority_queue<ChunkPriorityOld> pendingChunkCreation;
 
     BufferManager* buf;
     TextureManager* tex;
@@ -89,8 +80,6 @@ public:
         buf = b;
 
         chunks.reserve(MAX_TOTAL_CHUNKS);
-        activeChunkPositions.reserve(MAX_TOTAL_CHUNKS);
-        initializeBoundaryCache();
     }
 
     ~ThreadSafeChunkManager() {
@@ -106,181 +95,6 @@ public:
         queueNewChunks(playerChunkPos);
         queueChunkBatchForGeneration(playerChunkPos);
         progressChunks();
-    }
-
-    void initializeBoundaryCache() {
-        // Pre-compute boundary offsets for different render distances
-        for (int rd = 1; rd <= 128; ++rd) {
-            BoundaryOffsets offsets;
-
-            // Inner boundary - chunks to load when moving
-            for (int x = -rd; x <= rd; ++x) {
-                for (int y = -rd; y <= rd; ++y) {
-                    if (x * x + y * y <= rd * rd) {
-                        // Add only the new chunks on the boundary
-                        if (abs(x) == rd || abs(y) == rd ||
-                            (x * x + y * y > (rd - 1) * (rd - 1))) {
-                            offsets.inner.push_back(ivec3(x, y, 0));
-                        }
-                    }
-                }
-            }
-
-            // Outer boundary - chunks to unload
-            int unloadDist = rd + 2;
-            for (int x = -unloadDist; x <= unloadDist; ++x) {
-                for (int y = -unloadDist; y <= unloadDist; ++y) {
-                    if (x * x + y * y > rd * rd && x * x + y * y <= unloadDist * unloadDist) {
-                        offsets.outer.push_back(ivec3(x, y, 0));
-                    }
-                }
-            }
-
-            boundaryCache[rd] = std::move(offsets);
-        }
-    }
-
-    void queueNewChunksOptimized(ivec3 playerChunkPos) {
-        // Check if player moved to a new chunk
-        if (playerChunkPos == lastPlayerChunkPos) {
-            return; // No movement, no new chunks needed
-        }
-
-        ivec3 movement = playerChunkPos - lastPlayerChunkPos;
-        bool isFirstLoad = (lastPlayerChunkPos.x == INT_MAX);
-
-        std::priority_queue<ChunkPriority> newChunks;
-        int chunksAdded = 0;
-
-        if (isFirstLoad) {
-            // Initial load - use spiral pattern for better visual loading
-            loadChunksSpiral(playerChunkPos, newChunks, chunksAdded);
-        }
-        else {
-            // Incremental load - only check new boundary chunks
-            loadChunksBoundary(playerChunkPos, movement, newChunks, chunksAdded);
-        }
-
-        lastPlayerChunkPos = playerChunkPos;
-        pendingChunkCreation = std::move(newChunks);
-    }
-
-    void loadChunksSpiral(ivec3 center, std::priority_queue<ChunkPriority>& queue, int& chunksAdded) {
-        // Spiral outward from center for better visual loading
-        std::vector<ivec3> positions;
-        positions.reserve((2 * renderDistance + 1) * (2 * renderDistance + 1));
-
-        // Generate positions in spiral order
-        int x = 0, y = 0;
-        int dx = 0, dy = -1;
-        int maxSteps = (2 * renderDistance + 1) * (2 * renderDistance + 1);
-
-        for (int i = 0; i < maxSteps && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++i) {
-            if ((-renderDistance <= x && x <= renderDistance) &&
-                (-renderDistance <= y && y <= renderDistance)) {
-
-                if (x * x + y * y <= renderDistance * renderDistance) {
-                    positions.push_back(ivec3(x, y, 0));
-                }
-            }
-
-            if ((x == y) || (x < 0 && x == -y) || (x > 0 && x == 1 - y)) {
-                std::swap(dx, dy);
-                dx = -dx;
-            }
-            x += dx;
-            y += dy;
-        }
-
-        // Process positions and add unloaded chunks
-        for (const ivec3& offset : positions) {
-            if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-            for (int z = -renderDistance; z <= renderDistance; ++z) {
-                if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-                ivec3 chunkPos = center + ivec3(offset.x, offset.y, z);
-
-                if (chunkPos.z >= WORLD_MIN && chunkPos.z <= WORLD_MAX &&
-                    chunks.find(chunkPos) == chunks.end()) {
-
-                    float distSq = offset.x * offset.x + offset.y * offset.y + z * z;
-                    queue.push({ chunkPos, distSq });
-                    activeChunkPositions.insert(chunkPos);
-                    chunksAdded++;
-                }
-            }
-        }
-    }
-
-    void loadChunksBoundary(ivec3 center, ivec3 movement,
-        std::priority_queue<ChunkPriority>& queue, int& chunksAdded) {
-
-        // Only check chunks in the direction of movement plus some padding
-        int searchRadius = 3; // Only check a small area in movement direction
-
-        ivec3 searchMin = center - ivec3(searchRadius);
-        ivec3 searchMax = center + ivec3(searchRadius);
-
-        // Expand search area in movement direction
-        if (movement.x > 0) searchMax.x = center.x + renderDistance;
-        else if (movement.x < 0) searchMin.x = center.x - renderDistance;
-
-        if (movement.y > 0) searchMax.y = center.y + renderDistance;
-        else if (movement.y < 0) searchMin.y = center.y - renderDistance;
-
-        for (int x = searchMin.x; x <= searchMax.x && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++x) {
-            for (int y = searchMin.y; y <= searchMax.y && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++y) {
-                // Check if this position is within render distance
-                int dx = x - center.x;
-                int dy = y - center.y;
-                if (dx * dx + dy * dy > renderDistance * renderDistance) continue;
-
-                for (int z = center.z - renderDistance; z <= center.z + renderDistance; ++z) {
-                    if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-                    ivec3 chunkPos(x, y, z);
-
-                    if (chunkPos.z >= WORLD_MIN && chunkPos.z <= WORLD_MAX &&
-                        chunks.find(chunkPos) == chunks.end() &&
-                        activeChunkPositions.find(chunkPos) == activeChunkPositions.end()) {
-
-                        float distSq = dx * dx + dy * dy + (z - center.z) * (z - center.z);
-                        queue.push({ chunkPos, distSq });
-                        activeChunkPositions.insert(chunkPos);
-                        chunksAdded++;
-                    }
-                }
-            }
-        }
-    }
-
-    void removeDistantChunksOptimized(ivec3 playerPos) {
-        std::vector<ivec3> chunksToRemove;
-        chunksToRemove.reserve(128);
-
-        float maxDistSquared = (renderDistance + 1) * (renderDistance + 1);
-
-        for (const auto& pair : chunks) {
-            ivec3 chunkPos = pair.first;
-            ivec3 diff = chunkPos - playerPos;
-            float distanceSquared = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
-
-            if (distanceSquared > maxDistSquared) {
-                chunksToRemove.push_back(chunkPos);
-            }
-        }
-
-        for (const ivec3& chunkPos : chunksToRemove) {
-            auto it = chunks.find(chunkPos);
-            if (it != chunks.end()) {
-                if (it->second) {
-                    it->second->setState(ChunkState::Unloading);
-                }
-                chunks.erase(it);
-                activeChunkPositions.erase(chunkPos);
-            }
-        }
     }
 
     // Get chunks ready for GPU upload
@@ -393,7 +207,7 @@ private:
 
 
     void queueNewChunks(ivec3 playerChunkPos) {
-        std::priority_queue<ChunkPriority> empty_pq;
+        std::priority_queue<ChunkPriorityOld> empty_pq;
         pendingChunkCreation.swap(empty_pq);
 
         // Configuration
@@ -454,7 +268,7 @@ private:
     void queueChunkBatchForGeneration(ivec3 playerChunkPos) {
         int chunksCreated = 0;
         while (!pendingChunkCreation.empty() && chunksCreated < MAX_CHUNKS_PER_UPDATE) {
-            ChunkPriority nextChunk = pendingChunkCreation.top();
+            ChunkPriorityOld nextChunk = pendingChunkCreation.top();
             pendingChunkCreation.pop();
 
             std::unique_lock<std::shared_mutex> lock(chunksMutex);

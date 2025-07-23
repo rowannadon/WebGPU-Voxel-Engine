@@ -1,3 +1,6 @@
+#ifndef CHUNK_WORKER_SYSTEM_H
+#define CHUNK_WORKER_SYSTEM_H
+
 // ImprovedChunkWorkerSystem.h
 #include <thread>
 #include <queue>
@@ -486,3 +489,5 @@ private:
         }
     }
 };
+
+#endif

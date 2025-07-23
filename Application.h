@@ -4,7 +4,8 @@
 #include "glm/glm.hpp"
 #include "glm/ext.hpp"
 #include "webgpu-utils.h"
-#include "ThreadSafeChunkManager.h"
+//#include "ThreadSafeChunkManager.h"
+#include "World.h"
 #include "Ray.h"
 #include "Rendering/WebGPURenderer.h"
 
@@ -26,6 +27,7 @@
 #include <array>
 #include <thread>
 #include <numeric>
+#include <unordered_set>
 #include <FastNoise/FastNoise.h>
 
 using namespace wgpu;
@@ -71,6 +73,24 @@ private:
 	void placeBlock();
 
 private:
+    struct IVec3Hash {
+        std::size_t operator()(const ivec3& k) const {
+            // Simple hash combination
+            std::size_t h1 = std::hash<int>{}(k.x);
+            std::size_t h2 = std::hash<int>{}(k.y);
+            std::size_t h3 = std::hash<int>{}(k.z);
+
+            // Combine the hashes
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+
+    struct IVec3Equal {
+        bool operator()(const ivec3& lhs, const ivec3& rhs) const {
+            return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+        }
+    };
+
     struct FirstPersonCamera {
         vec3 position = vec3(5.0f, 0.0f, 200.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
@@ -193,7 +213,7 @@ private:
 
     std::vector<float> frameTimes;
 
-    ThreadSafeChunkManager chunkManager;
+    World chunkManager;
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
