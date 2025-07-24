@@ -57,7 +57,7 @@ private:
     int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 8;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 16;
     static constexpr int MAX_ACTIVE_CHUNKS = 12288;
     static constexpr int MAX_TOTAL_CHUNKS = 150000;
@@ -79,8 +79,6 @@ public:
         buf = b;
 
         chunks.reserve(MAX_TOTAL_CHUNKS);
-        activeChunkPositions.reserve(MAX_TOTAL_CHUNKS);
-        initializeBoundaryCache();
     }
 
     ~ThreadSafeChunkManager() {

@@ -129,7 +129,7 @@ struct Atmosphere {
 @group(2) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(2) @binding(1) var light_sampler_3d: sampler;
 
-@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
+@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 12288>;
 
 const ATLAS_TILES_X: f32 = 4.0;
 const ATLAS_TILES_Y: f32 = 4.0;
