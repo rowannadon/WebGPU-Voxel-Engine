@@ -3,6 +3,7 @@
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
+#include <queue>
 #include <memory>
 #include "glm/glm.hpp"
 #include <webgpu/webgpu.hpp>
@@ -16,27 +17,28 @@
 
 using glm::vec3;
 using glm::ivec3;
+using glm::ivec2;
+using glm::vec2;
 
-struct IVec3Hash {
-    std::size_t operator()(const ivec3& k) const {
+struct IVec2Hash {
+    std::size_t operator()(const ivec2& k) const {
         // Simple hash combination
         std::size_t h1 = std::hash<int>{}(k.x);
         std::size_t h2 = std::hash<int>{}(k.y);
-        std::size_t h3 = std::hash<int>{}(k.z);
 
         // Combine the hashes
-        return h1 ^ (h2 << 1) ^ (h3 << 2);
+        return h1 ^ (h2 << 1);
     }
 };
 
-struct IVec3Equal {
-    bool operator()(const ivec3& lhs, const ivec3& rhs) const {
-        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+struct IVec2Equal {
+    bool operator()(const ivec2& lhs, const ivec2& rhs) const {
+        return lhs.x == rhs.x && lhs.y == rhs.y;
     }
 };
 
 struct ChunkPriority {
-    ivec3 position;
+    ivec2 position;
     float distanceSquared;
 
     bool operator<(const ChunkPriority& other) const {
@@ -46,33 +48,22 @@ struct ChunkPriority {
 
 class ThreadSafeChunkManager {
 private:
-    std::unordered_map<ivec3, std::shared_ptr<ThreadSafeChunk>, IVec3Hash, IVec3Equal> chunks;
-    mutable std::shared_mutex chunksMutex;
+    std::unordered_map<ivec2, std::shared_ptr<ThreadSafeChunk>, IVec2Hash, IVec2Equal> columns;
+    mutable std::shared_mutex columnsMutex;
 
-    std::unordered_set<ivec3, IVec3Hash, IVec3Equal> activeChunkPositions;
-    ivec3 lastPlayerChunkPos{ INT_MAX, INT_MAX, INT_MAX }; // Force initial update
-    // Pre-computed offsets for chunk boundaries
-    struct BoundaryOffsets {
-        std::vector<ivec3> inner;  // Chunks that should be loaded
-        std::vector<ivec3> outer;  // Chunks that should be unloaded
-    };
-    std::unordered_map<int, BoundaryOffsets> boundaryCache;
-    
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
-    ivec3 playerChunkPos;
+    ivec2 playerChunkPos;
 	int numActiveChunks = 0;
 	int lastNumActiveChunks = 0;
 
     int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int LOD_CHUNK_LEVEL = 8;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 2;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 2;
     static constexpr int MAX_ACTIVE_CHUNKS = 12288;
     static constexpr int MAX_TOTAL_CHUNKS = 125000;
-    static constexpr int WORLD_MIN = -18;
-    static constexpr int WORLD_MAX = 18;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -88,206 +79,30 @@ public:
         tex = t;
         buf = b;
 
-        chunks.reserve(MAX_TOTAL_CHUNKS);
-        activeChunkPositions.reserve(MAX_TOTAL_CHUNKS);
-        initializeBoundaryCache();
+        columns.reserve(MAX_TOTAL_CHUNKS);
     }
 
     ~ThreadSafeChunkManager() {
         workerSystem.reset(); // Shutdown workers first
         //std::unique_lock<std::shared_mutex> lock(chunksMutex);
-        chunks.clear();
+        columns.clear();
     }
 
     void updateChunksAsync(vec3 playerPos) {
-        playerChunkPos = glm::floor(playerPos / 32.0f);
+        ivec3 playerChunkPos3d = glm::floor(playerPos / 32.0f);
+        playerChunkPos = ivec2(playerChunkPos3d.x, playerChunkPos3d.y);
 
-        removeDistantChunks(playerChunkPos);
+        //removeDistantChunks(playerChunkPos);
         queueNewChunks(playerChunkPos);
         queueChunkBatchForGeneration(playerChunkPos);
         progressChunks();
     }
 
-    void initializeBoundaryCache() {
-        // Pre-compute boundary offsets for different render distances
-        for (int rd = 1; rd <= 128; ++rd) {
-            BoundaryOffsets offsets;
-
-            // Inner boundary - chunks to load when moving
-            for (int x = -rd; x <= rd; ++x) {
-                for (int y = -rd; y <= rd; ++y) {
-                    if (x * x + y * y <= rd * rd) {
-                        // Add only the new chunks on the boundary
-                        if (abs(x) == rd || abs(y) == rd ||
-                            (x * x + y * y > (rd - 1) * (rd - 1))) {
-                            offsets.inner.push_back(ivec3(x, y, 0));
-                        }
-                    }
-                }
-            }
-
-            // Outer boundary - chunks to unload
-            int unloadDist = rd + 2;
-            for (int x = -unloadDist; x <= unloadDist; ++x) {
-                for (int y = -unloadDist; y <= unloadDist; ++y) {
-                    if (x * x + y * y > rd * rd && x * x + y * y <= unloadDist * unloadDist) {
-                        offsets.outer.push_back(ivec3(x, y, 0));
-                    }
-                }
-            }
-
-            boundaryCache[rd] = std::move(offsets);
-        }
-    }
-
-    void queueNewChunksOptimized(ivec3 playerChunkPos) {
-        // Check if player moved to a new chunk
-        if (playerChunkPos == lastPlayerChunkPos) {
-            return; // No movement, no new chunks needed
-        }
-
-        ivec3 movement = playerChunkPos - lastPlayerChunkPos;
-        bool isFirstLoad = (lastPlayerChunkPos.x == INT_MAX);
-
-        std::priority_queue<ChunkPriority> newChunks;
-        int chunksAdded = 0;
-
-        if (isFirstLoad) {
-            // Initial load - use spiral pattern for better visual loading
-            loadChunksSpiral(playerChunkPos, newChunks, chunksAdded);
-        }
-        else {
-            // Incremental load - only check new boundary chunks
-            loadChunksBoundary(playerChunkPos, movement, newChunks, chunksAdded);
-        }
-
-        lastPlayerChunkPos = playerChunkPos;
-        pendingChunkCreation = std::move(newChunks);
-    }
-
-    void loadChunksSpiral(ivec3 center, std::priority_queue<ChunkPriority>& queue, int& chunksAdded) {
-        // Spiral outward from center for better visual loading
-        std::vector<ivec3> positions;
-        positions.reserve((2 * renderDistance + 1) * (2 * renderDistance + 1));
-
-        // Generate positions in spiral order
-        int x = 0, y = 0;
-        int dx = 0, dy = -1;
-        int maxSteps = (2 * renderDistance + 1) * (2 * renderDistance + 1);
-
-        for (int i = 0; i < maxSteps && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++i) {
-            if ((-renderDistance <= x && x <= renderDistance) &&
-                (-renderDistance <= y && y <= renderDistance)) {
-
-                if (x * x + y * y <= renderDistance * renderDistance) {
-                    positions.push_back(ivec3(x, y, 0));
-                }
-            }
-
-            if ((x == y) || (x < 0 && x == -y) || (x > 0 && x == 1 - y)) {
-                std::swap(dx, dy);
-                dx = -dx;
-            }
-            x += dx;
-            y += dy;
-        }
-
-        // Process positions and add unloaded chunks
-        for (const ivec3& offset : positions) {
-            if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-            for (int z = -renderDistance; z <= renderDistance; ++z) {
-                if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-                ivec3 chunkPos = center + ivec3(offset.x, offset.y, z);
-
-                if (chunkPos.z >= WORLD_MIN && chunkPos.z <= WORLD_MAX &&
-                    chunks.find(chunkPos) == chunks.end()) {
-
-                    float distSq = offset.x * offset.x + offset.y * offset.y + z * z;
-                    queue.push({ chunkPos, distSq });
-                    activeChunkPositions.insert(chunkPos);
-                    chunksAdded++;
-                }
-            }
-        }
-    }
-
-    void loadChunksBoundary(ivec3 center, ivec3 movement,
-        std::priority_queue<ChunkPriority>& queue, int& chunksAdded) {
-
-        // Only check chunks in the direction of movement plus some padding
-        int searchRadius = 3; // Only check a small area in movement direction
-
-        ivec3 searchMin = center - ivec3(searchRadius);
-        ivec3 searchMax = center + ivec3(searchRadius);
-
-        // Expand search area in movement direction
-        if (movement.x > 0) searchMax.x = center.x + renderDistance;
-        else if (movement.x < 0) searchMin.x = center.x - renderDistance;
-
-        if (movement.y > 0) searchMax.y = center.y + renderDistance;
-        else if (movement.y < 0) searchMin.y = center.y - renderDistance;
-
-        for (int x = searchMin.x; x <= searchMax.x && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++x) {
-            for (int y = searchMin.y; y <= searchMax.y && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++y) {
-                // Check if this position is within render distance
-                int dx = x - center.x;
-                int dy = y - center.y;
-                if (dx * dx + dy * dy > renderDistance * renderDistance) continue;
-
-                for (int z = center.z - renderDistance; z <= center.z + renderDistance; ++z) {
-                    if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) break;
-
-                    ivec3 chunkPos(x, y, z);
-
-                    if (chunkPos.z >= WORLD_MIN && chunkPos.z <= WORLD_MAX &&
-                        chunks.find(chunkPos) == chunks.end() &&
-                        activeChunkPositions.find(chunkPos) == activeChunkPositions.end()) {
-
-                        float distSq = dx * dx + dy * dy + (z - center.z) * (z - center.z);
-                        queue.push({ chunkPos, distSq });
-                        activeChunkPositions.insert(chunkPos);
-                        chunksAdded++;
-                    }
-                }
-            }
-        }
-    }
-
-    void removeDistantChunksOptimized(ivec3 playerPos) {
-        std::vector<ivec3> chunksToRemove;
-        chunksToRemove.reserve(128);
-
-        float maxDistSquared = (renderDistance + 1) * (renderDistance + 1);
-
-        for (const auto& pair : chunks) {
-            ivec3 chunkPos = pair.first;
-            ivec3 diff = chunkPos - playerPos;
-            float distanceSquared = diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
-
-            if (distanceSquared > maxDistSquared) {
-                chunksToRemove.push_back(chunkPos);
-            }
-        }
-
-        for (const ivec3& chunkPos : chunksToRemove) {
-            auto it = chunks.find(chunkPos);
-            if (it != chunks.end()) {
-                if (it->second) {
-                    it->second->setState(ChunkState::Unloading);
-                }
-                chunks.erase(it);
-                activeChunkPositions.erase(chunkPos);
-            }
-        }
-    }
-
     // Get chunks ready for GPU upload
-    std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
-        std::vector<std::pair<ivec3, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
+    std::vector<std::pair<ivec2, std::shared_ptr<ThreadSafeChunk>>> getChunksReadyForGPU() {
+        std::vector<std::pair<ivec2, std::shared_ptr<ThreadSafeChunk>>> readyChunks;
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        for (const auto& pair : chunks) {
+        for (const auto& pair : columns) {
             if (pair.second &&
                 pair.second->getState() == ChunkState::MeshReady) {
                 readyChunks.push_back({ pair.first, pair.second });
@@ -307,20 +122,20 @@ public:
         std::vector<DAIC> data;
         std::vector<DAIC> shadowData;
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        data.reserve(chunks.size());
-        for (const auto& pair : chunks) {
+        data.reserve(columns.size());
+        for (const auto& pair : columns) {
             std::optional<DAIC> rd = pair.second->getDAIC();
             if (rd != std::nullopt && rd.value().indexCount > 0) {
-                vec3 chunkPos = vec3(pair.second->getPosition());
+                //vec3 chunkPos = vec3(pair.second->getPosition().x, pair.second->getPosition().y, 0);
 
                 // Test if the 32x32x32 chunk intersects the frustum
-                if (cameraFrustum.isCubeInside(chunkPos, 32.0f)) {
+                //if (cameraFrustum.isCubeInside(chunkPos, 32.0f)) {
                     data.push_back(rd.value());
-                }
+                //}
 
-                if (shadowFrustum.isCubeInside(chunkPos, 32.0f)) {
+                //if (shadowFrustum.isCubeInside(chunkPos, 32.0f)) {
                     shadowData.push_back(rd.value());
-                }
+                //}
             }
         }
 
@@ -329,7 +144,7 @@ public:
 
     void updateChunkDataBuffers(BufferManager* buf) {
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        for (const auto& pair : chunks) {
+        for (const auto& pair : columns) {
             if (pair.second && pair.second->getState() == ChunkState::Active && pair.second->hasChunkDataBuffer()) {
                 // Update the buffer with current chunk position
                 pair.second->updateChunkDataBuffer(buf);
@@ -337,21 +152,19 @@ public:
         }
     }
 
-    std::array<std::shared_ptr<ThreadSafeChunk>, 6> getNeighbors(const ivec3& chunkPos) {
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = {};
-        ivec3 neighborPositions[6] = {
-            chunkPos + ivec3(1, 0, 0),   // Right
-            chunkPos + ivec3(-1, 0, 0),  // Left
-            chunkPos + ivec3(0, 1, 0),   // Front
-            chunkPos + ivec3(0, -1, 0),  // Back
-            chunkPos + ivec3(0, 0, 1),   // Top
-            chunkPos + ivec3(0, 0, -1)   // Bottom
+    std::array<std::shared_ptr<ThreadSafeChunk>, 4> getNeighbors(const ivec2& chunkPos) {
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors = {};
+        ivec2 neighborPositions[4] = {
+            chunkPos + ivec2(1, 0),   // Right
+            chunkPos + ivec2(-1, 0),  // Left
+            chunkPos + ivec2(0, 1),   // Front
+            chunkPos + ivec2(0, -1),  // Back
         };
 
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        for (int i = 0; i < 6; ++i) {
-            auto it = chunks.find(neighborPositions[i]);
-            if (it != chunks.end()) {
+        for (int i = 0; i < 4; ++i) {
+            auto it = columns.find(neighborPositions[i]);
+            if (it != columns.end()) {
                 neighbors[i] = it->second;
             }
         }
@@ -361,38 +174,36 @@ public:
 private:
     void removeDistantChunks(ivec3 playerPos) {
         {
-            std::vector<ivec3> chunksToRemove;
+            std::vector<ivec2> chunksToRemove;
             chunksToRemove.reserve(128);
 
-            
-            for (const auto& pair : chunks) {
-                ivec3 chunkPos = pair.first;
+            for (const auto& pair : columns) {
+                ivec2 chunkPos = pair.first;
                 float distanceX = glm::abs(chunkPos.x - playerPos.x);
                 float distanceY = glm::abs(chunkPos.y - playerPos.y);
-                float distanceZ = glm::abs(chunkPos.z - playerPos.z);
 
                 float maxDistance = renderDistance + 1;
 
-                if (distanceX > maxDistance || distanceY > maxDistance || distanceZ > maxDistance) {
+                if (distanceX > maxDistance || distanceY > maxDistance) {
                     chunksToRemove.push_back(chunkPos);
                 }
             }
 
             //std::unique_lock<std::shared_mutex> lock(chunksMutex);
             for (auto chunkPos : chunksToRemove) {
-                auto it = chunks.find(chunkPos);
-                if (it != chunks.end()) {
+                auto it = columns.find(chunkPos);
+                if (it != columns.end()) {
                     if (it->second) {
                         it->second->setState(ChunkState::Unloading);
                     }
-                    chunks.erase(it);
+                    columns.erase(it);
                 }
             }
         }
     }
 
 
-    void queueNewChunks(ivec3 playerChunkPos) {
+    void queueNewChunks(ivec2 playerChunkPos) {
         std::priority_queue<ChunkPriority> empty_pq;
         pendingChunkCreation.swap(empty_pq);
 
@@ -401,7 +212,7 @@ private:
         //// Count active chunks
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         int activeChunks = 0;
-        for (auto pair : chunks) {
+        for (auto pair : columns) {
             if (pair.second->getState() == ChunkState::Active) {
                 activeChunks++;
             }
@@ -419,31 +230,29 @@ private:
             // For each distance layer, check all positions at that Manhattan distance
             for (int x = -radius; x <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++x) {
                 for (int y = -radius; y <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++y) {
-                    for (int z = -renderDistance; z <= renderDistance && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++z) {
-                        // Only process chunks that are exactly at this radius (onion skin)
-                        int manhattanDist = abs(x) + abs(y) + abs(z);
-                        if (manhattanDist != radius) {
-                            continue;
-                        }
+                    // Only process chunks that are exactly at this radius (onion skin)
+                    int manhattanDist = abs(x) + abs(y);
+                    if (manhattanDist != radius) {
+                        continue;
+                    }
 
-                        float distSq = x * x + y * y - z;
-                        if (distSq > renderDistance * renderDistance) {
-                            continue;
-                        }
+                    float distSq = x * x + y * y;
+                    if (distSq > renderDistance * renderDistance) {
+                        continue;
+                    }
 
-                        ivec3 chunkPos = playerChunkPos + ivec3(x, y, z);
+                    ivec2 chunkPos = playerChunkPos + ivec2(x, y);
 
-                        // If chunk doesn't exist, add it to the queue
-                        if (chunkPos.z > WORLD_MIN && chunkPos.z < WORLD_MAX && chunks.find(chunkPos) == chunks.end()) {
-                            pendingChunkCreation.push({ chunkPos, distSq });
-                            chunksAdded++;
+                    // If chunk doesn't exist, add it to the queue
+                    if (columns.find(chunkPos) == columns.end()) {
+                        pendingChunkCreation.push({ chunkPos, distSq });
+                        chunksAdded++;
 
-                            //std::cout << "pendingCreationQueueSize: " << pendingChunkCreation.size() << "\n";
+                        //std::cout << "pendingCreationQueueSize: " << pendingChunkCreation.size() << "\n";
 
-                            // Stop if we've reached the limit for this iteration
-                            if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) {
-                                break;
-                            }
+                        // Stop if we've reached the limit for this iteration
+                        if (chunksAdded >= MAX_CHUNKS_PER_ITERATION) {
+                            break;
                         }
                     }
                 }
@@ -451,19 +260,18 @@ private:
         }
     }
 
-    void queueChunkBatchForGeneration(ivec3 playerChunkPos) {
+    void queueChunkBatchForGeneration(ivec2 playerChunkPos) {
         int chunksCreated = 0;
         while (!pendingChunkCreation.empty() && chunksCreated < MAX_CHUNKS_PER_UPDATE) {
             ChunkPriority nextChunk = pendingChunkCreation.top();
             pendingChunkCreation.pop();
 
-            std::unique_lock<std::shared_mutex> lock(chunksMutex);
+            std::unique_lock<std::shared_mutex> lock(columnsMutex);
 
-            if (chunks.find(nextChunk.position) == chunks.end()) {
+            if (columns.find(nextChunk.position) == columns.end()) {
                 float distanceFromPlayer = 
                     glm::abs(nextChunk.position.x - playerChunkPos.x) + 
-                    glm::abs(nextChunk.position.y - playerChunkPos.y) + 
-                    glm::abs(nextChunk.position.z - playerChunkPos.z);
+                    glm::abs(nextChunk.position.y - playerChunkPos.y);
 
                 uint32_t lodlevel = 0;
 
@@ -484,7 +292,7 @@ private:
                 auto* newChunkRaw = new ThreadSafeChunk(nextChunk.position * CHUNK_SIZE, nextChunk.position, lodlevel);
                 auto newChunk = std::shared_ptr<ThreadSafeChunk>(newChunkRaw, chunkDeleter);
                 
-                chunks[nextChunk.position] = newChunk;
+                columns[nextChunk.position] = newChunk;
 
                 newChunk->setState(ChunkState::GeneratingTerrain);
                 workerSystem->queueTerrainGeneration(newChunk, nextChunk.position, distanceFromPlayer + 1);
@@ -496,15 +304,15 @@ private:
 
     void progressChunks() {
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        for (const auto& pair : chunks) {
+        for (const auto& pair : columns) {
             if (pair.second) {
                 std::shared_ptr<ThreadSafeChunk> chunk = pair.second;
-				ivec3 chunkPos = pair.first;
-                std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors = getNeighbors(chunkPos);
+				ivec2 chunkPos = pair.first;
+                std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors = getNeighbors(chunkPos);
                 if (pair.second->getState() == ChunkState::TerrainReady) {
                     // Check if all existing neighbors are ready
                     bool allNeighborsReady = true;
-                    for (int i = 0; i < 6; ++i) {
+                    for (int i = 0; i < 4; ++i) {
                         auto neighbor = neighbors[i];
                         if (neighbor) {
                             ChunkState neighborState = neighbor->getState();
@@ -528,7 +336,7 @@ private:
                 else if (pair.second->getState() == ChunkState::TopsoilReady) {
                     // Check if all existing neighbors are ready
                     bool allNeighborsReady = true;
-                    for (int i = 0; i < 6; ++i) {
+                    for (int i = 0; i < 4; ++i) {
                         auto neighbor = neighbors[i];
                         if (neighbor) {
                             ChunkState neighborState = neighbor->getState();
@@ -552,7 +360,7 @@ private:
                 else if (pair.second->getState() == ChunkState::TreesReady) {
                     // Check if all existing neighbors are ready
                     bool allNeighborsReady = true;
-                    for (int i = 0; i < 6; ++i) {
+                    for (int i = 0; i < 4; ++i) {
                         auto neighbor = neighbors[i];
                         if (neighbor) {
                             ChunkState neighborState = neighbor->getState();
@@ -569,7 +377,7 @@ private:
                     }
 
                     if (allNeighborsReady) {
-                        std::array<std::shared_ptr<ThreadSafeChunk>, 6> freshNeighbors = getNeighbors(chunkPos);
+                        std::array<std::shared_ptr<ThreadSafeChunk>, 4> freshNeighbors = getNeighbors(chunkPos);
                         chunk->setState(ChunkState::GeneratingMesh);
                         workerSystem->queueMeshGeneration(chunk, chunkPos, freshNeighbors);
                     }
@@ -588,7 +396,7 @@ public:
 
         lastNumActiveChunks = numActiveChunks;
         {
-            for (const auto& pair : chunks) {
+            for (const auto& pair : columns) {
                 if (pair.second) {
                     ChunkState state = pair.second->getState();
                     stateCounts[state]++;
@@ -624,12 +432,12 @@ public:
 
     size_t getChunkCount() const {
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        return chunks.size();
+        return columns.size();
     }
 
-    std::shared_ptr<ThreadSafeChunk> getChunk(const ivec3& pos) const {
-        std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        auto it = chunks.find(pos);
-        return (it != chunks.end()) ? it->second : nullptr;
+    std::shared_ptr<ThreadSafeChunk> getChunk(const ivec2& pos) const {
+        std::shared_lock<std::shared_mutex> lock(columnsMutex);
+        auto it = columns.find(pos);
+        return (it != columns.end()) ? it->second : nullptr;
     }
 };

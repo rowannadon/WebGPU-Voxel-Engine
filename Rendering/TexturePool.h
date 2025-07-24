@@ -6,6 +6,7 @@
 
 using namespace wgpu;
 using glm::ivec3;
+using glm::ivec2;
 
 class TexturePool {
     Device device;
@@ -24,9 +25,10 @@ class TexturePool {
     std::mutex dataMutex;
 
     const uint32_t CHUNK_SIZE = 32;
-    const uint32_t MAX_TEXTURE_SIZE = 768;
+    const uint32_t CHUNK_HEIGHT = 512;
+    const uint32_t MAX_TEXTURE_SIZE = 1024;
     const uint32_t CHUNKS_PER_ROW = MAX_TEXTURE_SIZE / CHUNK_SIZE;
-    size_t totalSlots = CHUNKS_PER_ROW * CHUNKS_PER_ROW * CHUNKS_PER_ROW;
+    size_t totalSlots = CHUNKS_PER_ROW * CHUNKS_PER_ROW;
 
     void initArray() {
         slotOccupancy = std::make_unique<std::atomic<bool>[]>(totalSlots);
@@ -40,7 +42,7 @@ class TexturePool {
         textureDesc.format = TextureFormat::RG8Unorm; // 2 bytes per voxel (VoxelMaterial)
         textureDesc.mipLevelCount = 1;
         textureDesc.sampleCount = 1;
-        textureDesc.size = { CHUNK_SIZE * CHUNKS_PER_ROW, CHUNK_SIZE * CHUNKS_PER_ROW, CHUNK_SIZE * CHUNKS_PER_ROW };
+        textureDesc.size = { CHUNK_SIZE * CHUNKS_PER_ROW, CHUNK_SIZE * CHUNKS_PER_ROW, CHUNK_HEIGHT };
         textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
         textureDesc.viewFormatCount = 0;
         textureDesc.viewFormats = nullptr;
@@ -61,7 +63,7 @@ class TexturePool {
         view = texture.createView(viewDesc);
 
         std::cout << "TexturePool initialized: " << totalSlots << " slots, "
-            << "Texture size: " << totalSlots * (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE * 2) << " bytes" << std::endl;
+            << "Texture size: " << totalSlots * (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT * 2) << " bytes" << std::endl;
     };
 
     void initSampler() {
@@ -147,11 +149,10 @@ public:
         return -1;
     }
 
-    ivec3 get3DPos(int index) {
+    ivec2 get2DPos(int index) {
         int x = index % CHUNKS_PER_ROW;
         int y = (index / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
-        int z = index / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
-        return ivec3(x, y, z);
+        return ivec2(x, y);
     }
 
     int allocateSlot(std::string id) {
@@ -181,7 +182,7 @@ public:
     void writeToSlot(std::string id, std::vector<VoxelMaterial> materialData) {
         std::lock_guard<std::mutex> lock(dataMutex);
         int index = map.find(id)->second;
-        ivec3 pos = get3DPos(index);
+        ivec2 pos = get2DPos(index);
 
         TexelCopyTextureInfo destination = {};
         destination.texture = texture;
@@ -189,7 +190,7 @@ public:
         destination.origin = { 
             static_cast<uint32_t>(pos.x) * CHUNK_SIZE, 
             static_cast<uint32_t>(pos.y) * CHUNK_SIZE, 
-            static_cast<uint32_t>(pos.z) * CHUNK_SIZE 
+            0
         };
         destination.aspect = TextureAspect::All;
 
@@ -204,7 +205,7 @@ public:
             materialData.data(),
             materialData.size() * sizeof(VoxelMaterial),
             source,
-            { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE });
+            { CHUNK_SIZE, CHUNK_SIZE, CHUNK_HEIGHT });
     }
 
     void init(Device d, Queue q) {

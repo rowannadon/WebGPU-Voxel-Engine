@@ -8,8 +8,6 @@
 #include "Ray.h"
 #include "Rendering/WebGPURenderer.h"
 
-//#include "magic_enum.hpp"
-
 #include "imgui/imgui.h"
 #include "imgui/backends/imgui_impl_glfw.h"
 #include "imgui/backends/imgui_impl_wgpu.h"
@@ -24,8 +22,15 @@
 #include <string>
 #include <chrono>
 #include <array>
+#include <queue>
 #include <thread>
 #include <numeric>
+#include <unordered_map>
+#include <unordered_set>
+#include <functional>
+#include <mutex>
+#include <atomic>
+#include <memory>  // for std::shared_ptr
 #include <FastNoise/FastNoise.h>
 
 using namespace wgpu;
@@ -33,6 +38,26 @@ using namespace wgpu;
 using glm::mat4x4;
 using glm::vec4;
 using glm::vec3;
+using glm::ivec3;
+using glm::ivec2;
+
+struct IVec3Hash {
+    std::size_t operator()(const ivec3& k) const {
+        // Simple hash combination
+        std::size_t h1 = std::hash<int>{}(k.x);
+        std::size_t h2 = std::hash<int>{}(k.y);
+        std::size_t h3 = std::hash<int>{}(k.z);
+
+        // Combine the hashes
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
+
+struct IVec3Equal {
+    bool operator()(const ivec3& lhs, const ivec3& rhs) const {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+    }
+};
 
 class Application {
 public:
@@ -71,6 +96,8 @@ private:
 	void placeBlock();
 
 private:
+
+
     struct FirstPersonCamera {
         vec3 position = vec3(5.0f, 0.0f, 200.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
@@ -213,11 +240,11 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.01f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.1f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
-        ivec3 chunkPos;
+        ivec2 chunkPos;
         std::shared_ptr<ThreadSafeChunk> chunk;
     };
     std::queue<GPUUploadItem> pendingGPUUploads;

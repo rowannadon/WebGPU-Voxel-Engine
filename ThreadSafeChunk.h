@@ -23,6 +23,7 @@
 using glm::ivec3;
 using glm::vec3;
 using glm::vec2;
+using glm::ivec2;
 
 struct DAIC {
     uint32_t indexCount;
@@ -62,11 +63,12 @@ private:
     WorldGenerator worldGen;
 
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+    static constexpr int CHUNK_HEIGHT = 512;
+    static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT;
     static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
 
-    ivec3 position;
-    ivec3 id;
+    ivec2 position;
+    ivec2 id;
     std::string resourceId;
 
     // voxel data
@@ -103,8 +105,8 @@ private:
     int meshSlot = -1;
 
 public:
-    ThreadSafeChunk(const ivec3& pos = ivec3(0), const ivec3& i = ivec3(0), uint32_t lodlevel = 0)
-        : position(pos), id(i), lod(lodlevel), voxelData(BYTES_NEEDED, 0) {
+    ThreadSafeChunk(const ivec2& worldPos = ivec2(0), const ivec2& chunkPos = ivec2(0), uint32_t lodlevel = 0)
+        : position(worldPos), id(chunkPos), lod(lodlevel), voxelData(BYTES_NEEDED, 0) {
         worldGen.initialize(1234);
 
         // initialize voxel data
@@ -125,7 +127,7 @@ public:
             lightData.resize(TOTAL_VOXELS);
         }
 
-        resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(id.z);
+        resourceId = std::to_string(id.x) + "_" + std::to_string(id.y);
     }
 
     ~ThreadSafeChunk() = default;
@@ -135,8 +137,8 @@ public:
 
     int getSolidVoxels() const { return solidVoxels.load(); }
     int getTransparentVoxels() const { return transparentVoxels.load(); }
-    const ivec3& getPosition() const { return position; }
-    void setPosition(const ivec3& pos) { position = pos; }
+    const ivec2& getPosition() const { return position; }
+    void setPosition(const ivec2& pos) { position = pos; }
     std::string getResourceId() { return resourceId; }
     int getTextureSlot() { return textureSlot; };
     int getLightSlot() { return lightSlot; };
@@ -293,7 +295,7 @@ public:
         chunkData.lightSlot = lightSlot;
 
         bool hasValidNeighbors = false;
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 4; ++i) {
             if (neighborLightSlots[i] < 4294967295u) {
                 hasValidNeighbors = true;
                 break;
@@ -305,8 +307,6 @@ public:
             chunkData.left = neighborLightSlots[1];
             chunkData.front = neighborLightSlots[2];
             chunkData.back = neighborLightSlots[3];
-            chunkData.top = neighborLightSlots[4];
-            chunkData.bottom = neighborLightSlots[5];
         }
         else {
             // Set to invalid marker if no valid neighbors
@@ -328,7 +328,7 @@ public:
     VoxelMaterial getLight(ivec3 pos) const {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
-            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            pos.z < 0 || pos.z >= CHUNK_HEIGHT) {
             return { 0 };
         }
 
@@ -343,7 +343,7 @@ public:
     void setLight(ivec3 pos, const VoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
-            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            pos.z < 0 || pos.z >= CHUNK_HEIGHT) {
             return;
         }
 
@@ -357,7 +357,7 @@ public:
     VoxelMaterial getMaterial(ivec3 pos) const {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
-            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            pos.z < 0 || pos.z >= CHUNK_HEIGHT) {
             return { 0 }; // Air material
         }
 
@@ -372,7 +372,7 @@ public:
     void setMaterial(ivec3 pos, const VoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
-            pos.z < 0 || pos.z >= CHUNK_SIZE) {
+            pos.z < 0 || pos.z >= CHUNK_HEIGHT) {
             return;
         }
 
@@ -385,7 +385,7 @@ public:
 
     bool getVoxel(vec3 pos) const {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_HEIGHT) {
             return false;
         }
 
@@ -419,7 +419,7 @@ public:
 
     void setVoxel(vec3 pos, bool value) {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_HEIGHT) {
             return;
         }
 
@@ -442,7 +442,7 @@ public:
 
     bool getTransparentVoxel(vec3 pos) const {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_HEIGHT) {
             return false;
         }
 
@@ -476,7 +476,7 @@ public:
 
     void setTransparentVoxel(vec3 pos, bool value) {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_HEIGHT) {
             return;
         }
 
@@ -503,13 +503,15 @@ public:
     }
 
     void generateTerrain() {
-        std::vector<float> noiseData = worldGen.sampleArea3D(CHUNK_SIZE, position);
+        std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT);
+        
+        worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, CHUNK_HEIGHT, ivec3(position.x, position.y, 0));
         int index = 0;
 
         for (int y = 0; y < CHUNK_SIZE; y++) {
-            for (int z = 0; z < CHUNK_SIZE; z++) {
+            for (int z = 0; z < CHUNK_HEIGHT; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
-                    ivec3 worldPos = ivec3(x, y, z) + position;
+                    ivec3 worldPos = ivec3(x, y, z) + ivec3(position.x, position.y, 0);
                     float noiseValue = noiseData[index++];
                     if (noiseValue > 0) {
                         setVoxel(vec3(x, y, z), true);
@@ -528,7 +530,7 @@ public:
 
     }
 
-    void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+    void generateTopsoil(const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& neighbors = {}) {
         if (solidVoxels.load() + transparentVoxels.load() == 0) {
             setState(ChunkState::TopsoilReady);
             return;
@@ -541,7 +543,7 @@ public:
             // Check if position is within current chunk bounds
             if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
                 pos.y >= 0 && pos.y < CHUNK_SIZE &&
-                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                pos.z >= 0 && pos.z < CHUNK_HEIGHT) {
                 return getVoxel(pos);
             }
 
@@ -584,8 +586,7 @@ public:
 
                 // Validate neighbor position and check voxel
                 if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
-                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE) {
                     return neighbors[faceIndex]->getVoxel(neighborPos);
                 }
             }
@@ -597,7 +598,7 @@ public:
         // Lambda to find the highest solid block in a column
         auto findTopSolidBlock = [&](int x, int y) -> int {
             // Search from top to bottom for the highest solid block
-            for (int z = CHUNK_SIZE - 1; z >= -CHUNK_SIZE; z--) {
+            for (int z = CHUNK_HEIGHT - 1; z >= 0; z--) {
                 if (isVoxelSolid(ivec3(x, y, z))) {
                     return z;
                 }
@@ -635,9 +636,9 @@ public:
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
-                for (int z = 0; z < CHUNK_SIZE; z++) {
+                for (int z = 0; z < CHUNK_HEIGHT; z++) {
                     if (getVoxel(ivec3(x, y, z))) {
-                        vec3 pos = vec3(position + ivec3(x, y, z));
+                        vec3 pos = vec3(ivec3(position.x, position.y, 0) + ivec3(x, y, z));
                         float noiseValue = worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
@@ -690,7 +691,7 @@ public:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
                                 if (pos.z > (- 10 + rand() % 20) && rand() % 32 == 0) {
-                                    if (positionAbove.z < CHUNK_SIZE && positionAbove.x > 1 && positionAbove.y > 1 &&
+                                    if (positionAbove.z < CHUNK_HEIGHT && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
                                         
                                         //std::lock_guard<std::mutex> lock(treeDataMutex);
@@ -754,7 +755,7 @@ public:
         setState(ChunkState::TopsoilReady);
     }
 
-    void generateTrees(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+    void generateTrees(const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& neighbors = {}) {
         VoxelMaterial trunkMaterial;
         trunkMaterial.materialType = BlockType::Log;
 
@@ -817,7 +818,7 @@ public:
             for (const ivec3& localTreePos : treeData) {
                 // Calculate a deterministic height based on the tree's absolute world position
                 // to ensure consistency across chunk boundaries.
-                ivec3 worldTreePos = this->position + localTreePos;
+                ivec3 worldTreePos = ivec3(this->position.x, this->position.y, 0) + localTreePos;
                 int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
                 placeTreeShape(localTreePos, treeHeight);
@@ -830,8 +831,8 @@ public:
             ivec3(CHUNK_SIZE, 0, 0),    // Left neighbor: to map its local to ours, we add {32,0,0}
             ivec3(0, -CHUNK_SIZE, 0),   // Front neighbor
             ivec3(0, CHUNK_SIZE, 0),    // Back neighbor
-            ivec3(0, 0, -CHUNK_SIZE),   // Top neighbor
-            ivec3(0, 0, CHUNK_SIZE)     // Bottom neighbor
+            ivec3(0, 0, -CHUNK_HEIGHT),   // Top neighbor
+            ivec3(0, 0, CHUNK_HEIGHT)     // Bottom neighbor
         };
 
         // NOTE: The offsets seem reversed but are correct for transforming a point from
@@ -843,20 +844,20 @@ public:
             ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0), ivec3(0,0,1), ivec3(0,0,-1)
         };
 
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 4; ++i) {
             const auto& neighbor = neighbors[i];
             if (neighbor) {
-                const ivec3 neighborWorldOrigin = neighbor->getPosition();
-                const ivec3 transformOffset = (neighborWorldOrigin - this->position);
+                const ivec2 neighborWorldOrigin = neighbor->getPosition();
+                const ivec2 transformOffset = (neighborWorldOrigin - this->position);
 
                 // For each tree rooted in the neighbor...
                 for (const ivec3& neighborTreeLocalPos : neighbor->getTreeData()) {
                     // ...calculate its absolute world position to get a deterministic height.
-                    ivec3 worldTreePos = neighborWorldOrigin + neighborTreeLocalPos;
+                    ivec3 worldTreePos = ivec3(neighborWorldOrigin.x, neighborWorldOrigin.y, 0) + neighborTreeLocalPos;
                     int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8);
 
                     // ...transform its base position into THIS chunk's local coordinate system.
-                    ivec3 transformedBasePos = neighborTreeLocalPos + transformOffset;
+                    ivec3 transformedBasePos = neighborTreeLocalPos + ivec3(transformOffset.x, transformOffset.y, 0);
 
                     // Generate the full tree shape. It will be automatically clipped to this chunk's bounds.
                     placeTreeShape(transformedBasePos, treeHeight);
@@ -867,7 +868,7 @@ public:
         setState(ChunkState::TreesReady);
     }
 
-    bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+    bool generateMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& neighbors = {}) {
         for (const auto& neighbor : neighbors) {
             if (neighbor && neighbor->getState() < ChunkState::TreesReady) {
                 // Neighbor became invalid, retry later
@@ -876,10 +877,6 @@ public:
                 return false;
             }
         }
-
-        if (lod > 0) {
-            return generateMeshLod(neighbors);
-		}
 
         if (solidVoxels.load() + transparentVoxels.load() == 0) {
             setState(ChunkState::Air);
@@ -907,7 +904,8 @@ public:
         return transparent;
     }
 
-    bool generateSolidMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+    bool generateSolidMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& neighbors = {}) {
+
         ivec3 aoStates[6][4][3] = {
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
@@ -953,7 +951,7 @@ public:
             // Check if position is within current chunk bounds
             if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
                 pos.y >= 0 && pos.y < CHUNK_SIZE &&
-                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                pos.z >= 0 && pos.z < CHUNK_HEIGHT) {
                 return !getVoxel(pos) || getTransparentVoxel(pos);
             }
 
@@ -981,17 +979,17 @@ public:
                     if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
                     break;
                 case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
-                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
+                    if (pos.z == CHUNK_HEIGHT) neighborPos.z = 0;
                     break;
                 case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
-                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
+                    if (pos.z == -1) neighborPos.z = CHUNK_HEIGHT - 1;
                     break;
                 }
 
                 // Validate neighbor position and check voxel
                 if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
                     neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_HEIGHT) {
 
                     bool neighborHasVoxel = neighbors[faceIndex]->getVoxel(neighborPos);
                     return !neighborHasVoxel;
@@ -1012,7 +1010,7 @@ public:
                 if (offset.x < 0) return 1;
                 if (offset.y >= CHUNK_SIZE) return 2;
                 if (offset.y < 0) return 3;
-                if (offset.z >= CHUNK_SIZE) return 4;
+                if (offset.z >= CHUNK_HEIGHT) return 4;
                 if (offset.z < 0) return 5;
                 return -1;
                 };
@@ -1027,33 +1025,30 @@ public:
             return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
             };
 
-        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+        auto packData = [](uint8_t position_x, uint8_t position_y, uint16_t position_z,
             uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
                 // Validate input ranges
-                // normal_index should be 0-7 (3 bits)
-                // vertex_index should be 0-3 (2 bits)
-                normal_index &= 0x7;   // Mask to 3 bits
-                vertex_index &= 0x3;   // Mask to 2 bits
+                position_x &= 0x1F;    // Mask to 5 bits (0-31)
+                position_y &= 0x1F;    // Mask to 5 bits (0-31)
+                position_z &= 0x3FF;   // Mask to 10 bits (0-1023)
+                normal_index &= 0x7;   // Mask to 3 bits (0-7)
+                vertex_index &= 0x3;   // Mask to 2 bits (0-3)
+                ao_index &= 0x3;       // Mask to 2 bits (0-3)
 
                 uint32_t packed = 0;
-
-                // Position X: bits 0-7
+                // Position X: bits 0-4 (5 bits)
                 packed |= static_cast<uint32_t>(position_x);
-
-                // Position Y: bits 8-15
-                packed |= static_cast<uint32_t>(position_y) << 8;
-
-                // Position Z: bits 16-23
-                packed |= static_cast<uint32_t>(position_z) << 16;
-
-                // Normal Index: bits 24-26
-                packed |= static_cast<uint32_t>(normal_index) << 24;
-
-                // Vertex Index: bits 27-28
-                packed |= static_cast<uint32_t>(vertex_index) << 27;
-
-                // AO Index: bits 29-30
-                packed |= static_cast<uint32_t>(ao_index) << 29;
+                // Position Y: bits 5-9 (5 bits)
+                packed |= static_cast<uint32_t>(position_y) << 5;
+                // Position Z: bits 10-19 (10 bits)
+                packed |= static_cast<uint32_t>(position_z) << 10;
+                // Normal Index: bits 20-22 (3 bits)
+                packed |= static_cast<uint32_t>(normal_index) << 20;
+                // Vertex Index: bits 23-24 (2 bits)
+                packed |= static_cast<uint32_t>(vertex_index) << 23;
+                // AO Index: bits 25-26 (2 bits)
+                packed |= static_cast<uint32_t>(ao_index) << 25;
+                // Bits 27-31 are unused (5 bits available for future use)
 
                 return packed;
             };
@@ -1062,7 +1057,7 @@ public:
         try {
             for (int x = 0; x < CHUNK_SIZE; ++x) {
                 for (int y = 0; y < CHUNK_SIZE; ++y) {
-                    for (int z = 0; z < CHUNK_SIZE; ++z) {
+                    for (int z = 0; z < CHUNK_HEIGHT; ++z) {
                         // Check if chunk is still valid during processing
                         if (state.load() == ChunkState::Unloading) {
                             return false;
@@ -1071,7 +1066,7 @@ public:
                         ivec3 currentPos = ivec3(x, y, z);
 
                         if (getVoxel(currentPos)) {
-                            ivec3 voxelPos = currentPos + position;
+                            ivec3 voxelPos = currentPos + ivec3(position.x, position.y, 0);
 
                             // Check each face for culling (including cross-chunk)
                             for (int face = 0; face < 6; ++face) {
@@ -1127,7 +1122,7 @@ public:
         return true;
     }
 
-    bool generateTransparentMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
+    bool generateTransparentMesh(const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& neighbors = {}) {
         ivec3 aoStates[6][4][3] = {
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
@@ -1173,7 +1168,7 @@ public:
             // Check if position is within current chunk bounds
             if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
                 pos.y >= 0 && pos.y < CHUNK_SIZE &&
-                pos.z >= 0 && pos.z < CHUNK_SIZE) {
+                pos.z >= 0 && pos.z < CHUNK_HEIGHT) {
                 return !getTransparentVoxel(pos) && !getVoxel(pos);
             }
 
@@ -1201,17 +1196,17 @@ public:
                     if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
                     break;
                 case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
-                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
+                    if (pos.z == CHUNK_HEIGHT) neighborPos.z = 0;
                     break;
                 case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
-                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
+                    if (pos.z == -1) neighborPos.z = CHUNK_HEIGHT - 1;
                     break;
                 }
 
                 // Validate neighbor position and check voxel
                 if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
                     neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                    neighborPos.z >= 0 && neighborPos.z < CHUNK_HEIGHT) {
 
                     bool neighborHasVoxel = neighbors[faceIndex]->getTransparentVoxel(neighborPos);
                     return !neighborHasVoxel;
@@ -1232,7 +1227,7 @@ public:
                 if (offset.x < 0) return 1;
                 if (offset.y >= CHUNK_SIZE) return 2;
                 if (offset.y < 0) return 3;
-                if (offset.z >= CHUNK_SIZE) return 4;
+                if (offset.z >= CHUNK_HEIGHT) return 4;
                 if (offset.z < 0) return 5;
                 return -1;
                 };
@@ -1247,33 +1242,30 @@ public:
             return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
             };
 
-        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+        auto packData = [](uint8_t position_x, uint8_t position_y, uint16_t position_z,
             uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
                 // Validate input ranges
-                // normal_index should be 0-7 (3 bits)
-                // vertex_index should be 0-3 (2 bits)
-                normal_index &= 0x7;   // Mask to 3 bits
-                vertex_index &= 0x3;   // Mask to 2 bits
+                position_x &= 0x1F;    // Mask to 5 bits (0-31)
+                position_y &= 0x1F;    // Mask to 5 bits (0-31)
+                position_z &= 0x3FF;   // Mask to 10 bits (0-1023)
+                normal_index &= 0x7;   // Mask to 3 bits (0-7)
+                vertex_index &= 0x3;   // Mask to 2 bits (0-3)
+                ao_index &= 0x3;       // Mask to 2 bits (0-3)
 
                 uint32_t packed = 0;
-
-                // Position X: bits 0-7
+                // Position X: bits 0-4 (5 bits)
                 packed |= static_cast<uint32_t>(position_x);
-
-                // Position Y: bits 8-15
-                packed |= static_cast<uint32_t>(position_y) << 8;
-
-                // Position Z: bits 16-23
-                packed |= static_cast<uint32_t>(position_z) << 16;
-
-                // Normal Index: bits 24-26
-                packed |= static_cast<uint32_t>(normal_index) << 24;
-
-                // Vertex Index: bits 27-28
-                packed |= static_cast<uint32_t>(vertex_index) << 27;
-
-                // AO Index: bits 29-30
-                packed |= static_cast<uint32_t>(ao_index) << 29;
+                // Position Y: bits 5-9 (5 bits)
+                packed |= static_cast<uint32_t>(position_y) << 5;
+                // Position Z: bits 10-19 (10 bits)
+                packed |= static_cast<uint32_t>(position_z) << 10;
+                // Normal Index: bits 20-22 (3 bits)
+                packed |= static_cast<uint32_t>(normal_index) << 20;
+                // Vertex Index: bits 23-24 (2 bits)
+                packed |= static_cast<uint32_t>(vertex_index) << 23;
+                // AO Index: bits 25-26 (2 bits)
+                packed |= static_cast<uint32_t>(ao_index) << 25;
+                // Bits 27-31 are unused (5 bits available for future use)
 
                 return packed;
             };
@@ -1282,7 +1274,7 @@ public:
         try {
             for (int x = 0; x < CHUNK_SIZE; ++x) {
                 for (int y = 0; y < CHUNK_SIZE; ++y) {
-                    for (int z = 0; z < CHUNK_SIZE; ++z) {
+                    for (int z = 0; z < CHUNK_HEIGHT; ++z) {
                         // Check if chunk is still valid during processing
                         if (state.load() == ChunkState::Unloading) {
                             return false;
@@ -1291,7 +1283,7 @@ public:
                         ivec3 currentPos = ivec3(x, y, z);
 
                         if (getTransparentVoxel(currentPos)) {
-                            ivec3 voxelPos = currentPos + position;
+                            ivec3 voxelPos = currentPos + ivec3(position.x, position.y, 0);
 
                             // Check each face for culling (including cross-chunk)
                             for (int face = 0; face < 6; ++face) {
@@ -1347,435 +1339,6 @@ public:
         return true;
     }
 
-    bool generateMeshLod(const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& neighbors = {}) {
-        // Pack data function (same as regular mesh)
-        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
-            uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
-                normal_index &= 0x7;   // Mask to 3 bits
-                vertex_index &= 0x3;   // Mask to 2 bits
-
-                uint32_t packed = 0;
-                packed |= static_cast<uint32_t>(position_x);
-                packed |= static_cast<uint32_t>(position_y) << 8;
-                packed |= static_cast<uint32_t>(position_z) << 16;
-                packed |= static_cast<uint32_t>(normal_index) << 24;
-                packed |= static_cast<uint32_t>(vertex_index) << 27;
-                packed |= static_cast<uint32_t>(ao_index) << 29;
-
-                return packed;
-            };
-
-        auto isEmptyVoxel = [this, &neighbors](ivec3 pos, int faceIndex = -1) -> bool {
-            // Check if position is within current chunk bounds
-            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
-                pos.y >= 0 && pos.y < CHUNK_SIZE &&
-                pos.z >= 0 && pos.z < CHUNK_SIZE) {
-                return !getVoxel(pos);
-            }
-            // Position is outside current chunk - check neighbor chunks
-            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
-                // Check if neighbor is still valid (not being destroyed)
-                if (neighbors[faceIndex]->getState() == ChunkState::Unloading) {
-                    return true; // Treat as empty if neighbor is being unloaded
-                }
-                ivec3 neighborPos = pos;
-                // CRITICAL: Map out-of-bounds coordinates to neighbor chunk space
-                switch (faceIndex) {
-                case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
-                    if (pos.x == CHUNK_SIZE) neighborPos.x = 0;
-                    break;
-                case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
-                    if (pos.x == -1) neighborPos.x = CHUNK_SIZE - 1;
-                    break;
-                case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
-                    if (pos.y == CHUNK_SIZE) neighborPos.y = 0;
-                    break;
-                case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
-                    if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
-                    break;
-                case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
-                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
-                    break;
-                case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
-                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
-                    break;
-                }
-                // Validate neighbor position and check voxel
-                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
-                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
-                    bool neighborHasVoxel = neighbors[faceIndex]->getVoxel(neighborPos);
-                    return !neighborHasVoxel;
-                }
-            }
-            // No neighbor available - consider it empty (exposed to air)
-            return true;
-            };
-
-        // Helper function to check if a slice has any solid voxels
-        auto sliceHasSolidVoxels = [this](int slicePos, int axis) -> bool {
-            // For boundary slices (position 0 and CHUNK_SIZE), we need to check if there are 
-            // solid voxels adjacent to the slice position
-            if (axis == 0) { // X-axis
-                if (slicePos == 0) {
-                    // Check if there are solid voxels in the first column (x=0)
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(0, i, j))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else if (slicePos == CHUNK_SIZE) {
-                    // Check if there are solid voxels in the last column (x=31)
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(CHUNK_SIZE - 1, i, j))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else {
-                    // Interior slice - check both adjacent columns
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(slicePos - 1, i, j)) || getVoxel(ivec3(slicePos, i, j))) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }
-            }
-            else if (axis == 1) { // Y-axis
-                if (slicePos == 0) {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, 0, j))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else if (slicePos == CHUNK_SIZE) {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, CHUNK_SIZE - 1, j))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, slicePos - 1, j)) || getVoxel(ivec3(i, slicePos, j))) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }
-            }
-            else { // Z-axis
-                if (slicePos == 0) {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, j, 0))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else if (slicePos == CHUNK_SIZE) {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, j, CHUNK_SIZE - 1))) return true;
-                        }
-                    }
-                    return false;
-                }
-                else {
-                    for (int i = 0; i < CHUNK_SIZE; ++i) {
-                        for (int j = 0; j < CHUNK_SIZE; ++j) {
-                            if (getVoxel(ivec3(i, j, slicePos - 1)) || getVoxel(ivec3(i, j, slicePos))) {
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }
-            }
-            };
-
-        // Helper function to check if a slice quad should be rendered
-        auto shouldRenderSliceQuad = [this, &isEmptyVoxel, &neighbors](int slicePos, int axis, bool positiveDirection) -> bool {
-            // For LOD rendering, we need to be more conservative about culling
-            // A slice quad should be rendered if ANY voxel on that slice face is exposed
-
-            for (int i = 0; i < CHUNK_SIZE; ++i) {
-                for (int j = 0; j < CHUNK_SIZE; ++j) {
-                    ivec3 voxelPos = ivec3(0,0,0);
-                    ivec3 checkPos = ivec3(0,0,0);
-                    int faceIndex = 0;
-
-                    switch (axis) {
-                    case 0: // X-axis slice
-                        if (positiveDirection) {
-                            // Right face - check if there's a solid voxel at slicePos-1 and air at slicePos
-                            if (slicePos == 0) continue; // No voxel to the left of slice 0
-                            voxelPos = ivec3(slicePos - 1, i, j);
-                            checkPos = ivec3(slicePos, i, j);
-                            faceIndex = 0;
-                        }
-                        else {
-                            // Left face - check if there's a solid voxel at slicePos and air at slicePos-1
-                            if (slicePos == CHUNK_SIZE) continue; // No voxel to the right of slice CHUNK_SIZE
-                            voxelPos = ivec3(slicePos, i, j);
-                            checkPos = ivec3(slicePos - 1, i, j);
-                            faceIndex = 1;
-                        }
-                        break;
-                    case 1: // Y-axis slice
-                        if (positiveDirection) {
-                            if (slicePos == 0) continue;
-                            voxelPos = ivec3(i, slicePos - 1, j);
-                            checkPos = ivec3(i, slicePos, j);
-                            faceIndex = 2;
-                        }
-                        else {
-                            if (slicePos == CHUNK_SIZE) continue;
-                            voxelPos = ivec3(i, slicePos, j);
-                            checkPos = ivec3(i, slicePos - 1, j);
-                            faceIndex = 3;
-                        }
-                        break;
-                    case 2: // Z-axis slice
-                        if (positiveDirection) {
-                            if (slicePos == 0) continue;
-                            voxelPos = ivec3(i, j, slicePos - 1);
-                            checkPos = ivec3(i, j, slicePos);
-                            faceIndex = 4;
-                        }
-                        else {
-                            if (slicePos == CHUNK_SIZE) continue;
-                            voxelPos = ivec3(i, j, slicePos);
-                            checkPos = ivec3(i, j, slicePos - 1);
-                            faceIndex = 5;
-                        }
-                        break;
-                    }
-
-                    // If there's a solid voxel and the adjacent position is empty, render the quad
-                    if (getVoxel(voxelPos) && isEmptyVoxel(checkPos, faceIndex)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-            };
-
-        std::lock_guard<std::mutex> lock(meshDataMutex);
-        indexData.clear();
-        vertexData.clear();
-
-        try {
-            // X-axis quads (YZ planes at x = 0, 1, 2, ..., 32)
-            for (int x = 0; x <= CHUNK_SIZE; ++x) {
-                if (state.load() == ChunkState::Unloading) {
-                    return false;
-                }
-
-                // Skip if this slice has no relevant solid voxels
-                if (!sliceHasSolidVoxels(x, 0)) {
-                    continue;
-                }
-
-                // Right-facing quad (normal +X, face index 0)
-                if (shouldRenderSliceQuad(x, 0, true)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            static_cast<uint8_t>(x), // X slice position (0-32)
-                            0, // Y position (not used for X-axis slices)
-                            0, // Z position (not used for X-axis slices)
-                            0, // Normal index (right face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    // Right face winding
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-
-                // Left-facing quad (normal -X, face index 1)
-                if (shouldRenderSliceQuad(x, 0, false)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            static_cast<uint8_t>(x), // X slice position
-                            0, // Y position (not used for X-axis slices)
-                            0, // Z position (not used for X-axis slices)
-                            1, // Normal index (left face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    // Left face winding
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-            }
-
-            // Y-axis quads (XZ planes at y = 0, 1, 2, ..., 32)
-            for (int y = 0; y <= CHUNK_SIZE; ++y) {
-                if (state.load() == ChunkState::Unloading) {
-                    return false;
-                }
-
-                if (!sliceHasSolidVoxels(y, 1)) {
-                    continue;
-                }
-
-                // Front-facing quad (normal +Y, face index 2)
-                if (shouldRenderSliceQuad(y, 1, true)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            0, // X position (not used for Y-axis slices)
-                            static_cast<uint8_t>(y), // Y slice position (0-32)
-                            0, // Z position (not used for Y-axis slices)
-                            2, // Normal index (front face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-
-                // Back-facing quad (normal -Y, face index 3)
-                if (shouldRenderSliceQuad(y, 1, false)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            0, // X position (not used for Y-axis slices)
-                            static_cast<uint8_t>(y), // Y slice position
-                            0, // Z position (not used for Y-axis slices)
-                            3, // Normal index (back face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-            }
-
-            // Z-axis quads (XY planes at z = 0, 1, 2, ..., 32)
-            for (int z = 0; z <= CHUNK_SIZE; ++z) {
-                if (state.load() == ChunkState::Unloading) {
-                    return false;
-                }
-
-                if (!sliceHasSolidVoxels(z, 2)) {
-                    continue;
-                }
-
-                // Top-facing quad (normal +Z, face index 4)
-                if (shouldRenderSliceQuad(z, 2, true)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            0, // X position (not used for Z-axis slices)
-                            0, // Y position (not used for Z-axis slices)
-                            static_cast<uint8_t>(z), // Z slice position (0-32)
-                            4, // Normal index (top face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-
-                // Bottom-facing quad (normal -Z, face index 5)
-                if (shouldRenderSliceQuad(z, 2, false)) {
-                    uint32_t baseIndex = static_cast<uint32_t>(vertexData.size());
-
-                    for (int vertex = 0; vertex < 4; ++vertex) {
-                        VertexAttributes vert;
-                        vert.data = packData(
-                            0, // X position (not used for Z-axis slices)
-                            0, // Y position (not used for Z-axis slices)
-                            static_cast<uint8_t>(z), // Z slice position
-                            5, // Normal index (bottom face)
-                            static_cast<uint8_t>(vertex),
-                            3  // Full brightness (no AO for LOD)
-                        );
-                        vertexData.push_back(vert);
-                    }
-
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 1);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 0);
-                    indexData.push_back(baseIndex + 2);
-                    indexData.push_back(baseIndex + 3);
-                }
-            }
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Error during LOD mesh generation: " << e.what() << std::endl;
-            return false;
-        }
-
-        if (state.load() == ChunkState::Unloading) {
-            return false;
-        }
-
-        setState(ChunkState::MeshReady);
-        return true;
-    }
-
 public:
     // Must be run on main thread only
     void uploadToGPU(TextureManager *tex, BufferManager *buf, PipelineManager *pip) {
@@ -1796,10 +1359,10 @@ public:
             uploadMaterialTexture(tex);
         }
 
-        if (!lightInitialized) {
+        /*if (!lightInitialized) {
             initializeLightTexture(tex);
             uploadLightTexture(tex, {-1, -1, -1, -1, -1, -1});
-        }
+        }*/
 
         if (!chunkDataBufferInitialized) {
             initializeChunkDataBuffer(buf);

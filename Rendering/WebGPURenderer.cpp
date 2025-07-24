@@ -608,6 +608,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		voxelRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
 		voxelRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
 
+		//std::cout << "drawing " << chunkRenderData.first.size() << " chunks\n";
 		voxelRenderPass.multiDrawIndexedIndirect(indirectBuffer, 0, chunkRenderData.first.size(), nullptr, 0);
 
 		voxelRenderPass.end();

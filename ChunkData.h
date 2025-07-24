@@ -4,7 +4,7 @@
 #include "glm/glm.hpp"
 
 struct ChunkData {
-    glm::ivec3 worldPosition;
+    glm::ivec2 worldPosition;
     uint32_t lod;
     uint32_t textureSlot;
     uint32_t lightSlot;
@@ -14,6 +14,7 @@ struct ChunkData {
     uint32_t back;
     uint32_t top;
     uint32_t bottom;
+    float padding;
 };
 
 struct ChunkDataSimple {

@@ -35,6 +35,7 @@ struct VertexOutput {
     @location(7) @interpolate(flat) idx: u32,
     @location(8) chunk_edge_factor: f32,
     @location(9) shadow_pos: vec4f,  // Position in shadow map space
+    @location(10) @interpolate(flat) chunk_world_pos: vec3i,
 };
 
 struct MyUniforms {
@@ -59,7 +60,7 @@ struct MyUniforms {
 };
 
 struct ChunkData {
-    worldPosition: vec3i,
+    worldPosition: vec2i,
     lod: u32,
     textureSlot: u32,
     lightSlot: u32,
@@ -129,7 +130,7 @@ struct Atmosphere {
 @group(2) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(2) @binding(1) var light_sampler_3d: sampler;
 
-@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
+@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 12288>;
 
 const ATLAS_TILES_X: f32 = 4.0;
 const ATLAS_TILES_Y: f32 = 4.0;
@@ -376,12 +377,18 @@ fn fbm(st_input: vec2<f32>) -> f32 {
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0xFFu;
-    let position_y = (packed_bits >> 8u) & 0xFFu;
-    let position_z = (packed_bits >> 16u) & 0xFFu;
-    let normal_index = (packed_bits >> 24u) & 0x7u;
-    let vertex_index = (packed_bits >> 27u) & 0x3u;
-    let ao_index = (packed_bits >> 29u) & 0x3u;
+    // Position X: bits 0-4 (5 bits)
+    let position_x = packed_bits & 0x1Fu;
+    // Position Y: bits 5-9 (5 bits)
+    let position_y = (packed_bits >> 5u) & 0x1Fu;
+    // Position Z: bits 10-19 (10 bits)
+    let position_z = (packed_bits >> 10u) & 0x3FFu;
+    // Normal Index: bits 20-22 (3 bits)
+    let normal_index = (packed_bits >> 20u) & 0x7u;
+    // Vertex Index: bits 23-24 (2 bits)
+    let vertex_index = (packed_bits >> 23u) & 0x3u;
+    // AO Index: bits 25-26 (2 bits)
+    let ao_index = (packed_bits >> 25u) & 0x3u;
     
     return UnpackedData(
         position_x,
@@ -533,81 +540,47 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.idx = in.instance_idx;
 
     let data = unpack_data(in.data);
-    let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
+    let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), 0.0);
+    out.chunk_world_pos = vec3i(chunkData.worldPosition.x, chunkData.worldPosition.y, 0);
     
     var position: vec3f;
     var voxel_pos: vec3f;
     var uv: vec2f;
     
-    if (chunkData.lod > 0u) {
-        // LOD rendering
-        var base_vertex = lodQuadVertices[data.normal_index][data.vertex_index];
-        
-        switch (data.normal_index) {
-            case 0u, 1u: {
-                base_vertex.x = f32(data.position_x);
-                if (base_vertex.x >= CHUNK_SIZE+1) {
-                    base_vertex.x = CHUNK_SIZE+1;
-                }
-            }
-            case 2u, 3u: {
-                base_vertex.y = f32(data.position_y);
-                if (base_vertex.y >= CHUNK_SIZE+1) {
-                    base_vertex.y = CHUNK_SIZE+1;
-                }
-            }
-            case 4u, 5u: {
-                base_vertex.z = f32(data.position_z);
-                if (base_vertex.z >= CHUNK_SIZE+1) {
-                    base_vertex.z = CHUNK_SIZE+1;
-                }
-            }
-            default: {}
-        }
-        
-        position = chunk_world_pos + base_vertex;
-        voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
-        let base_uv = faceUVsIndependent[data.normal_index][data.vertex_index];
-        uv = base_uv * CHUNK_SIZE;
-
-        let chunk_world_pos_vec = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
-        let local_world_pos = position - chunk_world_pos_vec;
-        out.chunk_edge_factor = calculate_chunk_edge_factor(local_world_pos, data.normal_index);
-    } else {
-        // Regular voxel rendering
-        voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
-        
-        const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-            array<vec3<f32>, 4>(
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
-            ),
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-            ),
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-            ),
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-            ),
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-            ),
-            array<vec3<f32>, 4>(
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-            )
-        );
-        
-        position = chunk_world_pos + voxel_pos + faceVertices[data.normal_index][data.vertex_index];
-        uv = faceUVsIndependent[data.normal_index][data.vertex_index];
-        out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos, data.normal_index);
-    }
+    // Regular voxel rendering
+    voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
+    
+    const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
+        )
+    );
+    
+    position = chunk_world_pos + voxel_pos + faceVertices[data.normal_index][data.vertex_index];
+    uv = faceUVsIndependent[data.normal_index][data.vertex_index];
+    out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos, data.normal_index);
+    
     
     let normal = faceNormals[data.normal_index];
     let ao = aoLevels[data.ao_index];
@@ -616,7 +589,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let view_position = uMyUniforms.viewMatrix * world_position;
 
     out.highlighted = 0.0;
-    let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
+    let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + vec3(chunkData.worldPosition.x, chunkData.worldPosition.y, 0);
 
     if ((world_voxel_pos.x == uMyUniforms.highlightedVoxelPos.x) && 
         (world_voxel_pos.y == uMyUniforms.highlightedVoxelPos.y) && 
@@ -728,99 +701,73 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     var light_level = 0.0;
     
-    if (chunkData.lod > 0u) {
-        let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
-        let local_world_pos = in.world_position - chunk_world_pos;
-        let chunk_relative_pos = clamp(local_world_pos, vec3f(0.01), vec3f(31.99));
-        let absolute_texture_pos = chunk_relative_pos + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-        let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
-        
-        var sample_offset = vec3f(0.0);
-        let epsilon = 0.5 / TOTAL_TEXTURE_SIZE;
-        
-        if (abs(normal.x) > 0.5) {
-            sample_offset.x = -sign(normal.x) * epsilon;
-        } else if (abs(normal.y) > 0.5) {
-            sample_offset.y = -sign(normal.y) * epsilon;
-        } else if (abs(normal.z) > 0.5) {
-            sample_offset.z = -sign(normal.z) * epsilon;
+    let voxel_center = in.voxel_pos + vec3f(0.5);
+    let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
+    let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
+    let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
+    material_id = 3; //sample_material_3d(final_coords);
+
+    let light_sample_pos = in.voxel_pos + normal;
+    var final_light_level: f32;
+    
+    if (light_sample_pos.x < -0.25) {
+        if (chunkData.left < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x + 32.0, light_sample_pos.y, light_sample_pos.z);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.left, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
         }
-        
-        let final_coords = clamp(texture_coords + sample_offset, vec3f(0.001), vec3f(0.999));
-        material_id = sample_material_3d(final_coords);
-        
-        if (material_id == 0u) {
-            discard;
+    } else if (light_sample_pos.x > 31.75) {
+        if (chunkData.right < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x - 32.0, light_sample_pos.y, light_sample_pos.z);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.right, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
+        }
+    } else if (light_sample_pos.y < -0.25) {
+        if (chunkData.back < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y + 32.0, light_sample_pos.z);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.back, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
+        }
+    } else if (light_sample_pos.y > 31.75) {
+        if (chunkData.front < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y - 32.0, light_sample_pos.z);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.front, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
+        }
+    } else if (light_sample_pos.z < -0.25) {
+        if (chunkData.bottom < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z + 32.0);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.bottom, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
+        }
+    } else if (light_sample_pos.z > 31.75) {
+        if (chunkData.top < 4294967295u) {
+            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z - 32.0);
+            let sample_offset = vec3f(0.0, 0.0, 0.0);
+            final_light_level = sample_light(chunkData.top, neighbor_pos, sample_offset);
+        } else {
+            final_light_level = 0.0;
         }
     } else {
-        let voxel_center = in.voxel_pos + vec3f(0.5);
-        let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-        let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
-        let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
-        material_id = sample_material_3d(final_coords);
+        let clamped_sample_pos = clamp(light_sample_pos, vec3f(0.0), vec3f(31.999));
+        let sample_offset = vec3f(0.0, 0.0, 0.0);
+        final_light_level = sample_light(chunkData.lightSlot, clamped_sample_pos, sample_offset);
+    }
 
-        let light_sample_pos = in.voxel_pos + normal;
-        var final_light_level: f32;
-        
-        if (light_sample_pos.x < -0.25) {
-            if (chunkData.left < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x + 32.0, light_sample_pos.y, light_sample_pos.z);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.left, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else if (light_sample_pos.x > 31.75) {
-            if (chunkData.right < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x - 32.0, light_sample_pos.y, light_sample_pos.z);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.right, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else if (light_sample_pos.y < -0.25) {
-            if (chunkData.back < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y + 32.0, light_sample_pos.z);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.back, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else if (light_sample_pos.y > 31.75) {
-            if (chunkData.front < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y - 32.0, light_sample_pos.z);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.front, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else if (light_sample_pos.z < -0.25) {
-            if (chunkData.bottom < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z + 32.0);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.bottom, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else if (light_sample_pos.z > 31.75) {
-            if (chunkData.top < 4294967295u) {
-                let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z - 32.0);
-                let sample_offset = vec3f(0.0, 0.0, 0.0);
-                final_light_level = sample_light(chunkData.top, neighbor_pos, sample_offset);
-            } else {
-                final_light_level = 0.0;
-            }
-        } else {
-            let clamped_sample_pos = clamp(light_sample_pos, vec3f(0.0), vec3f(31.999));
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.lightSlot, clamped_sample_pos, sample_offset);
-        }
-
-        light_level = final_light_level;
-        
-        if (material_id == 0u) {
-            discard;
-        }
+    light_level = final_light_level;
+    
+    if (material_id == 0u) {
+        discard;
     }
 
     let materialProps = get_material_properties(material_id);

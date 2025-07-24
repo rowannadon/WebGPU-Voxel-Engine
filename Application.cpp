@@ -839,7 +839,7 @@ void Application::propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel) 
             auto neighbors = chunkManager.getNeighbors(chunkPos);
             std::array<int, 6> lightOffsets = { 0 };
 
-            for (int i = 0; i < 6; ++i) {
+            for (int i = 0; i < 4; ++i) {
                 if (neighbors[i] && neighbors[i]->getLightSlot() != -1) {
                     lightOffsets[i] = neighbors[i]->getLightSlot();
                 }

@@ -12,6 +12,7 @@
 #include "ThreadSafeChunk.h"
 
 using glm::ivec3;
+using glm::ivec2;
 
 // Enhanced work item with better priority handling
 class ChunkWorkItem {
@@ -35,8 +36,8 @@ public:
 private:
     Type type;
     std::shared_ptr<ThreadSafeChunk> chunk;
-    ivec3 position;
-    std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors;
+    ivec2 position;
+    std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors;
     int priority;
     int id;
     std::chrono::steady_clock::time_point creation_time;
@@ -45,17 +46,17 @@ private:
 public:
     // Default constructor
     ChunkWorkItem()
-        : type(GenerateTerrain), chunk(nullptr), position(0, 0, 0), neighbors{},
+        : type(GenerateTerrain), chunk(nullptr), position(0, 0), neighbors{},
         priority(NORMAL), id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
 
-    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos, int prio = NORMAL)
+    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec2 pos, int prio = NORMAL)
         : type(t), chunk(c), position(pos), neighbors{}, priority(prio),
         id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
 
-    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighs, int prio = NORMAL)
+    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec2 pos,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighs, int prio = NORMAL)
         : type(t), chunk(c), position(pos), neighbors(neighs), priority(prio),
         id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
@@ -71,8 +72,8 @@ public:
     // Getters
     Type getType() const { return type; }
     std::shared_ptr<ThreadSafeChunk> getChunk() const { return chunk; }
-    ivec3 getPosition() const { return position; }
-    const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& getNeighbors() const { return neighbors; }
+    ivec2 getPosition() const { return position; }
+    const std::array<std::shared_ptr<ThreadSafeChunk>, 4>& getNeighbors() const { return neighbors; }
     int getPriority() const { return priority; }
     int getId() const { return id; }
 
@@ -85,16 +86,6 @@ public:
     std::chrono::milliseconds getAge() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - creation_time);
-    }
-
-    std::string getTypeString() const {
-        switch (type) {
-        case GenerateTerrain: return "GenerateTerrain";
-        case GenerateTopsoil: return "GenerateTopsoil";
-        case GenerateMesh: return "GenerateMesh";
-        case RegenerateMesh: return "RegenerateMesh";
-        default: return "Unknown";
-        }
     }
 };
 
@@ -240,7 +231,7 @@ public:
     }
 
     // Queue work items with better error handling
-    bool queueTerrainGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position, int distance) {
+    bool queueTerrainGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec2 position, int distance) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -251,8 +242,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueTopsoilGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueTopsoilGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec2 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -263,8 +254,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueTreeGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueTreeGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec2 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -275,8 +266,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueMeshGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueMeshGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec2 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -287,8 +278,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueMeshRegeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueMeshRegeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec2 position,
+        std::array<std::shared_ptr<ThreadSafeChunk>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
