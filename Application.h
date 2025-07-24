@@ -42,6 +42,7 @@ public:
     bool IsRunning();
 
     void saveTexture();
+    void saveHeightTexture();
 
 private:
     void startChunkUpdateThread();

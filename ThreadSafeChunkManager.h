@@ -79,6 +79,8 @@ public:
         buf = b;
 
         chunks.reserve(MAX_TOTAL_CHUNKS);
+        activeChunkPositions.reserve(MAX_TOTAL_CHUNKS);
+        initializeBoundaryCache();
     }
 
     ~ThreadSafeChunkManager() {

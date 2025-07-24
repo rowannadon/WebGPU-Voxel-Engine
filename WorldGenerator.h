@@ -10,10 +10,12 @@ class WorldGenerator {
 public:
     FastNoise::SmartNode<> fnGenerator;
     FastNoise::SmartNode<> fnGenerator2;
+	FastNoise::SmartNode<> fnGenerator2d;
 	
 	uint32_t seed = 0;
 	float noiseScale = 0.006f;
 	float noiseScale2 = 0.05f;
+	float noiseScale3 = 0.00008;
     int CHUNK_SIZE = 32;
 
 public:
@@ -21,7 +23,8 @@ public:
 		seed = s;
         fnGenerator = FastNoise::NewFromEncodedNodeTree("IAAPAAMAAAAAAABAIAAhACcAAQAAACcAAAAAABMAj8J1Pg8ABAAAAM3MjD8NAAMAAABSuJ4/KQAAZmZmPwD2KFw/AFK4Hr8AuB4FwBAAzczMPRkAEwA9Ctc+DQAGAAAAAAAAQAkAAGZmJj8AAAAAPwEEAAAAAACuR6G/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANejsD8A7FG4PgEEAAAAAAAAAMjCAAAAAAAAAAAAAAAAPQpXPwAAAAAAAAAAAAAAyEIAKVwPPgCamRlAAQQAAAAAAB+FW8EAAAAAAAAAAAAAAACuR2G+AAAAAAAAAAAAXI9qQQ==");
         fnGenerator2 = FastNoise::NewFromEncodedNodeTree("EAApXI8/JQAK1yM+cT1KQArXIz49Clc/EwC4HoU/DQAEAAAAAAAgQAkAAGZmJj8AAAAAPwDhehQ/");
-        return true;
+		fnGenerator2d = FastNoise::NewFromEncodedNodeTree("IAAXAIXrkb/NzEw/mpmZv+xRuD8bACEAEwBcj7JAIQAXAAAAgL8AAIA/AACAvwAAgD8TAIXrkT8PAAYAAAAK1+M/BwAAuB4FPwDsUTg+AAAAAIC/AQ0ABwAAAOF6FEAXAHE9Cr/hepQ/rkfhvwAAgD8LAAEAAAAAAAAAAQAAAAAAAAAAheuRPwB7FC4/AI/CdT4aAAEbABcACtejPh+F6z6amZk+16NwPyEAAADNzIw/AAApXA8+ASIArkdhP65HYT4bABcAPQrXPh+Faz8AAAAAAACAPxoAAQ0ACAAAABSuB0AHAADhehQ/AAAAAAABGwAFAAEAAAAAAAAAAAAAAAAAAAAAAAAAAM3MTD4AmpkZPwCuR2E+AAAAgD8AmpkZPwAzM/M/ARsAFwAAAIC/AACAP2ZmZr8UrkfADQADAAAA16OQQAcAAHE9Cj8A4XrUvwAK1yM/AI/CtT8=");
+		return true;
 	}
 
 	float sample3D(vec3 position) {
@@ -39,8 +42,11 @@ public:
 	}
 
 	float sample2D(vec2 position) {
-		return fnGenerator->GenSingle2D(position.x * noiseScale, position.y * noiseScale, seed);
+		float result = fnGenerator2d->GenSingle2D(position.x * noiseScale3, position.y * noiseScale3, 1234);
+		return result;
 	}
+
+
 
     
 };
