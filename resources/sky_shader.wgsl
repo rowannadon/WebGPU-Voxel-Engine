@@ -1058,7 +1058,6 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     
-   if (is_valid_depth(depth)) {
     let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
     
     // Convert view distance to world space distance for comparison with clouds
@@ -1069,8 +1068,8 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let final_cloud_alpha = cloud_result.a * terrain_cloud_fade;
     
     // Composite clouds with sky, respecting terrain
-    let final_color = cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha);
-    let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
+    // let final_color = cloud_result.rgb * final_cloud_alpha + sky_color.rgb * (1.0 - final_cloud_alpha);
+    // let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
     
     // Apply aerial perspective for terrain
     let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
@@ -1127,10 +1126,11 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Apply combined fog multiplier to the final fog alpha
     let final_fog_alpha = aerial_perspective.a * fog_weight * combined_fog_multiplier;
-    
-    return vec4f(dithered_aerial_perspective, final_fog_alpha);
-}
+        
+    if (is_valid_depth(depth)) {
+        return vec4f(dithered_aerial_perspective, final_fog_alpha);
+    }
 
     
-    return vec4<f32>(filmic(dithered), 1.0);
+    return vec4<f32>(filmic(dithered) + 0.2 * dithered_aerial_perspective, 1.0);
 }

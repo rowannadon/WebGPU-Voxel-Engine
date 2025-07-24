@@ -192,7 +192,7 @@ private:
 
     // Configuration
     static constexpr int DEFAULT_WORKER_COUNT = 12;
-    static constexpr size_t MAX_QUEUE_SIZE = 1000;
+    static constexpr size_t MAX_QUEUE_SIZE = 10000;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
 
     // Statistics
