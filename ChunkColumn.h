@@ -185,12 +185,14 @@ private:
 
     ChunkMetaData meta[COLUMN_HEIGHT];
     
+
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
     std::vector<VertexAttributes> vertexData[COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[COLUMN_HEIGHT];
 
     //VoxelMaterial materialData[TOTAL_VOXELS] = {};
-    std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> rawMaterialData[CHUNK_SIZE][CHUNK_SIZE];
+
+    std::unique_ptr<std::array<uint16_t, CHUNK_SIZE* CHUNK_SIZE* COLUMN_HEIGHT_BLOCKS>> rawMaterialData;
     bool materialDataDecoded = false;  // Track if we have decoded data available
 
     uint8_t voxelData[BYTES_NEEDED] = {};
@@ -596,20 +598,33 @@ private:
     //    }
     //}
 
+    inline size_t getMaterialIndex(int x, int y, int z) const {
+        return x * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS + y * COLUMN_HEIGHT_BLOCKS + z;
+    }
+
     // Method to decode all material data at once
     void decodeAllMaterialData() {
         if (materialDataDecoded) return; // Already decoded
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
 
+        // Allocate memory for raw data
+        rawMaterialData = std::make_unique<std::array<uint16_t, CHUNK_SIZE* CHUNK_SIZE* COLUMN_HEIGHT_BLOCKS>>();
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
+                std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> columnData;
                 if (encodedMaterialData[x][y].empty()) {
                     // Initialize with air if empty
-                    rawMaterialData[x][y].fill(0);
+                    columnData.fill(0);
                 }
                 else {
-                    rawMaterialData[x][y] = RunLengthEncoder::decode(encodedMaterialData[x][y]);
+                    columnData = RunLengthEncoder::decode(encodedMaterialData[x][y]);
+                }
+
+                // Copy column data into the linear array
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    (*rawMaterialData)[getMaterialIndex(x, y, z)] = columnData[z];
                 }
             }
         }
@@ -618,15 +633,23 @@ private:
 
     // Method to encode all material data at once
     void encodeAllMaterialData() {
-        if (!materialDataDecoded) return; // Nothing to encode
+        if (!materialDataDecoded || !rawMaterialData) return; // Nothing to encode
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
-                encodedMaterialData[x][y] = RunLengthEncoder::encode(rawMaterialData[x][y]);
+                // Extract column data from linear array
+                std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> columnData;
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    columnData[z] = (*rawMaterialData)[getMaterialIndex(x, y, z)];
+                }
+                encodedMaterialData[x][y] = RunLengthEncoder::encode(columnData);
             }
         }
+
+        // Free the raw data memory
+        rawMaterialData.reset();
         materialDataDecoded = false; // Mark as encoded
     }
 
@@ -637,13 +660,13 @@ private:
             return { 0 }; // Air material
         }
 
-        if (!materialDataDecoded) {
+        if (!materialDataDecoded || !rawMaterialData) {
             // Fallback to compressed access if not decoded
             return getMaterialWholeColumnCompressed(pos);
         }
 
         VoxelMaterial mat;
-        mat.materialType = rawMaterialData[pos.x][pos.y][pos.z];
+        mat.materialType = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)];
         return mat;
     }
 
@@ -655,11 +678,11 @@ private:
             return;
         }
 
-        if (!materialDataDecoded) {
+        if (!materialDataDecoded || !rawMaterialData) {
             decodeAllMaterialData(); // Decode if needed
         }
 
-        rawMaterialData[pos.x][pos.y][pos.z] = material.materialType;
+        (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)] = material.materialType;
     }
 
     // Compressed access for runtime (when memory efficiency is needed)
@@ -672,11 +695,11 @@ private:
         }
 
         // If we have decoded data, use it
-        if (materialDataDecoded) {
+        if (materialDataDecoded && rawMaterialData) {
             int globalZ = pos.z + (CHUNK_SIZE * zPos);
             if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
                 VoxelMaterial mat;
-                mat.materialType = rawMaterialData[pos.x][pos.y][globalZ];
+                mat.materialType = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, globalZ)];
                 return mat;
             }
         }
@@ -739,15 +762,51 @@ private:
     void initializeMaterialData() {
         std::lock_guard<std::mutex> lock(materialDataMutex);
 
-        // Initialize all raw data to air
+        // Don't allocate rawMaterialData here - it will be allocated on demand
+        rawMaterialData.reset(); // Ensure it's null
+        materialDataDecoded = false;
+
+        // Initialize encoded data with all air
+        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> airColumn;
+        airColumn.fill(0);
+        std::vector<RLEPair> encodedAir = RunLengthEncoder::encode(airColumn);
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
-                rawMaterialData[x][y].fill(0);
-                // Create initial encoded version (all air)
-                encodedMaterialData[x][y] = RunLengthEncoder::encode(rawMaterialData[x][y]);
+                encodedMaterialData[x][y] = encodedAir;
             }
         }
-        materialDataDecoded = false;
+    }
+
+    // Helper method to check memory usage
+    bool isRawMaterialDataAllocated() const {
+        return rawMaterialData != nullptr;
+    }
+
+    // Method to force cleanup of raw data (useful for debugging/memory management)
+    void forceEncodeIfNeeded() {
+        if (materialDataDecoded && rawMaterialData) {
+            encodeAllMaterialData();
+        }
+    }
+
+    // Get memory footprint information
+    size_t getMemoryFootprint() const {
+        size_t total = 0;
+
+        // Encoded data size
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                total += encodedMaterialData[x][y].size() * sizeof(RLEPair);
+            }
+        }
+
+        // Raw data size (if allocated)
+        if (rawMaterialData) {
+            total += CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS * sizeof(uint16_t);
+        }
+
+        return total;
     }
 
 public:
