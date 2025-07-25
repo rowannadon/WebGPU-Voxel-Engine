@@ -181,8 +181,8 @@ private:
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 1;
-    static constexpr size_t MAX_QUEUE_SIZE = 10000;
+    static constexpr int DEFAULT_WORKER_COUNT = 16;
+    static constexpr size_t MAX_QUEUE_SIZE = 1000;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
 
     // Statistics

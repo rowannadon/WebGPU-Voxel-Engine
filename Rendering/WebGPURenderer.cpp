@@ -13,7 +13,6 @@ bool WebGPURenderer::initialize() {
 	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
 	benchmarkManager = std::make_unique<BenchmarkManager>(context->getDevice(), context->getQueue());
 
-	textureManager->createTexturePool("texture_pool");
 	textureManager->createTexturePool("texture_pool_light");
 	bufferManager->createBufferPool("chunkdata_pool");
 	bufferManager->createMeshBufferPool("mesh_pool");
@@ -553,9 +552,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassEncoder shadowRenderPass = encoder.beginRenderPass(renderPassDesc);
 		shadowRenderPass.setPipeline(pipelineManager->getPipeline("shadow_pipeline"));
 		shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
-		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
-		shadowRenderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
-		shadowRenderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 
 		auto pool = bufferManager->getMeshBufferPool("mesh_pool");
 		shadowRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
@@ -600,9 +598,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
 		voxelRenderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
 		voxelRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
-		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool")->getBindGroup(), 0, nullptr);
-		voxelRenderPass.setBindGroup(2, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
-		voxelRenderPass.setBindGroup(3, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		voxelRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 
 		auto pool = bufferManager->getMeshBufferPool("mesh_pool");
 		voxelRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
@@ -1027,11 +1024,16 @@ bool WebGPURenderer::initRenderPipeline() {
 	config.vertexShaderName = "vs_main";  // Vertex shader entry point
 
 	// vertex attributes
-	std::vector<VertexAttribute> vertexAttribs(1);
+	std::vector<VertexAttribute> vertexAttribs(2);
 	// data attribute
 	vertexAttribs[0].shaderLocation = 0;
 	vertexAttribs[0].format = VertexFormat::Uint32;
 	vertexAttribs[0].offset = 0;
+
+	vertexAttribs[1].shaderLocation = 1;
+	vertexAttribs[1].format = VertexFormat::Uint32;
+	vertexAttribs[1].offset = sizeof(uint32_t);
+
 	config.vertexAttributes = vertexAttribs;
 
 	// uniforms binding
@@ -1090,9 +1092,6 @@ bool WebGPURenderer::initRenderPipeline() {
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
 	);
 	config.bindGroupLayouts.push_back(
-		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
-	);
-	config.bindGroupLayouts.push_back(
 		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()
 	);
 	config.bindGroupLayouts.push_back(
@@ -1144,9 +1143,6 @@ bool WebGPURenderer::initShadowPipeline() {
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("shadow_global_uniforms", globalUniforms)
-	);
-	config.bindGroupLayouts.push_back(
-		textureManager->getTexturePool("texture_pool")->getBindGroupLayout()
 	);
 	config.bindGroupLayouts.push_back(
 		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()

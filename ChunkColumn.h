@@ -67,11 +67,11 @@ struct RLEPair {
 
 class RunLengthEncoder {
 public:
-    // Encode a fixed-size array of 1024 uint16_t elements
-    static std::vector<RLEPair> encode(const std::array<uint16_t, 1024>& input) {
+    static std::vector<RLEPair> encode(const std::array<uint16_t, 512>& input) {
         std::vector<RLEPair> encoded;
 
-        if (input.empty()) {
+        // Handle empty input case
+        if (input.size() == 0) {
             return encoded;
         }
 
@@ -99,19 +99,31 @@ public:
     }
 
     // Decode back to original array
-    static std::array<uint16_t, 1024> decode(const std::vector<RLEPair>& encoded) {
-        std::array<uint16_t, 1024> decoded;
+    static std::array<uint16_t, 512> decode(const std::vector<RLEPair>& encoded) {
+        std::array<uint16_t, 512> decoded;
+        decoded.fill(0); // Initialize all elements to 0
+
+        // Handle empty encoded data - return array filled with zeros
+        if (encoded.empty()) {
+            return decoded;
+        }
+
         size_t index = 0;
 
         for (const auto& pair : encoded) {
-            for (uint16_t i = 0; i < pair.count && index < 1024; ++i) {
+            // Validate the pair data before using it
+            if (pair.count == 0) {
+                continue; // Skip invalid pairs with zero count
+            }
+
+            for (uint16_t i = 0; i < pair.count && index < 512; ++i) {
                 decoded[index++] = pair.value;
             }
-        }
 
-        // Fill remaining elements with zeros if needed
-        while (index < 1024) {
-            decoded[index++] = 0;
+            // Safety check - if we've filled the array, break
+            if (index >= 512) {
+                break;
+            }
         }
 
         return decoded;
@@ -119,14 +131,20 @@ public:
 
     // Calculate compression ratio
     static double getCompressionRatio(const std::vector<RLEPair>& encoded) {
-        size_t originalSize = 1024 * sizeof(uint16_t);
+        if (encoded.empty()) {
+            return 1.0; // No compression if empty
+        }
+
+        size_t originalSize = 512 * sizeof(uint16_t);
         size_t compressedSize = encoded.size() * sizeof(RLEPair);
         return static_cast<double>(originalSize) / compressedSize;
     }
 };
 
 class ChunkColumn {
+public:
     std::atomic<ColumnState> state{ ColumnState::Empty };
+private:
     ivec2 position;
     ivec2 id;
 
@@ -138,7 +156,7 @@ class ChunkColumn {
 
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS;
     static constexpr int TOTAL_VOXELS_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
-    static constexpr int INTS_NEEDED = (TOTAL_VOXELS + 31) / 32;
+    static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
 
     struct ChunkMetaData {
         std::atomic<ChunkState> state{ ChunkState::NoMesh };
@@ -171,10 +189,12 @@ class ChunkColumn {
     std::vector<VertexAttributes> vertexData[COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[COLUMN_HEIGHT];
 
-    VoxelMaterial materialData[TOTAL_VOXELS];
+    //VoxelMaterial materialData[TOTAL_VOXELS] = {};
+    std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> rawMaterialData[CHUNK_SIZE][CHUNK_SIZE];
+    bool materialDataDecoded = false;  // Track if we have decoded data available
 
-    uint32_t voxelData[INTS_NEEDED];
-    uint32_t transparentVoxelData[INTS_NEEDED];
+    uint8_t voxelData[BYTES_NEEDED] = {};
+    uint8_t transparentVoxelData[BYTES_NEEDED] = {};
 
     mutable std::mutex materialDataMutex;
     mutable std::mutex voxelDataMutex;
@@ -190,7 +210,12 @@ public:
             meta[i].id = ivec3(id.x, id.y, i);
             meta[i].resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(i);
             //meta[i].state.store(ChunkState::NoMesh);
+            // Add this debug line
+            /*std::cout << "Chunk " << i << " world position: " << meta[i].position.x
+                << ", " << meta[i].position.y << ", " << meta[i].position.z << std::endl;*/
         }
+
+        initializeMaterialData();
     }
 
     ColumnState getState() const { return state.load(); }
@@ -214,9 +239,8 @@ public:
         return treeData;
     }
 
-
-    std::array<std::optional<DAIC>, COLUMN_HEIGHT> getDAICs() {
-        std::array<std::optional<DAIC>, COLUMN_HEIGHT> output{ std::nullopt };
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs() {
+        std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
 
         if (state.load() != ColumnState::MeshReady) {
             return output;
@@ -250,7 +274,7 @@ public:
             daic.baseVertex = static_cast<int32_t>(meshSlot * 32768);  // Assuming max 32768 vertices per chunk
             daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
 
-            output[i] = daic;
+            output[i] = { ivec3(position.x, position.y, i * 32), daic };
         }
         
         return output;
@@ -318,15 +342,7 @@ private:
         }
     }
 
-    void initializeAllChunkDataBuffers(BufferManager* buf) {
-        for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            initializeChunkDataBuffer(i, buf);
-        }
-    }
-
-    
 public:
-
     void updateChunkDataBuffer(const int zPos, BufferManager* buf) {
         if (!meta[zPos].chunkDataBufferGPUInitialized) {
             return;
@@ -337,32 +353,6 @@ public:
         chunkData.lod = 0;
         chunkData.textureSlot = meta[zPos].textureSlot;
         chunkData.lightSlot = meta[zPos].lightSlot;
-
-        //bool hasValidNeighbors = false;
-        //for (int i = 0; i < 6; ++i) {
-        //    if (neighborLightSlots[i] < 4294967295u) {
-        //        hasValidNeighbors = true;
-        //        break;
-        //    }
-        //}
-
-        //if (hasValidNeighbors) {
-        //    chunkData.right = neighborLightSlots[0];
-        //    chunkData.left = neighborLightSlots[1];
-        //    chunkData.front = neighborLightSlots[2];
-        //    chunkData.back = neighborLightSlots[3];
-        //    chunkData.top = neighborLightSlots[4];
-        //    chunkData.bottom = neighborLightSlots[5];
-        //}
-        //else {
-        //    // Set to invalid marker if no valid neighbors
-        //    chunkData.right = 4294967295u;
-        //    chunkData.left = 4294967295u;
-        //    chunkData.front = 4294967295u;
-        //    chunkData.back = 4294967295u;
-        //    chunkData.top = 4294967295u;
-        //    chunkData.bottom = 4294967295u;
-        //}
 
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
     }
@@ -376,11 +366,7 @@ public:
 private:
     bool getVoxelWholeColumn(ivec3 pos, bool transparent) const {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT) {
-            return false;
-        }
-
-        if (state.load() == ColumnState::Unloading) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT_BLOCKS) {
             return false;
         }
 
@@ -393,8 +379,8 @@ private:
             return false;
         }
 
-        int byteIndex = index / 32;
-        int bitIndex = index % 32;
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
 
         // Final bounds check on the byte array
         if (byteIndex < 0 || byteIndex >= sizeof(voxelData)) {
@@ -411,32 +397,30 @@ private:
         if (zPos >= COLUMN_HEIGHT || zPos < 0) {
             return false;
         }
-
         int x = pos.x, y = pos.y, z = pos.z;
         if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= CHUNK_SIZE) {
             return false;
         }
 
-        if (state.load() == ColumnState::Unloading) {
-            return false;
-        }
-
         std::lock_guard<std::mutex> lock(voxelDataMutex);
 
-        int indexOffset = TOTAL_VOXELS_CHUNK * zPos;
+        // Calculate the linear index within the chunk (0 to CHUNK_SIZE^3 - 1)
+        int chunkIndex = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
 
-        int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
-
-        // Bounds check the calculated index
-        if (index < 0 || index >= CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) {
+        // Bounds check the calculated chunk index
+        if (chunkIndex < 0 || chunkIndex >= CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) {
             return false;
         }
 
-        int byteIndex = indexOffset + index / 32;
-        int bitIndex = indexOffset + index % 32;
+        // Calculate the global bit index across all chunks in the column
+        int globalBitIndex = TOTAL_VOXELS_CHUNK * zPos + chunkIndex;
+
+        // Calculate byte and bit positions
+        int byteIndex = globalBitIndex / 8;
+        int bitIndex = globalBitIndex % 8;
 
         // Final bounds check on the byte array
-        if (byteIndex < 0 || byteIndex >= sizeof(voxelData)) {
+        if (byteIndex < 0 || byteIndex >= BYTES_NEEDED) {
             return false;
         }
 
@@ -446,9 +430,87 @@ private:
         return (voxelData[byteIndex] & (1 << bitIndex)) != 0;
     }
 
+    bool getVoxelSafe(int zPos, ivec3 pos, bool transparent,
+        const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors) const {
+
+        // Check if position is within current chunk bounds
+        if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+            pos.y >= 0 && pos.y < CHUNK_SIZE &&
+            pos.z >= 0 && pos.z < CHUNK_SIZE) {
+            return getVoxel(zPos, pos, transparent);
+        }
+
+        // Handle vertical cross-chunk positions (within same column)
+        if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
+            pos.y >= 0 && pos.y < CHUNK_SIZE) {
+
+            if (pos.z >= CHUNK_SIZE) {
+                // Top chunk (same column, next chunk up)
+                if (zPos < COLUMN_HEIGHT - 1) {
+                    ivec3 neighborPos = ivec3(pos.x, pos.y, pos.z - CHUNK_SIZE);
+                    return getVoxel(zPos + 1, neighborPos, transparent);
+                }
+                return false; // No chunk above, treat as empty
+            }
+            else if (pos.z < 0) {
+                // Bottom chunk (same column, next chunk down)
+                if (zPos > 0) {
+                    ivec3 neighborPos = ivec3(pos.x, pos.y, pos.z + CHUNK_SIZE);
+                    return getVoxel(zPos - 1, neighborPos, transparent);
+                }
+                return false; // No chunk below, treat as empty
+            }
+        }
+
+        // Handle horizontal cross-chunk positions
+        ivec3 neighborPos = pos;
+        int neighborIndex = -1;
+
+        // Determine which neighbor to check and map coordinates
+        if (pos.x >= CHUNK_SIZE) {
+            // Right neighbor (index 0)
+            neighborIndex = 0;
+            neighborPos.x = pos.x - CHUNK_SIZE;
+        }
+        else if (pos.x < 0) {
+            // Left neighbor (index 1)  
+            neighborIndex = 1;
+            neighborPos.x = pos.x + CHUNK_SIZE;
+        }
+        else if (pos.y >= CHUNK_SIZE) {
+            // Front neighbor (index 2)
+            neighborIndex = 2;
+            neighborPos.y = pos.y - CHUNK_SIZE;
+        }
+        else if (pos.y < 0) {
+            // Back neighbor (index 3)
+            neighborIndex = 3;
+            neighborPos.y = pos.y + CHUNK_SIZE;
+        }
+
+        // Check horizontal neighbors
+        if (neighborIndex >= 0 && neighborIndex < 4 && neighbors[neighborIndex] != nullptr) {
+            // Verify neighbor is still valid
+            if (neighbors[neighborIndex]->getState() == ColumnState::Unloading) {
+                return false; // Treat as empty if neighbor is being unloaded
+            }
+
+            // Validate mapped coordinates are within bounds
+            if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
+                neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
+                neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
+                return neighbors[neighborIndex]->getVoxel(zPos, neighborPos, transparent);
+            }
+        }
+
+        // No valid neighbor or out of bounds - treat as empty
+        return false;
+    }
+
+
     void setVoxelWholeColumn(ivec3 pos, bool value, bool transparent) {
         int x = pos.x, y = pos.y, z = pos.z;
-        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT) {
+        if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT_BLOCKS) {
             return;
         }
 
@@ -456,10 +518,10 @@ private:
 
         std::lock_guard<std::mutex> lock(voxelDataMutex);
         int index = x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
-        int byteIndex = index / 32;
-        int bitIndex = index % 32;
+        int byteIndex = index / 8;
+        int bitIndex = index % 8;
 
-        uint32_t* output = voxelData;
+        uint8_t* output = voxelData;
 
         if (transparent) {
             output = transparentVoxelData;
@@ -487,7 +549,153 @@ private:
         }
     }
 
-    VoxelMaterial getMaterialWholeColumn(ivec3 pos) const {
+    //VoxelMaterial getMaterialWholeColumn(ivec3 pos) const {
+    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
+    //        pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
+    //        return { 0 }; // Air material
+    //    }
+
+    //    std::lock_guard<std::mutex> lock(materialDataMutex);
+    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+    //    if (index >= 0 && index < TOTAL_VOXELS) {
+    //        return materialData[index];
+    //    }
+    //    return { 0 }; // Air material
+    //}
+
+    //VoxelMaterial getMaterial(int zPos, ivec3 pos) {
+    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
+    //        pos.z < 0 || pos.z >= CHUNK_SIZE) {
+    //        return { 0 }; // Air material
+    //    }
+
+    //    std::lock_guard<std::mutex> lock(materialDataMutex);
+    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+
+    //    int offset = TOTAL_VOXELS_CHUNK * zPos;
+
+    //    if (index >= 0 && index < TOTAL_VOXELS) {
+    //        return materialData[index + offset];
+    //    }
+    //    return { 0 }; // Air material
+    //}
+
+    //void setMaterialWholeColumn(ivec3 pos, const VoxelMaterial& material) {
+    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
+    //        pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
+    //        return;
+    //    }
+
+    //    std::lock_guard<std::mutex> lock(materialDataMutex);
+    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
+    //    if (index >= 0 && index < TOTAL_VOXELS) {
+    //        materialData[index] = material;
+    //    }
+    //}
+
+    // Method to decode all material data at once
+    void decodeAllMaterialData() {
+        if (materialDataDecoded) return; // Already decoded
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                if (encodedMaterialData[x][y].empty()) {
+                    // Initialize with air if empty
+                    rawMaterialData[x][y].fill(0);
+                }
+                else {
+                    rawMaterialData[x][y] = RunLengthEncoder::decode(encodedMaterialData[x][y]);
+                }
+            }
+        }
+        materialDataDecoded = true;
+    }
+
+    // Method to encode all material data at once
+    void encodeAllMaterialData() {
+        if (!materialDataDecoded) return; // Nothing to encode
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                encodedMaterialData[x][y] = RunLengthEncoder::encode(rawMaterialData[x][y]);
+            }
+        }
+        materialDataDecoded = false; // Mark as encoded
+    }
+
+    VoxelMaterial getMaterialFast(ivec3 pos) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
+            return { 0 }; // Air material
+        }
+
+        if (!materialDataDecoded) {
+            // Fallback to compressed access if not decoded
+            return getMaterialWholeColumnCompressed(pos);
+        }
+
+        VoxelMaterial mat;
+        mat.materialType = rawMaterialData[pos.x][pos.y][pos.z];
+        return mat;
+    }
+
+    // Fast material setting during generation (uses raw data)
+    void setMaterialFast(ivec3 pos, const VoxelMaterial& material) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
+            return;
+        }
+
+        if (!materialDataDecoded) {
+            decodeAllMaterialData(); // Decode if needed
+        }
+
+        rawMaterialData[pos.x][pos.y][pos.z] = material.materialType;
+    }
+
+    // Compressed access for runtime (when memory efficiency is needed)
+    VoxelMaterial getMaterialCompressed(int zPos, ivec3 pos) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= CHUNK_SIZE ||
+            zPos < 0 || zPos >= COLUMN_HEIGHT) {
+            return { 0 }; // Air material
+        }
+
+        // If we have decoded data, use it
+        if (materialDataDecoded) {
+            int globalZ = pos.z + (CHUNK_SIZE * zPos);
+            if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
+                VoxelMaterial mat;
+                mat.materialType = rawMaterialData[pos.x][pos.y][globalZ];
+                return mat;
+            }
+        }
+
+        // Otherwise use compressed access
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
+            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+
+        int globalZ = pos.z + (CHUNK_SIZE * zPos);
+        if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
+            VoxelMaterial mat;
+            mat.materialType = materialData[globalZ];
+            return mat;
+        }
+        return { 0 }; // Air material
+    }
+
+    VoxelMaterial getMaterialWholeColumnCompressed(ivec3 pos) const {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
@@ -495,14 +703,15 @@ private:
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
-        if (index >= 0 && index < TOTAL_VOXELS) {
-            return materialData[index];
-        }
-        return { 0 }; // Air material
+        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
+            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+
+        VoxelMaterial mat;
+        mat.materialType = materialData[pos.z];
+        return mat;
     }
 
-    void setMaterialWholeColumn(ivec3 pos, const VoxelMaterial& material) {
+    void setMaterialWholeColumnCompressed(ivec3 pos, const VoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
@@ -510,10 +719,35 @@ private:
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
-        if (index >= 0 && index < TOTAL_VOXELS) {
-            materialData[index] = material;
+        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
+            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+
+        materialData[pos.z] = material.materialType;
+        encodedMaterialData[pos.x][pos.y] = RunLengthEncoder::encode(materialData);
+    }
+
+    // Methods to manage the encoding/decoding lifecycle
+    void beginMaterialEditing() {
+        decodeAllMaterialData();
+    }
+
+    void finishMaterialEditing() {
+        encodeAllMaterialData();
+    }
+
+    // Initialize material data (call in constructor)
+    void initializeMaterialData() {
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+
+        // Initialize all raw data to air
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                rawMaterialData[x][y].fill(0);
+                // Create initial encoded version (all air)
+                encodedMaterialData[x][y] = RunLengthEncoder::encode(rawMaterialData[x][y]);
+            }
         }
+        materialDataDecoded = false;
     }
 
 public:
@@ -523,21 +757,13 @@ public:
         worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
 
         int index = 0;
-
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
-                    
                     float noiseValue = noiseData[index++];
                     if (noiseValue > 0) {
-                        setVoxelWholeColumn(vec3(x, y, z), true, false);
+                        setVoxelWholeColumn(ivec3(x, y, z), true, false);
                     }
-                    /*float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
-                    int targetHeight = static_cast<int>(height * 200.0f);
-                    for (int z = 0; z < targetHeight - position.z; z++) {
-                        setVoxel(vec3(x, y, z), true);
-                    }*/
-
                 }
             }
         }
@@ -558,7 +784,7 @@ public:
     }
 
     void generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
-
+        beginMaterialEditing();
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
             // Check if position is within current chunk bounds
@@ -589,14 +815,14 @@ public:
                 faceIndex = 3; // Back neighbor
                 neighborPos.y = CHUNK_SIZE + pos.y;
             }
-            else if (pos.z >= CHUNK_SIZE) {
-                faceIndex = 4; // Top neighbor
-                neighborPos.z = pos.z - CHUNK_SIZE;
-            }
-            else if (pos.z < 0) {
-                faceIndex = 5; // Bottom neighbor
-                neighborPos.z = CHUNK_SIZE + pos.z;
-            }
+            //else if (pos.z >= CHUNK_SIZE) {
+            //    faceIndex = 4; // Top neighbor
+            //    neighborPos.z = pos.z - CHUNK_SIZE;
+            //}
+            //else if (pos.z < 0) {
+            //    faceIndex = 5; // Bottom neighbor
+            //    neighborPos.z = CHUNK_SIZE + pos.z;
+            //}
 
             // Check neighbor chunk if available
             if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
@@ -659,7 +885,7 @@ public:
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                     if (getVoxelWholeColumn(ivec3(x, y, z), false)) {
-                        vec3 pos = vec3(ivec3(position.x, position.y, 0) + ivec3(x, y, z));
+                        ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
                         VoxelMaterial material;
                         if (noiseValue > -1 && noiseValue < -0.8) {
@@ -696,7 +922,7 @@ public:
                             material.materialType = BlockType::Limestone;
                         }
 
-                        setMaterialWholeColumn(ivec3(x, y, z), material);
+                        setMaterialFast(ivec3(x, y, z), material);
 
                         // Check if this voxel has air above it (surface detection)
                         ivec3 positionAbove = ivec3(x, y, z + 1);
@@ -743,7 +969,7 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
                                         VoxelMaterial material;
                                         material.materialType = BlockType::Grass; // grass
-                                        setMaterialWholeColumn(layerPos, material);
+                                        setMaterialFast(layerPos, material);
                                     }
                                 }
                                 // Next 3 layers: dirt
@@ -752,7 +978,7 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
                                         VoxelMaterial material;
                                         material.materialType = BlockType::Dirt; // dirt
-                                        setMaterialWholeColumn(layerPos, material);
+                                        setMaterialFast(layerPos, material);
                                     }
                                 }
                             }
@@ -763,7 +989,7 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
                                         VoxelMaterial material;
                                         material.materialType = BlockType::Dirt; // dirt
-                                        setMaterialWholeColumn(layerPos, material);
+                                        setMaterialFast(layerPos, material);
                                     }
                                 }
                             }
@@ -773,10 +999,14 @@ public:
             }
         }
 
+        finishMaterialEditing();
+
         setState(ColumnState::TopsoilReady);
     }
 
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+        beginMaterialEditing();
+
         VoxelMaterial trunkMaterial;
         trunkMaterial.materialType = BlockType::Log;
 
@@ -794,8 +1024,9 @@ public:
             for (int i = -2; i <= 2; i++) {
                 for (int j = -2; j <= 2; j++) {
                     for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
                         setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialWholeColumn(basePos + ivec3(i, j, k), leavesMaterial);
+                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
                     }
                 }
             }
@@ -803,34 +1034,40 @@ public:
             for (int i = -1; i <= 1; i++) {
                 for (int j = -1; j <= 1; j++) {
                     for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
                         setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialWholeColumn(basePos + ivec3(i, j, k), leavesMaterial);
+                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
                     }
                 }
             }
 
+            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), false, false);
             setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), true, true);
-            setMaterialWholeColumn(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
+            setMaterialFast(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
 
+            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), false, false);
             setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), true, true);
-            setMaterialWholeColumn(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
+            setMaterialFast(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
 
+            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), false, false);
             setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), true, true);
-            setMaterialWholeColumn(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
+            setMaterialFast(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
 
+            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), false, false);
             setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), true, true);
-            setMaterialWholeColumn(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
+            setMaterialFast(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
 
+            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), false, false);
             setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), true, true);
-            setMaterialWholeColumn(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
+            setMaterialFast(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
 
             // Generate trunk
             for (int i = 0; i < treeHeight - 1; i++) {
                 setVoxelWholeColumn(basePos + ivec3(0, 0, i), false, true);
                 setVoxelWholeColumn(basePos + ivec3(0, 0, i), true, false);
-                setMaterialWholeColumn(basePos + ivec3(0, 0, i), trunkMaterial);
+                setMaterialFast(basePos + ivec3(0, 0, i), trunkMaterial);
             }
-            };
+        };
 
         // 1. Generate trees that are rooted in THIS chunk.
         {
@@ -884,10 +1121,12 @@ public:
             }
         }
 
+        finishMaterialEditing();
+
         setState(ColumnState::TreesReady);
     }
 
-    bool generateSolidMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+    bool generateOneMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}, bool transparent = false) {
         ivec3 aoStates[6][4][3] = {
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
@@ -929,95 +1168,30 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
-        auto isEmptyVoxel = [this, &neighbors, zPos](ivec3 pos, int faceIndex = -1) -> bool {
-            // Check if position is within current chunk bounds
-            if (pos.x >= 0 && pos.x < CHUNK_SIZE &&
-                pos.y >= 0 && pos.y < CHUNK_SIZE &&
-                pos.z >= 0 && pos.z < CHUNK_SIZE) {
-                return !getVoxel(zPos, pos, false) && !getVoxel(zPos, pos, true);
+        auto isEmptyVoxel = [this, &neighbors, transparent, zPos](ivec3 pos) -> bool {
+            bool hasSolid = this->getVoxelSafe(zPos, pos, false, neighbors);
+            bool hasTransparent = this->getVoxelSafe(zPos, pos, true, neighbors);
+            if (transparent) {
+                return !hasTransparent && !hasSolid;
             }
-
-            // Position is outside current chunk - check neighbor chunks
-            if (faceIndex >= 0 && faceIndex < 4 && neighbors[faceIndex] != nullptr) {
-                // Check if neighbor is still valid (not being destroyed)
-                if (neighbors[faceIndex]->getState() == ColumnState::Unloading) {
-                    return true; // Treat as empty if neighbor is being unloaded
-                }
-
-                ivec3 neighborPos = pos;
-                bool neighborHasVoxel = false;
-
-                // CRITICAL: Map out-of-bounds coordinates to neighbor chunk space
-                switch (faceIndex) {
-                case 0: // Right face (+X): pos.x == CHUNK_SIZE, map to x=0 in right neighbor
-                    if (pos.x == CHUNK_SIZE) neighborPos.x = 0;
-                    break;
-                case 1: // Left face (-X): pos.x == -1, map to x=31 in left neighbor
-                    if (pos.x == -1) neighborPos.x = CHUNK_SIZE - 1;
-                    break;
-                case 2: // Front face (+Y): pos.y == CHUNK_SIZE, map to y=0 in front neighbor
-                    if (pos.y == CHUNK_SIZE) neighborPos.y = 0;
-                    break;
-                case 3: // Back face (-Y): pos.y == -1, map to y=31 in back neighbor
-                    if (pos.y == -1) neighborPos.y = CHUNK_SIZE - 1;
-                    break;
-                case 4: // Top face (+Z): pos.z == CHUNK_SIZE, map to z=0 in top neighbor
-                    if (zPos == 0 || zPos == COLUMN_HEIGHT - 1) {
-                        return true;
-                    }
-                    if (pos.z == CHUNK_SIZE) neighborPos.z = 0;
-
-                    neighborHasVoxel = neighbors[faceIndex]->getVoxel(zPos + 1, neighborPos, false);
-                    return !neighborHasVoxel;
-
-                    break;
-                case 5: // Bottom face (-Z): pos.z == -1, map to z=31 in bottom neighbor
-                    if (zPos == 0 || zPos == COLUMN_HEIGHT - 1) {
-                        return true;
-                    }
-                    if (pos.z == -1) neighborPos.z = CHUNK_SIZE - 1;
-
-                    neighborHasVoxel = neighbors[faceIndex]->getVoxel(zPos - 1, neighborPos, false);
-                    return !neighborHasVoxel;
-
-                    break;
-                }
-
-                // Validate neighbor position and check voxel
-                if (neighborPos.x >= 0 && neighborPos.x < CHUNK_SIZE &&
-                    neighborPos.y >= 0 && neighborPos.y < CHUNK_SIZE &&
-                    neighborPos.z >= 0 && neighborPos.z < CHUNK_SIZE) {
-
-                    neighborHasVoxel = neighbors[faceIndex]->getVoxel(zPos, neighborPos, false);
-                    return !neighborHasVoxel;
-                }
-            }
-
-            // No neighbor available - consider it empty (exposed to air)
-            return true;
+            return !hasSolid || hasTransparent;
             };
 
-        auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
+        auto calculateAmbientOcclusion = [&](int zPos, ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
             ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
             ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
             ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
 
-            auto getNeighborFaceIndex = [](ivec3 offset) -> int {
-                if (offset.x >= CHUNK_SIZE) return 0;
-                if (offset.x < 0) return 1;
-                if (offset.y >= CHUNK_SIZE) return 2;
-                if (offset.y < 0) return 3;
-                if (offset.z >= CHUNK_SIZE) return 4;
-                if (offset.z < 0) return 5;
-                return -1;
-                };
-
-            bool side1 = !isEmptyVoxel(side1Pos, getNeighborFaceIndex(side1Pos));
-            bool side2 = !isEmptyVoxel(side2Pos, getNeighborFaceIndex(side2Pos));
-            bool corner = !isEmptyVoxel(cornerPos, getNeighborFaceIndex(cornerPos));
+            // Use getVoxelSafe for all AO calculations to handle cross-chunk positions
+            bool side1 = this->getVoxelSafe(zPos, side1Pos, false, neighbors) ||
+                this->getVoxelSafe(zPos, side1Pos, true, neighbors);
+            bool side2 = this->getVoxelSafe(zPos, side2Pos, false, neighbors) ||
+                this->getVoxelSafe(zPos, side2Pos, true, neighbors);
+            bool corner = this->getVoxelSafe(zPos, cornerPos, false, neighbors) ||
+                this->getVoxelSafe(zPos, cornerPos, true, neighbors);
 
             if (side1 && side2) {
-                return 0;
+                return 0; // Fully occluded
             }
             return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
             };
@@ -1064,18 +1238,17 @@ public:
                         }
 
                         ivec3 currentPos = ivec3(x, y, z);
-
-                        if (getVoxel(zPos, currentPos, false)) {
+                        if (getVoxel(zPos, currentPos, transparent)) {
                             // Check each face for culling (including cross-chunk)
                             for (int face = 0; face < 6; ++face) {
                                 ivec3 neighborPos = currentPos + neighborOffsets[face];
 
-                                if (isEmptyVoxel(neighborPos, face)) {
+                                if (isEmptyVoxel(neighborPos)) {
                                     uint32_t baseIndex = static_cast<uint32_t>(vertexData[zPos].size());
 
                                     std::array<float, 4> aoValues;
                                     for (int vertex = 0; vertex < 4; ++vertex) {
-                                        aoValues[vertex] = calculateAmbientOcclusion(currentPos, face, vertex);
+                                        aoValues[vertex] = calculateAmbientOcclusion(zPos, currentPos, face, vertex);
                                     }
 
                                     bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
@@ -1084,6 +1257,8 @@ public:
                                         uint8_t pv = static_cast<uint8_t>(vertex);
                                         VertexAttributes vert;
                                         vert.data = packData(x, y, z, face, vertex, aoValues[vertex]);
+                                        VoxelMaterial mat = getMaterialCompressed(zPos, currentPos);
+                                        vert.materialId = mat.materialType;
                                         vertexData[zPos].push_back(vert);
                                     }
 
@@ -1120,7 +1295,7 @@ public:
         return true;
     }
 
-    bool generateMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+    bool generateMesh(int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
         if (getSolidVoxels(zPos) + getTransparentVoxels(zPos) == 0) {
             setChunkState(zPos, ChunkState::Air);
             return true; // Return success, as there's nothing to do.
@@ -1136,8 +1311,8 @@ public:
             vertexData[zPos].clear();
         }
 
-        bool solid = generateSolidMesh(zPos, neighbors);
-        //bool transparent = generateTransparentMesh(zPos, neighbors);
+        bool solid = generateOneMesh(zPos, neighbors, false);
+        bool transparent = generateOneMesh(zPos, neighbors, true);
 
         if (state.load() == ColumnState::Unloading) {
             return false;
@@ -1166,10 +1341,12 @@ public:
     }
 
     void uploadToGPU(int zPos, TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
-        if (getChunkState(zPos) != ChunkState::MeshReady) return;
+        if (getChunkState(zPos) != ChunkState::MeshReady) {
+            std::cout << "  Skipping upload - chunk not MeshReady" << std::endl;
+            return;
+        }
 
         if (vertexData[zPos].empty() || indexData[zPos].empty()) {
-            // For empty chunks, we still need to clean up old buffers
             if (meta[zPos].meshSlot != -1)
                 buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(meta[zPos].resourceId);
             setChunkState(zPos, ChunkState::Solid);
@@ -1193,7 +1370,10 @@ public:
 
     void uploadAllToGPU(TextureManager* tex, BufferManager* buf, PipelineManager* pip) {
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            uploadToGPU(i, tex, buf, pip);
+            ChunkState state = getChunkState(i);
+            if (state == ChunkState::MeshReady) {
+                uploadToGPU(i, tex, buf, pip);
+            }
         }
     }
 

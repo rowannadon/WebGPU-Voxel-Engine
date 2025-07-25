@@ -316,6 +316,7 @@ void Application::MainLoop() {
     static float lastDebugTime = 0.0f;
     if (currentFrame - lastDebugTime >= 1.0f) {
         chunkManager.printChunkStates();
+        chunkManager.printWorkerStatistics();
 
         // Print frame budget and performance metrics
         float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
@@ -769,10 +770,10 @@ void Application::onMouseMove(double xpos, double ypos) {
 }
 
 void Application::onMouseButton(int button, int action, int /* modifiers */) {
-    //ImGuiIO& io = ImGui::GetIO();
-    //if (io.WantCaptureMouse) {
-    //    return; // ImGUI is handling this input
-    //}
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) {
+        return; // ImGUI is handling this input
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
@@ -795,11 +796,11 @@ void Application::onMouseButton(int button, int action, int /* modifiers */) {
 }
 
 void Application::onScroll(double /* xoffset */, double yoffset) {
-    //ImGuiIO& io = ImGui::GetIO();
-    //if (io.WantCaptureMouse) {
-    //    return; // ImGUI is handling this input
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) {
+        return; // ImGUI is handling this input
+    }
 
-    //}
     camera.zoom -= 10 * static_cast<float>(yoffset);
     if (camera.zoom < 1.0f)
         camera.zoom = 1.0f;

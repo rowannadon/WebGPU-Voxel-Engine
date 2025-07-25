@@ -3,6 +3,7 @@
 
 struct VertexAttributes {
     uint32_t data;
+    uint32_t materialId;
 };
 
 #endif

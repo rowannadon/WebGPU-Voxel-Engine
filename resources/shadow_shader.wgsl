@@ -59,22 +59,12 @@ struct UnpackedData {
 @group(0) @binding(1) var textureAtlas: texture_2d<f32>;
 @group(0) @binding(2) var textureSampler: sampler;
 
-@group(1) @binding(0) var material_texture_3d: texture_3d<f32>;
-@group(1) @binding(1) var material_sampler_3d: sampler;
+@group(1) @binding(0) var light_texture_3d: texture_3d<f32>;
+@group(1) @binding(1) var light_sampler_3d: sampler;
 
-@group(2) @binding(0) var light_texture_3d: texture_3d<f32>;
-@group(2) @binding(1) var light_sampler_3d: sampler;
-
-@group(3) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
+@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
 
 const CHUNK_SIZE: f32 = 32.0;
-
-fn sample_material_3d(local_pos: vec3<f32>) -> u32 {
-    let sample = textureSampleLevel(material_texture_3d, material_sampler_3d, local_pos, 0.0);
-    let r = u32(sample.r * 255.0 + 0.5);
-    let g = u32(sample.g * 255.0 + 0.5);
-    return r | (g << 8u);
-}
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);

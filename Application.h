@@ -194,7 +194,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.2f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
@@ -206,7 +206,6 @@ private:
 
     MyUniforms uniforms;
     Noise noise;
-    Noise blueNoise;
     Atmosphere atmosphere;
     Clouds clouds;
     Terrain terrain;

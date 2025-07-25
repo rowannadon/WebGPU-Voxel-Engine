@@ -4,6 +4,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <queue>
+#include <map>
 #include <memory>
 #include "glm/glm.hpp"
 #include <webgpu/webgpu.hpp>
@@ -61,10 +62,10 @@ private:
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 4;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 16;
     static constexpr int MAX_ACTIVE_COLUMNS = 12288;
-    static constexpr int MAX_TOTAL_COLUMNS = 25000;
+    static constexpr int MAX_TOTAL_COLUMNS = 10000;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -107,7 +108,6 @@ public:
             if (pair.second) {
                 if (pair.second->getState() == ColumnState::MeshReady) {
                     readyColumns.push_back({ pair.first, pair.second });
-
                 }
             }
         }
@@ -127,20 +127,19 @@ public:
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         data.reserve(columns.size());
         for (const auto& pair : columns) {
-            std::array<std::optional<DAIC>, COLUMN_HEIGHT> rd = pair.second->getDAICs();
-
+            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> rd = pair.second->getDAICs();
 
             for (int i = 0; i < COLUMN_HEIGHT; i++) {
-                if (rd[i] != std::nullopt && rd[i].value().indexCount > 0) {
-                    vec3 chunkPos = vec3(pair.first.x, pair.first.y, i);
+                if (rd[i] != std::nullopt && rd[i].value().second.indexCount > 0) {
+                    vec3 chunkPos = vec3(rd[i].value().first);
 
                     // Test if the 32x32x32 chunk intersects the frustum
                     if (cameraFrustum.isCubeInside(chunkPos, 32.0f)) {
-                        data.push_back(rd[i].value());
+                        data.push_back(rd[i].value().second);
                     }
 
                     if (shadowFrustum.isCubeInside(chunkPos, 32.0f)) {
-                        shadowData.push_back(rd[i].value());
+                        shadowData.push_back(rd[i].value().second);
                     }
                 }
             }
@@ -168,9 +167,8 @@ public:
             chunkPos + ivec2(0, -1),  // Back
         };
 
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         for (int i = 0; i < 4; ++i) {
-            auto it = columns.find(chunkPos + neighborPositions[i]);
+            auto it = columns.find(neighborPositions[i]);
             if (it != columns.end()) {
                 neighbors[i] = it->second;
             }
@@ -178,6 +176,7 @@ public:
 
         return neighbors;
     }
+
 private:
     void removeDistantChunks(ivec2 playerPos) {
         {
@@ -218,17 +217,17 @@ private:
 
         //// Count active chunks
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
-        int activeColumns = 0;
-        for (auto pair : columns) {
-            if (pair.second->getState() == ColumnState::MeshReady) {
-                activeColumns++;
-            }
-        }
+        //int activeColumns = 0;
+        //for (auto pair : columns) {
+        //    if (pair.second->getState() == ColumnState::MeshReady) {
+        //        activeColumns++;
+        //    }
+        //}
 
-        // Don't add more chunks if we're at the limit
-        if (activeColumns >= MAX_ACTIVE_COLUMNS) {
-            return;
-        }
+        //// Don't add more chunks if we're at the limit
+        //if (activeColumns >= MAX_ACTIVE_COLUMNS) {
+        //    return;
+        //}
 
         if (columns.size() >= MAX_TOTAL_COLUMNS) {
             return;
@@ -313,115 +312,122 @@ private:
         }
     }
 
-    void progressChunks() {
-        //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+    void ChunkColumnManager::progressChunks() {
         for (const auto& pair : columns) {
-            if (pair.second) {
-                std::shared_ptr<ChunkColumn> chunk = pair.second;
-                ivec2 chunkPos = pair.first;
-                std::array<std::shared_ptr<ChunkColumn>, 4> neighbors = getNeighbors(chunkPos);
-                if (pair.second->getState() == ColumnState::TerrainReady) {
-                    // Check if all existing neighbors are ready
-                    bool allNeighborsReady = true;
-                    for (int i = 0; i < 4; ++i) {
-                        auto neighbor = neighbors[i];
-                        if (neighbor) {
-                            ColumnState neighborState = neighbor->getState();
-                            // Neighbor must AT LEAST be TerrainReady
-                            if (neighborState < ColumnState::TerrainReady && neighborState != ColumnState::Empty) {
-                                allNeighborsReady = false;
-                                break;
-                            }
-                        }
-                        else {
-                            allNeighborsReady = false; // Wait for neighbor to exist
-                            break;
-                        }
-                    }
+            if (!pair.second) continue;
 
-                    if (allNeighborsReady && chunk->getState() == ColumnState::TerrainReady) {
-                        chunk->setState(ColumnState::GeneratingTopsoil);
-                        workerSystem->queueTopsoilGeneration(chunk, chunkPos, neighbors);
-                    }
-                }
-                else if (pair.second->getState() == ColumnState::TopsoilReady) {
-                    // Check if all existing neighbors are ready
-                    bool allNeighborsReady = true;
-                    for (int i = 0; i < 4; ++i) {
-                        auto neighbor = neighbors[i];
-                        if (neighbor) {
-                            ColumnState neighborState = neighbor->getState();
-                            // Neighbor must AT LEAST be TopsoilReady
-                            if (neighborState < ColumnState::TopsoilReady) {
-                                allNeighborsReady = false;
-                                break;
-                            }
-                        }
-                        else {
-                            allNeighborsReady = false;
-                            break;
-                        }
-                    }
+            auto column = pair.second;
+            ivec2 chunkPos = pair.first;
+            ColumnState currentState = column->getState();
 
-                    if (allNeighborsReady && chunk->getState() == ColumnState::TopsoilReady) {
-                        chunk->setState(ColumnState::GeneratingTrees);
-                        workerSystem->queueTreeGeneration(chunk, chunkPos, neighbors);
-                    }
-                }
-                else if (pair.second->getState() == ColumnState::TreesReady) {
-                    // Check if all existing neighbors are ready
-                    bool allNeighborsReady = true;
-                    for (int i = 0; i < 4; ++i) {
-                        auto neighbor = neighbors[i];
-                        if (neighbor) {
-                            ColumnState neighborState = neighbor->getState();
-                            // Neighbor must AT LEAST be TreesReady
-                            if (neighborState < ColumnState::TreesReady) {
-                                allNeighborsReady = false;
-                                break;
-                            }
-                        }
-                        else {
-                            allNeighborsReady = false;
-                            break;
-                        }
-                    }
+            // Only transition if ALL dependencies are met
+            // This prevents chunks from getting stuck in generating states
 
-                    if (allNeighborsReady) {
-                        std::array<std::shared_ptr<ChunkColumn>, 4> freshNeighbors = getNeighbors(chunkPos);
-                        chunk->setState(ColumnState::GeneratingMesh);
-                        workerSystem->queueMeshGeneration(chunk, chunkPos, freshNeighbors);
+            if (currentState == ColumnState::TerrainReady) {
+                // Check if all neighbors are TerrainReady or better before transitioning
+                //auto neighbors = getNeighbors(chunkPos);
+                bool allNeighborsReady = true;
+
+                /*for (int i = 0; i < 4; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::TerrainReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }*/
+
+                if (allNeighborsReady) {
+                    ColumnState expected = ColumnState::TerrainReady;
+                    auto freshNeighbors = getNeighbors(chunkPos);
+                    if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingTopsoil)) {
+                        workerSystem->queueTopsoilGeneration(column, chunkPos, freshNeighbors);
                     }
                 }
             }
+            else if (currentState == ColumnState::TopsoilReady) {
+                // Check if all neighbors are TopsoilReady or better before transitioning
+                auto neighbors = getNeighbors(chunkPos);
+                bool allNeighborsReady = true;
 
+                for (int i = 0; i < 4; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::TopsoilReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }
+
+                if (allNeighborsReady) {
+                    ColumnState expected = ColumnState::TopsoilReady;
+                    auto freshNeighbors = getNeighbors(chunkPos);
+                    if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingTrees)) {
+                        workerSystem->queueTreeGeneration(column, chunkPos, freshNeighbors);
+                    }
+                }
+            }
+            else if (currentState == ColumnState::TreesReady) {
+                // Check if all neighbors are TreesReady or better before transitioning
+                //auto neighbors = getNeighbors(chunkPos);
+                bool allNeighborsReady = true;
+
+                /*for (int i = 0; i < 4; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::TreesReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }*/
+
+                if (allNeighborsReady) {
+                    ColumnState expected = ColumnState::TreesReady;
+                    auto freshNeighbors = getNeighbors(chunkPos);
+                    if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingMesh)) {
+                        workerSystem->queueMeshGeneration(column, chunkPos, freshNeighbors);
+                    }
+                }
+            }
         }
     }
 
 public:
     // Debug/monitoring functions
+    void printWorkerStatistics() {
+        auto stats = workerSystem->getStatistics();
+        std::cout << "Worker Stats - Processed: " << stats.total_processed
+            << ", Terrain: " << stats.terrain_generated
+            << ", Topsoil: " << stats.topsoil_generated
+            << ", Mesh: " << stats.meshes_generated
+            << ", Failed: " << stats.failed_operations
+            << ", Success Rate: " << (stats.success_rate * 100) << "%" << std::endl;
+    }
+
     void printChunkStates() {
         std::unordered_map<ColumnState, int> stateCounts;
         std::unordered_map<ChunkState, int> chunkStateCounts;
         int totalChunks = 0;
+        int totalColumns = 0;
 
         for (const auto& pair : columns) {
             if (pair.second) {
                 ColumnState state = pair.second->getState();
                 stateCounts[state]++;
-                totalChunks++;
+                totalColumns++;
 
                 // Also count individual chunk states
                 for (int i = 0; i < COLUMN_HEIGHT; i++) {
                     ChunkState chunkState = pair.second->getChunkState(i);
                     chunkStateCounts[chunkState]++;
+                    totalChunks++;
                 }
             }
         }
 
+        lastNumActiveChunks = numActiveChunks;
+        numActiveChunks = stateCounts[ColumnState::MeshReady];
+
         int numChunksAdded = numActiveChunks - lastNumActiveChunks;
 
-        std::cout << "Chunks(" << totalChunks << "): ";
+        std::cout << "Columns(" << totalColumns << "): ";
         std::cout << "Empty=" << stateCounts[ColumnState::Empty] << " ";
         std::cout << "GenTerrain=" << stateCounts[ColumnState::GeneratingTerrain] << " ";
         std::cout << "TerrainReady=" << stateCounts[ColumnState::TerrainReady] << " ";
@@ -433,13 +439,14 @@ public:
         std::cout << "Added=" << numChunksAdded << " ";
         std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
 
-
-        std::cout << " | Chunks: ";
+        std::cout << "Chunks(" << totalChunks << "): ";
         std::cout << "NoMesh=" << chunkStateCounts[ChunkState::NoMesh] << " ";
+        std::cout << "GenMesh=" << chunkStateCounts[ChunkState::GeneratingMesh] << " ";
         std::cout << "MeshReady=" << chunkStateCounts[ChunkState::MeshReady] << " ";
+        std::cout << "Uploading=" << chunkStateCounts[ChunkState::UploadingToGPU] << " ";
+        std::cout << "Active=" << chunkStateCounts[ChunkState::Active] << " ";
         std::cout << "Air=" << chunkStateCounts[ChunkState::Air] << " ";
         std::cout << "Solid=" << chunkStateCounts[ChunkState::Solid] << " ";
-        std::cout << "Active=" << chunkStateCounts[ChunkState::Active] << " ";
 
         std::cout << std::endl;
     }
