@@ -5,7 +5,6 @@
 #include "glm/ext.hpp"
 #include "webgpu-utils.h"
 #include "ThreadSafeChunkManager.h"
-#include "Ray.h"
 #include "Rendering/WebGPURenderer.h"
 
 //#include "magic_enum.hpp"
@@ -104,24 +103,6 @@ private:
         }
     };
 
-    void propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel);
-    void propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
-        const std::function<bool(ivec3)>& isSolid,
-        const std::function<void(ivec3, float)>& setVisibility,
-        int xDir, int yDir, int zDir);
-    float getGridVisibilityScore(ivec3 worldPos, ivec3 lightPos);
-    void recalculateGridLightingArea(ivec3 centerPos, int radius);
-
-    // Grid-based visibility data structure
-    struct GridVisibilityData {
-        std::unordered_map<ivec3, float, IVec3Hash, IVec3Equal> visibilityScores;
-        std::unordered_set<ivec3, IVec3Hash, IVec3Equal> lightSources;
-        std::mutex visibilityMutex;
-    };
-
-    // Add this member variable to Application class:
-    GridVisibilityData gridVisibility;
-
     // Mouse state for first person look
     struct MouseState {
         bool firstMouse = true;
@@ -193,7 +174,7 @@ private:
 
     std::vector<float> frameTimes;
 
-    ThreadSafeChunkManager chunkManager;
+    ChunkColumnManager chunkManager;
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
@@ -213,12 +194,12 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.2f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
-        ivec3 chunkPos;
-        std::shared_ptr<ThreadSafeChunk> chunk;
+        ivec2 chunkPos;
+        std::shared_ptr<ChunkColumn> chunk;
     };
     std::queue<GPUUploadItem> pendingGPUUploads;
     std::mutex gpuUploadMutex;

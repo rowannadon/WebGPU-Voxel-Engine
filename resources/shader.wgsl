@@ -823,6 +823,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         }
     }
 
+    material_id = 2;
+
     let materialProps = get_material_properties(material_id);
     let sunDirection = uMyUniforms.lightDirection;
     let inverseSunDirection = vec3f(sunDirection.x, sunDirection.y, 0.0);
@@ -940,5 +942,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     // let finalColor = mix(baseColor, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
 
-    return vec4f(baseColor, 1.0);
+    return vec4f(vec3(1.0), 1.0);
 }

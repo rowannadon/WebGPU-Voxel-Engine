@@ -7,7 +7,7 @@
 #include "BufferManager.h"
 #include "TextureManager.h"
 #include "WebGPUContext.h"
-#include "../ThreadSafeChunk.h"
+#include "../ChunkColumn.h"
 #include "BenchmarkManager.h"
 #include "../Atmosphere.h"
 #include "../Noise.h"
