@@ -1121,15 +1121,6 @@ public:
     }
 
     bool generateMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
-        //for (const auto& neighbor : neighbors) {
-        //    if (neighbor && neighbor->getState() < ColumnState::CompletedGeneration) {
-        //        // Neighbor became invalid, retry later
-        //        std::cout << "reverting chunk" << "\n";
-        //        setState(ColumnState::CompletedGeneration); // Revert state
-        //        return false;
-        //    }
-        //}
-
         if (getSolidVoxels(zPos) + getTransparentVoxels(zPos) == 0) {
             setChunkState(zPos, ChunkState::Air);
             return true; // Return success, as there's nothing to do.
@@ -1160,7 +1151,8 @@ public:
         bool success = true;
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             if (getChunkState(i) == ChunkState::NoMesh) {
-                if (!generateMesh(i, neighbors)) {
+                int result = generateMesh(i, neighbors);
+                if (!result) {
                     success = false;
                 }
             }

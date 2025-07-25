@@ -61,8 +61,8 @@ private:
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
-    static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 1;
+    static constexpr int MAX_CHUNKS_PER_UPDATE = 4;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 4;
     static constexpr int MAX_ACTIVE_COLUMNS = 12288;
     static constexpr int MAX_TOTAL_COLUMNS = 25000;
 
