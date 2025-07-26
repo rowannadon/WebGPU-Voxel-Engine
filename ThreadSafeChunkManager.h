@@ -130,7 +130,7 @@ public:
             std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> rd = pair.second->getDAICs();
 
             for (int i = 0; i < COLUMN_HEIGHT; i++) {
-                if (rd[i] != std::nullopt && rd[i].value().second.indexCount > 0) {
+                if (rd[i] && rd[i] != std::nullopt && rd[i].value().second.indexCount > 0) {
                     vec3 chunkPos = vec3(rd[i].value().first);
 
                     // Test if the 32x32x32 chunk intersects the frustum
