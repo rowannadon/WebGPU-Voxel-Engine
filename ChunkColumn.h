@@ -820,7 +820,7 @@ public:
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
                     float noiseValue = noiseData[index++];
-                    if (noiseValue > 0) {
+                    if (noiseValue > -0.4) {
                         setVoxelWholeColumn(ivec3(x, y, z), true, false);
                     }
                 }
