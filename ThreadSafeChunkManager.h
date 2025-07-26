@@ -63,7 +63,7 @@ private:
     static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
-    static constexpr int MAX_CHUNKS_PER_ITERATION = 16;
+    static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
     static constexpr int MAX_ACTIVE_COLUMNS = 12288;
     static constexpr int MAX_TOTAL_COLUMNS = 10000;
 
@@ -240,13 +240,15 @@ private:
             // For each distance layer, check all positions at that Manhattan distance
             for (int x = -radius; x <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++x) {
                 for (int y = -radius; y <= radius && chunksAdded < MAX_CHUNKS_PER_ITERATION; ++y) {
+                    
+                    float distSq = sqrtf(x * x + y * y);
                     // Only process chunks that are exactly at this radius (onion skin)
                     int manhattanDist = abs(x) + abs(y);
-                    if (manhattanDist != radius) {
+                    if (floor(distSq) != radius) {
                         continue;
                     }
 
-                    float distSq = x * x + y * y;
+                    
                     if (distSq > renderDistance * renderDistance) {
                         continue;
                     }
