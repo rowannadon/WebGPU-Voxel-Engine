@@ -447,7 +447,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	}
 
 	//=== Terrain COMPUTE PASS ===
-	{
+	/*{
 		ComputePassDescriptor computePassDesc;
 		computePassDesc.timestampWrites = nullptr;
 		ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
@@ -463,7 +463,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 #if !defined(WEBGPU_BACKEND_WGPU)
 		wgpuComputePassEncoderRelease(computePass);
 #endif
-	}
+	}*/
 
 	//=== TRANSMITTANCE COMPUTE PASS ===
 	{
@@ -1037,7 +1037,7 @@ bool WebGPURenderer::initRenderPipeline() {
 	config.vertexAttributes = vertexAttribs;
 
 	// uniforms binding
-	std::vector<BindGroupLayoutEntry> globalUniforms(10, Default);
+	std::vector<BindGroupLayoutEntry> globalUniforms(11, Default);
 	globalUniforms[0].binding = 0;
 	globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
@@ -1087,6 +1087,11 @@ bool WebGPURenderer::initRenderPipeline() {
 	globalUniforms[9].visibility = ShaderStage::Fragment;
 	globalUniforms[9].texture.sampleType = TextureSampleType::Float;
 	globalUniforms[9].texture.viewDimension = TextureViewDimension::_3D;
+
+	globalUniforms[10].binding = 10;
+	globalUniforms[10].visibility = ShaderStage::Fragment;
+	globalUniforms[10].texture.sampleType = TextureSampleType::Float;
+	globalUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
 
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
@@ -1247,7 +1252,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup shadowBindGroup = pipelineManager->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
 
-	std::vector<BindGroupEntry> bindings(10);
+	std::vector<BindGroupEntry> bindings(11);
 
 	bindings[0].binding = 0;
 	bindings[0].buffer = bufferManager->getBuffer("uniform_buffer");
@@ -1282,6 +1287,9 @@ bool WebGPURenderer::initBindGroup() {
 
 	bindings[9].binding = 9;
 	bindings[9].textureView = textureManager->getTextureView("aerialperspective_view");
+
+	bindings[10].binding = 10;
+	bindings[10].textureView = textureManager->getTextureView("cloud_noise_64_view");
 
 	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
 

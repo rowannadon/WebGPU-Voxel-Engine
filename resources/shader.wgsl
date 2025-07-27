@@ -1,4 +1,4 @@
-// Updated main shader with dynamic sun color based on sun elevation
+// Updated PBR shader with LOD support
 // shader.wgsl
 
 const pi: f32 = radians(180.0);
@@ -35,8 +35,9 @@ struct VertexOutput {
     @location(6) highlighted: f32,
     @location(7) @interpolate(flat) idx: u32,
     @location(8) chunk_edge_factor: f32,
-    @location(9) shadow_pos: vec4f,  // Position in shadow map space
+    @location(9) shadow_pos: vec4f,
     @location(10) @interpolate(flat) material_id: u32,
+    @location(11) @interpolate(flat) lod_level: u32,
 };
 
 struct MyUniforms {
@@ -80,13 +81,22 @@ struct UnpackedData {
     normal_index: u32,
     vertex_index: u32,
     ao_index: u32,
+    lod_level: u32,
 }
 
-struct MaterialProperties {
-    specularColor: vec3f,
-    shininess: f32,
-    specularIntensity: f32,
-};
+// Enhanced PBR Material Properties
+struct PBRMaterialProperties {
+    albedo: vec3f,              // Base color
+    metallic: f32,              // Metallic factor (0 = dielectric, 1 = metallic)
+    roughness: f32,             // Surface roughness (0 = mirror, 1 = completely rough)
+    specular: f32,              // Specular reflectance for dielectrics (usually 0.04)
+    emission: vec3f,            // Emissive color
+    normalStrength: f32,        // Normal map intensity
+    aoStrength: f32,            // Ambient occlusion strength
+    subsurface: f32,            // Subsurface scattering factor
+    clearcoat: f32,             // Clearcoat layer strength
+    clearcoatRoughness: f32,    // Clearcoat roughness
+}
 
 struct Atmosphere {
     rayleigh_scattering: vec3<f32>,
@@ -124,6 +134,7 @@ struct Atmosphere {
 @group(0) @binding(7) var transmittance_lut: texture_2d<f32>;
 @group(0) @binding(8) var sky_view_lut: texture_2d<f32>;
 @group(0) @binding(9) var aerial_perspective_lut: texture_3d<f32>;
+@group(0) @binding(10) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(1) @binding(1) var light_sampler_3d: sampler;
@@ -144,17 +155,151 @@ const MIN_SHADING_CONTRAST: f32 = 0.1;
 const CHUNK_EDGE_WIDTH: f32 = 2.0;
 const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 
-// Material property definitions
-const MATERIAL_PROPERTIES = array<MaterialProperties, 9>(
-    MaterialProperties(vec3f(0.08, 0.06, 0.04), 2.0, 0.02),
-    MaterialProperties(vec3f(0.1, 0.15, 0.1), 6.0, 0.15),
-    MaterialProperties(vec3f(0.25, 0.25, 0.22), 12.0, 0.25),
-    MaterialProperties(vec3f(0.18, 0.12, 0.08), 8.0, 0.2),
-    MaterialProperties(vec3f(0.15, 0.17, 0.2), 24.0, 0.4),
-    MaterialProperties(vec3f(0.2, 0.2, 0.19), 10.0, 0.3),
-    MaterialProperties(vec3f(0.22, 0.20, 0.18), 16.0, 0.35),
-    MaterialProperties(vec3f(0.15, 0.12, 0.08), 6.0, 0.15),
-    MaterialProperties(vec3f(0.2, 0.25, 0.2), 5.0, 1.0)
+// PBR material definitions - expanded with realistic properties
+const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
+    // ID 1: Dirt
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
+        0.0,                      // Non-metallic
+        0.95,                     // Very rough, loose soil
+        0.04,                     // Standard dielectric specular
+        vec3f(0.0),              // No emission
+        1.0,                      // Normal strength
+        1.2,                      // High AO for soil texture
+        0.0,                     // Slight subsurface for organic matter
+        0.0,                      // No clearcoat
+        0.0                       // No clearcoat roughness
+    ),
+    // ID 2: Grass
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Natural grass green albedo
+        0.0,                      // Non-metallic
+        0.85,                     // Rough organic surface
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.3,                      // Strong normals for grass blade texture
+        0.9,                      // Moderate AO
+        0.0,                     // High subsurface for organic translucency
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 3: Limestone
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Light cream limestone albedo
+        0.0,                      // Non-metallic
+        0.6,                      // Medium roughness for sedimentary rock
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.0,                      // Normal strength
+        1.0,                      // Standard AO
+        0.0,                     // Minimal subsurface for stone
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 4: Glowstone
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Bright golden albedo
+        0.0,                      // Non-metallic
+        0.3,                      // Smooth crystalline surface
+        0.06,                     // Higher specular for crystal
+        vec3f(3.5, 2.8, 1.2),    // Bright warm emission
+        0.4,                      // Reduced normals for smooth glow
+        0.2,                      // Very low AO for bright surface
+        0.6,                      // High subsurface for inner glow
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 5: Brick
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Classic red brick albedo
+        0.0,                      // Non-metallic
+        0.8,                      // Rough fired clay surface
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.2,                      // Strong normals for brick texture
+        1.1,                      // High AO for mortar lines
+        0.0,                      // No subsurface for fired clay
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 6: Slate  
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Dark blue-gray slate albedo
+        0.0,                      // Non-metallic
+        0.4,                      // Smooth cleaved surface
+        0.05,                     // Slightly higher specular for polished stone
+        vec3f(0.0),              // No emission
+        0.8,                      // Moderate normals for smooth slate
+        1.0,                      // Standard AO
+        0.0,                      // No subsurface for metamorphic rock
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 7: Andesite
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Medium gray volcanic rock albedo
+        0.0,                      // Non-metallic
+        0.75,                     // Rough volcanic surface
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.1,                      // Strong normals for volcanic texture
+        1.0,                      // Standard AO
+        0.0,                      // No subsurface for igneous rock
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // reserved
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Medium gray volcanic rock albedo
+        0.0,                      // Non-metallic
+        0.75,                     // Rough volcanic surface
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.1,                      // Strong normals for volcanic texture
+        1.0,                      // Standard AO
+        0.0,                      // No subsurface for igneous rock
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 9: Gneiss (skipping Reserved1 at ID 8)
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Light gray-brown metamorphic albedo
+        0.0,                      // Non-metallic
+        0.65,                     // Medium roughness for banded texture
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.0,                      // Normal strength for banded structure
+        1.0,                      // Standard AO
+        0.0,                      // No subsurface for metamorphic rock
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 10: Log
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Natural wood brown albedo
+        0.0,                      // Non-metallic
+        0.7,                      // Rough bark/wood surface
+        0.04,                     // Standard dielectric
+        vec3f(0.0),              // No emission
+        1.0,                      // Normal strength for wood grain
+        1.0,                      // Standard AO
+        0.0,                     // Moderate subsurface for organic material
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 11: Leaf
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.6,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.5,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0
+    )
 );
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
@@ -176,45 +321,59 @@ const IS_RIGHT_HANDED = true;
 const RENDER_SUN_DISK = false;
 const RENDER_MOON_DISK = false;
 
-// Function to calculate dynamic sun color based on elevation
+// PBR utility functions
+fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (pi * denom * denom);
+}
+
+fn geometry_schlick_ggx(n_dot_v: f32, roughness: f32) -> f32 {
+    let r = (roughness + 1.0);
+    let k = (r * r) / 8.0;
+    return n_dot_v / (n_dot_v * (1.0 - k) + k);
+}
+
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    let ggx2 = geometry_schlick_ggx(n_dot_v, roughness);
+    let ggx1 = geometry_schlick_ggx(n_dot_l, roughness);
+    return ggx1 * ggx2;
+}
+
+fn fresnel_schlick(cos_theta: f32, f0: vec3f) -> vec3f {
+    return f0 + (1.0 - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3f, roughness: f32) -> vec3f {
+    return f0 + (max(vec3f(1.0 - roughness), f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
 fn get_sun_color(sun_elevation: f32) -> vec3f {
-    // Normalize sun elevation to 0-1 range (0 = horizon, 1 = zenith)
     let elevation_factor = clamp(sun_elevation, 0.0, 1.0);
     
-    // Define color stops for the sun
-    let sunset_color = vec3f(1.0, 0.4, 0.1);      // Deep orange-red
-    let golden_hour_color = vec3f(1.0, 0.7, 0.3);  // Golden orange
-    let midday_color = vec3f(0.95, 0.90, 0.85);    // Warm white
+    let sunset_color = vec3f(1.0, 0.4, 0.1);
+    let golden_hour_color = vec3f(1.0, 0.7, 0.3);
+    let midday_color = vec3f(0.95, 0.90, 0.85);
     
-    // Create smooth transitions between colors
     var sun_color: vec3f;
     
     if (elevation_factor < 0.15) {
-        // Very low sun (sunset/sunrise) - deep orange-red
         let t = elevation_factor / 0.15;
         sun_color = mix(sunset_color, golden_hour_color, smoothstep(0.0, 1.0, t));
     } else if (elevation_factor < 0.4) {
-        // Low to medium sun (golden hour) - golden orange to warm white
         let t = (elevation_factor - 0.15) / 0.25;
         sun_color = mix(golden_hour_color, midday_color, smoothstep(0.0, 1.0, t));
     } else {
-        // High sun (midday) - warm white
         sun_color = midday_color;
     }
     
     return sun_color;
 }
 
-fn get_material_properties(material_id: u32) -> MaterialProperties {
-    let index = clamp(material_id - 1u, 0u, 8u);
-    return MATERIAL_PROPERTIES[index];
-}
-
-fn sample_light_3d(local_pos: vec3<f32>) -> u32 {
-    let sample = textureSampleLevel(light_texture_3d, light_sampler_3d, local_pos, 0.0);
-    let r = u32(sample.r * 255.0 + 0.5);
-    let g = u32(sample.g * 255.0 + 0.5);
-    return r | (g << 8u);
+fn get_pbr_material_properties(material_id: u32) -> PBRMaterialProperties {
+    let index = clamp(material_id - 1u, 0u, 11u);
+    return PBR_MATERIAL_PROPERTIES[index];
 }
 
 fn get_atlas_uv(base_uv: vec2<f32>, material_id: u32) -> vec2<f32> {
@@ -226,15 +385,77 @@ fn get_atlas_uv(base_uv: vec2<f32>, material_id: u32) -> vec2<f32> {
     return tile_offset + scaled_uv;
 }
 
+// Sample noise texture for roughness variation
+fn sample_noise_for_roughness(uv: vec2f, base_roughness: f32, world_pos: vec3f) -> f32 {
+    // Create pseudo-random offset based on world position
+    let world_seed = world_pos.x * 12.9898 + world_pos.y * 78.233 + world_pos.z * 37.719;
+    let random_offset = fract(sin(world_seed) * 43758.5453);
+    
+    // Scale UV to match 32x32 block texture with 64x64 noise and add random rotation
+    let base_noise_uv = fract(uv * 0.125);
+    
+    // Add multiple sampling points with different offsets to break up patterns
+    let offset1 = vec2f(random_offset, fract(random_offset * 2.7183));
+    let offset2 = vec2f(fract(random_offset * 1.618), fract(random_offset * 3.1416));
+    let offset3 = vec2f(fract(random_offset * 2.236), fract(random_offset * 1.732));
+    
+    // Sample noise at multiple points and blend
+    let noise1 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset1 * 0.3));
+    let noise2 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset2 * 0.2));
+    let noise3 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset3 * 0.1));
+    
+    // Blend the samples with different weights
+    let blended_noise = (noise1.r * 0.5 + noise2.g * 0.3 + noise3.b * 0.2);
+    
+    // Use blended result for roughness variation (±20% variation)
+    let roughness_variation = (blended_noise - 0.5) * 0.4;
+    return clamp(base_roughness + roughness_variation, 0.01, 1.0);
+}
+
+// Sample noise for metallic variation
+fn sample_noise_for_metallic(uv: vec2f, base_metallic: f32, world_pos: vec3f) -> f32 {
+    // Create different pseudo-random offset for metallic (using different multipliers)
+    let world_seed = world_pos.x * 73.156 + world_pos.y * 41.892 + world_pos.z * 19.337;
+    let random_offset = fract(sin(world_seed) * 29751.3847);
+    
+    let base_noise_uv = fract(uv * 0.125);
+    
+    // Different offsets for metallic sampling
+    let offset1 = vec2f(fract(random_offset * 1.414), fract(random_offset * 1.732));
+    let offset2 = vec2f(fract(random_offset * 2.828), fract(random_offset * 0.577));
+    
+    // Sample and blend
+    let noise1 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset1 * 0.4));
+    let noise2 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset2 * 0.2));
+    
+    let blended_noise = (noise1.g * 0.7 + noise2.r * 0.3);
+    
+    // Use different variation amounts based on base metallic value
+    let variation_amount = select(0.2, 0.1, base_metallic > 0.5);
+    let metallic_variation = (blended_noise - 0.5) * variation_amount;
+    return clamp(base_metallic + metallic_variation, 0.0, 1.0);
+}
+
+// Updated unpack function to decode LOD level
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0xFFu;
-    let position_y = (packed_bits >> 8u) & 0xFFu;
-    let position_z = (packed_bits >> 16u) & 0xFFu;
-    let normal_index = (packed_bits >> 24u) & 0x7u;
-    let vertex_index = (packed_bits >> 27u) & 0x3u;
-    let ao_index = (packed_bits >> 29u) & 0x3u;
+    let position_x = packed_bits & 0x1Fu;
+    let position_y = (packed_bits >> 5u) & 0x1Fu;
+    let position_z = (packed_bits >> 10u) & 0x1Fu;
+    let normal_index = (packed_bits >> 15u) & 0x7u;
+    let vertex_index = (packed_bits >> 18u) & 0x3u;
+    let ao_index = (packed_bits >> 20u) & 0x3u;
+    let lod_bits = (packed_bits >> 22u) & 0x7u;
+    
+    var lod_level: u32;
+    switch (lod_bits) {
+        case 0u: { lod_level = 1u; }
+        case 1u: { lod_level = 2u; }
+        case 2u: { lod_level = 4u; }
+        case 3u: { lod_level = 8u; }
+        default: { lod_level = 1u; }
+    }
     
     return UnpackedData(
         position_x,
@@ -242,15 +463,19 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         position_z,
         normal_index,
         vertex_index,
-        ao_index
+        ao_index,
+        lod_level
     );
 }
 
-fn calculate_chunk_edge_factor(voxel_pos: vec3f, normal_index: u32) -> f32 {
+fn calculate_chunk_edge_factor(voxel_pos: vec3f, normal_index: u32, lod_level: u32) -> f32 {
+    let lod_size = f32(lod_level);
+    let effective_chunk_size = CHUNK_SIZE / lod_size;
+    
     let edge_distances = vec3f(
-        min(voxel_pos.x, CHUNK_SIZE - 1.0 - voxel_pos.x),
-        min(voxel_pos.y, CHUNK_SIZE - 1.0 - voxel_pos.y),
-        min(voxel_pos.z, CHUNK_SIZE - 1.0 - voxel_pos.z)
+        min(voxel_pos.x, effective_chunk_size - 1.0 - voxel_pos.x),
+        min(voxel_pos.y, effective_chunk_size - 1.0 - voxel_pos.y),
+        min(voxel_pos.z, effective_chunk_size - 1.0 - voxel_pos.z)
     );
     
     var relevant_edge_distance: f32;
@@ -270,12 +495,12 @@ fn calculate_chunk_edge_factor(voxel_pos: vec3f, normal_index: u32) -> f32 {
         }
     }
     
-    return 1.0 - smoothstep(0.0, CHUNK_EDGE_WIDTH, relevant_edge_distance);
+    let edge_width = CHUNK_EDGE_WIDTH / lod_size;
+    return 1.0 - smoothstep(0.0, edge_width, relevant_edge_distance);
 }
 
 // Shadow mapping functions
 fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -> f32 {
-    // Convert to texture coordinates
     let proj_coords = shadow_pos.xyz / shadow_pos.w;
     
     let shadow_coords = vec2f(
@@ -283,22 +508,20 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
         -proj_coords.y * 0.5 + 0.5
     );
     
-    // Check if we're outside the shadow map
     if (shadow_coords.x < 0.0 || shadow_coords.x > 1.0 || 
         shadow_coords.y < 0.0 || shadow_coords.y > 1.0 ||
         proj_coords.z < 0.0 || proj_coords.z > 1.0) {
-        return 1.0; // No shadow
+        return 1.0;
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.01 * (1.0 - n_dot_l), 0.004);
+    let bias = max(0.001 * (1.0 - n_dot_l), 0.001);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 4096.0; // Assuming 2048x2048 shadow map
+    let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 16; // Increased from 9
+    let samples = 16;
     
-    // FIXED: Better sample pattern
     for (var x = -2; x <= 1; x++) {
         for (var y = -2; y <= 1; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
@@ -356,17 +579,18 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     let chunkData = chunkDataArray[in.instance_idx];
     out.idx = in.instance_idx;
-
     out.material_id = in.material_id;
 
     let data = unpack_data(in.data);
+    out.lod_level = data.lod_level;
+    
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
     var position: vec3f;
     var voxel_pos: vec3f;
     var uv: vec2f;
     
-    // Regular voxel rendering
+    let lod_scale = f32(data.lod_level);
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
     
     const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
@@ -396,9 +620,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         )
     );
     
-    position = chunk_world_pos + voxel_pos + faceVertices[data.normal_index][data.vertex_index];
+    let scaled_vertex_offset = faceVertices[data.normal_index][data.vertex_index] * lod_scale;
+    position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
+    
     uv = faceUVsIndependent[data.normal_index][data.vertex_index];
-    out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos, data.normal_index);
+    out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     let normal = faceNormals[data.normal_index];
     let ao = aoLevels[data.ao_index];
@@ -407,15 +633,20 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let view_position = uMyUniforms.viewMatrix * world_position;
 
     out.highlighted = 0.0;
+    
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
-
-    if ((world_voxel_pos.x == uMyUniforms.highlightedVoxelPos.x) && 
-        (world_voxel_pos.y == uMyUniforms.highlightedVoxelPos.y) && 
-        (world_voxel_pos.z == uMyUniforms.highlightedVoxelPos.z)) {
+    let highlighted_pos = uMyUniforms.highlightedVoxelPos;
+    
+    let lod_level_i32 = i32(data.lod_level);
+    let voxel_min = world_voxel_pos;
+    let voxel_max = world_voxel_pos + vec3i(lod_level_i32 - 1);
+    
+    if (highlighted_pos.x >= voxel_min.x && highlighted_pos.x <= voxel_max.x &&
+        highlighted_pos.y >= voxel_min.y && highlighted_pos.y <= voxel_max.y &&
+        highlighted_pos.z >= voxel_min.z && highlighted_pos.z <= voxel_max.z) {
         out.highlighted = 1.0;
     }
     
-    // Calculate shadow position
     let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
     
@@ -430,24 +661,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-fn sample_light(lightSlot: u32, pos: vec3f, offset: vec3f) -> f32 {
-    let CHUNKS_PER_ROW = 768u / 32u;
-    let TOTAL_TEXTURE_SIZE = 768.0;
-    
-    let ox = lightSlot % CHUNKS_PER_ROW;
-    let oy = (lightSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
-    let oz = lightSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
-
-    let clampedPos = clamp(pos, vec3f(0.0), vec3f(31.999));
-    let voxel_center = clampedPos + vec3f(0.5) + offset;
-    let absolute_light_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-
-    let light_texture_coords = absolute_light_pos / TOTAL_TEXTURE_SIZE;
-    let final_light_coords = clamp(light_texture_coords, vec3f(0.0), vec3f(0.999));
-    
-    return f32(sample_light_3d(final_light_coords));
-}
-
 fn smoothClamp(x: f32, a: f32, b: f32) -> f32 {
     return smoothstep(0., 1., (x - a)/(b - a))*(b - a) + a;
 }
@@ -456,20 +669,85 @@ fn softClamp(x: f32, a: f32, b: f32) -> f32 {
     return smoothstep(0., 1., (2./3.)*(x - a)/(b - a) + (1./6.))*(b - a) + a;
 }
 
-fn calculate_blinn_phong_specular(
+// PBR lighting calculation with energy compensation
+fn calculate_pbr_lighting(
+    albedo: vec3f,
     normal: vec3f,
-    lightDir: vec3f,
-    viewDir: vec3f,
-    lightColor: vec3f,
-    materialProps: MaterialProperties,
-    shadingFadeFactor: f32
+    view_dir: vec3f,
+    light_dir: vec3f,
+    light_color: vec3f,
+    metallic: f32,
+    roughness: f32,
+    specular: f32,
+    shadow_factor: f32,
+    subsurface: f32
 ) -> vec3f {
-    let halfwayDir = normalize(lightDir + viewDir);
-    let specularDot = max(dot(normal, halfwayDir), 0.1);
-    let specularFactor = pow(specularDot, materialProps.shininess);
-    let fadeAdjustedIntensity = mix(0.0, materialProps.specularIntensity, shadingFadeFactor);
+    let n_dot_v = max(dot(normal, view_dir), 0.0);
+    let n_dot_l = max(dot(light_dir, normal), 0.0);
     
-    return lightColor * materialProps.specularColor * specularFactor * fadeAdjustedIntensity;
+    var total_lighting = vec3f(0.0);
+    
+    // Standard front-lit PBR calculation
+    if (n_dot_l > 0.0) {
+        let half_vec = normalize(view_dir + light_dir);
+        let n_dot_h = max(dot(normal, half_vec), 0.0);
+        let v_dot_h = max(dot(view_dir, half_vec), 0.0);
+        
+        // Calculate F0 (base reflectivity)
+        let dielectric_f0 = vec3f(specular);
+        let f0 = mix(dielectric_f0, albedo, metallic);
+        
+        // Cook-Torrance BRDF components
+        let d = distribution_ggx(n_dot_h, roughness);
+        let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+        let f = fresnel_schlick(v_dot_h, f0);
+        
+        // Calculate the specular component
+        let numerator = d * g * f;
+        let denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
+        let specular_color = numerator / denominator;
+        
+        // Calculate the diffuse component with energy compensation
+        let ks = f;
+        let kd = (vec3f(1.0) - ks) * (1.0 - metallic);
+        let diffuse_color = kd * albedo / pi;
+        
+        // Combine diffuse and specular with energy boost for visibility
+        let brdf = (diffuse_color * 2.0) + specular_color;
+        
+        // Apply front lighting
+        total_lighting += brdf * light_color * n_dot_l * shadow_factor;
+    }
+    
+    // Add subsurface scattering for back-lit surfaces
+    if (subsurface > 0.0) {
+        // Calculate back-lighting (light coming from behind the surface)
+        let back_n_dot_l = max(dot(-normal, light_dir), 0.0);
+        
+        if (back_n_dot_l > 0.0) {
+            // Subsurface scattering parameters
+            let subsurface_power = 3.0;  // Controls the falloff of the subsurface effect
+            let subsurface_distortion = 0.4;  // How much the light bends through the material
+            let subsurface_scale = 2.0;  // Overall intensity scale
+            
+            // Calculate the subsurface vector (light direction bent by surface normal)
+            let subsurface_light = light_dir + normal * subsurface_distortion;
+            let v_dot_subsurface = pow(clamp(dot(view_dir, -subsurface_light), 0.0, 1.0), subsurface_power) * subsurface_scale;
+            
+            // Subsurface color - typically warmer and more saturated than albedo
+            let subsurface_color = albedo * 1.5; // Boost saturation for organic glow
+            
+            // Calculate subsurface contribution
+            let subsurface_lighting = subsurface_color * light_color * v_dot_subsurface * back_n_dot_l * subsurface;
+            
+            // Subsurface scattering is less affected by shadows (light scatters around obstacles)
+            let subsurface_shadow_factor = mix(1.0, shadow_factor, 0.3); // Only 30% shadow influence
+            
+            total_lighting += subsurface_lighting * subsurface_shadow_factor * shadow_factor;
+        }
+    }
+    
+    return total_lighting;
 }
 
 fn filmic(x: vec3<f32>) -> vec3<f32> {
@@ -482,214 +760,88 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
-fn sample_depth_dilated(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>, dilation_radius: i32) -> f32 {
-    var max_depth = textureLoad(depth_texture, pix, 0);
-    
-    // Sample in a small radius around the pixel
-    for (var dy = -dilation_radius; dy <= dilation_radius; dy++) {
-        for (var dx = -dilation_radius; dx <= dilation_radius; dx++) {
-            let sample_pos = pix + vec2<i32>(dx, dy);
-            let sample_depth = textureLoad(depth_texture, sample_pos, 0);
-            
-            // For reverse-Z, smaller values are further away
-            if (IS_REVERSE_Z) {
-                max_depth = min(max_depth, sample_depth);
-            } else {
-                max_depth = max(max_depth, sample_depth);
-            }
-        }
-    }
-    
-    return max_depth;
-}
-
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
     let normal = normalize(in.normal);
-
-    let CHUNKS_PER_ROW = 768u / 32u;
-    let TOTAL_TEXTURE_SIZE = 768.0;
-    
-    let ox = chunkData.textureSlot % CHUNKS_PER_ROW;
-    let oy = (chunkData.textureSlot / CHUNKS_PER_ROW) % CHUNKS_PER_ROW;
-    let oz = chunkData.textureSlot / (CHUNKS_PER_ROW * CHUNKS_PER_ROW);
-
-    var light_level = 0.0;
-    
-    let voxel_center = in.voxel_pos + vec3f(0.5);
-    let absolute_texture_pos = voxel_center + vec3f(f32(ox * 32u), f32(oy * 32u), f32(oz * 32u));
-    let texture_coords = absolute_texture_pos / TOTAL_TEXTURE_SIZE;
-    let final_coords = clamp(texture_coords, vec3f(0.0), vec3f(0.999));
+    let lod_scale = f32(in.lod_level);
     let material_id = in.material_id;
-
-    let light_sample_pos = in.voxel_pos + normal;
-    var final_light_level: f32;
     
-    if (light_sample_pos.x < -0.25) {
-        if (chunkData.left < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x + 32.0, light_sample_pos.y, light_sample_pos.z);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.left, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else if (light_sample_pos.x > 31.75) {
-        if (chunkData.right < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x - 32.0, light_sample_pos.y, light_sample_pos.z);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.right, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else if (light_sample_pos.y < -0.25) {
-        if (chunkData.back < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y + 32.0, light_sample_pos.z);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.back, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else if (light_sample_pos.y > 31.75) {
-        if (chunkData.front < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y - 32.0, light_sample_pos.z);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.front, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else if (light_sample_pos.z < -0.25) {
-        if (chunkData.bottom < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z + 32.0);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.bottom, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else if (light_sample_pos.z > 31.75) {
-        if (chunkData.top < 4294967295u) {
-            let neighbor_pos = vec3f(light_sample_pos.x, light_sample_pos.y, light_sample_pos.z - 32.0);
-            let sample_offset = vec3f(0.0, 0.0, 0.0);
-            final_light_level = sample_light(chunkData.top, neighbor_pos, sample_offset);
-        } else {
-            final_light_level = 0.0;
-        }
-    } else {
-        let clamped_sample_pos = clamp(light_sample_pos, vec3f(0.0), vec3f(31.999));
-        let sample_offset = vec3f(0.0, 0.0, 0.0);
-        final_light_level = sample_light(chunkData.lightSlot, clamped_sample_pos, sample_offset);
+    if (material_id == 0u) {
+        discard;
     }
 
-    light_level = 1.0;
+    // Get PBR material properties
+    let materialProps = get_pbr_material_properties(material_id);
     
-    // if (material_id == 0u) {
-    //     discard;
-    // }
-
-    let materialProps = get_material_properties(material_id);
-    let sunDirection = uMyUniforms.lightDirection;
-    let inverseSunDirection = vec3f(sunDirection.x, sunDirection.y, 0.0);
-
-    let sunShading = dot(sunDirection, normal);
-    let inverseSunShading = dot(inverseSunDirection, normal);
-
-    // Use dynamic sun color based on elevation
-    let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
-    let inverseSunColor = vec3f(0.15, 0.25, 0.30);
-
-    let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
+    // Sample noise for material variation
+    let lod_adjusted_uv = fract(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)) * lod_scale);
+    let varied_roughness = sample_noise_for_roughness(lod_adjusted_uv, materialProps.roughness, in.world_position);
+    let varied_metallic = sample_noise_for_metallic(lod_adjusted_uv, materialProps.metallic, in.world_position);
     
-    let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
-    
-    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
-
-    let shadow_intensity = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
-
-    let shadingFadeFactor = 1.0; //max(1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance), 0.8);
-    
-    let flatSunShading = mix(0.5, sunShading, MIN_SHADING_CONTRAST);
-    let flatInverseSunShading = mix(0.5, inverseSunShading, MIN_SHADING_CONTRAST);
-    
-    let distanceAdjustedSunShading = mix(flatSunShading, sunShading, shadingFadeFactor);
-    let distanceAdjustedInverseSunShading = mix(flatInverseSunShading, inverseSunShading, shadingFadeFactor);
-
-    let atlas_uv = get_atlas_uv(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
+    // Sample albedo texture
+    let atlas_uv = get_atlas_uv(clamp(lod_adjusted_uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
     let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv);
-    //let textureColor = textureSample(sky_view_lut, lut_sampler, in.uv);
 
     if (textureColor.a < 0.5) {
         discard;
     }
 
-    let light_color = vec3(0.95, 0.75, 0.55);
-    let ambient = (vec3f(0.25) * day_night) + 0.05;
+    // Combine material albedo with texture
+    let albedo = materialProps.albedo * textureColor.rgb;
     
-    // Calculate base sun lighting using dynamic sun color
-    let base_sun_lighting = distanceAdjustedSunShading * sunColor * day_night;
+    let sunDirection = uMyUniforms.lightDirection;
+    let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
+    let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
+    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
     
-    // Apply shadow to sun lighting - shadows should be visible whenever sun is above horizon
-    let shadowed_sun_lighting = base_sun_lighting + (shadow_factor-0.75) * shadow_intensity;
+    let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
-    // Calculate other lighting components
-    let inverse_sun_shading = distanceAdjustedInverseSunShading * inverseSunColor / 4.0;
-    let artificial_lighting = (light_level / 24.0) * light_color + 0.1;
-    
-    let total_lighting = max(max(shadowed_sun_lighting + inverse_sun_shading, artificial_lighting), ambient);
-    
-    let shading = total_lighting;
-
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
     
-    var specularColor = vec3f(0.0);
+    // Calculate PBR lighting for direct sunlight with boosted intensity
+    let boosted_sun_intensity = sun_intensity * 6.0; // Boost sun intensity for PBR
+    let direct_lighting = calculate_pbr_lighting(
+        albedo,
+        normal,
+        viewDir,
+        sunDirection,
+        sunColor * boosted_sun_intensity,
+        varied_metallic,
+        varied_roughness,
+        materialProps.specular,
+        shadow_factor,
+        materialProps.subsurface  // Pass subsurface parameter
+    );
     
-    if (sun_intensity > 0.0) {
-        let sunSpecular = calculate_blinn_phong_specular(
-            normal, 
-            sunDirection, 
-            viewDir, 
-            sunColor * sun_intensity * shadow_factor,  // Apply shadow and dynamic color to specular
-            materialProps, 
-            shadingFadeFactor
-        );
-        specularColor += sunSpecular;
-    }
+    // Enhanced ambient lighting to compensate for PBR energy conservation
+    let ambient_strength = 2.0; // Increased from 0.15
+    let ambient_color = vec3f(0.5, 0.7, 0.9) * day_night + vec3f(0.2, 0.2, 0.25); // Brighter colors
+    let ambient_lighting = ambient_color * albedo * ambient_strength;
     
-    if (light_level > 0.0) {
-        let artificialLightDir = normalize(vec3f(0.0, 0.0, 1.0));
-        let artificialSpecular = calculate_blinn_phong_specular(
-            normal, 
-            artificialLightDir, 
-            viewDir, 
-            light_color * (light_level / 16.0), 
-            materialProps, 
-            shadingFadeFactor
-        );
-        specularColor += artificialSpecular * 0.5;
-    }
-
-    // AO fade parameters
+    // Apply AO with fade parameters
     let aoFadeNear = 400.0;
     let aoFadeFar = 600.0;
     let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
-
-    // Surface normal fade parameters
+    
+    // Surface normal fade for AO
     let normalFadeStart = 75.0;
     let normalFadeEnd = 150.0;
-
-    // Calculate surface normal fade factor (0 = no normal-based fade, 1 = full normal-based fade)
     let normalFadeFactor = clamp((in.fog_distance - normalFadeStart) / (normalFadeEnd - normalFadeStart), 0.0, 1.0);
-
-    // Apply surface normal fade only after the specified distance
-    let baseAoStrength = 1.0; // Full AO strength when no normal fade
+    let baseAoStrength = materialProps.aoStrength;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
-
-    var baseColor = clamp((textureColor.rgb/2.0) * (shading*4.0) * ao_adjusted + specularColor, vec3f(0.0), vec3f(1.0));
     
+    // Combine all lighting
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
+    
+    // Add emission if present
+    finalColor += materialProps.emission;
+    
+    // Apply highlighting
     if (in.highlighted > 0) {
         let width = 1.0/16.0;
         let highlight = 4.0;
@@ -702,17 +854,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let edge_factor = min(min(left_edge, right_edge), min(top_edge, bottom_edge));
         let highlight_intensity = 1.0 - edge_factor;
         
-        let avgColor = (baseColor.r + baseColor.g + baseColor.b) / 3.0;
+        let avgColor = (finalColor.r + finalColor.g + finalColor.b) / 3.0;
         let highlightColor = vec3f(avgColor * highlight);
-        baseColor = clamp(mix(baseColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(1.0));
+        finalColor = clamp(mix(finalColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(10.0));
     }
 
-    // let fogFactor = clamp(1.0 - exp(-in.fog_distance * 0.003)*2, 0.0, 1.0);
-
-    // let fogColor = vec3(0.7,0.8,1.0);
-    // let fogColor2 = vec3(0.002, 0.002, 0.004);
-
-    // let finalColor = mix(baseColor, fogColor * day_night + fogColor2 * (1 - day_night), fogFactor);
-
-    return vec4f(baseColor, 1.0);
+    return vec4f(clamp(finalColor, vec3f(0.0), vec3f(10.0)), 1.0);
 }

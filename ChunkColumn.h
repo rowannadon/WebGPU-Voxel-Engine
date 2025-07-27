@@ -176,7 +176,7 @@ private:
         int textureSlot = -1;
         int lightSlot = -1;
         int dataSlot = -1;
-        int meshSlot = -1;
+        int meshSlots[8] = { -1 };
     };
 
     WorldGenerator worldGen;
@@ -187,8 +187,8 @@ private:
     
 
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
-    std::vector<VertexAttributes> vertexData[COLUMN_HEIGHT];
-    std::vector<uint16_t> indexData[COLUMN_HEIGHT];
+    std::vector<VertexAttributes> vertexData[8][COLUMN_HEIGHT];
+    std::vector<uint16_t> indexData[8][COLUMN_HEIGHT];
 
     //VoxelMaterial materialData[TOTAL_VOXELS] = {};
 
@@ -241,8 +241,13 @@ public:
         return treeData;
     }
 
-    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs() {
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int distance) {
         std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
+
+        int slot = 0;
+        if (distance > 600) {
+            slot = 1;
+        }
 
         if (state.load() != ColumnState::MeshReady) {
             return output;
@@ -251,7 +256,7 @@ public:
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            int meshSlot = meta[i].meshSlot;
+            int meshSlot = meta[i].meshSlots[slot];
             if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
                 output[i] = std::nullopt;
                 continue;
@@ -262,13 +267,13 @@ public:
                 continue;
             }
 
-            if (vertexData[i].empty() || indexData[i].empty()) {
+            if (vertexData[slot][i].empty() || indexData[slot][i].empty()) {
                 output[i] = std::nullopt;
                 continue;
             }
 
             DAIC daic;
-            daic.indexCount = static_cast<uint32_t>(indexData[i].size());
+            daic.indexCount = static_cast<uint32_t>(indexData[slot][i].size());
             daic.instanceCount = 1;
 
             // These should be offsets in ELEMENTS, not bytes
@@ -289,12 +294,21 @@ private:
             return;
         }
 
-        meta[zPos].meshSlot = buf->
+        meta[zPos].meshSlots[0] = buf->
             getMeshBufferPool("mesh_pool")->
-            allocateSlot(meta[zPos].resourceId, vertexData[zPos].size());
+            allocateSlot(meta[zPos].resourceId + "-0", vertexData[0][zPos].size());
 
-        if (meta[zPos].meshSlot == -1) {
-            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+        meta[zPos].meshSlots[1] = buf->
+            getMeshBufferPool("mesh_pool")->
+            allocateSlot(meta[zPos].resourceId + "-1", vertexData[1][zPos].size());
+
+        if (meta[zPos].meshSlots[0] == -1) {
+            //std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+            return;
+        }
+
+        if (meta[zPos].meshSlots[1] == -1) {
+            std::cerr << "Failed to allocate LOD mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
         }
         meta[zPos].meshBufferGPUInitialized = true;
@@ -307,20 +321,21 @@ private:
     }
 
     void uploadMesh(const int zPos, BufferManager* buf) {
-        if (!meta[zPos].meshBufferGPUInitialized || meta[zPos].meshSlot == -1) {
-            std::cerr << "Mesh buffer not initialized for chunk " << getResourceId() << std::endl;
+        if (!meta[zPos].meshBufferGPUInitialized || meta[zPos].meshSlots[0] == -1) {
+            //std::cerr << "Mesh buffer not initialized for chunk " << getResourceId() << std::endl;
             return;
         }
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
-        if (vertexData[zPos].empty() || indexData[zPos].empty()) {
+        if (vertexData[0][zPos].empty() || indexData[0][zPos].empty()) {
             std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
             return;
         }
 
         auto meshPool = buf->getMeshBufferPool("mesh_pool");
-        meshPool->writeToSlot(meta[zPos].resourceId, vertexData[zPos], indexData[zPos]);
+        meshPool->writeToSlot(meta[zPos].resourceId + "-0", vertexData[0][zPos], indexData[0][zPos]);
+        meshPool->writeToSlot(meta[zPos].resourceId + "-1", vertexData[1][zPos], indexData[1][zPos]);
     }
 
     void uploadAllMeshes(BufferManager* buf) {
@@ -820,7 +835,7 @@ public:
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
                     float noiseValue = noiseData[index++];
-                    if (noiseValue > -0.4) {
+                    if (noiseValue > -0.999f) {
                         setVoxelWholeColumn(ivec3(x, y, z), true, false);
                     }
                 }
@@ -832,7 +847,6 @@ public:
         //        // Generate height for this column
         //        float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
         //        int targetHeight = static_cast<int>(height * 200.0f);
-
         //        for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
         //            setVoxelWholeColumn(ivec3(x, y, z), true, false);
         //        }
@@ -901,11 +915,11 @@ public:
             return false;
             };
 
-        // Lambda to find the highest solid block in a column
+        // Lambda to find the lowest block with air above it in a column
         auto findTopSolidBlock = [&](int x, int y) -> int {
             // Search from top to bottom for the highest solid block
-            for (int z = COLUMN_HEIGHT_BLOCKS - 1; z >= 0; z--) {
-                if (isVoxelSolid(ivec3(x, y, z))) {
+            for (int z = 0; z < COLUMN_HEIGHT_BLOCKS - 1; z++) {
+                if (isVoxelSolid(ivec3(x, y, z)) && !isVoxelSolid(ivec3(x, y, z+1))) {
                     return z;
                 }
             }
@@ -1185,7 +1199,13 @@ public:
         setState(ColumnState::TreesReady);
     }
 
-    bool generateOneMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}, bool transparent = false) {
+    bool generateOneMesh(const int zPos, const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}, bool transparent = false, int lodLevel = 1, int meshSlot = 0) {
+        // Validate LOD level (must be power of 2 and reasonable)
+        if (lodLevel < 1 || lodLevel > 8 || (lodLevel & (lodLevel - 1)) != 0) {
+            std::cerr << "Invalid LOD level: " << lodLevel << ". Must be power of 2 between 1 and 8." << std::endl;
+            return false;
+        }
+
         ivec3 aoStates[6][4][3] = {
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
@@ -1227,117 +1247,238 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
-        auto isEmptyVoxel = [this, &neighbors, transparent, zPos](ivec3 pos) -> bool {
-            bool hasSolid = this->getVoxelSafe(zPos, pos, false, neighbors);
-            bool hasTransparent = this->getVoxelSafe(zPos, pos, true, neighbors);
-            if (transparent) {
-                return !hasTransparent && !hasSolid;
+        // Sample voxels in a LOD group and return the most common material
+        auto sampleLODGroup = [this, &neighbors, transparent, zPos, lodLevel](ivec3 groupPos) -> std::pair<bool, VoxelMaterial> {
+            std::unordered_map<uint32_t, int> materialCounts;
+            int solidVoxels = 0;
+            int totalVoxels = 0;
+
+            for (int dx = 0; dx < lodLevel; ++dx) {
+                for (int dy = 0; dy < lodLevel; ++dy) {
+                    for (int dz = 0; dz < lodLevel; ++dz) {
+                        ivec3 voxelPos = groupPos + ivec3(dx, dy, dz);
+                        totalVoxels++;
+
+                        bool hasSolid = this->getVoxelSafe(zPos, voxelPos, false, neighbors);
+                        bool hasTransparent = this->getVoxelSafe(zPos, voxelPos, true, neighbors);
+
+                        bool isOccupied = transparent ? hasTransparent : hasSolid;
+                        if (isOccupied) {
+                            solidVoxels++;
+                            VoxelMaterial mat = getMaterialFast(voxelPos + ivec3(0, 0, zPos * CHUNK_SIZE));
+                            materialCounts[mat.materialType]++;
+                        }
+                    }
+                }
             }
-            return !hasSolid || hasTransparent;
+
+            // Require majority of voxels to be solid for the LOD group to be considered solid
+            bool groupIsSolid = solidVoxels > (totalVoxels / 8);
+
+            VoxelMaterial dominantMaterial = {};
+            if (groupIsSolid && !materialCounts.empty()) {
+                // Find most common material
+                auto maxIt = std::max_element(materialCounts.begin(), materialCounts.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
+                dominantMaterial.materialType = maxIt->first;
+            }
+
+            if (materialCounts[BlockType::Log] > 0) {
+                dominantMaterial.materialType = BlockType::Log;
+            }
+            else if (materialCounts[BlockType::Grass] > 0) {
+                dominantMaterial.materialType = BlockType::Grass;
+            }
+
+            return { groupIsSolid, dominantMaterial };
             };
 
-        auto calculateAmbientOcclusion = [&](int zPos, ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
-            ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
-            ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
-            ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
+        auto isEmptyLODGroup = [&](ivec3 groupPos) -> bool {
+            auto [isSolid, material] = sampleLODGroup(groupPos);
+            return !isSolid;
+            };
 
-            // Use getVoxelSafe for all AO calculations to handle cross-chunk positions
-            bool side1 = this->getVoxelSafe(zPos, side1Pos, false, neighbors) ||
-                this->getVoxelSafe(zPos, side1Pos, true, neighbors);
-            bool side2 = this->getVoxelSafe(zPos, side2Pos, false, neighbors) ||
-                this->getVoxelSafe(zPos, side2Pos, true, neighbors);
-            bool corner = this->getVoxelSafe(zPos, cornerPos, false, neighbors) ||
-                this->getVoxelSafe(zPos, cornerPos, true, neighbors);
+        // Check if a LOD face should be culled
+        auto shouldCullLODFace = [&](ivec3 groupPos, int faceIndex) -> bool {
+            ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
 
-            if (side1 && side2) {
+            // First check: if the neighboring LOD group is entirely within this chunk,
+            // we can use efficient LOD group sampling
+            bool neighborInSameChunk = (neighborGroupPos.x >= 0 && neighborGroupPos.x < CHUNK_SIZE &&
+                neighborGroupPos.y >= 0 && neighborGroupPos.y < CHUNK_SIZE &&
+                neighborGroupPos.z >= 0 && neighborGroupPos.z < CHUNK_SIZE);
+
+            if (neighborInSameChunk) {
+                // Efficient check: if the neighbor LOD group is solid, cull the face
+                return !isEmptyLODGroup(neighborGroupPos);
+            }
+
+            // Second check: neighbor is outside chunk boundary or crosses boundary
+            // We need to check ALL individual voxel positions that this LOD face covers
+            // to prevent holes at chunk seams
+
+            for (int u = 0; u < lodLevel; ++u) {
+                for (int v = 0; v < lodLevel; ++v) {
+                    ivec3 faceOffset;
+                    ivec3 neighborOffset;
+
+                    // Calculate the offset based on face orientation
+                    switch (faceIndex) {
+                    case 0: // Right face (+X)
+                        faceOffset = ivec3(lodLevel - 1, u, v); // Position on the face
+                        neighborOffset = ivec3(1, 0, 0);        // Step into neighbor
+                        break;
+                    case 1: // Left face (-X)  
+                        faceOffset = ivec3(0, u, v);            // Position on the face
+                        neighborOffset = ivec3(-1, 0, 0);       // Step into neighbor
+                        break;
+                    case 2: // Front face (+Y)
+                        faceOffset = ivec3(u, lodLevel - 1, v); // Position on the face
+                        neighborOffset = ivec3(0, 1, 0);        // Step into neighbor
+                        break;
+                    case 3: // Back face (-Y)
+                        faceOffset = ivec3(u, 0, v);            // Position on the face
+                        neighborOffset = ivec3(0, -1, 0);       // Step into neighbor
+                        break;
+                    case 4: // Top face (+Z)
+                        faceOffset = ivec3(u, v, lodLevel - 1); // Position on the face
+                        neighborOffset = ivec3(0, 0, 1);        // Step into neighbor
+                        break;
+                    case 5: // Bottom face (-Z)
+                        faceOffset = ivec3(u, v, 0);            // Position on the face
+                        neighborOffset = ivec3(0, 0, -1);       // Step into neighbor
+                        break;
+                    }
+
+                    // Get the position of the voxel we're checking in the neighbor
+                    ivec3 neighborVoxelPos = groupPos + faceOffset + neighborOffset;
+
+                    // Check if this specific neighbor voxel is solid
+                    bool hasSolid = this->getVoxelSafe(zPos, neighborVoxelPos, false, neighbors);
+                    bool hasTransparent = this->getVoxelSafe(zPos, neighborVoxelPos, true, neighbors);
+
+                    // Determine if this neighbor position is empty
+                    bool isEmpty = transparent ? (!hasTransparent && !hasSolid) : (!hasSolid || hasTransparent);
+
+                    if (isEmpty) {
+                        return false; // Don't cull - at least one neighbor voxel is empty
+                    }
+                }
+            }
+
+            return true; // Cull the face - ALL neighbor voxels are solid
+            };
+
+        auto calculateAmbientOcclusion = [&](int zPos, ivec3 groupPos, int faceIndex, int vertexIndex) -> uint32_t {
+            // Scale AO offsets by LOD level
+            ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0] * lodLevel;
+            ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1] * lodLevel;
+            ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2] * lodLevel;
+
+            // Check if neighboring LOD groups are solid
+            auto [side1Solid, _1] = sampleLODGroup(side1Pos);
+            auto [side2Solid, _2] = sampleLODGroup(side2Pos);
+            auto [cornerSolid, _3] = sampleLODGroup(cornerPos);
+
+            if (side1Solid && side2Solid) {
                 return 0; // Fully occluded
             }
-            return 3 - ((side1 ? 1 : 0) + (side2 ? 1 : 0) + (corner ? 1 : 0));
+            return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
             };
 
-        auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
+        auto packData = [lodLevel](uint8_t position_x, uint8_t position_y, uint8_t position_z,
             uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
                 // Validate input ranges
-                // normal_index should be 0-7 (3 bits)
-                // vertex_index should be 0-3 (2 bits)
+                position_x &= 0x1F;    // Mask to 5 bits (0-31)
+                position_y &= 0x1F;    // Mask to 5 bits (0-31)
+                position_z &= 0x1F;    // Mask to 5 bits (0-31)
                 normal_index &= 0x7;   // Mask to 3 bits
                 vertex_index &= 0x3;   // Mask to 2 bits
+                ao_index &= 0x3;       // Mask to 2 bits
+
+                // Encode LOD level in remaining bits (22-24, 3 bits allows LOD 1-8)
+                uint8_t lodBits = 0;
+                switch (lodLevel) {
+                case 1: lodBits = 0; break;
+                case 2: lodBits = 1; break;
+                case 4: lodBits = 2; break;
+                case 8: lodBits = 3; break;
+                default: lodBits = 0; break; // fallback
+                }
+                lodBits &= 0x7; // Mask to 3 bits
 
                 uint32_t packed = 0;
-
-                // Position X: bits 0-7
+                // Position X: bits 0-4
                 packed |= static_cast<uint32_t>(position_x);
-
-                // Position Y: bits 8-15
-                packed |= static_cast<uint32_t>(position_y) << 8;
-
-                // Position Z: bits 16-23
-                packed |= static_cast<uint32_t>(position_z) << 16;
-
-                // Normal Index: bits 24-26
-                packed |= static_cast<uint32_t>(normal_index) << 24;
-
-                // Vertex Index: bits 27-28
-                packed |= static_cast<uint32_t>(vertex_index) << 27;
-
-                // AO Index: bits 29-30
-                packed |= static_cast<uint32_t>(ao_index) << 29;
+                // Position Y: bits 5-9
+                packed |= static_cast<uint32_t>(position_y) << 5;
+                // Position Z: bits 10-14
+                packed |= static_cast<uint32_t>(position_z) << 10;
+                // Normal Index: bits 15-17
+                packed |= static_cast<uint32_t>(normal_index) << 15;
+                // Vertex Index: bits 18-19
+                packed |= static_cast<uint32_t>(vertex_index) << 18;
+                // AO Index: bits 20-21
+                packed |= static_cast<uint32_t>(ao_index) << 20;
+                // LOD Level: bits 22-24
+                packed |= static_cast<uint32_t>(lodBits) << 22;
 
                 return packed;
             };
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
         try {
-            for (int x = 0; x < CHUNK_SIZE; ++x) {
-                for (int y = 0; y < CHUNK_SIZE; ++y) {
-                    for (int z = 0; z < CHUNK_SIZE; ++z) {
+            // Iterate through LOD groups instead of individual voxels
+            for (int x = 0; x < CHUNK_SIZE; x += lodLevel) {
+                for (int y = 0; y < CHUNK_SIZE; y += lodLevel) {
+                    for (int z = 0; z < CHUNK_SIZE; z += lodLevel) {
                         // Check if chunk is still valid during processing
                         if (getChunkState(zPos) == ChunkState::Unloading) {
                             return false;
                         }
 
-                        ivec3 currentPos = ivec3(x, y, z);
-                        if (getVoxel(zPos, currentPos, transparent)) {
-                            // Check each face for culling (including cross-chunk)
-                            for (int face = 0; face < 6; ++face) {
-                                ivec3 neighborPos = currentPos + neighborOffsets[face];
+                        ivec3 groupPos = ivec3(x, y, z);
+                        auto [groupIsSolid, groupMaterial] = sampleLODGroup(groupPos);
 
-                                if (isEmptyVoxel(neighborPos)) {
-                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData[zPos].size());
+                        if (groupIsSolid) {
+                            // Check each face for culling
+                            for (int face = 0; face < 6; ++face) {
+                                // Use the improved culling function that checks ALL neighbor voxels
+                                if (!shouldCullLODFace(groupPos, face)) {
+                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size());
 
                                     std::array<float, 4> aoValues;
                                     for (int vertex = 0; vertex < 4; ++vertex) {
-                                        aoValues[vertex] = calculateAmbientOcclusion(zPos, currentPos, face, vertex);
+                                        aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
                                     }
 
                                     bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
                                     for (int vertex = 0; vertex < 4; ++vertex) {
-                                        uint8_t pv = static_cast<uint8_t>(vertex);
                                         VertexAttributes vert;
+                                        // Use group position (which represents the LOD voxel position)
                                         vert.data = packData(x, y, z, face, vertex, aoValues[vertex]);
-                                        VoxelMaterial mat = getMaterialCompressed(zPos, currentPos);
-                                        vert.materialId = mat.materialType;
-                                        vertexData[zPos].push_back(vert);
+                                        vert.materialId = groupMaterial.materialType;
+                                        vertexData[meshSlot][zPos].push_back(vert);
                                     }
 
                                     if (flipQuad) {
-                                        indexData[zPos].push_back(baseIndex + 0);
-                                        indexData[zPos].push_back(baseIndex + 1);
-                                        indexData[zPos].push_back(baseIndex + 3);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
 
-                                        indexData[zPos].push_back(baseIndex + 1);
-                                        indexData[zPos].push_back(baseIndex + 2);
-                                        indexData[zPos].push_back(baseIndex + 3);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
                                     }
                                     else {
-                                        indexData[zPos].push_back(baseIndex + 0);
-                                        indexData[zPos].push_back(baseIndex + 1);
-                                        indexData[zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
 
-                                        indexData[zPos].push_back(baseIndex + 0);
-                                        indexData[zPos].push_back(baseIndex + 2);
-                                        indexData[zPos].push_back(baseIndex + 3);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
                                     }
                                 }
                             }
@@ -1347,7 +1488,7 @@ public:
             }
         }
         catch (const std::exception& e) {
-            std::cerr << "Error during mesh generation: " << e.what() << std::endl;
+            std::cerr << "Error during LOD mesh generation: " << e.what() << std::endl;
             return false;
         }
 
@@ -1366,12 +1507,22 @@ public:
 
         {
             std::lock_guard<std::mutex> lock(meshDataMutex);
-            indexData[zPos].clear();
-            vertexData[zPos].clear();
+            indexData[0][zPos].clear();
+            vertexData[0][zPos].clear();
+
+            indexData[1][zPos].clear();
+            vertexData[1][zPos].clear();
         }
 
-        bool solid = generateOneMesh(zPos, neighbors, false);
-        bool transparent = generateOneMesh(zPos, neighbors, true);
+        beginMaterialEditing();
+
+        bool solid = generateOneMesh(zPos, neighbors, false, 1, 0);
+        bool transparent = generateOneMesh(zPos, neighbors, true, 1, 0);
+
+        bool solid_lod = generateOneMesh(zPos, neighbors, false, 2, 1);
+        bool transparent_lod = generateOneMesh(zPos, neighbors, true, 2, 1);
+
+        finishMaterialEditing();
 
         if (state.load() == ColumnState::Unloading) {
             return false;
@@ -1405,8 +1556,8 @@ public:
             return;
         }
 
-        if (vertexData[zPos].empty() || indexData[zPos].empty()) {
-            if (meta[zPos].meshSlot != -1)
+        if (vertexData[0][zPos].empty() || indexData[0][zPos].empty()) {
+            if (meta[zPos].meshSlots[0] != -1)
                 buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(meta[zPos].resourceId);
             setChunkState(zPos, ChunkState::Solid);
             return;
@@ -1438,12 +1589,12 @@ public:
 
     size_t getVertexDataSize(int zPos) const {
         std::lock_guard<std::mutex> lock(meshDataMutex);
-        return vertexData[zPos].size();
+        return vertexData[0][zPos].size();
     }
 
     size_t getIndexDataSize(int zPos) const {
         std::lock_guard<std::mutex> lock(meshDataMutex);
-        return indexData[zPos].size();
+        return indexData[0][zPos].size();
     }
 
     void cleanupBuffersOnly(int zPos, BufferManager* buf) {
@@ -1468,8 +1619,10 @@ public:
         cleanupBuffersOnly(zPos, buf);
         {
             std::lock_guard<std::mutex> lock2(meshDataMutex);
-            vertexData[zPos].clear();
-            indexData[zPos].clear();
+            for (int i = 0; i < 8; i++) {
+                vertexData[i][zPos].clear();
+                indexData[i][zPos].clear();
+            }
         }
     }
 

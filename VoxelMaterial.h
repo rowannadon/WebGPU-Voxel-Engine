@@ -18,7 +18,7 @@ enum BlockType: uint16_t {
 };
 
 struct VoxelMaterial {
-    uint16_t materialType = 0;  // 0=air, 1=stone, 2=dirt, 3=grass, etc.
+    uint16_t materialType = 0;  // 0=air, 1=dirt, 2=grass, 3=grass, etc.
 };
 
 struct LightMaterial {

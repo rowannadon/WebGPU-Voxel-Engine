@@ -290,7 +290,7 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj);
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj);
     
     renderImGUI();
     

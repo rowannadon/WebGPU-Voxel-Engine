@@ -1,4 +1,4 @@
-// Shadow mapping shader for depth-only rendering
+// Shadow mapping shader for depth-only rendering with LOD support
 // shadow_shader.wgsl
 
 struct VertexInput {
@@ -53,6 +53,7 @@ struct UnpackedData {
     normal_index: u32,
     vertex_index: u32,
     ao_index: u32,
+    lod_level: u32,  // New: LOD level from packed data
 }
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
@@ -66,15 +67,27 @@ struct UnpackedData {
 
 const CHUNK_SIZE: f32 = 32.0;
 
+// Updated unpack function to decode LOD level (same as main shader)
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0xFFu;
-    let position_y = (packed_bits >> 8u) & 0xFFu;
-    let position_z = (packed_bits >> 16u) & 0xFFu;
-    let normal_index = (packed_bits >> 24u) & 0x7u;
-    let vertex_index = (packed_bits >> 27u) & 0x3u;
-    let ao_index = (packed_bits >> 29u) & 0x3u;
+    let position_x = packed_bits & 0x1Fu;
+    let position_y = (packed_bits >> 5u) & 0x1Fu;
+    let position_z = (packed_bits >> 10u) & 0x1Fu;
+    let normal_index = (packed_bits >> 15u) & 0x7u;
+    let vertex_index = (packed_bits >> 18u) & 0x3u;
+    let ao_index = (packed_bits >> 20u) & 0x3u;
+    let lod_bits = (packed_bits >> 22u) & 0x7u;
+    
+    // Convert LOD bits back to actual LOD level
+    var lod_level: u32;
+    switch (lod_bits) {
+        case 0u: { lod_level = 1u; }
+        case 1u: { lod_level = 2u; }
+        case 2u: { lod_level = 4u; }
+        case 3u: { lod_level = 8u; }
+        default: { lod_level = 1u; }
+    }
     
     return UnpackedData(
         position_x,
@@ -82,43 +95,10 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         position_z,
         normal_index,
         vertex_index,
-        ao_index
+        ao_index,
+        lod_level
     );
 }
-
-// LOD quad vertices - same as in main shader
-const lodQuadVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-    // Right face (+X) - YZ plane at x position
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, CHUNK_SIZE, 0.0), 
-        vec3<f32>(0.0, CHUNK_SIZE, CHUNK_SIZE), vec3<f32>(0.0, 0.0, CHUNK_SIZE)
-    ),
-    // Left face (-X) - YZ plane at x position
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, CHUNK_SIZE), vec3<f32>(0.0, CHUNK_SIZE, CHUNK_SIZE), 
-        vec3<f32>(0.0, CHUNK_SIZE, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-    ),
-    // Front face (+Y) - XZ plane at y position
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, CHUNK_SIZE), 
-        vec3<f32>(CHUNK_SIZE, 0.0, CHUNK_SIZE), vec3<f32>(CHUNK_SIZE, 0.0, 0.0)
-    ),
-    // Back face (-Y) - XZ plane at y position
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, CHUNK_SIZE), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(CHUNK_SIZE, 0.0, 0.0), vec3<f32>(CHUNK_SIZE, 0.0, CHUNK_SIZE)
-    ),
-    // Top face (+Z) - XY plane at z position
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(CHUNK_SIZE, 0.0, 0.0), 
-        vec3<f32>(CHUNK_SIZE, CHUNK_SIZE, 0.0), vec3<f32>(0.0, CHUNK_SIZE, 0.0)
-    ),
-    // Bottom face (-Z) - XY plane at z position
-    array<vec3<f32>, 4>(
-        vec3<f32>(CHUNK_SIZE, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(0.0, CHUNK_SIZE, 0.0), vec3<f32>(CHUNK_SIZE, CHUNK_SIZE, 0.0)
-    )
-);
 
 @vertex
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
@@ -133,75 +113,47 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     var position: vec3f;
     var voxel_pos: vec3f;
     
-    if (chunkData.lod > 0u) {
-        // LOD rendering: generate large quads spanning chunk faces
-        var base_vertex = lodQuadVertices[data.normal_index][data.vertex_index];
-        
-        // Position the quad at the correct slice
-        switch (data.normal_index) {
-            case 0u, 1u: { // X-axis faces
-                base_vertex.x = f32(data.position_x);
-                if (base_vertex.x >= CHUNK_SIZE+1) {
-                    base_vertex.x = CHUNK_SIZE+1;
-                }
-            }
-            case 2u, 3u: { // Y-axis faces
-                base_vertex.y = f32(data.position_y);
-                if (base_vertex.y >= CHUNK_SIZE+1) {
-                    base_vertex.y = CHUNK_SIZE+1;
-                }
-            }
-            case 4u, 5u: { // Z-axis faces
-                base_vertex.z = f32(data.position_z);
-                if (base_vertex.z >= CHUNK_SIZE+1) {
-                    base_vertex.z = CHUNK_SIZE+1;
-                }
-            }
-            default: {}
-        }
-        
-        position = chunk_world_pos + base_vertex;
-        voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
-    } else {
-        // Regular voxel rendering
-        voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
-        
-        // Face vertices for regular voxel faces
-        const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-            // Right face (+X)
-            array<vec3<f32>, 4>(
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
-            ),
-            // Left face (-X)
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-            ),
-            // Front face (+Y)
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-            ),
-            // Back face (-Y)
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-            ),
-            // Top face (+Z)
-            array<vec3<f32>, 4>(
-                vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
-                vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-            ),
-            // Bottom face (-Z)
-            array<vec3<f32>, 4>(
-                vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-                vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-            )
-        );
-        
-        position = chunk_world_pos + voxel_pos + faceVertices[data.normal_index][data.vertex_index];
-    }
+    // Calculate LOD-aware voxel position and scaling (same as main shader)
+    let lod_scale = f32(data.lod_level);
+    voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
+    
+    // LOD-aware face vertices - scale the unit cube by LOD level (same as main shader)
+    const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+        // Right face (+X)
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
+        ),
+        // Left face (-X)
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
+        ),
+        // Front face (+Y)
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+        ),
+        // Back face (-Y)
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+        ),
+        // Top face (+Z)
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
+        ),
+        // Bottom face (-Z)
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
+        )
+    );
+    
+    // Scale the vertex position by LOD level to create larger voxels
+    let scaled_vertex_offset = faceVertices[data.normal_index][data.vertex_index] * lod_scale;
+    position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     
@@ -215,7 +167,6 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
 
 @fragment
 fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
-
     // For shadow mapping, we only care about depth, but we need to return something
     // The depth is automatically written to the depth buffer
     return vec4f(0.0, 0.0, 0.0, 1.0);

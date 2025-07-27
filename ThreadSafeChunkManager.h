@@ -58,7 +58,7 @@ private:
     int numActiveChunks = 0;
     int lastNumActiveChunks = 0;
 
-    int renderDistance = 64;
+    int renderDistance = 128;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
@@ -115,7 +115,7 @@ public:
         return readyColumns;
     }
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(glm::mat4x4 view, glm::mat4x4 proj, glm::mat4x4 lightView, glm::mat4x4 lightProj) {
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(vec3 cameraPos, glm::mat4x4 view, glm::mat4x4 proj, glm::mat4x4 lightView, glm::mat4x4 lightProj) {
         Frustum cameraFrustum;
         cameraFrustum.extractPlanes(proj * view);
 
@@ -127,7 +127,10 @@ public:
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
         data.reserve(columns.size());
         for (const auto& pair : columns) {
-            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> rd = pair.second->getDAICs();
+            ivec2 columnPos = pair.second->getColumnPosition();
+            int distance = glm::length(vec2(columnPos) - vec2(cameraPos.x, cameraPos.y));
+            // calculate distance from player
+            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> rd = pair.second->getDAICs(distance);
 
             for (int i = 0; i < COLUMN_HEIGHT; i++) {
                 if (rd[i] && rd[i] != std::nullopt && rd[i].value().second.indexCount > 0) {
@@ -280,7 +283,7 @@ private:
 
             std::unique_lock<std::shared_mutex> lock(columnsMutex);
 
-            if (columns.find(nextChunk.position) == columns.end()) {
+            if (columns.find(nextChunk.position) == columns.end() && workerSystem->getQueueSize() == 0) {
                 float distanceFromPlayer =
                     glm::abs(nextChunk.position.x - playerChunkPos.x) +
                     glm::abs(nextChunk.position.y - playerChunkPos.y);
