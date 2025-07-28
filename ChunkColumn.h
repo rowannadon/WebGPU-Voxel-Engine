@@ -566,53 +566,6 @@ private:
         }
     }
 
-    //VoxelMaterial getMaterialWholeColumn(ivec3 pos) const {
-    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
-    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
-    //        pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
-    //        return { 0 }; // Air material
-    //    }
-
-    //    std::lock_guard<std::mutex> lock(materialDataMutex);
-    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
-    //    if (index >= 0 && index < TOTAL_VOXELS) {
-    //        return materialData[index];
-    //    }
-    //    return { 0 }; // Air material
-    //}
-
-    //VoxelMaterial getMaterial(int zPos, ivec3 pos) {
-    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
-    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
-    //        pos.z < 0 || pos.z >= CHUNK_SIZE) {
-    //        return { 0 }; // Air material
-    //    }
-
-    //    std::lock_guard<std::mutex> lock(materialDataMutex);
-    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
-
-    //    int offset = TOTAL_VOXELS_CHUNK * zPos;
-
-    //    if (index >= 0 && index < TOTAL_VOXELS) {
-    //        return materialData[index + offset];
-    //    }
-    //    return { 0 }; // Air material
-    //}
-
-    //void setMaterialWholeColumn(ivec3 pos, const VoxelMaterial& material) {
-    //    if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
-    //        pos.y < 0 || pos.y >= CHUNK_SIZE ||
-    //        pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
-    //        return;
-    //    }
-
-    //    std::lock_guard<std::mutex> lock(materialDataMutex);
-    //    int index = pos.x + pos.y * CHUNK_SIZE + pos.z * CHUNK_SIZE * CHUNK_SIZE;
-    //    if (index >= 0 && index < TOTAL_VOXELS) {
-    //        materialData[index] = material;
-    //    }
-    //}
-
     inline size_t getMaterialIndex(int x, int y, int z) const {
         return x * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS + y * COLUMN_HEIGHT_BLOCKS + z;
     }

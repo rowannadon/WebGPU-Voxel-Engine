@@ -1,6 +1,6 @@
 #include <unordered_map>
 #include <webgpu/webgpu.hpp>
-#include "../VertexAttributes.h"
+#include "../FaceAttributes.h"
 #include <mutex>
 #include <iostream>
 
@@ -9,16 +9,14 @@ using namespace wgpu;
 class MeshBufferPool {
     Device device;
     Queue queue;
-    Buffer vertexBuffer;
-    Buffer indexBuffer;
+    Buffer storageBuffer;
     std::unordered_map<std::string, int> map;
     std::unique_ptr<std::atomic<bool>[]> slotOccupancy;
     std::mutex dataMutex;
 
     const int NUM_BUFFERS = 18000;
     const int totalSlots = NUM_BUFFERS;
-    const int MAX_VERTICES_PER_CHUNK = 32768;
-    const int MAX_INDICES_PER_CHUNK = MAX_VERTICES_PER_CHUNK * 1.5;
+    const int MAX_FACES_PER_CHUNK = 8196;
 
     // Calculate aligned sizes
     const size_t VERTEX_STRIDE = sizeof(VertexAttributes);
@@ -62,8 +60,8 @@ public:
         indexBuffer = device.createBuffer(indexBufferDesc);
 
         std::cout << "MeshBufferPool initialized: " << NUM_BUFFERS << " slots, "
-                  << "Vertex buffer: " << VERTEX_BUFFER_SIZE << " bytes, "
-                  << "Index buffer: " << INDEX_BUFFER_SIZE << " bytes" << std::endl;
+            << "Vertex buffer: " << VERTEX_BUFFER_SIZE << " bytes, "
+            << "Index buffer: " << INDEX_BUFFER_SIZE << " bytes" << std::endl;
     }
 
     int findFreeSlot() {
@@ -93,7 +91,7 @@ public:
     void writeToSlot(std::string id, std::vector<VertexAttributes>& vertexData, std::vector<uint16_t>& indexData) {
         if (vertexData.size() > MAX_VERTICES_PER_CHUNK || indexData.size() > MAX_INDICES_PER_CHUNK) {
             std::cerr << "Mesh data too large for slot: vertices=" << vertexData.size()
-                      << ", indices=" << indexData.size() << std::endl;
+                << ", indices=" << indexData.size() << std::endl;
             return;
         }
 
@@ -121,15 +119,15 @@ public:
         // Bounds checking
         if (vertexOffset + alignedVertexSize > VERTEX_BUFFER_SIZE) {
             std::cerr << "Vertex buffer overflow: offset=" << vertexOffset
-                      << ", size=" << alignedVertexSize
-                      << ", buffer size=" << VERTEX_BUFFER_SIZE << std::endl;
+                << ", size=" << alignedVertexSize
+                << ", buffer size=" << VERTEX_BUFFER_SIZE << std::endl;
             return;
         }
 
         if (indexOffset + alignedIndexSize > INDEX_BUFFER_SIZE) {
             std::cerr << "Index buffer overflow: offset=" << indexOffset
-                      << ", size=" << alignedIndexSize
-                      << ", buffer size=" << INDEX_BUFFER_SIZE << std::endl;
+                << ", size=" << alignedIndexSize
+                << ", buffer size=" << INDEX_BUFFER_SIZE << std::endl;
             return;
         }
 
