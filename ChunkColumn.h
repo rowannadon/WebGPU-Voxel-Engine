@@ -277,7 +277,7 @@ public:
             daic.instanceCount = 1;
 
             // These should be offsets in ELEMENTS, not bytes
-            daic.firstIndex = static_cast<uint32_t>(meshSlot * 32768); // Assuming max 32768 indices per chunk
+            daic.firstIndex = static_cast<uint32_t>(meshSlot * 32768 * 1.5); // Assuming max 32768 indices per chunk
             daic.baseVertex = static_cast<int32_t>(meshSlot * 32768);  // Assuming max 32768 vertices per chunk
             daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
 
@@ -1072,13 +1072,13 @@ public:
             }
         }
 
-        finishMaterialEditing();
+        //finishMaterialEditing();
 
         setState(ColumnState::TopsoilReady);
     }
 
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
-        beginMaterialEditing();
+        //beginMaterialEditing();
 
         VoxelMaterial trunkMaterial;
         trunkMaterial.materialType = BlockType::Log;
@@ -1194,7 +1194,7 @@ public:
             }
         }
 
-        finishMaterialEditing();
+        //finishMaterialEditing();
 
         setState(ColumnState::TreesReady);
     }
@@ -1261,7 +1261,7 @@ public:
 
                         bool hasSolid = this->getVoxelSafe(zPos, voxelPos, false, neighbors);
                         bool hasTransparent = this->getVoxelSafe(zPos, voxelPos, true, neighbors);
-
+                   
                         bool isOccupied = transparent ? hasTransparent : hasSolid;
                         if (isOccupied) {
                             solidVoxels++;
@@ -1273,7 +1273,7 @@ public:
             }
 
             // Require majority of voxels to be solid for the LOD group to be considered solid
-            bool groupIsSolid = solidVoxels > (totalVoxels / 8);
+            bool groupIsSolid = solidVoxels > totalVoxels / 4;
 
             VoxelMaterial dominantMaterial = {};
             if (groupIsSolid && !materialCounts.empty()) {
@@ -1295,7 +1295,7 @@ public:
 
         auto isEmptyLODGroup = [&](ivec3 groupPos) -> bool {
             auto [isSolid, material] = sampleLODGroup(groupPos);
-            return !isSolid;
+            return !isSolid || material.materialType == BlockType::Leaf;
             };
 
         // Check if a LOD face should be culled
@@ -1358,7 +1358,7 @@ public:
                     bool hasTransparent = this->getVoxelSafe(zPos, neighborVoxelPos, true, neighbors);
 
                     // Determine if this neighbor position is empty
-                    bool isEmpty = transparent ? (!hasTransparent && !hasSolid) : (!hasSolid || hasTransparent);
+                    bool isEmpty = transparent ? (!hasSolid) : (!hasSolid || hasTransparent);
 
                     if (isEmpty) {
                         return false; // Don't cull - at least one neighbor voxel is empty
@@ -1514,7 +1514,7 @@ public:
             vertexData[1][zPos].clear();
         }
 
-        beginMaterialEditing();
+        //beginMaterialEditing();
 
         bool solid = generateOneMesh(zPos, neighbors, false, 1, 0);
         bool transparent = generateOneMesh(zPos, neighbors, true, 1, 0);

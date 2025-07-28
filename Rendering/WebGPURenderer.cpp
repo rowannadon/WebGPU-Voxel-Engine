@@ -1225,7 +1225,7 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("atlas_sampler", samplerDesc);
 
-	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas.png");
+	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas_large.png");
 
 	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 

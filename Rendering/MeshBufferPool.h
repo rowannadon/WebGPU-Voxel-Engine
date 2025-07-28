@@ -18,7 +18,7 @@ class MeshBufferPool {
     const int NUM_BUFFERS = 8192;
     const int totalSlots = NUM_BUFFERS;
     const int MAX_VERTICES_PER_CHUNK = 32768;
-    const int MAX_INDICES_PER_CHUNK = 32768;
+    const int MAX_INDICES_PER_CHUNK = MAX_VERTICES_PER_CHUNK * 1.5;
 
     // Calculate aligned sizes
     const size_t VERTEX_STRIDE = sizeof(VertexAttributes);

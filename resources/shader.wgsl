@@ -376,12 +376,45 @@ fn get_pbr_material_properties(material_id: u32) -> PBRMaterialProperties {
     return PBR_MATERIAL_PROPERTIES[index];
 }
 
-fn get_atlas_uv(base_uv: vec2<f32>, material_id: u32) -> vec2<f32> {
+fn get_atlas_uv(material_id: u32, world_position: vec3f, normal: vec3f) -> vec2<f32> {
+    // Calculate which tile in the atlas to use
     let tile_x = f32(material_id % u32(ATLAS_TILES_X));
     let tile_y = f32(material_id / u32(ATLAS_TILES_X));
-    let tiled_uv = fract(base_uv);
     let tile_offset = vec2<f32>(tile_x * TILE_SIZE, tile_y * TILE_SIZE);
-    let scaled_uv = tiled_uv * TILE_SIZE;
+    
+    // Each texture tile covers a 4x4x4 voxel area
+    let texture_scale = 4.0;
+    
+    // Determine which face we're on based on the normal vector
+    let abs_normal = abs(normal);
+    var texture_coords: vec2f;
+    
+    // Find the dominant axis of the normal
+    if (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) {
+        // X-dominant face (left/right) - use Z,Y coordinates with rotation
+        var base_coords = vec2f(world_position.z, world_position.y) / texture_scale;
+        base_coords = fract(base_coords);
+        
+        // Apply 90-degree clockwise rotation for X faces
+        // Rotation matrix: [0, 1; -1, 0] applied to (u,v) gives (v, 1-u)
+        texture_coords = vec2f(base_coords.y, 1.0 - base_coords.x);
+    } else if (abs_normal.y > abs_normal.z) {
+        // Y-dominant face (front/back) - use X,Z coordinates  
+        texture_coords = vec2f(world_position.x, world_position.z) / texture_scale;
+    } else {
+        // Z-dominant face (up/down) - use X,Y coordinates
+        texture_coords = vec2f(world_position.x, world_position.y) / texture_scale;
+    }
+    
+    // Take the fractional part to get the position within the 4x4x4 block
+    let block_uv = fract(texture_coords);
+    
+    // Clamp to prevent sampling at exactly 1.0 which could bleed into next tile
+    let texture_uv = block_uv;
+    
+    // Scale to fit within the atlas tile
+    let scaled_uv = texture_uv * TILE_SIZE;
+    
     return tile_offset + scaled_uv;
 }
 
@@ -392,7 +425,7 @@ fn sample_noise_for_roughness(uv: vec2f, base_roughness: f32, world_pos: vec3f) 
     let random_offset = fract(sin(world_seed) * 43758.5453);
     
     // Scale UV to match 32x32 block texture with 64x64 noise and add random rotation
-    let base_noise_uv = fract(uv * 0.125);
+    let base_noise_uv = fract(uv * 2.0);
     
     // Add multiple sampling points with different offsets to break up patterns
     let offset1 = vec2f(random_offset, fract(random_offset * 2.7183));
@@ -418,7 +451,7 @@ fn sample_noise_for_metallic(uv: vec2f, base_metallic: f32, world_pos: vec3f) ->
     let world_seed = world_pos.x * 73.156 + world_pos.y * 41.892 + world_pos.z * 19.337;
     let random_offset = fract(sin(world_seed) * 29751.3847);
     
-    let base_noise_uv = fract(uv * 0.125);
+    let base_noise_uv = fract(uv * 2.0);
     
     // Different offsets for metallic sampling
     let offset1 = vec2f(fract(random_offset * 1.414), fract(random_offset * 1.732));
@@ -542,28 +575,29 @@ const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
     vec3<f32>(0.0, 0.0, -1.0)
 );
 
+
 const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
-    array<vec2<f32>, 4>(
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>(
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>(
+    array<vec2<f32>, 4>( // +X (rotated 90° clockwise)
         vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
         vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
     ),
-    array<vec2<f32>, 4>(
+    array<vec2<f32>, 4>( // -X (rotated 90° clockwise)
+        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), 
+        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0)
+    ),
+    array<vec2<f32>, 4>( // +Y
         vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
         vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
     ),
-    array<vec2<f32>, 4>(
+    array<vec2<f32>, 4>( // -Y
+        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
+        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
+    ),
+    array<vec2<f32>, 4>( // +Z
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
         vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
     ),
-    array<vec2<f32>, 4>(
+    array<vec2<f32>, 4>( // -Z
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
         vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
     ),
@@ -726,9 +760,9 @@ fn calculate_pbr_lighting(
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
-            let subsurface_power = 3.0;  // Controls the falloff of the subsurface effect
-            let subsurface_distortion = 0.4;  // How much the light bends through the material
-            let subsurface_scale = 2.0;  // Overall intensity scale
+            let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
+            let subsurface_distortion = 0.3;  // How much the light bends through the material
+            let subsurface_scale = 16.0;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -775,13 +809,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let materialProps = get_pbr_material_properties(material_id);
     
     // Sample noise for material variation
-    let lod_adjusted_uv = fract(clamp(in.uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)) * lod_scale);
+    let lod_adjusted_uv = fract(in.uv * lod_scale);
     let varied_roughness = sample_noise_for_roughness(lod_adjusted_uv, materialProps.roughness, in.world_position);
     let varied_metallic = sample_noise_for_metallic(lod_adjusted_uv, materialProps.metallic, in.world_position);
     
     // Sample albedo texture
-    let atlas_uv = get_atlas_uv(clamp(lod_adjusted_uv, vec2f(0.01, 0.01), vec2f(0.99, 0.99)), material_id - 1);
-    let textureColor = textureSample(textureAtlas, textureSampler, atlas_uv);
+    let atlas_uv = get_atlas_uv(material_id - 1, in.world_position, normal);
+    let textureColor = textureSampleLevel(textureAtlas, textureSampler, atlas_uv, 0);
 
     if (textureColor.a < 0.5) {
         discard;
@@ -793,14 +827,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
     let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
-    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
+    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 6.0; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 5.0; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
