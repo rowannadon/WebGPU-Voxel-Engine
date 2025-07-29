@@ -3,7 +3,7 @@
 
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
-    @location(0) data: u32,
+    @builtin(vertex_index) vertex_idx: u32,
 };
 
 struct VertexOutput {
@@ -36,7 +36,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
-    textureSlot: u32,
+    meshSlot: u32,
     lightSlot: u32,
     right: u32,
     left: u32,
@@ -51,10 +51,18 @@ struct UnpackedData {
     position_y: u32,
     position_z: u32,
     normal_index: u32,
-    vertex_index: u32,
-    ao_index: u32,
-    lod_level: u32,  // New: LOD level from packed data
+    lod_level: u32,
+    ao: vec4u
 }
+
+struct FaceData {
+    data: u32,
+    materialId: u32,
+}
+
+const CHUNK_SIZE: f32 = 32.0;
+const STORAGE_BUFFER_SLOT_SIZE = 8192;
+const NUM_TOTAL_SLOTS = 18000;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var textureAtlas: texture_2d<f32>;
@@ -64,10 +72,9 @@ struct UnpackedData {
 @group(1) @binding(1) var light_sampler_3d: sampler;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
+@group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
-const CHUNK_SIZE: f32 = 32.0;
 
-// Updated unpack function to decode LOD level (same as main shader)
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
@@ -75,11 +82,14 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
     let normal_index = (packed_bits >> 15u) & 0x7u;
-    let vertex_index = (packed_bits >> 18u) & 0x3u;
-    let ao_index = (packed_bits >> 20u) & 0x3u;
-    let lod_bits = (packed_bits >> 22u) & 0x7u;
+    let lod_bits = (packed_bits >> 18u) & 0x7u;
+
+    var ao = vec4u(0);
+    ao[0] = (packed_bits >> 20u) & 0x3u;
+    ao[1] = (packed_bits >> 22u) & 0x3u;
+    ao[2] = (packed_bits >> 24u) & 0x3u;
+    ao[3] = (packed_bits >> 26u) & 0x3u;
     
-    // Convert LOD bits back to actual LOD level
     var lod_level: u32;
     switch (lod_bits) {
         case 0u: { lod_level = 1u; }
@@ -94,65 +104,81 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         position_y,
         position_z,
         normal_index,
-        vertex_index,
-        ao_index,
-        lod_level
+        lod_level,
+        ao
     );
 }
 
 @vertex
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
-    var out: VertexOutput;
-    
+        var out: VertexOutput;
+
     let chunkData = chunkDataArray[in.instance_idx];
-    out.idx = in.instance_idx;
     
-    let data = unpack_data(in.data);
+    // The storage buffer slot is passed via firstInstance in the DAIC
+    let storageSlot = in.instance_idx;  // This comes from DAIC.firstInstance
+    
+    // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
+    let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
+    let vertexInFace = in.vertex_idx % 6u;  // Which vertex within the face (0-5)
+    
+    // Calculate the actual index in the storage buffer
+    // Each slot has STORAGE_BUFFER_SLOT_SIZE faces
+    let globalFaceIndex = storageSlot * STORAGE_BUFFER_SLOT_SIZE + faceIndex;
+    
+    // Bounds check
+    if (globalFaceIndex >= STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    
+    // Get the face data using the global index
+    let faceData = vertexData[globalFaceIndex];
+    
+    out.idx = in.instance_idx;
+    //out.material_id = faceData.materialId;
+
+    let data = unpack_data(faceData.data);
+    //out.lod_level = data.lod_level;
+    
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
     var position: vec3f;
     var voxel_pos: vec3f;
+    var uv: vec2f;
     
-    // Calculate LOD-aware voxel position and scaling (same as main shader)
     let lod_scale = f32(data.lod_level);
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
     
-    // LOD-aware face vertices - scale the unit cube by LOD level (same as main shader)
     const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-        // Right face (+X)
         array<vec3<f32>, 4>(
             vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
             vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
         ),
-        // Left face (-X)
         array<vec3<f32>, 4>(
             vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
             vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
         ),
-        // Front face (+Y)
         array<vec3<f32>, 4>(
             vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
             vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
         ),
-        // Back face (-Y)
         array<vec3<f32>, 4>(
             vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
             vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
         ),
-        // Top face (+Z)
         array<vec3<f32>, 4>(
             vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
             vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
         ),
-        // Bottom face (-Z)
         array<vec3<f32>, 4>(
             vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
             vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
         )
     );
     
-    // Scale the vertex position by LOD level to create larger voxels
-    let scaled_vertex_offset = faceVertices[data.normal_index][data.vertex_index] * lod_scale;
+    let scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
     position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);

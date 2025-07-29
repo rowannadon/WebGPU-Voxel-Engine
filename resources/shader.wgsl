@@ -130,6 +130,20 @@ struct Atmosphere {
 const STORAGE_BUFFER_SLOT_SIZE = 8192;
 const NUM_TOTAL_SLOTS = 18000;
 
+const ATLAS_TILES_X: f32 = 4.0;
+const ATLAS_TILES_Y: f32 = 4.0;
+const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
+const CHUNK_SIZE: f32 = 32.0;
+
+// Distance-based shading fade constants
+const SHADING_FADE_START: f32 = 300.0;
+const SHADING_FADE_END: f32 = 600.0;
+const MIN_SHADING_CONTRAST: f32 = 0.1;
+
+// Chunk edge highlighting constants
+const CHUNK_EDGE_WIDTH: f32 = 2.0;
+const CHUNK_EDGE_INTENSITY: f32 = 0.3;
+
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
 @group(0) @binding(2) var textureAtlas: texture_2d<f32>;
@@ -148,20 +162,6 @@ const NUM_TOTAL_SLOTS = 18000;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
-
-const ATLAS_TILES_X: f32 = 4.0;
-const ATLAS_TILES_Y: f32 = 4.0;
-const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
-const CHUNK_SIZE: f32 = 32.0;
-
-// Distance-based shading fade constants
-const SHADING_FADE_START: f32 = 300.0;
-const SHADING_FADE_END: f32 = 600.0;
-const MIN_SHADING_CONTRAST: f32 = 0.1;
-
-// Chunk edge highlighting constants
-const CHUNK_EDGE_WIDTH: f32 = 2.0;
-const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 
 // PBR material definitions - expanded with realistic properties
 const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
@@ -477,7 +477,6 @@ fn sample_noise_for_metallic(uv: vec2f, base_metallic: f32, world_pos: vec3f) ->
     return clamp(base_metallic + metallic_variation, 0.0, 1.0);
 }
 
-// Updated unpack function to decode LOD level
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
@@ -796,7 +795,7 @@ fn calculate_pbr_lighting(
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.3;  // How much the light bends through the material
-            let subsurface_scale = 16.0;  // Overall intensity scale
+            let subsurface_scale = 6.0;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -861,9 +860,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
     let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
-    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
+    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
     
-    let shadow_factor = 1.0; //calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
+    let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
     

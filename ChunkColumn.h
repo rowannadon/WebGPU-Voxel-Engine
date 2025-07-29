@@ -246,9 +246,9 @@ public:
         std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
 
         int slot = 0;
-        if (distance > 11600) {
+        /*if (distance > 11600) {
             slot = 1;
-        }
+        }*/
 
         if (state.load() != ColumnState::MeshReady) {
             return output;

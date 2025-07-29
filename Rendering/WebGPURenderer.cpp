@@ -36,8 +36,8 @@ bool WebGPURenderer::initialize() {
 	initMultiScatteringPipeline();
 	initSkyViewPipeline();
 	initAerialPerspectivePipeline();
-	initShadowPipeline();
 	initRenderPipeline();
+	initShadowPipeline();
 	initSkyPipeline();
 	initTerrainPipeline();
 
@@ -530,40 +530,40 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	}
 
 	// === SHADOW RENDER PASS ===
-	//if (chunkRenderData.second.size() > 0) {
-	//	RenderPassDescriptor renderPassDesc = {};
+	if (chunkRenderData.second.size() > 0) {
+		RenderPassDescriptor renderPassDesc = {};
 
-	//	renderPassDesc.colorAttachmentCount = 0;
+		renderPassDesc.colorAttachmentCount = 0;
 
-	//	RenderPassDepthStencilAttachment depthStencilAttachment;
-	//	depthStencilAttachment.view = textureManager->getTextureView("shadow_view");
-	//	depthStencilAttachment.depthClearValue = 1.0f;
-	//	depthStencilAttachment.depthLoadOp = LoadOp::Clear;  // Keep depth from sky
-	//	depthStencilAttachment.depthStoreOp = StoreOp::Store;
-	//	depthStencilAttachment.depthReadOnly = false;
-	//	depthStencilAttachment.stencilClearValue = 0;
-	//	depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
-	//	depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
-	//	depthStencilAttachment.stencilReadOnly = true;
+		RenderPassDepthStencilAttachment depthStencilAttachment;
+		depthStencilAttachment.view = textureManager->getTextureView("shadow_view");
+		depthStencilAttachment.depthClearValue = 1.0f;
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;  // Keep depth from sky
+		depthStencilAttachment.depthStoreOp = StoreOp::Store;
+		depthStencilAttachment.depthReadOnly = false;
+		depthStencilAttachment.stencilClearValue = 0;
+		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.stencilReadOnly = true;
 
-	//	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
-	//	renderPassDesc.timestampWrites = nullptr;
+		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.timestampWrites = nullptr;
 
-	//	RenderPassEncoder shadowRenderPass = encoder.beginRenderPass(renderPassDesc);
-	//	shadowRenderPass.setPipeline(pipelineManager->getPipeline("shadow_pipeline"));
-	//	shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
-	//	shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
-	//	shadowRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+		RenderPassEncoder shadowRenderPass = encoder.beginRenderPass(renderPassDesc);
+		shadowRenderPass.setPipeline(pipelineManager->getPipeline("shadow_pipeline"));
+		shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
+		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(3, pipelineManager->getBindGroup("storage_buffer_group"), 0, nullptr);
 
-	//	auto pool = bufferManager->getMeshBufferPool("mesh_pool");
-	//	shadowRenderPass.setVertexBuffer(0, pool->getVertexBuffer(), 0, pool->getVertexBufferSize());
-	//	shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
+		auto pool = bufferManager->getStorageBufferPool("storage_pool");
+		shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
 
-	//	shadowRenderPass.multiDrawIndexedIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
-	//	
-	//	shadowRenderPass.end();
-	//	shadowRenderPass.release();
-	//}
+		shadowRenderPass.multiDrawIndexedIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
+		
+		shadowRenderPass.end();
+		shadowRenderPass.release();
+	}
 
 	// === VOXEL RENDER PASS ===
 	if (chunkRenderData.first.size() > 0) {
@@ -1087,7 +1087,6 @@ bool WebGPURenderer::initRenderPipeline() {
 	globalUniforms[10].texture.sampleType = TextureSampleType::Float;
 	globalUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
 
-
 	config.bindGroupLayouts.push_back(
 		pipelineManager->createBindGroupLayout("global_uniforms", globalUniforms)
 	);
@@ -1118,14 +1117,8 @@ bool WebGPURenderer::initShadowPipeline() {
 	config.fragmentShaderName = "shadow_fs_main";  // Fragment shader entry point
 	config.vertexShaderName = "shadow_vs_main";  // Vertex shader entry point
 	config.useColorTarget = false;
-
-	// vertex attributes
-	std::vector<VertexAttribute> vertexAttribs(1);
-	// data attribute
-	vertexAttribs[0].shaderLocation = 0;
-	vertexAttribs[0].format = VertexFormat::Uint32;
-	vertexAttribs[0].offset = 0;
-	config.vertexAttributes = vertexAttribs;
+	config.useVertexBuffers = false;
+	config.vertexAttributes.clear();
 
 	// uniforms binding
 	std::vector<BindGroupLayoutEntry> globalUniforms(3, Default);
@@ -1152,6 +1145,9 @@ bool WebGPURenderer::initShadowPipeline() {
 	);
 	config.bindGroupLayouts.push_back(
 		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
+	);
+	config.bindGroupLayouts.push_back(
+		pipelineManager->getBindGroupLayout("storage_buffer")
 	);
 
 	pipelineManager->createRenderPipeline("shadow_pipeline", config);
