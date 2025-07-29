@@ -843,8 +843,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Sample noise for material variation
     let lod_adjusted_uv = fract(in.uv * lod_scale);
-    let varied_roughness = sample_noise_for_roughness(lod_adjusted_uv, materialProps.roughness, in.world_position);
-    let varied_metallic = sample_noise_for_metallic(lod_adjusted_uv, materialProps.metallic, in.world_position);
+    let varied_roughness = materialProps.roughness; //sample_noise_for_roughness(lod_adjusted_uv, materialProps.roughness, in.world_position);
+    let varied_metallic = materialProps.metallic; //sample_noise_for_metallic(lod_adjusted_uv, materialProps.metallic, in.world_position);
     
     // Sample albedo texture
     let atlas_uv = get_atlas_uv(material_id - 1, in.world_position, normal);
