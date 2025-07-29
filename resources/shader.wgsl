@@ -83,9 +83,8 @@ struct UnpackedData {
     position_y: u32,
     position_z: u32,
     normal_index: u32,
-    vertex_index: u32,
-    ao_index: u32,
     lod_level: u32,
+    ao: vec4u
 }
 
 // Enhanced PBR Material Properties
@@ -486,9 +485,13 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
     let normal_index = (packed_bits >> 15u) & 0x7u;
-    let vertex_index = (packed_bits >> 18u) & 0x3u;
-    let ao_index = (packed_bits >> 20u) & 0x3u;
-    let lod_bits = (packed_bits >> 22u) & 0x7u;
+    let lod_bits = (packed_bits >> 18u) & 0x7u;
+
+    var ao = vec4u(0);
+    ao[0] = (packed_bits >> 20u) & 0x3u;
+    ao[1] = (packed_bits >> 22u) & 0x3u;
+    ao[2] = (packed_bits >> 24u) & 0x3u;
+    ao[3] = (packed_bits >> 26u) & 0x3u;
     
     var lod_level: u32;
     switch (lod_bits) {
@@ -504,9 +507,8 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         position_y,
         position_z,
         normal_index,
-        vertex_index,
-        ao_index,
-        lod_level
+        lod_level,
+        ao
     );
 }
 
@@ -640,18 +642,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         return out;
     }
     
-    // Map the 6 vertices per face to quad vertices (0,1,2,0,2,3)
-    var quadVertexId: u32;
-    switch (vertexInFace) {
-        case 0u: { quadVertexId = 0u; }  // First triangle: vertex 0
-        case 1u: { quadVertexId = 1u; }  // First triangle: vertex 1  
-        case 2u: { quadVertexId = 2u; }  // First triangle: vertex 2
-        case 3u: { quadVertexId = 0u; }  // Second triangle: vertex 0
-        case 4u: { quadVertexId = 2u; }  // Second triangle: vertex 2
-        case 5u: { quadVertexId = 3u; }  // Second triangle: vertex 3
-        default: { quadVertexId = 0u; }
-    }
-    
     // Get the face data using the global index
     let faceData = vertexData[globalFaceIndex];
     
@@ -698,14 +688,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         )
     );
     
-    let scaled_vertex_offset = faceVertices[data.normal_index][quadVertexId] * lod_scale;
+    let scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
     position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
     
-    uv = faceUVsIndependent[data.normal_index][quadVertexId];
+    uv = faceUVsIndependent[data.normal_index][vertexInFace];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     let normal = faceNormals[data.normal_index];
-    let ao = 1.0; //aoLevels[data.ao_index];
+    let ao = aoLevels[data.ao[vertexInFace]];
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
@@ -873,7 +863,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
     let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.25);
     
-    let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
+    let shadow_factor = 1.0; //calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
     

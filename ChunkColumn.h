@@ -1333,14 +1333,17 @@ public:
             };
 
         auto packData = [lodLevel](uint8_t position_x, uint8_t position_y, uint8_t position_z,
-            uint8_t normal_index, uint8_t vertex_index, uint8_t ao_index) -> uint32_t {
+            uint8_t normal_index, std::array<uint32_t, 4>& aoValues) -> uint32_t {
                 // Validate input ranges
                 position_x &= 0x1F;    // Mask to 5 bits (0-31)
                 position_y &= 0x1F;    // Mask to 5 bits (0-31)
                 position_z &= 0x1F;    // Mask to 5 bits (0-31)
                 normal_index &= 0x7;   // Mask to 3 bits
-                vertex_index &= 0x3;   // Mask to 2 bits
-                ao_index &= 0x3;       // Mask to 2 bits
+
+                aoValues[0] &= 0x3;
+                aoValues[1] &= 0x3;
+                aoValues[2] &= 0x3;
+                aoValues[3] &= 0x3;
 
                 // Encode LOD level in remaining bits (22-24, 3 bits allows LOD 1-8)
                 uint8_t lodBits = 0;
@@ -1362,12 +1365,13 @@ public:
                 packed |= static_cast<uint32_t>(position_z) << 10;
                 // Normal Index: bits 15-17
                 packed |= static_cast<uint32_t>(normal_index) << 15;
-                // Vertex Index: bits 18-19
-                packed |= static_cast<uint32_t>(vertex_index) << 18;
-                // AO Index: bits 20-21
-                packed |= static_cast<uint32_t>(ao_index) << 20;
                 // LOD Level: bits 22-24
-                packed |= static_cast<uint32_t>(lodBits) << 22;
+                packed |= static_cast<uint32_t>(lodBits) << 18;
+
+                packed |= static_cast<uint32_t>(aoValues[0]) << 20;
+                packed |= static_cast<uint32_t>(aoValues[1]) << 22;
+                packed |= static_cast<uint32_t>(aoValues[2]) << 24;
+                packed |= static_cast<uint32_t>(aoValues[3]) << 26;
 
                 return packed;
             };
@@ -1393,21 +1397,36 @@ public:
                                 if (!shouldCullLODFace(groupPos, face)) {
                                     uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
 
-                                    /*std::array<float, 4> aoValues;
+                                    std::array<uint32_t, 4> aoValues;
                                     for (int vertex = 0; vertex < 4; ++vertex) {
                                         aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
-                                    }*/
+                                    }
 
-                                    //bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
                                     FaceAttributes faceData;
                                     // Use group position (which represents the LOD voxel position)
-                                    faceData.data = packData(x, y, z, face, 0, 0);
+                                    faceData.data = packData(x, y, z, face, aoValues);
                                     faceData.materialId = groupMaterial.materialType;
                                     vertexData[meshSlot][zPos].push_back(faceData);
 
-                                    for (int i = 0; i < 6; i++) {
-                                        indexData[meshSlot][zPos].push_back(baseIndex + i);
+                                    if (flipQuad) {
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                    }
+                                    else {
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
                                     }
                                 }
                             }
