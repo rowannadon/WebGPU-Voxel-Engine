@@ -20,9 +20,13 @@ const TO_KM_SCALE = 1.0/3280.0;
 
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
-    @location(0) data: u32,
-    @location(1) material_id: u32,
+    @builtin(vertex_index) vertex_idx: u32,
 };
+
+struct FaceData {
+    data: u32,
+    materialId: u32,
+}
 
 struct VertexOutput {
     @builtin(position) position: vec4f,
@@ -64,7 +68,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
-    textureSlot: u32,
+    meshSlot: u32,
     lightSlot: u32,
     right: u32,
     left: u32,
@@ -123,6 +127,10 @@ struct Atmosphere {
     padding: f32
 }
 
+// number of face data per slot 
+const STORAGE_BUFFER_SLOT_SIZE = 8192;
+const NUM_TOTAL_SLOTS = 18000;
+
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
 @group(0) @binding(2) var textureAtlas: texture_2d<f32>;
@@ -139,7 +147,8 @@ struct Atmosphere {
 @group(1) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(1) @binding(1) var light_sampler_3d: sampler;
 
-@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 18000>;
+@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
+@group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
 const ATLAS_TILES_X: f32 = 4.0;
 const ATLAS_TILES_Y: f32 = 4.0;
@@ -610,12 +619,47 @@ const aoLevels = array<f32, 4>(
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    
-    let chunkData = chunkDataArray[in.instance_idx];
-    out.idx = in.instance_idx;
-    out.material_id = in.material_id;
 
-    let data = unpack_data(in.data);
+    let chunkData = chunkDataArray[in.instance_idx];
+    
+    // The storage buffer slot is passed via firstInstance in the DAIC
+    let storageSlot = in.instance_idx;  // This comes from DAIC.firstInstance
+    
+    // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
+    let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
+    let vertexInFace = in.vertex_idx % 6u;  // Which vertex within the face (0-5)
+    
+    // Calculate the actual index in the storage buffer
+    // Each slot has STORAGE_BUFFER_SLOT_SIZE faces
+    let globalFaceIndex = storageSlot * STORAGE_BUFFER_SLOT_SIZE + faceIndex;
+    
+    // Bounds check
+    if (globalFaceIndex >= STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    
+    // Map the 6 vertices per face to quad vertices (0,1,2,0,2,3)
+    var quadVertexId: u32;
+    switch (vertexInFace) {
+        case 0u: { quadVertexId = 0u; }  // First triangle: vertex 0
+        case 1u: { quadVertexId = 1u; }  // First triangle: vertex 1  
+        case 2u: { quadVertexId = 2u; }  // First triangle: vertex 2
+        case 3u: { quadVertexId = 0u; }  // Second triangle: vertex 0
+        case 4u: { quadVertexId = 2u; }  // Second triangle: vertex 2
+        case 5u: { quadVertexId = 3u; }  // Second triangle: vertex 3
+        default: { quadVertexId = 0u; }
+    }
+    
+    // Get the face data using the global index
+    let faceData = vertexData[globalFaceIndex];
+    
+    out.idx = in.instance_idx;
+    out.material_id = faceData.materialId;
+
+    // ... rest of your vertex shader code remains the same
+    let data = unpack_data(faceData.data);
     out.lod_level = data.lod_level;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -654,14 +698,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         )
     );
     
-    let scaled_vertex_offset = faceVertices[data.normal_index][data.vertex_index] * lod_scale;
+    let scaled_vertex_offset = faceVertices[data.normal_index][quadVertexId] * lod_scale;
     position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
     
-    uv = faceUVsIndependent[data.normal_index][data.vertex_index];
+    uv = faceUVsIndependent[data.normal_index][quadVertexId];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     let normal = faceNormals[data.normal_index];
-    let ao = aoLevels[data.ao_index];
+    let ao = 1.0; //aoLevels[data.ao_index];
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;

@@ -12,6 +12,7 @@
 #include <shared_mutex>
 #include <chrono>
 #include "VertexAttributes.h"
+#include "FaceAttributes.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -187,7 +188,7 @@ private:
     
 
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
-    std::vector<VertexAttributes> vertexData[8][COLUMN_HEIGHT];
+    std::vector<FaceAttributes> vertexData[8][COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[8][COLUMN_HEIGHT];
 
     //VoxelMaterial materialData[TOTAL_VOXELS] = {};
@@ -245,7 +246,7 @@ public:
         std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
 
         int slot = 0;
-        if (distance > 600) {
+        if (distance > 11600) {
             slot = 1;
         }
 
@@ -273,12 +274,13 @@ public:
             }
 
             DAIC daic;
-            daic.indexCount = static_cast<uint32_t>(indexData[slot][i].size());
+            uint32_t numFaces = static_cast<uint32_t>(vertexData[slot][i].size());
+            daic.indexCount = numFaces * 6;
             daic.instanceCount = 1;
 
             // These should be offsets in ELEMENTS, not bytes
-            daic.firstIndex = static_cast<uint32_t>(meshSlot * 32768 * 1.5); // Assuming max 32768 indices per chunk
-            daic.baseVertex = static_cast<int32_t>(meshSlot * 32768);  // Assuming max 32768 vertices per chunk
+            daic.firstIndex = static_cast<uint32_t>(meshSlot * 8192 * 6); // Assuming max 32768 indices per chunk
+            daic.baseVertex = 0; // static_cast<int32_t>(meshSlot * 8192);  // Assuming max 32768 vertices per chunk
             daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
 
             output[i] = { ivec3(position.x, position.y, i * 32), daic };
@@ -295,22 +297,14 @@ private:
         }
 
         meta[zPos].meshSlots[0] = buf->
-            getMeshBufferPool("mesh_pool")->
-            allocateSlot(meta[zPos].resourceId + "-0", vertexData[0][zPos].size());
-
-        meta[zPos].meshSlots[1] = buf->
-            getMeshBufferPool("mesh_pool")->
-            allocateSlot(meta[zPos].resourceId + "-1", vertexData[1][zPos].size());
+            getStorageBufferPool("storage_pool")->
+            allocateSlot(meta[zPos].resourceId, vertexData[0][zPos].size());
 
         if (meta[zPos].meshSlots[0] == -1) {
-            //std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
         }
 
-        if (meta[zPos].meshSlots[1] == -1) {
-            std::cerr << "Failed to allocate LOD mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
-            return;
-        }
         meta[zPos].meshBufferGPUInitialized = true;
     }
 
@@ -333,9 +327,8 @@ private:
             return;
         }
 
-        auto meshPool = buf->getMeshBufferPool("mesh_pool");
-        meshPool->writeToSlot(meta[zPos].resourceId + "-0", vertexData[0][zPos], indexData[0][zPos]);
-        meshPool->writeToSlot(meta[zPos].resourceId + "-1", vertexData[1][zPos], indexData[1][zPos]);
+        auto pool = buf->getStorageBufferPool("storage_pool");
+        pool->writeToSlot(meta[zPos].resourceId, vertexData[0][zPos], indexData[0][zPos]);
     }
 
     void uploadAllMeshes(BufferManager* buf) {
@@ -368,7 +361,7 @@ public:
         ChunkData chunkData;
         chunkData.worldPosition = meta[zPos].position;
         chunkData.lod = 0;
-        chunkData.textureSlot = meta[zPos].textureSlot;
+        chunkData.meshSlot = meta[zPos].meshSlots[0];
         chunkData.lightSlot = meta[zPos].lightSlot;
 
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
@@ -1398,40 +1391,23 @@ public:
                             for (int face = 0; face < 6; ++face) {
                                 // Use the improved culling function that checks ALL neighbor voxels
                                 if (!shouldCullLODFace(groupPos, face)) {
-                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size());
+                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
 
-                                    std::array<float, 4> aoValues;
+                                    /*std::array<float, 4> aoValues;
                                     for (int vertex = 0; vertex < 4; ++vertex) {
                                         aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
-                                    }
+                                    }*/
 
-                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+                                    //bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
-                                    for (int vertex = 0; vertex < 4; ++vertex) {
-                                        VertexAttributes vert;
-                                        // Use group position (which represents the LOD voxel position)
-                                        vert.data = packData(x, y, z, face, vertex, aoValues[vertex]);
-                                        vert.materialId = groupMaterial.materialType;
-                                        vertexData[meshSlot][zPos].push_back(vert);
-                                    }
+                                    FaceAttributes faceData;
+                                    // Use group position (which represents the LOD voxel position)
+                                    faceData.data = packData(x, y, z, face, 0, 0);
+                                    faceData.materialId = groupMaterial.materialType;
+                                    vertexData[meshSlot][zPos].push_back(faceData);
 
-                                    if (flipQuad) {
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
-
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                    }
-                                    else {
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
-
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                    for (int i = 0; i < 6; i++) {
+                                        indexData[meshSlot][zPos].push_back(baseIndex + i);
                                     }
                                 }
                             }
@@ -1463,17 +1439,14 @@ public:
             indexData[0][zPos].clear();
             vertexData[0][zPos].clear();
 
-            indexData[1][zPos].clear();
-            vertexData[1][zPos].clear();
+            /*indexData[1][zPos].clear();
+            vertexData[1][zPos].clear();*/
         }
 
         //beginMaterialEditing();
 
         bool solid = generateOneMesh(zPos, neighbors, false, 1, 0);
         bool transparent = generateOneMesh(zPos, neighbors, true, 1, 0);
-
-        bool solid_lod = generateOneMesh(zPos, neighbors, false, 2, 1);
-        bool transparent_lod = generateOneMesh(zPos, neighbors, true, 2, 1);
 
         finishMaterialEditing();
 
