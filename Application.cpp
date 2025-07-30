@@ -36,7 +36,8 @@ bool Application::Initialize() {
     uniforms.time = 1.0f;
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
-    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.01f, 2500.0f);
+    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f, 2500.0f);
+    uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
     uniforms.screenSize = glm::vec2(static_cast<float>(1280), static_cast<float>(720));
 
@@ -724,7 +725,8 @@ void Application::updateProjectionMatrix(int zoom) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
-    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.01f, 2500.0f);
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 2500.0f);
+    uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
     uniforms.screenSize = glm::vec2(static_cast<float>(width), static_cast<float>(height));
 

@@ -10,11 +10,9 @@ enum BlockType: uint16_t {
     Brick,
     Slate,
     Andesite,
-    Reserved1,
     Gneiss,
     Log,
     Leaf,
-    Reserved2
 };
 
 struct VoxelMaterial {

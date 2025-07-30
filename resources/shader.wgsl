@@ -46,6 +46,7 @@ struct VertexOutput {
 
 struct MyUniforms {
     projectionMatrix: mat4x4f,
+    infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
 
@@ -132,6 +133,7 @@ const NUM_TOTAL_SLOTS = 18000;
 
 const ATLAS_TILES_X: f32 = 4.0;
 const ATLAS_TILES_Y: f32 = 4.0;
+const TEXTURE_SIZE: f32 = 8.0;
 const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -146,7 +148,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
-@group(0) @binding(2) var textureAtlas: texture_2d<f32>;
+@group(0) @binding(2) var textureArray: texture_2d_array<f32>;
 @group(0) @binding(3) var textureSampler: sampler;
 @group(0) @binding(4) var shadowMap: texture_depth_2d;
 @group(0) @binding(5) var shadowSampler: sampler_comparison;
@@ -164,7 +166,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
 // PBR material definitions - expanded with realistic properties
-const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
+const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 10>(
     // ID 1: Dirt
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
@@ -256,20 +258,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.0,                      // No clearcoat
         0.0
     ),
-    // reserved
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Medium gray volcanic rock albedo
-        0.0,                      // Non-metallic
-        0.75,                     // Rough volcanic surface
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.1,                      // Strong normals for volcanic texture
-        1.0,                      // Standard AO
-        0.0,                      // No subsurface for igneous rock
-        0.0,                      // No clearcoat
-        0.0
-    ),
-    // ID 9: Gneiss (skipping Reserved1 at ID 8)
+    // ID 8: Gneiss
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Light gray-brown metamorphic albedo
         0.0,                      // Non-metallic
@@ -282,7 +271,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.0,                      // No clearcoat
         0.0
     ),
-    // ID 10: Log
+    // ID 9: Log
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Natural wood brown albedo
         0.0,                      // Non-metallic
@@ -295,7 +284,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.0,                      // No clearcoat
         0.0
     ),
-    // ID 11: Leaf
+    // ID 10: Leaf
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
         0.0,                      // Non-metallic
@@ -382,99 +371,6 @@ fn get_sun_color(sun_elevation: f32) -> vec3f {
 fn get_pbr_material_properties(material_id: u32) -> PBRMaterialProperties {
     let index = clamp(material_id - 1u, 0u, 11u);
     return PBR_MATERIAL_PROPERTIES[index];
-}
-
-fn get_atlas_uv(material_id: u32, world_position: vec3f, normal: vec3f) -> vec2<f32> {
-    // Calculate which tile in the atlas to use
-    let tile_x = f32(material_id % u32(ATLAS_TILES_X));
-    let tile_y = f32(material_id / u32(ATLAS_TILES_X));
-    let tile_offset = vec2<f32>(tile_x * TILE_SIZE, tile_y * TILE_SIZE);
-    
-    // Each texture tile covers a 4x4x4 voxel area
-    let texture_scale = 4.0;
-    
-    // Determine which face we're on based on the normal vector
-    let abs_normal = abs(normal);
-    var texture_coords: vec2f;
-    
-    // Find the dominant axis of the normal
-    if (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) {
-        // X-dominant face (left/right) - use Z,Y coordinates with rotation
-        var base_coords = vec2f(world_position.z, world_position.y) / texture_scale;
-        base_coords = fract(base_coords);
-        
-        // Apply 90-degree clockwise rotation for X faces
-        // Rotation matrix: [0, 1; -1, 0] applied to (u,v) gives (v, 1-u)
-        texture_coords = vec2f(base_coords.y, 1.0 - base_coords.x);
-    } else if (abs_normal.y > abs_normal.z) {
-        // Y-dominant face (front/back) - use X,Z coordinates  
-        texture_coords = vec2f(world_position.x, world_position.z) / texture_scale;
-    } else {
-        // Z-dominant face (up/down) - use X,Y coordinates
-        texture_coords = vec2f(world_position.x, world_position.y) / texture_scale;
-    }
-    
-    // Take the fractional part to get the position within the 4x4x4 block
-    let block_uv = fract(texture_coords);
-    
-    // Clamp to prevent sampling at exactly 1.0 which could bleed into next tile
-    let texture_uv = block_uv;
-    
-    // Scale to fit within the atlas tile
-    let scaled_uv = texture_uv * TILE_SIZE;
-    
-    return tile_offset + scaled_uv;
-}
-
-// Sample noise texture for roughness variation
-fn sample_noise_for_roughness(uv: vec2f, base_roughness: f32, world_pos: vec3f) -> f32 {
-    // Create pseudo-random offset based on world position
-    let world_seed = world_pos.x * 12.9898 + world_pos.y * 78.233 + world_pos.z * 37.719;
-    let random_offset = fract(sin(world_seed) * 43758.5453);
-    
-    // Scale UV to match 32x32 block texture with 64x64 noise and add random rotation
-    let base_noise_uv = fract(uv * 2.0);
-    
-    // Add multiple sampling points with different offsets to break up patterns
-    let offset1 = vec2f(random_offset, fract(random_offset * 2.7183));
-    let offset2 = vec2f(fract(random_offset * 1.618), fract(random_offset * 3.1416));
-    let offset3 = vec2f(fract(random_offset * 2.236), fract(random_offset * 1.732));
-    
-    // Sample noise at multiple points and blend
-    let noise1 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset1 * 0.3));
-    let noise2 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset2 * 0.2));
-    let noise3 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset3 * 0.1));
-    
-    // Blend the samples with different weights
-    let blended_noise = (noise1.r * 0.5 + noise2.g * 0.3 + noise3.b * 0.2);
-    
-    // Use blended result for roughness variation (±20% variation)
-    let roughness_variation = (blended_noise - 0.5) * 0.4;
-    return clamp(base_roughness + roughness_variation, 0.01, 1.0);
-}
-
-// Sample noise for metallic variation
-fn sample_noise_for_metallic(uv: vec2f, base_metallic: f32, world_pos: vec3f) -> f32 {
-    // Create different pseudo-random offset for metallic (using different multipliers)
-    let world_seed = world_pos.x * 73.156 + world_pos.y * 41.892 + world_pos.z * 19.337;
-    let random_offset = fract(sin(world_seed) * 29751.3847);
-    
-    let base_noise_uv = fract(uv * 2.0);
-    
-    // Different offsets for metallic sampling
-    let offset1 = vec2f(fract(random_offset * 1.414), fract(random_offset * 1.732));
-    let offset2 = vec2f(fract(random_offset * 2.828), fract(random_offset * 0.577));
-    
-    // Sample and blend
-    let noise1 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset1 * 0.4));
-    let noise2 = textureSample(noise_2d_small_texture, textureSampler, fract(base_noise_uv + offset2 * 0.2));
-    
-    let blended_noise = (noise1.g * 0.7 + noise2.r * 0.3);
-    
-    // Use different variation amounts based on base metallic value
-    let variation_amount = select(0.2, 0.1, base_metallic > 0.5);
-    let metallic_variation = (blended_noise - 0.5) * variation_amount;
-    return clamp(base_metallic + metallic_variation, 0.0, 1.0);
 }
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
@@ -587,13 +483,13 @@ const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
 
 
 const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
-    array<vec2<f32>, 4>( // +X (rotated 90° clockwise)
-        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
-        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
+    array<vec2<f32>, 4>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
+        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
     ),
-    array<vec2<f32>, 4>( // -X (rotated 90° clockwise)
-        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), 
-        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0)
+    array<vec2<f32>, 4>(
+        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
     ),
     array<vec2<f32>, 4>( // +Y
         vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
@@ -717,9 +613,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
     
-    out.position = uMyUniforms.projectionMatrix * view_position;
+    out.position = uMyUniforms.infiniteProjectionMatrix * view_position;
     out.normal = (uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz;
-    out.uv = uv; 
+    out.uv = uv;
     out.world_position = world_position.xyz;
     out.ao = ao;
     out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));       
@@ -842,15 +738,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let materialProps = get_pbr_material_properties(material_id);
     
     // Sample noise for material variation
-    let lod_adjusted_uv = fract(in.uv * lod_scale);
-    let varied_roughness = materialProps.roughness; //sample_noise_for_roughness(lod_adjusted_uv, materialProps.roughness, in.world_position);
-    let varied_metallic = materialProps.metallic; //sample_noise_for_metallic(lod_adjusted_uv, materialProps.metallic, in.world_position);
-    
-    // Sample albedo texture
-    let atlas_uv = get_atlas_uv(material_id - 1, in.world_position, normal);
-    let textureColor = textureSampleLevel(textureAtlas, textureSampler, atlas_uv, 0);
 
-    if (textureColor.a < 0.5) {
+    var uv = in.uv;
+    if (material_id != 10) {
+        uv = in.uv * 0.25;
+    }
+
+    let textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
+
+    if (textureColor.a < 0.9) {
         discard;
     }
 
@@ -874,8 +770,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         viewDir,
         sunDirection,
         sunColor * boosted_sun_intensity,
-        varied_metallic,
-        varied_roughness,
+        materialProps.metallic,
+        materialProps.roughness,
         materialProps.specular,
         shadow_factor,
         materialProps.subsurface  // Pass subsurface parameter

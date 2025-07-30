@@ -51,6 +51,7 @@ struct Clouds {
 
 struct MyUniforms {
     projectionMatrix: mat4x4f,
+    infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
     inverseProjectionMatrix: mat4x4f,

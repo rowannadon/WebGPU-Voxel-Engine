@@ -3,6 +3,7 @@
 
 struct MyUniforms {
     glm::mat4 projectionMatrix;
+    glm::mat4 infiniteProjectionMatrix;
     glm::mat4 viewMatrix;
     glm::mat4 modelMatrix;
 
@@ -28,6 +29,8 @@ struct MyUniforms {
 
     float padding4[2];
 };
+
+static_assert(sizeof(MyUniforms) % 16 == 0);
 
 inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCenter, float sceneRadius) {
     
@@ -68,6 +71,6 @@ inline std::pair<glm::mat4, glm::mat4> calculateLightMatrices(float time, const 
     return { lightViewMatrix, lightProjectionMatrix };
 }
 
-static_assert(sizeof(MyUniforms) % 16 == 0);
+
 
 #endif

@@ -24,6 +24,7 @@ const TO_KM_SCALE = 1.0/3280.0;
 
 struct MyUniforms {
     projectionMatrix: mat4x4f,
+    infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
 

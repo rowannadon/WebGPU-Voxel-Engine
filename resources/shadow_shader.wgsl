@@ -14,6 +14,7 @@ struct VertexOutput {
 
 struct MyUniforms {
     projectionMatrix: mat4x4f,
+    infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
 
@@ -65,7 +66,7 @@ const STORAGE_BUFFER_SLOT_SIZE = 8192;
 const NUM_TOTAL_SLOTS = 18000;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
-@group(0) @binding(1) var textureAtlas: texture_2d<f32>;
+@group(0) @binding(1) var textureArray: texture_2d_array<f32>;
 @group(0) @binding(2) var textureSampler: sampler;
 
 @group(1) @binding(0) var light_texture_3d: texture_3d<f32>;

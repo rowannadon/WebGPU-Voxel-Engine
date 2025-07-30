@@ -1,0 +1,10 @@
+0 dirt
+1 grass
+2 limestone
+3 glowstone
+4 brick
+5 slate
+6 andesite
+7 gneiss
+8 oak_log
+9 oak_leaves

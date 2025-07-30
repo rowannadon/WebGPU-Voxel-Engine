@@ -1042,13 +1042,13 @@ bool WebGPURenderer::initRenderPipeline() {
 	globalUniforms[1].buffer.type = BufferBindingType::Uniform;
 	globalUniforms[1].buffer.minBindingSize = sizeof(Atmosphere);
 
-	// The texture atlas binding and sampler
+	// The block texture array binding and sampler
 	globalUniforms[2].binding = 2;
 	globalUniforms[2].visibility = ShaderStage::Fragment;
 	globalUniforms[2].texture.sampleType = TextureSampleType::Float;
-	globalUniforms[2].texture.viewDimension = TextureViewDimension::_2D;
+	globalUniforms[2].texture.viewDimension = TextureViewDimension::_2DArray;
 
-	// The texture sampler binding
+	// The block texture sampler binding
 	globalUniforms[3].binding = 3;
 	globalUniforms[3].visibility = ShaderStage::Fragment;
 	globalUniforms[3].sampler.type = SamplerBindingType::Filtering;
@@ -1127,11 +1127,11 @@ bool WebGPURenderer::initShadowPipeline() {
 	globalUniforms[0].buffer.type = BufferBindingType::Uniform;
 	globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
 
-	// The texture atlas binding and sampler
+	// The block texture array binding and sampler
 	globalUniforms[1].binding = 1;
 	globalUniforms[1].visibility = ShaderStage::Fragment;
 	globalUniforms[1].texture.sampleType = TextureSampleType::Float;
-	globalUniforms[1].texture.viewDimension = TextureViewDimension::_2D;
+	globalUniforms[1].texture.viewDimension = TextureViewDimension::_2DArray;
 
 	globalUniforms[2].binding = 2;
 	globalUniforms[2].visibility = ShaderStage::Fragment;
@@ -1217,9 +1217,9 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.lodMaxClamp = 8.0f;
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
-	textureManager->createSampler("atlas_sampler", samplerDesc);
+	textureManager->createSampler("block_array_sampler", samplerDesc);
 
-	Texture atlasTexture = textureManager->loadTexture("atlas", "atlas_view", RESOURCE_DIR "/texture_atlas_large.png");
+	Texture blockTextureArray = textureManager->loadTextureArray("block_array", "block_array_view", RESOURCE_DIR "/textures/");
 
 	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 
@@ -1227,7 +1227,7 @@ bool WebGPURenderer::initTextures() {
 
 	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/rgba_noise_64.png");
 
-	return textureManager->getTextureView("atlas_view") != nullptr;
+	return textureManager->getTextureView("block_array_view") != nullptr;
 }
 
 bool WebGPURenderer::initBindGroup() {
@@ -1239,10 +1239,10 @@ bool WebGPURenderer::initBindGroup() {
 	shadowBindings[0].size = sizeof(MyUniforms);
 
 	shadowBindings[1].binding = 1;
-	shadowBindings[1].textureView = textureManager->getTextureView("atlas_view");
+	shadowBindings[1].textureView = textureManager->getTextureView("block_array_view");
 
 	shadowBindings[2].binding = 2;
-	shadowBindings[2].sampler = textureManager->getSampler("atlas_sampler");
+	shadowBindings[2].sampler = textureManager->getSampler("block_array_sampler");
 
 	BindGroup shadowBindGroup = pipelineManager->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
 
@@ -1268,10 +1268,10 @@ bool WebGPURenderer::initBindGroup() {
 	bindings[1].size = sizeof(Atmosphere);
 
 	bindings[2].binding = 2;
-	bindings[2].textureView = textureManager->getTextureView("atlas_view");
+	bindings[2].textureView = textureManager->getTextureView("block_array_view");
 
 	bindings[3].binding = 3;
-	bindings[3].sampler = textureManager->getSampler("atlas_sampler");
+	bindings[3].sampler = textureManager->getSampler("block_array_sampler");
 
 	bindings[4].binding = 4;
 	bindings[4].textureView = textureManager->getTextureView("shadow_view");
