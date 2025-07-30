@@ -6,6 +6,7 @@
 #include <webgpu/webgpu.hpp>
 #include <iostream>
 #include <vector>
+#include <random>
 #include <cstdint>
 #include <atomic>
 #include <mutex>
@@ -279,7 +280,7 @@ public:
             daic.instanceCount = 1;
 
             // These should be offsets in ELEMENTS, not bytes
-            daic.firstIndex = static_cast<uint32_t>(meshSlot * 12288 * 6);
+            daic.firstIndex = static_cast<uint32_t>(meshSlot * 16384 * 6);
             daic.baseVertex = 0; // static_cast<int32_t>(meshSlot * 8192);
             daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
 
@@ -695,6 +696,25 @@ private:
         return mat;
     }
 
+    inline uint32_t hash_ivec3(const glm::ivec3& v) {
+        // Use large prime numbers to mix the components
+        uint32_t h1 = static_cast<uint32_t>(v.x) * 73856093u;
+        uint32_t h2 = static_cast<uint32_t>(v.y) * 19349663u;
+        uint32_t h3 = static_cast<uint32_t>(v.z) * 83492791u;
+
+        // XOR the hashed components together
+        uint32_t hash = h1 ^ h2 ^ h3;
+
+        // Apply additional mixing to improve distribution
+        hash ^= hash >> 16;
+        hash *= 0x85ebca6b;
+        hash ^= hash >> 13;
+        hash *= 0xc2b2ae35;
+        hash ^= hash >> 16;
+
+        return hash;
+    }
+
     void setMaterialWholeColumnCompressed(ivec3 pos, const VoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
@@ -950,13 +970,13 @@ public:
                         if (isAtSurface) {
                             // Calculate steepness by checking the 8 surrounding columns
                             int maxHeightDifference = calculateSteepness(x, y, z);
-
+                            uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
                             switch (maxHeightDifference) {
                             case 0:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
-                                if (pos.z > (-10 + rand() % 20) && rand() % 32 == 0) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 32 == 0) {
                                     if (positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
@@ -984,11 +1004,36 @@ public:
                             if (material.materialType == BlockType::Grass) { // grass terrain
                                 // Top 2 layers: grass
                                 ivec3 grassPos = ivec3(x, y, z + 1);
-                                if (rand() % 16 == 0 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+
+                                if (blockHash % 2 == 0 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     VoxelMaterial material;
-                                    material.materialType = BlockType::TallGrass; // grass
-                                    setVoxelWholeColumn(grassPos, true, true);
+                                    if (blockHash % 8 == 0) {
+                                        material.materialType = BlockType::TallGrass; // grass
+                                    }
+                                    else if (blockHash % 8 == 1) {
+                                        material.materialType = BlockType::Grass0; // grass
+                                    }
+                                    else if (blockHash % 8 == 2) {
+                                        material.materialType = BlockType::Grass1; // grass
+                                    }
+                                    else if (blockHash % 8 == 3) {
+                                        material.materialType = BlockType::Grass2; // grass
+                                    }
+                                    else if (blockHash % 8 == 4) {
+                                        material.materialType = BlockType::Grass3; // grass
+                                    }
+                                    else if (blockHash % 8 == 5) {
+                                        material.materialType = BlockType::Grass4; // grass
+                                    }
+                                    else if (blockHash % 8 == 6) {
+                                        material.materialType = BlockType::Grass5; // grass
+                                    }
+                                    else if (blockHash % 8 == 7) {
+                                        material.materialType = BlockType::TallGrass; // grass
+                                    }
+
                                     setMaterialFast(grassPos, material);
+                                    setVoxelWholeColumn(grassPos, true, true);
                                 }
 
                                 for (int layer = 0; layer < 2; layer++) {
@@ -1405,7 +1450,14 @@ public:
                         }
 
                         int faces = 6;
-                        if (groupMaterial.materialType == BlockType::TallGrass) {
+                        if (groupMaterial.materialType == BlockType::TallGrass ||
+                            groupMaterial.materialType == BlockType::Grass0 ||
+                            groupMaterial.materialType == BlockType::Grass1 ||
+                            groupMaterial.materialType == BlockType::Grass2 ||
+                            groupMaterial.materialType == BlockType::Grass3 ||
+                            groupMaterial.materialType == BlockType::Grass4 ||
+                            groupMaterial.materialType == BlockType::Grass5
+                            ) {
                             faces = 2;
                             repeat = 1;
                         }
@@ -1413,7 +1465,7 @@ public:
                             for (int i = 0; i < repeat; i++) {
                                 for (int face = 0; face < faces; ++face) {
                                     // Use the improved culling function that checks ALL neighbor voxels
-                                    if (!shouldCullLODFace(groupPos, face)) {
+                                    if (faces == 2 || !shouldCullLODFace(groupPos, face)) {
                                         uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
 
                                         std::array<uint32_t, 4> aoValues;

@@ -14,6 +14,13 @@ enum BlockType: uint16_t {
     Log,
     Leaf,
     TallGrass,
+    Fern,
+    Grass0,
+    Grass1,
+    Grass2,
+    Grass3,
+    Grass4,
+    Grass5,
 };
 
 struct VoxelMaterial {

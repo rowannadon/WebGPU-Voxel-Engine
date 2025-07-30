@@ -102,7 +102,13 @@ struct PBRMaterialProperties {
     subsurface: f32,            // Subsurface scattering factor
     clearcoat: f32,             // Clearcoat layer strength
     clearcoatRoughness: f32,    // Clearcoat roughness
+    model: u32,
+    random_rotation: bool,
 }
+
+const VOXEL_MODEL = 0;
+const LEAF_MODEL = 1;
+const GRASS_MODEL = 2;
 
 struct Atmosphere {
     rayleigh_scattering: vec3<f32>,
@@ -130,8 +136,8 @@ struct Atmosphere {
 }
 
 // number of face data per slot 
-const STORAGE_BUFFER_SLOT_SIZE = 12288;
-const NUM_TOTAL_SLOTS = 18000;
+const STORAGE_BUFFER_SLOT_SIZE = 16384;
+const NUM_TOTAL_SLOTS = 9000;
 
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -164,7 +170,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
 // PBR material definitions - expanded with realistic properties
-const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
+const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
     // ID 1: Dirt
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
@@ -176,7 +182,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.2,                      // High AO for soil texture
         0.0,                     // Slight subsurface for organic matter
         0.0,                      // No clearcoat
-        0.0                       // No clearcoat roughness
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 2: Grass
     PBRMaterialProperties(
@@ -189,7 +197,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.9,                      // Moderate AO
         0.0,                     // High subsurface for organic translucency
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 3: Limestone
     PBRMaterialProperties(
@@ -202,7 +212,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.0,                      // Standard AO
         0.0,                     // Minimal subsurface for stone
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 4: Glowstone
     PBRMaterialProperties(
@@ -215,7 +227,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.2,                      // Very low AO for bright surface
         0.6,                      // High subsurface for inner glow
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 5: Brick
     PBRMaterialProperties(
@@ -228,7 +242,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.1,                      // High AO for mortar lines
         0.0,                      // No subsurface for fired clay
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 6: Slate  
     PBRMaterialProperties(
@@ -241,7 +257,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.0,                      // Standard AO
         0.0,                      // No subsurface for metamorphic rock
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 7: Andesite
     PBRMaterialProperties(
@@ -254,7 +272,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.0,                      // Standard AO
         0.0,                      // No subsurface for igneous rock
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 8: Gneiss
     PBRMaterialProperties(
@@ -267,7 +287,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.0,                      // Standard AO
         0.0,                      // No subsurface for metamorphic rock
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        true
     ),
     // ID 9: Log
     PBRMaterialProperties(
@@ -280,7 +302,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         1.0,                      // Standard AO
         0.0,                     // Moderate subsurface for organic material
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        VOXEL_MODEL,
+        false
     ),
     // ID 10: Leaf
     PBRMaterialProperties(
@@ -293,7 +317,9 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.7,                      // Lower AO for thin material
         0.5,                     // High subsurface for leaf translucency
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        LEAF_MODEL,
+        true
     ),
     // ID 11: Tall Grass
     PBRMaterialProperties(
@@ -306,9 +332,112 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
         0.7,                      // Lower AO for thin material
         0.5,                     // High subsurface for leaf translucency
         0.0,                      // No clearcoat
-        0.0
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    // Fern
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.5,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.35,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.4,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.6,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.4,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.55,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.45,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        GRASS_MODEL,
+        false
     )
 );
+
+
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
@@ -465,10 +594,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.0002 * (1.0 - n_dot_l), 0.0002);
+    let bias = max(0.0008 * (1.0 - n_dot_l), 0.0008);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 16384.0;
+    let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
     let samples = 16;
     
@@ -520,6 +649,83 @@ const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>,
     ),
 );
 
+const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+    array<vec3<f32>, 4>(
+        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
+        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
+        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
+        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
+        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
+        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
+        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
+    )
+);
+
+const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+    array<vec3<f32>, 4>(
+        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
+        vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 1.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), 
+        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(-0.5, -0.5, -0.5), vec3<f32>(-0.5, -0.5, 1.0), 
+        vec3<f32>(1.5, 1.5, 1.5), vec3<f32>(1.5, 1.5, -0.5)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(-0.5, 1.5, 1.5), vec3<f32>(-0.5, 1.5, -0.5), 
+        vec3<f32>(1.5, -0.5, -0.5), vec3<f32>(1.5, -0.5, 1.5)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), 
+        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0), 
+        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
+    )
+);
+
+const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), 
+        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+    ),
+    array<vec3<f32>, 4>(
+        vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), 
+        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+    )
+);
+
+const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
+    array<f32, 4>(
+        0.25, 1.0, 
+        1.0, 0.25
+    ),
+    array<f32, 4>(
+        1.0, 0.25, 
+        0.25, 1.0
+    )
+);
+
+
 const aoLevels = array<f32, 4>(
     0.25, 0.4, 0.5, 0.75
 );
@@ -562,6 +768,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.idx = in.instance_idx;
     out.material_id = faceData.materialId;
 
+    let materialProps = get_pbr_material_properties(faceData.materialId);
+
     // ... rest of your vertex shader code remains the same
     let data = unpack_data(faceData.data);
     out.lod_level = data.lod_level;
@@ -575,70 +783,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let lod_scale = f32(data.lod_level);
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
     
-    const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-        array<vec3<f32>, 4>(
-            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
-            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
-            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
-            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
-            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-        )
-    );
-
-    const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-        array<vec3<f32>, 4>(
-            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-            vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 1.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), 
-            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(-0.5, -0.5, -0.5), vec3<f32>(-0.5, -0.5, 1.0), 
-            vec3<f32>(1.5, 1.5, 1.5), vec3<f32>(1.5, 1.5, -0.5)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(-0.5, 1.5, 1.5), vec3<f32>(-0.5, 1.5, -0.5), 
-            vec3<f32>(1.5, -0.5, -0.5), vec3<f32>(1.5, -0.5, 1.5)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), 
-            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0), 
-            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-        )
-    );
-
-    const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), 
-            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-        ),
-        array<vec3<f32>, 4>(
-            vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), 
-            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-        )
-    );
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
@@ -655,9 +799,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_z_2 = (hash >> 6u) & 4u;
 
     var scaled_vertex_offset: vec3f;
-    if (faceData.materialId == 10u) {
+    if (materialProps.model == LEAF_MODEL) {
         scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale + (0.02 * vec3f(f32(2*tile_x_2), f32(4*tile_y_2), f32(3*tile_z_2)));
-    } else if (faceData.materialId == 11u) {
+    } else if (materialProps.model == GRASS_MODEL) {
         scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
     } else {
         scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
@@ -669,7 +813,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     let normal = faceNormals[data.normal_index];
-    let ao = aoLevels[data.ao[vertexInFace]];
+    var ao = aoLevels[data.ao[vertexInFace]];
+    if (materialProps.model == GRASS_MODEL) {
+        ao = aoLevelsGrass[data.normal_index][vertexInFace];
+    }
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
@@ -769,7 +916,7 @@ fn calculate_pbr_lighting(
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.0;  // How much the light bends through the material
-            let subsurface_scale = 3.0;  // Overall intensity scale
+            let subsurface_scale = 3.5;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -846,20 +993,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Sample noise for material variation
 
     var uv = in.uv;
-    if (material_id != 9u) { // not trunk
-        let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
-        if (material_id == 10u) { // is leaves
-            uv = rotated_uv;
-        } else if (material_id == 11u) { // is tall grass
-            uv = in.uv;
-        } else { // is not leaves
-            uv = rotated_uv * 0.25 + in.tile_offset;
-        }
-    } else { // is trunk
-        uv = in.uv * 0.25 + in.tile_offset;
+
+    // if (materialProps.random_rotation) {
+    //     let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
+    //     uv = rotated_uv;
+    // }
+
+    if (materialProps.model == VOXEL_MODEL) {
+        uv = uv * 0.25 + in.tile_offset;
     }
 
-    let textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
+    var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
+
+    // if (materialProps.model == GRASS_MODEL) {
+    //     textureColor = vec4f(0.5, 0.0, 1.0, 1.0);
+    // }
 
     if (textureColor.a < 0.9) {
         discard;
@@ -887,7 +1035,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         sunColor * boosted_sun_intensity,
         materialProps.metallic,
         ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.roughness,
-        materialProps.specular * 4.0,
+        materialProps.specular,
         shadow_factor,
         materialProps.subsurface  // Pass subsurface parameter
     );
