@@ -42,6 +42,8 @@ struct VertexOutput {
     @location(9) shadow_pos: vec4f,
     @location(10) @interpolate(flat) material_id: u32,
     @location(11) @interpolate(flat) lod_level: u32,
+    @location(12) tile_offset: vec2f,
+    @location(13) @interpolate(flat) tile_rotation: u32,
 };
 
 struct MyUniforms {
@@ -609,6 +611,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         highlighted_pos.z >= voxel_min.z && highlighted_pos.z <= voxel_max.z) {
         out.highlighted = 1.0;
     }
+
+    let hash = hash_voxel_position(world_voxel_pos);
+    let tile_x = hash & 3u;
+    let tile_y = (hash >> 2u) & 3u;
+    let rotation = (hash >> 4u) & 3u;
+    out.tile_offset = vec2f(f32(tile_x) * 0.25, f32(tile_y) * 0.25);
+    out.tile_rotation = rotation;
     
     let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
@@ -723,6 +732,41 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
+fn hash_voxel_position(pos: vec3i) -> u32 {
+    var h = u32(pos.x * 374761393 + pos.y * 668265263 + pos.z * 1274126177);
+    h = (h ^ (h >> 16)) * 2146435069u;
+    h = (h ^ (h >> 16)) * 2146435069u;
+    h = h ^ (h >> 16);
+    return h;
+}
+
+fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
+    // Center UV coordinates around (0.5, 0.5)
+    let centered_uv = uv - 0.5;
+    
+    var rotated_uv: vec2f;
+    switch (rotation) {
+        case 0u: { // 0 degrees
+            rotated_uv = centered_uv;
+        }
+        case 1u: { // 90 degrees clockwise
+            rotated_uv = vec2f(centered_uv.y, -centered_uv.x);
+        }
+        case 2u: { // 180 degrees
+            rotated_uv = vec2f(-centered_uv.x, -centered_uv.y);
+        }
+        case 3u: { // 270 degrees clockwise (90 counter-clockwise)
+            rotated_uv = vec2f(-centered_uv.y, centered_uv.x);
+        }
+        default: {
+            rotated_uv = centered_uv;
+        }
+    }
+    
+    // Move back to (0,1) range
+    return rotated_uv + 0.5;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
@@ -740,8 +784,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Sample noise for material variation
 
     var uv = in.uv;
-    if (material_id != 10) {
-        uv = in.uv * 0.25;
+    if (material_id != 9u) {
+        let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
+        if (material_id == 10u) {
+            uv = rotated_uv;
+        } else {
+            uv = rotated_uv * 0.25 + in.tile_offset;
+        }
+    } else {
+        uv = in.uv * 0.25 + in.tile_offset;
     }
 
     let textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
@@ -771,7 +822,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.metallic,
-        materialProps.roughness,
+        (textureColor.r + textureColor.g + textureColor.b) / 2.0,
         materialProps.specular,
         shadow_factor,
         materialProps.subsurface  // Pass subsurface parameter
