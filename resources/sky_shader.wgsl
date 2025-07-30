@@ -1084,7 +1084,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Define fog height parameters (in feet)
     let fog_height_min = 200.0;      // Sea level - maximum fog
-    let fog_height_max = 600.0;   // 5000 feet - minimal fog
+    let fog_height_max = 332.0;   // 5000 feet - minimal fog
     
     // Calculate height-based fog multiplier (1.0 at sea level, 0.0 at fog_height_max)
     let height_fog_factor = 1.0 - saturate((terrain_height - fog_height_min) / (fog_height_max - fog_height_min));
@@ -1094,8 +1094,8 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Calculate distance-based fog
     // Define distance fog parameters (in km)
-    let fog_distance_start = 1.0;   // Start of distance fog (10 km)
-    let fog_distance_end = 2.0;     // Full fog at this distance (50 km)
+    let fog_distance_start = 0.5;   // Start of distance fog (10 km)
+    let fog_distance_end = 1.0;     // Full fog at this distance (50 km)
     
     // Calculate distance fog factor based on world space distance
     let distance_fog_factor = saturate((world_depth_distance - fog_distance_start) / (fog_distance_end - fog_distance_start));
@@ -1105,7 +1105,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Combine height and distance fog factors
     // Use max to ensure fog appears in either low areas OR at distance
-    let combined_fog_multiplier = max(height_fog_multiplier, distance_fog_multiplier);
+    let combined_fog_multiplier = distance_fog_multiplier; //max(height_fog_multiplier, distance_fog_multiplier);
     
     // Alternative combination methods:
     // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
@@ -1133,5 +1133,5 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     }
 
     
-    return vec4<f32>(filmic(dithered) + 0.2 * dithered_aerial_perspective, 1.0);
+    return vec4<f32>(filmic(dithered) + 0.5 * dithered_aerial_perspective, 1.0);
 }

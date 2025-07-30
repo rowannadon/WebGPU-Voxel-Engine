@@ -18,7 +18,7 @@ class StorageBufferPool {
 
     const int NUM_BUFFERS = 18000;
     const int totalSlots = NUM_BUFFERS;
-    const int MAX_FACES_PER_CHUNK = 8192;
+    const int MAX_FACES_PER_CHUNK = 12288;
     const int MAX_INDICES_PER_CHUNK = MAX_FACES_PER_CHUNK * 6; // 6 indices per face
 
     // Calculate aligned sizes

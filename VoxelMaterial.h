@@ -13,6 +13,7 @@ enum BlockType: uint16_t {
     Gneiss,
     Log,
     Leaf,
+    TallGrass,
 };
 
 struct VoxelMaterial {

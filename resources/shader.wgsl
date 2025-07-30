@@ -130,13 +130,9 @@ struct Atmosphere {
 }
 
 // number of face data per slot 
-const STORAGE_BUFFER_SLOT_SIZE = 8192;
+const STORAGE_BUFFER_SLOT_SIZE = 12288;
 const NUM_TOTAL_SLOTS = 18000;
 
-const ATLAS_TILES_X: f32 = 4.0;
-const ATLAS_TILES_Y: f32 = 4.0;
-const TEXTURE_SIZE: f32 = 8.0;
-const TILE_SIZE: f32 = 1.0 / ATLAS_TILES_X;
 const CHUNK_SIZE: f32 = 32.0;
 
 // Distance-based shading fade constants
@@ -168,7 +164,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
 // PBR material definitions - expanded with realistic properties
-const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 10>(
+const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 11>(
     // ID 1: Dirt
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
@@ -290,7 +286,20 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 10>(
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
         0.0,                      // Non-metallic
-        0.6,                      // Very rough leaf surface
+        0.9,                      // Very rough leaf surface
+        0.06,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.7,                      // Lower AO for thin material
+        0.5,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0
+    ),
+    // ID 11: Tall Grass
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.9,                      // Very rough leaf surface
         0.06,                     // Lower specular for matte leaves
         vec3f(0.0),              // No emission
         1.0,                      // High normals for leaf vein texture
@@ -456,10 +465,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.001 * (1.0 - n_dot_l), 0.001);
+    let bias = max(0.0002 * (1.0 - n_dot_l), 0.0002);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 4096.0;
+    let texel_size = 1.0 / 16384.0;
     var shadow = 0.0;
     let samples = 16;
     
@@ -514,6 +523,14 @@ const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>,
 const aoLevels = array<f32, 4>(
     0.25, 0.4, 0.5, 0.75
 );
+
+fn hash_voxel_position(pos: vec3i) -> u32 {
+    var h = u32(pos.x * 374761393 + pos.y * 668265263 + pos.z * 1274126177);
+    h = (h ^ (h >> 16)) * 2146435069u;
+    h = (h ^ (h >> 16)) * 2146435069u;
+    h = h ^ (h >> 16);
+    return h;
+}
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -584,8 +601,68 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
         )
     );
+
+    const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
+            vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 1.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(-0.5, -0.5, -0.5), vec3<f32>(-0.5, -0.5, 1.0), 
+            vec3<f32>(1.5, 1.5, 1.5), vec3<f32>(1.5, 1.5, -0.5)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(-0.5, 1.5, 1.5), vec3<f32>(-0.5, 1.5, -0.5), 
+            vec3<f32>(1.5, -0.5, -0.5), vec3<f32>(1.5, -0.5, 1.5)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0), 
+            vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
+        )
+    );
+
+    const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), 
+            vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+        ),
+        array<vec3<f32>, 4>(
+            vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), 
+            vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+        )
+    );
+
+    let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
+
+    let hash = hash_voxel_position(world_voxel_pos);
+    let tile_x = hash & 3u;
+    let tile_y = (hash >> 2u) & 3u;
+    let tile_z = (hash >> 8u) & 3u;
+    let rotation = (hash >> 4u) & 3u;
+    out.tile_offset = vec2f(f32(tile_x) * 0.25, f32(tile_y) * 0.25);
+    out.tile_rotation = rotation;
+
+    let tile_x_2 = hash & 4u;
+    let tile_y_2 = (hash >> 3u) & 4u;
+    let tile_z_2 = (hash >> 6u) & 4u;
+
+    var scaled_vertex_offset: vec3f;
+    if (faceData.materialId == 10u) {
+        scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale + (0.02 * vec3f(f32(2*tile_x_2), f32(4*tile_y_2), f32(3*tile_z_2)));
+    } else if (faceData.materialId == 11u) {
+        scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
+    } else {
+        scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
+    }
     
-    let scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
     position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
     
     uv = faceUVsIndependent[data.normal_index][vertexInFace];
@@ -599,7 +676,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     out.highlighted = 0.0;
     
-    let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
     let highlighted_pos = uMyUniforms.highlightedVoxelPos;
     
     let lod_level_i32 = i32(data.lod_level);
@@ -611,13 +687,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         highlighted_pos.z >= voxel_min.z && highlighted_pos.z <= voxel_max.z) {
         out.highlighted = 1.0;
     }
-
-    let hash = hash_voxel_position(world_voxel_pos);
-    let tile_x = hash & 3u;
-    let tile_y = (hash >> 2u) & 3u;
-    let rotation = (hash >> 4u) & 3u;
-    out.tile_offset = vec2f(f32(tile_x) * 0.25, f32(tile_y) * 0.25);
-    out.tile_rotation = rotation;
     
     let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
@@ -699,23 +768,23 @@ fn calculate_pbr_lighting(
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
-            let subsurface_distortion = 0.3;  // How much the light bends through the material
-            let subsurface_scale = 6.0;  // Overall intensity scale
+            let subsurface_distortion = 0.0;  // How much the light bends through the material
+            let subsurface_scale = 3.0;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
             let v_dot_subsurface = pow(clamp(dot(view_dir, -subsurface_light), 0.0, 1.0), subsurface_power) * subsurface_scale;
             
             // Subsurface color - typically warmer and more saturated than albedo
-            let subsurface_color = albedo * 1.5; // Boost saturation for organic glow
+            let subsurface_color = albedo * 1.5 * vec3f(1.0, 0.95, 0.8); // Boost saturation for organic glow
             
             // Calculate subsurface contribution
             let subsurface_lighting = subsurface_color * light_color * v_dot_subsurface * back_n_dot_l * subsurface;
             
             // Subsurface scattering is less affected by shadows (light scatters around obstacles)
-            let subsurface_shadow_factor = mix(1.0, shadow_factor, 0.3); // Only 30% shadow influence
+            let subsurface_shadow_factor = mix(1.0, shadow_factor, 0.9); // Only 30% shadow influence
             
-            total_lighting += subsurface_lighting * subsurface_shadow_factor * shadow_factor;
+            total_lighting += subsurface_lighting * subsurface_shadow_factor;
         }
     }
     
@@ -732,13 +801,6 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
-fn hash_voxel_position(pos: vec3i) -> u32 {
-    var h = u32(pos.x * 374761393 + pos.y * 668265263 + pos.z * 1274126177);
-    h = (h ^ (h >> 16)) * 2146435069u;
-    h = (h ^ (h >> 16)) * 2146435069u;
-    h = h ^ (h >> 16);
-    return h;
-}
 
 fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
     // Center UV coordinates around (0.5, 0.5)
@@ -784,14 +846,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Sample noise for material variation
 
     var uv = in.uv;
-    if (material_id != 9u) {
+    if (material_id != 9u) { // not trunk
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
-        if (material_id == 10u) {
+        if (material_id == 10u) { // is leaves
             uv = rotated_uv;
-        } else {
+        } else if (material_id == 11u) { // is tall grass
+            uv = in.uv;
+        } else { // is not leaves
             uv = rotated_uv * 0.25 + in.tile_offset;
         }
-    } else {
+    } else { // is trunk
         uv = in.uv * 0.25 + in.tile_offset;
     }
 
@@ -822,8 +886,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.metallic,
-        (textureColor.r + textureColor.g + textureColor.b) / 2.0,
-        materialProps.specular,
+        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.roughness,
+        materialProps.specular * 4.0,
         shadow_factor,
         materialProps.subsurface  // Pass subsurface parameter
     );

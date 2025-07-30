@@ -279,8 +279,8 @@ public:
             daic.instanceCount = 1;
 
             // These should be offsets in ELEMENTS, not bytes
-            daic.firstIndex = static_cast<uint32_t>(meshSlot * 8192 * 6); // Assuming max 32768 indices per chunk
-            daic.baseVertex = 0; // static_cast<int32_t>(meshSlot * 8192);  // Assuming max 32768 vertices per chunk
+            daic.firstIndex = static_cast<uint32_t>(meshSlot * 12288 * 6);
+            daic.baseVertex = 0; // static_cast<int32_t>(meshSlot * 8192);
             daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
 
             output[i] = { ivec3(position.x, position.y, i * 32), daic };
@@ -781,7 +781,7 @@ public:
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
                     float noiseValue = noiseData[index++];
-                    if (noiseValue > -0.999f) {
+                    if (noiseValue > -0.4f) {
                         setVoxelWholeColumn(ivec3(x, y, z), true, false);
                     }
                 }
@@ -983,6 +983,14 @@ public:
                             // Apply materials to multiple layers
                             if (material.materialType == BlockType::Grass) { // grass terrain
                                 // Top 2 layers: grass
+                                ivec3 grassPos = ivec3(x, y, z + 1);
+                                if (rand() % 16 == 0 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                    VoxelMaterial material;
+                                    material.materialType = BlockType::TallGrass; // grass
+                                    setVoxelWholeColumn(grassPos, true, true);
+                                    setMaterialFast(grassPos, material);
+                                }
+
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
@@ -990,6 +998,7 @@ public:
                                         material.materialType = BlockType::Grass; // grass
                                         setMaterialFast(layerPos, material);
                                     }
+
                                 }
                                 // Next 3 layers: dirt
                                 for (int layer = 2; layer < 5; layer++) {
@@ -1390,43 +1399,77 @@ public:
                         ivec3 groupPos = ivec3(x, y, z);
                         auto [groupIsSolid, groupMaterial] = sampleLODGroup(groupPos);
 
+                        int repeat = 1;
+                        if (groupMaterial.materialType == BlockType::Leaf) {
+                            repeat = 1;
+                        }
+
+                        int faces = 6;
+                        if (groupMaterial.materialType == BlockType::TallGrass) {
+                            faces = 2;
+                            repeat = 1;
+                        }
                         if (groupIsSolid) {
-                            // Check each face for culling
-                            for (int face = 0; face < 6; ++face) {
-                                // Use the improved culling function that checks ALL neighbor voxels
-                                if (!shouldCullLODFace(groupPos, face)) {
-                                    uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
+                            for (int i = 0; i < repeat; i++) {
+                                for (int face = 0; face < faces; ++face) {
+                                    // Use the improved culling function that checks ALL neighbor voxels
+                                    if (!shouldCullLODFace(groupPos, face)) {
+                                        uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
 
-                                    std::array<uint32_t, 4> aoValues;
-                                    for (int vertex = 0; vertex < 4; ++vertex) {
-                                        aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
-                                    }
+                                        std::array<uint32_t, 4> aoValues;
+                                        for (int vertex = 0; vertex < 4; ++vertex) {
+                                            aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
+                                        }
 
-                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+                                        bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
-                                    FaceAttributes faceData;
-                                    // Use group position (which represents the LOD voxel position)
-                                    faceData.data = packData(x, y, z, face, aoValues);
-                                    faceData.materialId = groupMaterial.materialType;
-                                    vertexData[meshSlot][zPos].push_back(faceData);
+                                        FaceAttributes faceData;
+                                        // Use group position (which represents the LOD voxel position)
+                                        faceData.data = packData(x, y, z, face, aoValues);
+                                        faceData.materialId = groupMaterial.materialType;
+                                        vertexData[meshSlot][zPos].push_back(faceData);
 
-                                    if (flipQuad) {
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                        if (i == 0) {
+                                            if (flipQuad) {
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
 
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                    }
-                                    else {
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                            }
+                                            else {
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
 
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                            }
+                                        }
+                                        else {
+                                            if (flipQuad) {
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                            }
+                                            else {
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                            }
+                                        }
+                                        
                                     }
                                 }
                             }
