@@ -43,7 +43,8 @@ struct VertexOutput {
     @location(10) @interpolate(flat) material_id: u32,
     @location(11) @interpolate(flat) lod_level: u32,
     @location(12) tile_offset: vec2f,
-    @location(13) @interpolate(flat) tile_rotation: u32,
+    @location(13) tile_offset2: vec2f,
+    @location(14) @interpolate(flat) tile_rotation: u32,
 };
 
 struct MyUniforms {
@@ -706,12 +707,12 @@ const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4
 
 const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
     array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
+        vec3<f32>(-0.207, -0.207, 0.0), vec3<f32>(-0.207, -0.207, 1.207), 
+        vec3<f32>(1.207, 1.207, 1.207), vec3<f32>(1.207, 1.207, 0.0)
     ),
     array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), 
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
+        vec3<f32>(-0.207, 1.207, 1.207), vec3<f32>(-0.207, 1.207, 0.0), 
+        vec3<f32>(1.207, -0.207, 0.0), vec3<f32>(1.207, -0.207, 1.207)
     )
 );
 
@@ -722,12 +723,12 @@ const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
 
 const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     array<f32, 4>(
-        0.25, 1.0, 
-        1.0, 0.25
+        1.0, 1.0, 
+        1.0, 1.0
     ),
     array<f32, 4>(
-        1.0, 0.25, 
-        0.25, 1.0
+        1.0, 1.0, 
+        1.0, 1.0
     )
 );
 
@@ -798,17 +799,80 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_z = (hash >> 8u) & 3u;
     let rotation = (hash >> 4u) & 3u;
     out.tile_offset = vec2f(f32(tile_x) * 0.25, f32(tile_y) * 0.25);
+    out.tile_offset2 = vec2f(f32(tile_x % 2) * 0.5, f32(tile_y % 2) * 0.5);
     out.tile_rotation = rotation;
 
-    let tile_x_2 = hash & 4u;
-    let tile_y_2 = (hash >> 3u) & 4u;
-    let tile_z_2 = (hash >> 6u) & 4u;
+    let tile_x_2 = hash & 7u;
+    let tile_y_2 = (hash >> 6u) & 7u;
+    let tile_z_2 = (hash >> 12u) & 7u;
 
     var scaled_vertex_offset: vec3f;
+    // Replace the existing leaf model offset section in your vertex shader with this:
+
     if (materialProps.model == LEAF_MODEL) {
-        scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(2*tile_x_2), f32(4*tile_y_2), f32(3*tile_z_2)));
+        // Generate more varied offsets using multiple hash components
+        let hash2 = hash_voxel_position(world_voxel_pos + vec3i(1, 0, 0));
+        let hash3 = hash_voxel_position(world_voxel_pos + vec3i(0, 1, 0));
+        let hash4 = hash_voxel_position(world_voxel_pos + vec3i(0, 0, 1));
+        
+        // Extract different offset components from multiple hashes
+        let offset_x_coarse = f32((hash >> 16u) & 0xFFu) / 255.0;
+        let offset_y_coarse = f32((hash2 >> 8u) & 0xFFu) / 255.0;
+        let offset_z_coarse = f32((hash3 >> 24u) & 0xFFu) / 255.0;
+        
+        // Fine-grained offsets for micro-positioning
+        let offset_x_fine = f32((hash4 >> 4u) & 0xFu) / 15.0;
+        let offset_y_fine = f32((hash >> 12u) & 0xFu) / 15.0;
+        let offset_z_fine = f32((hash2 >> 20u) & 0xFu) / 15.0;
+        
+        // Combine coarse and fine offsets with different scales
+        let primary_offset = vec3f(
+            (offset_x_coarse - 0.5) * 0.4 + (offset_x_fine - 0.5) * 0.15,
+            (offset_y_coarse - 0.5) * 0.4 + (offset_y_fine - 0.5) * 0.15,
+            (offset_z_coarse - 0.5) * 0.4 + (offset_z_fine - 0.5) * 0.15
+        );
+        
+        // Add rotational variance to break alignment
+        let rotation_angle = f32((hash3 >> 4u) & 0x3Fu) / 63.0 * tau;
+        let tilt_angle = f32((hash4 >> 12u) & 0x1Fu) / 31.0 * 0.3; // Max 0.3 radians tilt
+        
+        // Create rotation matrix for random orientation
+        let cos_rot = cos(rotation_angle);
+        let sin_rot = sin(rotation_angle);
+        let cos_tilt = cos(tilt_angle);
+        let sin_tilt = sin(tilt_angle);
+        
+        // Apply rotation to the base vertex position before adding offset
+        var base_vertex = faceVerticesLeaf[data.normal_index][vertexInFace];
+        
+        // Rotate around Y axis first
+        let rotated_vertex = vec3f(
+            base_vertex.x * cos_rot - base_vertex.z * sin_rot,
+            base_vertex.y,
+            base_vertex.x * sin_rot + base_vertex.z * cos_rot
+        );
+        
+        // Then apply a slight tilt
+        let tilted_vertex = vec3f(
+            rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
+            rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
+            rotated_vertex.z
+        );
+        
+        // Scale by LOD and add both positional and rotational offsets
+        scaled_vertex_offset = tilted_vertex * lod_scale + primary_offset;
+        
+        // Add a small per-face offset to ensure no two faces are exactly coplanar
+        let face_specific_hash = hash_voxel_position(world_voxel_pos + vec3i(i32(data.normal_index), 0, 0));
+        let face_offset = vec3f(
+            f32((face_specific_hash >> 8u) & 0x7u) / 7.0 - 0.5,
+            f32((face_specific_hash >> 16u) & 0x7u) / 7.0 - 0.5,
+            f32((face_specific_hash >> 24u) & 0x7u) / 7.0 - 0.5
+        ) * 0.08; // Small offset to break coplanarity
+        
+        scaled_vertex_offset += face_offset;
     } else if (materialProps.model == GRASS_MODEL) {
-        scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
+        scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + 0.04 - (0.02 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
     } else {
         scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
     }
@@ -1016,6 +1080,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     if (materialProps.model == GRASS_MODEL) {
         normal = max(normal, -normal);
+        uv = uv * 0.5 + in.tile_offset2;
     }
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);

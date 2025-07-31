@@ -1011,7 +1011,7 @@ public:
                                 // Top 2 layers: grass
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                if (blockHash % 2 == 0 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                if (grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     VoxelMaterial material;
                                     if (blockHash % 8 == 0) {
                                         material.materialType = BlockType::TallGrass; // grass
@@ -1020,19 +1020,19 @@ public:
                                         material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 2) {
-                                        material.materialType = BlockType::Grass1; // grass
+                                        material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 3) {
-                                        material.materialType = BlockType::Grass2; // grass
+                                        material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 4) {
-                                        material.materialType = BlockType::Grass3; // grass
+                                        material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 5) {
-                                        material.materialType = BlockType::Grass4; // grass
+                                        material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 6) {
-                                        material.materialType = BlockType::Grass5; // grass
+                                        material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 7) {
                                         material.materialType = BlockType::TallGrass; // grass
