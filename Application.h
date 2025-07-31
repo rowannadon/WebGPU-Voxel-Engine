@@ -3,12 +3,16 @@
 #include <GLFW/glfw3.h>
 #include "glm/glm.hpp"
 #include "glm/ext.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 #include "webgpu-utils.h"
 #include "ThreadSafeChunkManager.h"
-#include "Ray.h"
 #include "Rendering/WebGPURenderer.h"
 
 //#include "magic_enum.hpp"
+
+#include "imgui/imgui.h"
+#include "imgui/backends/imgui_impl_glfw.h"
+#include "imgui/backends/imgui_impl_wgpu.h"
 
 #include <set>
 #include <iostream>
@@ -22,6 +26,7 @@
 #include <array>
 #include <thread>
 #include <numeric>
+#include <FastNoise/FastNoise.h>
 
 using namespace wgpu;
 
@@ -36,11 +41,20 @@ public:
     void MainLoop();
     bool IsRunning();
 
+    void saveTexture();
+    void saveHeightTexture();
+
 private:
     void startChunkUpdateThread();
     void stopChunkUpdateThread();
     void chunkUpdateThreadFunction();
     void processGPUUploads();
+
+    // ImGUI methods
+    bool initImGUI();
+    void renderImGUI();
+    void terminateImGUI();
+    void updateImGUIFrame();
 
     // Event handlers
     void registerMovementCallbacks();
@@ -90,24 +104,6 @@ private:
         }
     };
 
-    void propagateGridBasedLight(ivec3 lightSourcePos, int lightLevel);
-    void propagateVisibilityInOctant(ivec3 lightSourcePos, int radius,
-        const std::function<bool(ivec3)>& isSolid,
-        const std::function<void(ivec3, float)>& setVisibility,
-        int xDir, int yDir, int zDir);
-    float getGridVisibilityScore(ivec3 worldPos, ivec3 lightPos);
-    void recalculateGridLightingArea(ivec3 centerPos, int radius);
-
-    // Grid-based visibility data structure
-    struct GridVisibilityData {
-        std::unordered_map<ivec3, float, IVec3Hash, IVec3Equal> visibilityScores;
-        std::unordered_set<ivec3, IVec3Hash, IVec3Equal> lightSources;
-        std::mutex visibilityMutex;
-    };
-
-    // Add this member variable to Application class:
-    GridVisibilityData gridVisibility;
-
     // Mouse state for first person look
     struct MouseState {
         bool firstMouse = true;
@@ -134,6 +130,28 @@ private:
         ivec3 localPosition;
     };
 
+    // ImGUI state
+    struct ImGUIState {
+        bool showMainWindow = true;
+        bool showDemo = true;
+        float timeMultiplier = 0.5f;  // Multiplier for time (originally hardcoded as 0.5)
+        bool pauseTime = false;       // Allow pausing time
+        float manualTime = 0.0f;      // Manual time override
+        bool useManualTime = false;   // Use manual time instead of automatic
+
+        // Camera controls
+        bool showCameraControls = true;
+
+        // Performance metrics
+        bool showPerformanceMetrics = true;
+
+        // Lighting controls
+        bool showLightingControls = true;
+        vec3 lightDirection = vec3(0.3f, 0.3f, -0.7f);
+        vec3 lightColor = vec3(1.0f, 1.0f, 0.9f);
+        float lightIntensity = 1.0f;
+    };
+
     // Global light propagation queue for cross-chunk lighting
     std::queue<LightPropagationItem> globalLightQueue;
     std::mutex globalLightMutex;
@@ -149,6 +167,7 @@ private:
     std::mutex cameraMutex;
     MouseState mouseState;
     KeyStates keyStates;
+    ImGUIState imguiState;  // Add ImGUI state
 
     float deltaTime = 0.0f;
     float lastFrame = 0.0f;
@@ -156,7 +175,7 @@ private:
 
     std::vector<float> frameTimes;
 
-    ThreadSafeChunkManager chunkManager;
+    ChunkColumnManager chunkManager;
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
@@ -176,16 +195,20 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.03f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {
-        ivec3 chunkPos;
-        std::shared_ptr<ThreadSafeChunk> chunk;
+        ivec2 chunkPos;
+        std::shared_ptr<ChunkColumn> chunk;
     };
     std::queue<GPUUploadItem> pendingGPUUploads;
     std::mutex gpuUploadMutex;
 
-    MyUniforms uniforms;
+    MyUniforms uniforms; 
+    Noise noise;
+    Atmosphere atmosphere;
+    Clouds clouds;
+    Terrain terrain;
 };
 

@@ -10,15 +10,21 @@ enum BlockType: uint16_t {
     Brick,
     Slate,
     Andesite,
-    Reserved1,
     Gneiss,
     Log,
     Leaf,
-    Reserved2
+    TallGrass,
+    Fern,
+    Grass0,
+    Grass1,
+    Grass2,
+    Grass3,
+    Grass4,
+    Grass5,
 };
 
 struct VoxelMaterial {
-    uint16_t materialType = 0;  // 0=air, 1=stone, 2=dirt, 3=grass, etc.
+    uint16_t materialType = 0;  // 0=air, 1=dirt, 2=grass, 3=grass, etc.
 };
 
 struct LightMaterial {

@@ -47,6 +47,22 @@ std::shared_ptr<MeshBufferPool> BufferManager::getMeshBufferPool(std::string nam
     return nullptr;
 }
 
+std::shared_ptr<StorageBufferPool> BufferManager::createStorageBufferPool(std::string name) {
+    auto pool = std::make_shared<StorageBufferPool>();
+    pool->init(device, queue);
+    storagePools[name] = pool;
+
+    return pool;
+}
+
+std::shared_ptr<StorageBufferPool> BufferManager::getStorageBufferPool(std::string name) {
+    auto pool = storagePools.find(name);
+    if (pool != storagePools.end()) {
+        return pool->second;
+    }
+    return nullptr;
+}
+
 std::shared_ptr<BufferPool> BufferManager::createBufferPool(std::string name) {
     auto pool = std::make_shared<BufferPool>();
     pool->init(device, queue);

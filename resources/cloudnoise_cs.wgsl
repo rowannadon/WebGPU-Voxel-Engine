@@ -226,21 +226,16 @@ fn make_seamless_coords(uv: vec2<f32>) -> vec2<f32> {
 
 // Generate cloud base noise texture (256x256 or 512x512)
 fn generate_cloud_base_noise(uv: vec2<f32>) -> vec4<f32> {
-    let seamless_pos = make_seamless_coords(uv);
+    let texture_size_f = f32(params.texture_size);
+    let pixel_coords = vec2<u32>(uv * texture_size_f);
     
-    // Red channel: Large-scale cloud structure using fBM
-    let red_noise = fbm_2d(seamless_pos, params.octaves, params.frequency, params.amplitude, params.lacunarity, params.persistence);
+    // Generate independent random values for each channel
+    let red_val = hash_to_float(hash2(pixel_coords));
+    let green_val = hash_to_float(hash2(pixel_coords + vec2<u32>(1000u, 0u)));
+    let blue_val = hash_to_float(hash2(pixel_coords + vec2<u32>(0u, 1000u)));
+    let alpha_val = hash_to_float(hash2(pixel_coords + vec2<u32>(1000u, 1000u)));
     
-    // Green channel: Cloud coverage using different noise characteristics
-    let green_noise = fbm_2d(seamless_pos + vec2<f32>(100.0, 200.0), params.octaves / 2u, params.frequency * 0.5, params.amplitude, params.lacunarity, params.persistence);
-    
-    // Blue channel: Billowy formations for cloud puffiness
-    let blue_noise = billowy_fbm_2d(seamless_pos + vec2<f32>(300.0, 400.0), params.octaves, params.frequency * 1.5, params.amplitude * 0.7, params.lacunarity, params.persistence);
-    
-    // Alpha channel: Combined pattern for additional variation
-    let alpha_noise = mix(red_noise, green_noise, 0.6);
-    
-    return vec4<f32>(red_noise, green_noise, blue_noise, alpha_noise);
+    return vec4<f32>(red_val, green_val, blue_val, alpha_val);
 }
 
 // Generate cloud detail noise texture (128x128 or 256x256)

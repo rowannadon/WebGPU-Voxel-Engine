@@ -15,9 +15,9 @@ add_subdirectory(glfw)
 add_subdirectory(webgpu)
 add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
-# add_subdirectory(glm)
+add_subdirectory(imgui)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ThreadSafeChunk.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Ray.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp" "Atmosphere.h" "Noise.h")
+add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ChunkColumn.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp" "Atmosphere.h" "Noise.h" "Terrain.h" "Rendering/StorageBufferPool.h" "FaceAttributes.h")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.
@@ -27,7 +27,7 @@ option(WEBGPU_BUILD_FROM_SOURCE "Build from source" ON)
 # Add the 'webgpu' target as a dependency of our App
 # target_include_directories(App PRIVATE .)
 
-target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu FastNoise)
+target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu FastNoise imgui)
 
 if(DEV_MODE)
     # In dev mode, we load resources from the source tree, so that when we

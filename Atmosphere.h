@@ -42,23 +42,73 @@ struct Atmosphere {
 	vec3 planet_center;
 
 	float multi_scattering_factor;
+
+	float sky_sun_lum;
+	float ap_sun_lum;
+	float ap_slice_scale;
+	float padding;
 };
+
+struct Clouds {
+	float height;
+	float thickness;
+	float density;
+	float coverage;
+	float absorption;
+	float scattering;
+	float powder_strength;
+	float sun_brightness;
+	float phase_g1;
+	float phase_g2;
+	float phase_blend;
+	int march_steps;
+	int shadow_steps;
+	int light_steps;
+	float scale;
+	float speed;
+
+	float padding;
+};
+
+inline Clouds getDefaultClouds() {
+	Clouds clouds = {};
+	clouds.height = 35.0f;
+	clouds.thickness = 71.0f;
+	clouds.density = 1.0f;
+	clouds.coverage = 0.22f;
+	clouds.absorption = 0.66f;
+	clouds.scattering = 0.66f;
+	clouds.powder_strength = 3.38f;
+	clouds.sun_brightness = 6.34f;
+	clouds.phase_g1 = 0.19f;
+	clouds.phase_g2 = 0.63f;
+	clouds.phase_blend = 0.44f;
+	clouds.march_steps = 64;
+	clouds.shadow_steps = 8;
+	clouds.light_steps = 8;
+	clouds.scale = 4.24f;
+	clouds.speed = 0.5f;
+
+	return clouds;
+}
 
 inline Atmosphere getDefaultAtmosphere() {
 	Atmosphere atmosphere = {};
 	const float rayleighScaleHeight = 8.696f;
 	const float mieScaleHeight = 1.2f;
 
-	atmosphere.bottom_radius = 100.0f;
-	atmosphere.top_radius = atmosphere.bottom_radius + 100.0f;
-	atmosphere.planet_center = { 0.0f, 0.0f, -atmosphere.bottom_radius - 5.0f };
+
+	atmosphere.bottom_radius = 1000.0f;
+	atmosphere.top_radius = 1000.0f + 100.0f;
+	atmosphere.planet_center = { 0.0f, 0.0f, -1000.0f - 1.5f };
+
 	atmosphere.ground_albedo = { 0.4f, 0.4f, 0.4f };
 	atmosphere.multi_scattering_factor = 1.0f;
 
-	atmosphere.rayleigh_density_exp_scale = -1.0f / rayleighScaleHeight;
+	atmosphere.rayleigh_density_exp_scale = -1.0f / 8.696f;
 	atmosphere.rayleigh_scattering = vec3(0.006604931f, 0.012344918f, 0.029412623f) * 4.0f;
 
-	atmosphere.mie_density_exp_scale = -0.8333f / mieScaleHeight;
+	atmosphere.mie_density_exp_scale = -0.8333f / 1.2f;
 	atmosphere.mie_scattering = vec3(0.003996f, 0.003996f, 0.003996f) * 2.0f;
 	atmosphere.mie_extinction = vec3(0.004440f, 0.004440f, 0.004440f) * 2.0f;
 	atmosphere.mie_phase_param = 0.8f;
@@ -66,9 +116,13 @@ inline Atmosphere getDefaultAtmosphere() {
 	atmosphere.absorption_density_0_layer_height = 5.0f;
 	atmosphere.absorption_density_0_constant_term = -2.0f / 3.0f;
 	atmosphere.absorption_density_0_linear_term = 0.0f / 15.0f;
-	atmosphere.absorption_density_1_constant_term = 8.0 / 3.0f;
+	atmosphere.absorption_density_1_constant_term = 8.0f / 3.0f;
 	atmosphere.absorption_density_1_linear_term = -0.0f / 15.0f;
 	atmosphere.absorption_extinction = vec3(0.00229072f, 0.00154036f, 0.0f);
+
+	atmosphere.sky_sun_lum = 16.0f;
+	atmosphere.ap_sun_lum = 6.6f;
+	atmosphere.ap_slice_scale = 0.028;
 
 	return atmosphere;
 }

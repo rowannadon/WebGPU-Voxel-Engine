@@ -8,6 +8,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
 
     RenderPipelineDescriptor pipelineDesc;
     pipelineDesc.nextInChain = nullptr;
+    pipelineDesc.label = StringView(pipelineName);
 
     // Handle vertex buffer configuration
     VertexBufferLayout vertexBufferLayout;
@@ -117,7 +118,7 @@ ComputePipeline PipelineManager::createComputePipeline(const std::string pipelin
 
     ComputePipelineDescriptor pipelineDesc = Default;
     pipelineDesc.nextInChain = nullptr;
-
+    pipelineDesc.label = StringView(pipelineName);
 	pipelineDesc.compute.entryPoint = StringView(config.computeShaderName);
 	pipelineDesc.compute.module = shaderModule;
 
@@ -140,7 +141,6 @@ ComputePipeline PipelineManager::createComputePipeline(const std::string pipelin
 
     return pipeline;
 }
-
 
 BindGroupLayout PipelineManager::createBindGroupLayout(const std::string bindGroupLayoutName, const std::vector<BindGroupLayoutEntry>& entries) {
     BindGroupLayoutDescriptor chunkDataBindGroupLayoutDesc{};
@@ -167,6 +167,7 @@ BindGroup PipelineManager::createBindGroup(const std::string bindGroupName, cons
     }
 
     BindGroupDescriptor bindGroupDesc;
+    bindGroupDesc.label = StringView(bindGroupName);
     bindGroupDesc.layout = layout;
     bindGroupDesc.entryCount = (uint32_t)bindings.size();
     bindGroupDesc.entries = bindings.data();

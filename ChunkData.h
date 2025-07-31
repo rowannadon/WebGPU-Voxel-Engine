@@ -6,7 +6,7 @@
 struct ChunkData {
     glm::ivec3 worldPosition;
     uint32_t lod;
-    uint32_t textureSlot;
+    uint32_t meshSlot;
     uint32_t lightSlot;
     uint32_t right;
     uint32_t left;

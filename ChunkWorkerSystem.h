@@ -9,9 +9,10 @@
 #include <chrono>
 #include <iostream>
 #include "glm/glm.hpp"
-#include "ThreadSafeChunk.h"
+#include "ChunkColumn.h"
 
 using glm::ivec3;
+using glm::ivec2;
 
 // Enhanced work item with better priority handling
 class ChunkWorkItem {
@@ -34,9 +35,9 @@ public:
 
 private:
     Type type;
-    std::shared_ptr<ThreadSafeChunk> chunk;
-    ivec3 position;
-    std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors;
+    std::shared_ptr<ChunkColumn> chunk;
+    ivec2 position;
+    std::array<std::shared_ptr<ChunkColumn>, 4> neighbors;
     int priority;
     int id;
     std::chrono::steady_clock::time_point creation_time;
@@ -45,17 +46,17 @@ private:
 public:
     // Default constructor
     ChunkWorkItem()
-        : type(GenerateTerrain), chunk(nullptr), position(0, 0, 0), neighbors{},
+        : type(GenerateTerrain), chunk(nullptr), position(0, 0), neighbors{},
         priority(NORMAL), id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
 
-    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos, int prio = NORMAL)
+    ChunkWorkItem(Type t, std::shared_ptr<ChunkColumn> c, ivec2 pos, int prio = NORMAL)
         : type(t), chunk(c), position(pos), neighbors{}, priority(prio),
         id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
 
-    ChunkWorkItem(Type t, std::shared_ptr<ThreadSafeChunk> c, ivec3 pos,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighs, int prio = NORMAL)
+    ChunkWorkItem(Type t, std::shared_ptr<ChunkColumn> c, ivec2 pos,
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighs, int prio = NORMAL)
         : type(t), chunk(c), position(pos), neighbors(neighs), priority(prio),
         id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
@@ -70,58 +71,21 @@ public:
 
     // Getters
     Type getType() const { return type; }
-    std::shared_ptr<ThreadSafeChunk> getChunk() const { return chunk; }
-    ivec3 getPosition() const { return position; }
-    const std::array<std::shared_ptr<ThreadSafeChunk>, 6>& getNeighbors() const { return neighbors; }
+    std::shared_ptr<ChunkColumn> getChunk() const { return chunk; }
+    ivec2 getPosition() const { return position; }
+    const std::array<std::shared_ptr<ChunkColumn>, 4>& getNeighbors() const { return neighbors; }
     int getPriority() const { return priority; }
     int getId() const { return id; }
 
     // Check if work item is still valid
     bool isValid() const {
-        return chunk && chunk->getState() != ChunkState::Unloading;
+        return chunk && chunk->getState() != ColumnState::Unloading;
     }
 
     // Get age of work item
     std::chrono::milliseconds getAge() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - creation_time);
-    }
-
-    std::string getTypeString() const {
-        switch (type) {
-        case GenerateTerrain: return "GenerateTerrain";
-        case GenerateTopsoil: return "GenerateTopsoil";
-        case GenerateMesh: return "GenerateMesh";
-        case RegenerateMesh: return "RegenerateMesh";
-        default: return "Unknown";
-        }
-    }
-};
-
-
-
-// Work result for completed tasks
-struct ChunkWorkResult {
-    int work_item_id;
-    ChunkWorkItem::Type work_type;
-    ivec3 position;
-    bool success;
-    std::string error_message;
-    std::chrono::steady_clock::time_point completion_time;
-    std::chrono::milliseconds processing_time;
-
-    // Default constructor
-    ChunkWorkResult()
-        : work_item_id(0), work_type(ChunkWorkItem::GenerateTerrain), position(0, 0, 0),
-        success(false), error_message(""), completion_time(std::chrono::steady_clock::now()),
-        processing_time(std::chrono::milliseconds(0)) {
-    }
-
-    ChunkWorkResult(int id, ChunkWorkItem::Type type, ivec3 pos, bool s,
-        const std::string& error = "", std::chrono::milliseconds proc_time = std::chrono::milliseconds(0))
-        : work_item_id(id), work_type(type), position(pos), success(s),
-        error_message(error), completion_time(std::chrono::steady_clock::now()),
-        processing_time(proc_time) {
     }
 };
 
@@ -205,67 +169,20 @@ public:
     }
 };
 
-// Thread-safe queue for completed work results
-class ChunkResultQueue {
-private:
-    std::queue<ChunkWorkResult> queue;
-    mutable std::mutex mtx;
-    std::condition_variable cv;
-    std::atomic<bool> shutdown{ false };
-
-public:
-    void push(const ChunkWorkResult& result) {
-        std::lock_guard<std::mutex> lock(mtx);
-        if (!shutdown) {
-            queue.push(result);
-            cv.notify_one();
-        }
-    }
-
-    bool pop(ChunkWorkResult& result, std::chrono::milliseconds timeout = std::chrono::milliseconds(10)) {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        if (cv.wait_for(lock, timeout, [this] { return !queue.empty() || shutdown; })) {
-            if (shutdown && queue.empty()) {
-                return false;
-            }
-
-            if (!queue.empty()) {
-                result = queue.front();
-                queue.pop();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void requestShutdown() {
-        shutdown = true;
-        cv.notify_all();
-    }
-
-    size_t size() const {
-        std::lock_guard<std::mutex> lock(mtx);
-        return queue.size();
-    }
-};
-
 // Enhanced chunk worker system with thread pool architecture
 class ChunkWorkerSystem {
 private:
     ChunkWorkQueue work_queue;
-    ChunkResultQueue result_queue;
 
     std::vector<std::thread> worker_threads;
-    std::thread result_processor_thread;
 
     std::atomic<bool> running{ true };
     std::atomic<int> active_workers{ 0 };
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 12;
-    static constexpr size_t MAX_QUEUE_SIZE = 1000;
+    static constexpr int DEFAULT_WORKER_COUNT = 4;
+    static constexpr size_t MAX_QUEUE_SIZE = 100;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
 
     // Statistics
@@ -297,7 +214,6 @@ public:
 
         // Signal shutdown to queues
         work_queue.requestShutdown();
-        result_queue.requestShutdown();
 
         // Wait for all threads to finish
         for (auto& worker : worker_threads) {
@@ -306,15 +222,11 @@ public:
             }
         }
 
-        if (result_processor_thread.joinable()) {
-            result_processor_thread.join();
-        }
-
         worker_threads.clear();
     }
 
     // Queue work items with better error handling
-    bool queueTerrainGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position, int distance) {
+    bool queueTerrainGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position, int distance) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -325,8 +237,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueTopsoilGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueTopsoilGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -337,8 +249,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueTreeGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueTreeGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -349,8 +261,8 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueMeshGeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueMeshGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -361,13 +273,13 @@ public:
         return work_queue.push(item);
     }
 
-    bool queueMeshRegeneration(std::shared_ptr<ThreadSafeChunk> chunk, ivec3 position,
-        std::array<std::shared_ptr<ThreadSafeChunk>, 6> neighbors) {
+    bool queueMeshRegeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
             return false;
-        }
+        } 
 
         ChunkWorkItem item(ChunkWorkItem::RegenerateMesh, chunk, position, neighbors, ChunkWorkItem::CRITICAL);
         return work_queue.push(item);
@@ -375,7 +287,6 @@ public:
 
     // Statistics and monitoring
     size_t getQueueSize() const { return work_queue.size(); }
-    size_t getResultQueueSize() const { return result_queue.size(); }
     int getActiveWorkers() const { return active_workers; }
     size_t getTotalProcessed() const { return total_work_items_processed; }
 
@@ -395,7 +306,6 @@ public:
     Statistics getStatistics() const {
         Statistics stats;
         stats.queue_size = getQueueSize();
-        stats.result_queue_size = getResultQueueSize();
         stats.active_workers = getActiveWorkers();
         stats.total_processed = total_work_items_processed;
         stats.terrain_generated = terrain_generated;
@@ -415,8 +325,8 @@ public:
     }
 
 private:
-    bool validateChunkForWork(std::shared_ptr<ThreadSafeChunk> chunk) const {
-        return chunk && chunk->getState() != ChunkState::Unloading;
+    bool validateChunkForWork(std::shared_ptr<ChunkColumn> chunk) const {
+        return chunk && chunk->getState() != ColumnState::Unloading;
     }
 
     void workerLoop(int worker_id) {
@@ -444,11 +354,6 @@ private:
 
                 auto processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time);
-
-                // Create result
-                ChunkWorkResult result(workItem.getId(), workItem.getType(), workItem.getPosition(),
-                    success, error_message, processing_time);
-                result_queue.push(result);
 
                 total_work_items_processed++;
                 if (!success) {
@@ -487,9 +392,9 @@ private:
             return false;
         }
 
-        ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::GeneratingTerrain) {
-            error_message = "Chunk not in Empty state";
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingTerrain) {
+            error_message = "Chunk not in generating terrain state";
             return false;
         }
 
@@ -505,8 +410,8 @@ private:
             return false;
         }
 
-        ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::GeneratingTopsoil) {
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingTopsoil) {
             error_message = "Chunk not in TerrainReady state";
             return false;
         }
@@ -523,8 +428,8 @@ private:
             return false;
         }
 
-        ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::GeneratingTrees) {
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingTrees) {
             error_message = "Chunk not in TopsoilReady state";
             return false;
         }
@@ -540,13 +445,13 @@ private:
             return false;
         }
 
-        ChunkState currentState = chunk->getState();
-        if (currentState != ChunkState::GeneratingMesh) {
-            error_message = "Chunk not in TopsoilReady state";
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingMesh) {
+            error_message = "Chunk not in completed generation state";
             return false;
         }
 
-        bool success = chunk->generateMesh(workItem.getNeighbors());
+        bool success = chunk->generateAllMeshes(workItem.getNeighbors());
         if (success) {
             meshes_generated++;
         }
