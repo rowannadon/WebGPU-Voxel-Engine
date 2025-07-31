@@ -125,6 +125,7 @@ public:
         std::vector<DAIC> data;
         std::vector<DAIC> shadowData;
         //std::shared_lock<std::shared_mutex> lock(chunksMutex);
+
         data.reserve(columns.size());
         for (const auto& pair : columns) {
             ivec2 columnPos = pair.second->getColumnPosition();

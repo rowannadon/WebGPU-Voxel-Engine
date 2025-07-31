@@ -69,7 +69,8 @@ struct Atmosphere {
     padding: f32
 }
 
-
+const SUN_LUMINANCE = 8.0;
+const MOON_LUMINANCE = 0.5;
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
@@ -287,6 +288,7 @@ fn integrate_scattered_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, sun
 	let sample_segment_t = 0.3;
 
 	let sun_direction = normalize(sun_dir);
+
 	let sun_illuminance = vec3f(atmosphere.sky_sun_lum);
 
 	let cos_theta = dot(sun_dir, world_dir);
@@ -294,7 +296,7 @@ fn integrate_scattered_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, sun
 	let rayleigh_phase_val = rayleigh_phase(cos_theta);
 
 	var moon_direction = moon_dir;
-	var moon_illuminance = vec3f(0.5);
+	var moon_illuminance = vec3f(MOON_LUMINANCE);
 
 	var cos_theta_moon = 0.0;
 	var mie_phase_val_moon = 0.0;

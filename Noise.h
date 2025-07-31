@@ -44,7 +44,7 @@ inline Noise getCumulusNoise(int seed) {
 	noise.textureSize = 512;
 	noise.textureType = 0;
 	noise.seed = seed;
-	noise.octaves = 4;
+	noise.octaves = 8;
 	noise.frequency = 1.0f;
 	noise.amplitude = 0.5f;
 	noise.lacunarity = 2.0f;
@@ -69,7 +69,7 @@ inline Noise getCumulusBlueNoise(int seed) {
 	noise.textureSize = 512;
 	noise.textureType = 1;
 	noise.seed = seed;
-	noise.octaves = 3;
+	noise.octaves = 6;
 	noise.frequency = 2.0f;
 	noise.amplitude = 0.6f;
 	noise.lacunarity = 2.0f;

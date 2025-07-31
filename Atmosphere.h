@@ -97,9 +97,11 @@ inline Atmosphere getDefaultAtmosphere() {
 	const float rayleighScaleHeight = 8.696f;
 	const float mieScaleHeight = 1.2f;
 
+
 	atmosphere.bottom_radius = 1000.0f;
 	atmosphere.top_radius = 1000.0f + 100.0f;
 	atmosphere.planet_center = { 0.0f, 0.0f, -1000.0f - 1.5f };
+
 	atmosphere.ground_albedo = { 0.4f, 0.4f, 0.4f };
 	atmosphere.multi_scattering_factor = 1.0f;
 

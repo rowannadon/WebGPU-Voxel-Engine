@@ -1,4 +1,4 @@
-// cloud_noise_generation.wgsl - Enhanced compute shader for cloud noise textures
+// cloudnoise_cs.wgsl - Enhanced compute shader for cloud noise textures
 
 struct NoiseParams {
     texture_size: u32,
