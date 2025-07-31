@@ -745,18 +745,18 @@ const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 
 );
 
 const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
-    vec3<f32>(-1.0, 1.0, 0.0),
-    vec3<f32>(1.0, 1.0, 0.0),
+    vec3<f32>(0.0, 0.0, 1.0),
+    vec3<f32>(0.0, 0.0, 1.0),
 );
 
 const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     array<f32, 4>(
-        1.0, 1.0, 
-        1.0, 1.0
+        0.6, 1.0, 
+        1.0, 0.6
     ),
     array<f32, 4>(
-        1.0, 1.0, 
-        1.0, 1.0
+        1.0, 0.6, 
+        0.6, 1.0
     )
 );
 
@@ -1113,8 +1113,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Get PBR material properties
     let materialProps = get_pbr_material_properties(material_id);
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
-    
-    // Sample noise for material variation
 
     var uv = in.uv;
 
@@ -1128,8 +1126,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     }
     
     if (materialProps.model == GRASS_MODEL) {
-        normal = max(normal, -normal);
-        uv = uv * 0.5 + in.tile_offset2;
+        //normal = max(normal, -normal);
+        uv = clamp(uv, vec2f(0.01), vec2f(0.99)) * 0.5 + in.tile_offset2;
     }
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
