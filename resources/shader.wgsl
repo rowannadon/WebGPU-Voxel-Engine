@@ -1,4 +1,4 @@
-// Updated PBR shader with LOD support
+// Updated PBR shader with LOD support and Wind Effects
 // shader.wgsl
 
 const pi: f32 = radians(180.0);
@@ -17,6 +17,12 @@ const planet_radius_offset: f32 = 0.01;
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const TO_KM_SCALE = 1.0/3280.0;
+
+// Wind effect constants
+const WIND_STRENGTH: f32 = 0.15;        // Overall wind intensity
+const WIND_FREQUENCY: f32 = 6.0;       // Wind wave frequency
+const WIND_SPEED: f32 = 4.0;           // Wind animation speed
+const WIND_DIRECTION: vec2f = vec2f(1.0, 0.3); // Wind direction (x, z)
 
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
@@ -311,7 +317,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
         0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
+        0.5,                      // Very rough leaf surface
         0.06,                     // Lower specular for matte leaves
         vec3f(0.0),              // No emission
         1.0,                      // High normals for leaf vein texture
@@ -438,7 +444,31 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
     )
 );
 
-
+// Wind displacement function
+fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_strength_multiplier: f32) -> vec3f {
+    let time = uMyUniforms.time * WIND_SPEED;
+    
+    // Create layered wind waves with different frequencies
+    let wind_pos = world_pos.xz * WIND_FREQUENCY;
+    let wind_wave_1 = sin(time + dot(wind_pos, WIND_DIRECTION) * 0.1) * 0.6;
+    let wind_wave_2 = sin(time * 1.3 + dot(wind_pos * 0.7, WIND_DIRECTION.yx) * 0.15) * 0.4;
+    let wind_wave_3 = sin(time * 2.1 + length(wind_pos) * 0.05) * 0.2;
+    
+    // Combine wind waves
+    let total_wind = (wind_wave_1 + wind_wave_2 + wind_wave_3) * WIND_STRENGTH * wind_strength_multiplier;
+    
+    // Apply height-based intensity (higher vertices move more)
+    let height_factor = vertex_height;
+    
+    // Calculate wind displacement in world space
+    let wind_offset = vec3f(
+        WIND_DIRECTION.x * total_wind * height_factor,
+        0.0, // No vertical displacement
+        WIND_DIRECTION.y * total_wind * height_factor
+    );
+    
+    return wind_offset;
+}
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
@@ -622,8 +652,6 @@ const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
     vec3<f32>(0.0, 0.0, -1.0)
 );
 
-
-
 const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
     array<vec2<f32>, 4>(
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
@@ -732,7 +760,6 @@ const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     )
 );
 
-
 const aoLevels = array<f32, 4>(
     0.25, 0.4, 0.5, 0.75
 );
@@ -807,8 +834,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_z_2 = (hash >> 12u) & 7u;
 
     var scaled_vertex_offset: vec3f;
-    // Replace the existing leaf model offset section in your vertex shader with this:
-
+    var base_vertex: vec3f;
+    
     if (materialProps.model == LEAF_MODEL) {
         // Generate more varied offsets using multiple hash components
         let hash2 = hash_voxel_position(world_voxel_pos + vec3i(1, 0, 0));
@@ -843,7 +870,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let sin_tilt = sin(tilt_angle);
         
         // Apply rotation to the base vertex position before adding offset
-        var base_vertex = faceVerticesLeaf[data.normal_index][vertexInFace];
+        base_vertex = faceVerticesLeaf[data.normal_index][vertexInFace];
         
         // Rotate around Y axis first
         let rotated_vertex = vec3f(
@@ -871,13 +898,36 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         ) * 0.08; // Small offset to break coplanarity
         
         scaled_vertex_offset += face_offset;
+        
     } else if (materialProps.model == GRASS_MODEL) {
-        scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + 0.04 - (0.02 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
+        base_vertex = faceVerticesGrass[data.normal_index][vertexInFace];
+        scaled_vertex_offset = base_vertex * lod_scale + 0.04 - (0.02 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
     } else {
-        scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
+        base_vertex = faceVertices[data.normal_index][vertexInFace];
+        scaled_vertex_offset = base_vertex * lod_scale;
     }
     
-    position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
+    // Calculate initial position before wind
+    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
+    
+    // Apply wind effects for grass and leaf models
+    var wind_displacement = vec3f(0.0);
+    if (materialProps.model == GRASS_MODEL) {
+        // For grass, only apply wind to the top vertices (higher Y values)
+        let vertex_height = base_vertex.z; // Using Z as height for grass
+        if (vertex_height > 0.5) { // Only affect the top half of the grass
+            let wind_strength = vertex_height; // Stronger effect at the top
+            wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.8);
+        }
+    } else if (materialProps.model == LEAF_MODEL) {
+        // For leaves, apply wind to all vertices with varying intensity
+        let center_offset = length(base_vertex - vec3f(0.5)); // Distance from leaf center
+        let wind_strength = 0.3 + center_offset * 0.7; // Edges move more than center
+        wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
+    }
+    
+    // Apply wind displacement
+    position = base_position + wind_displacement;
     
     uv = faceUVsIndependent[data.normal_index][vertexInFace];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
@@ -1022,7 +1072,6 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
-
 fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
     // Center UV coordinates around (0.5, 0.5)
     let centered_uv = uv - 0.5;
@@ -1098,8 +1147,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
-    
-    
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 5.0; // Boost sun intensity for PBR
