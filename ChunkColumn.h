@@ -183,7 +183,7 @@ private:
 
     WorldGenerator worldGen;
 
-    std::vector<ivec3> treeData;
+    std::vector<std::pair<int, ivec3>> treeData;
 
     ChunkMetaData meta[COLUMN_HEIGHT];
     
@@ -238,7 +238,7 @@ public:
 
     const ivec2& getColumnPosition() const { return position; }
     
-    std::vector<ivec3> getTreeData() {
+    std::vector<std::pair<int, ivec3>> getTreeData() {
         //std::lock_guard<std::mutex> lock(treeDataMutex);
         return treeData;
     }
@@ -982,13 +982,19 @@ public:
 
                                         //std::lock_guard<std::mutex> lock(treeDataMutex);
                                         int closestDistance = INT_MAX;
-                                        for (ivec3 pos : treeData) {
+                                        for (auto pair : treeData) {
+                                            ivec3 pos = pair.second;
                                             int distance = glm::abs(pos.x - positionAbove.x) + glm::abs(pos.y - positionAbove.y);
                                             closestDistance = glm::min(distance, closestDistance);
                                         }
 
+                                        int size = 1;
+                                        if (blockHash % 64 == 0) {
+                                            size = 2;
+                                        }
+
                                         if (closestDistance > 8) {
-                                            treeData.push_back(positionAbove);
+                                            treeData.push_back({ size, positionAbove });
                                         }
                                     }
                                 }
@@ -1142,17 +1148,99 @@ public:
             }
         };
 
+        auto placeLargeTreeShape = [&](const ivec3& basePos, int treeHeight) {
+            int leafHeight = 4;
+
+            for (int i = -3; i <= 4; i++) {
+                for (int j = -3; j <= 4; j++) {
+                    for (int k = treeHeight - leafHeight; k <= treeHeight - 3; k++) {
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
+                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
+                    }
+                }
+            }
+
+            for (int i = -2; i <= 3; i++) {
+                for (int j = -2; j <= 3; j++) {
+                    for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
+                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
+                    }
+                }
+            }
+
+            for (int i = -1; i <= 2; i++) {
+                for (int j = -1; j <= 2; j++) {
+                    for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
+                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
+                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
+                    }
+                }
+            }
+
+            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), false, false);
+            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), true, true);
+            setMaterialFast(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
+
+            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), false, false);
+            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), true, true);
+            setMaterialFast(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
+
+            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), false, false);
+            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), true, true);
+            setMaterialFast(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
+
+            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), false, false);
+            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), true, true);
+            setMaterialFast(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
+
+            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), false, false);
+            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), true, true);
+            setMaterialFast(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
+
+            // Generate trunk
+            for (int i = -1; i < treeHeight - 1; i++) {
+                setVoxelWholeColumn(basePos + ivec3(0, 0, i), false, true);
+                setVoxelWholeColumn(basePos + ivec3(0, 0, i), true, false);
+                setMaterialFast(basePos + ivec3(0, 0, i), trunkMaterial);
+            }
+            for (int i = -1; i < treeHeight - 1; i++) {
+                setVoxelWholeColumn(basePos + ivec3(1, 0, i), false, true);
+                setVoxelWholeColumn(basePos + ivec3(1, 0, i), true, false);
+                setMaterialFast(basePos + ivec3(1, 0, i), trunkMaterial);
+            }
+            for (int i = -1; i < treeHeight - 1; i++) {
+                setVoxelWholeColumn(basePos + ivec3(0, 1, i), false, true);
+                setVoxelWholeColumn(basePos + ivec3(0, 1, i), true, false);
+                setMaterialFast(basePos + ivec3(0, 1, i), trunkMaterial);
+            }
+            for (int i = -1; i < treeHeight - 1; i++) {
+                setVoxelWholeColumn(basePos + ivec3(1, 1, i), false, true);
+                setVoxelWholeColumn(basePos + ivec3(1, 1, i), true, false);
+                setMaterialFast(basePos + ivec3(1, 1, i), trunkMaterial);
+            }
+            };
+
         // 1. Generate trees that are rooted in THIS chunk.
         {
             //std::lock_guard<std::mutex> lock(treeDataMutex);
 
-            for (const ivec3& localTreePos : treeData) {
+            for (const auto pair : treeData) {
+                ivec3 localTreePos = pair.second;
                 // Calculate a deterministic height based on the tree's absolute world position
                 // to ensure consistency across chunk boundaries.
                 ivec3 worldTreePos = ivec3(this->position.x, this->position.y, 0) + localTreePos;
                 int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
-                placeTreeShape(localTreePos, treeHeight);
+                if (pair.first == 2) {
+                    placeLargeTreeShape(localTreePos, treeHeight + 3);
+                }
+                else {
+                    placeTreeShape(localTreePos, treeHeight);
+                }
             }
         }
 
@@ -1180,7 +1268,8 @@ public:
                 const ivec2 transformOffset = (neighborWorldOrigin - this->position);
 
                 // For each tree rooted in the neighbor...
-                for (const ivec3& neighborTreeLocalPos : neighbor->getTreeData()) {
+                for (const auto pair : neighbor->getTreeData()) {
+                    ivec3 neighborTreeLocalPos = pair.second;
                     // ...calculate its absolute world position to get a deterministic height.
                     ivec3 worldTreePos = ivec3(neighborWorldOrigin.x, neighborWorldOrigin.y, 0) + neighborTreeLocalPos;
                     int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8);
@@ -1189,7 +1278,13 @@ public:
                     ivec3 transformedBasePos = neighborTreeLocalPos + ivec3(transformOffset.x, transformOffset.y, 0);
 
                     // Generate the full tree shape. It will be automatically clipped to this chunk's bounds.
-                    placeTreeShape(transformedBasePos, treeHeight);
+                    if (pair.first == 2) {
+                        placeLargeTreeShape(transformedBasePos, treeHeight + 3);
+                    }
+                    else {
+                        placeTreeShape(transformedBasePos, treeHeight);
+                    }
+                    
                 }
             }
         }

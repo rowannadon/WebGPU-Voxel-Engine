@@ -622,6 +622,7 @@ const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
 );
 
 
+
 const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
     array<vec2<f32>, 4>(
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
@@ -714,6 +715,11 @@ const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 
     )
 );
 
+const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
+    vec3<f32>(-1.0, 1.0, 0.0),
+    vec3<f32>(1.0, 1.0, 0.0),
+);
+
 const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     array<f32, 4>(
         0.25, 1.0, 
@@ -800,7 +806,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var scaled_vertex_offset: vec3f;
     if (materialProps.model == LEAF_MODEL) {
-        scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale + (0.02 * vec3f(f32(2*tile_x_2), f32(4*tile_y_2), f32(3*tile_z_2)));
+        scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(2*tile_x_2), f32(4*tile_y_2), f32(3*tile_z_2)));
     } else if (materialProps.model == GRASS_MODEL) {
         scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale + (0.08 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
     } else {
@@ -812,7 +818,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     uv = faceUVsIndependent[data.normal_index][vertexInFace];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
-    let normal = faceNormals[data.normal_index];
+    var normal = faceNormals[data.normal_index];
+    if (materialProps.model == GRASS_MODEL) {
+        normal = faceNormalsGrass[data.normal_index];
+    }
+
     var ao = aoLevels[data.ao[vertexInFace]];
     if (materialProps.model == GRASS_MODEL) {
         ao = aoLevelsGrass[data.normal_index][vertexInFace];
@@ -916,7 +926,7 @@ fn calculate_pbr_lighting(
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.0;  // How much the light bends through the material
-            let subsurface_scale = 3.5;  // Overall intensity scale
+            let subsurface_scale = 3.75;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -979,7 +989,7 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
-    let normal = normalize(in.normal);
+    var normal = normalize(in.normal);
     let lod_scale = f32(in.lod_level);
     let material_id = in.material_id;
     
@@ -989,25 +999,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     // Get PBR material properties
     let materialProps = get_pbr_material_properties(material_id);
+    let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
     
     // Sample noise for material variation
 
     var uv = in.uv;
 
-    // if (materialProps.random_rotation) {
-    //     let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
-    //     uv = rotated_uv;
-    // }
+    if (materialProps.random_rotation == true) {
+        let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
+        uv = rotated_uv;
+    }
 
     if (materialProps.model == VOXEL_MODEL) {
         uv = uv * 0.25 + in.tile_offset;
     }
+    
+    if (materialProps.model == GRASS_MODEL) {
+        normal = max(normal, -normal);
+    }
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
-
-    // if (materialProps.model == GRASS_MODEL) {
-    //     textureColor = vec4f(0.5, 0.0, 1.0, 1.0);
-    // }
 
     if (textureColor.a < 0.9) {
         discard;
@@ -1023,7 +1034,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
-    let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
+    
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 5.0; // Boost sun intensity for PBR

@@ -1105,8 +1105,8 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Combine height and distance fog factors
     // Use max to ensure fog appears in either low areas OR at distance
-    let combined_fog_multiplier = distance_fog_multiplier; //max(height_fog_multiplier, distance_fog_multiplier);
-    
+    let combined_fog_multiplier = saturate(height_fog_multiplier + (1.0 - distance_fog_multiplier));
+
     // Alternative combination methods:
     // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
     // 2. Multiplicative blend: let combined_fog_multiplier = 1.0 - (1.0 - height_fog_multiplier) * (1.0 - distance_fog_multiplier);
@@ -1114,10 +1114,10 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
     
     var fog_weight = 1.0;
-    if slice < 0.5 {
-        fog_weight = saturate(slice * 2.0);
-        slice = 0.5;
-    }
+    // if slice < 0.5 {
+    //     fog_weight = saturate(slice * 2.0);
+    //     slice = 0.5;
+    // }
     
     let w = sqrt(slice / AP_SLICE_COUNT);
     
@@ -1128,6 +1128,16 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     // Apply combined fog multiplier to the final fog alpha
     let final_fog_alpha = aerial_perspective.a * fog_weight * combined_fog_multiplier;
         
+    // if (is_valid_depth(depth)) {
+    //     let debug_distance = world_depth_distance;
+    //     let debug_color = vec3<f32>(
+    //         saturate(debug_distance / 10.0),  // Red increases with distance
+    //         saturate(distance_fog_factor),     // Green shows fog factor
+    //         saturate(height_fog_multiplier)    // Blue shows height fog
+    //     );
+    //     return vec4f(debug_color, 1.0);  // Temporarily return debug colors
+    // }
+
     if (is_valid_depth(depth)) {
         return vec4f(dithered_aerial_perspective, final_fog_alpha);
     }
