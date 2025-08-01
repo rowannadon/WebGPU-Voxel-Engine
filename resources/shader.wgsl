@@ -816,11 +816,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     let lod_scale = f32(data.lod_level);
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
-    
+
+    var normal = faceNormals[data.normal_index];
+    if (materialProps.model == GRASS_MODEL) {
+        normal = faceNormalsGrass[data.normal_index];
+    }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
-    let hash = hash_voxel_position(world_voxel_pos);
+    let hash = hash_voxel_position(world_voxel_pos + vec3i(i32(normal.x), i32(normal.y), i32(normal.z)));
     let tile_x = hash & 3u;
     let tile_y = (hash >> 2u) & 3u;
     let tile_z = (hash >> 8u) & 3u;
@@ -932,10 +936,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     uv = faceUVsIndependent[data.normal_index][vertexInFace];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
-    var normal = faceNormals[data.normal_index];
-    if (materialProps.model == GRASS_MODEL) {
-        normal = faceNormalsGrass[data.normal_index];
-    }
+    
 
     var ao = aoLevels[data.ao[vertexInFace]];
     if (materialProps.model == GRASS_MODEL) {
@@ -1124,6 +1125,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     if (materialProps.model == VOXEL_MODEL) {
         uv = uv * 0.25 + in.tile_offset;
     }
+
+    // if (materialProps.model == LEAF_MODEL) {
+    //     uv = uv * 0.5 + in.tile_offset2;
+    // }
     
     if (materialProps.model == GRASS_MODEL) {
         //normal = max(normal, -normal);
