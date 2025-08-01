@@ -917,13 +917,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let vertex_height = base_vertex.z; // Using Z as height for grass
         if (vertex_height > 0.5) { // Only affect the top half of the grass
             let wind_strength = vertex_height; // Stronger effect at the top
-            wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.8);
+            wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
         }
     } else if (materialProps.model == LEAF_MODEL) {
         // For leaves, apply wind to all vertices with varying intensity
         let center_offset = length(base_vertex - vec3f(0.5)); // Distance from leaf center
         let wind_strength = 0.3 + center_offset * 0.7; // Edges move more than center
-        wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
+        wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.5);
     }
     
     // Apply wind displacement
@@ -1141,8 +1141,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
-    let sun_intensity = max(0.0, uMyUniforms.lightDirection.z);
-    let day_night = pow(max(uMyUniforms.lightDirection.z, 0), 0.5);
+    let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0625)), 16.0);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
@@ -1163,7 +1162,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
     let ambient_strength = 2.0; // Increased from 0.15
-    let ambient_color = vec3f(0.5, 0.7, 0.9) * day_night + vec3f(0.2, 0.2, 0.25); // Brighter colors
+    let ambient_color = vec3f(0.5, 0.7, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.25); // Brighter colors
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
     // Apply AO with fade parameters

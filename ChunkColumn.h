@@ -192,8 +192,6 @@ private:
     std::vector<FaceAttributes> vertexData[8][COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[8][COLUMN_HEIGHT];
 
-    //VoxelMaterial materialData[TOTAL_VOXELS] = {};
-
     std::unique_ptr<std::array<uint16_t, CHUNK_SIZE* CHUNK_SIZE* COLUMN_HEIGHT_BLOCKS>> rawMaterialData;
     bool materialDataDecoded = false;  // Track if we have decoded data available
 
@@ -246,11 +244,6 @@ public:
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int distance) {
         std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
 
-        int slot = 0;
-        /*if (distance > 11600) {
-            slot = 1;
-        }*/
-
         if (state.load() != ColumnState::MeshReady) {
             return output;
         }
@@ -258,7 +251,7 @@ public:
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            int meshSlot = meta[i].meshSlots[slot];
+            int meshSlot = meta[i].meshSlots[0];
             if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
                 output[i] = std::nullopt;
                 continue;
@@ -269,13 +262,13 @@ public:
                 continue;
             }
 
-            if (vertexData[slot][i].empty() || indexData[slot][i].empty()) {
+            if (vertexData[0][i].empty() || indexData[0][i].empty()) {
                 output[i] = std::nullopt;
                 continue;
             }
 
             DAIC daic;
-            uint32_t numFaces = static_cast<uint32_t>(vertexData[slot][i].size());
+            uint32_t numFaces = static_cast<uint32_t>(vertexData[0][i].size());
             daic.indexCount = numFaces * 6;
             daic.instanceCount = 1;
 
@@ -374,7 +367,7 @@ public:
         }
     }
 
-private:
+public:
     bool getVoxelWholeColumn(ivec3 pos, bool transparent) const {
         int x = pos.x, y = pos.y, z = pos.z;
         if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT_BLOCKS) {
