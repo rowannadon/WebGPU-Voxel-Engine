@@ -716,12 +716,12 @@ const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4
         vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
     ),
     array<vec3<f32>, 4>(
-        vec3<f32>(-0.5, -0.5, -0.5), vec3<f32>(-0.5, -0.5, 1.0), 
-        vec3<f32>(1.5, 1.5, 1.5), vec3<f32>(1.5, 1.5, -0.5)
+        vec3<f32>(-0.414, -0.414, -0.414), vec3<f32>(-0.414, -0.414, 1.414), 
+        vec3<f32>(1.414, 1.414, 1.414), vec3<f32>(1.414, 1.414, -0.414)
     ),
     array<vec3<f32>, 4>(
-        vec3<f32>(-0.5, 1.5, 1.5), vec3<f32>(-0.5, 1.5, -0.5), 
-        vec3<f32>(1.5, -0.5, -0.5), vec3<f32>(1.5, -0.5, 1.5)
+        vec3<f32>(-0.414, 1.414, 1.414), vec3<f32>(-0.414, 1.414, -0.414), 
+        vec3<f32>(1.414, -0.414, -0.414), vec3<f32>(1.414, -0.414, 1.414)
     ),
     array<vec3<f32>, 4>(
         vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), 
@@ -884,14 +884,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         );
         
         // Then apply a slight tilt
-        let tilted_vertex = vec3f(
-            rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
-            rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
-            rotated_vertex.z
-        );
+        // let tilted_vertex = vec3f(
+        //     rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
+        //     rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
+        //     rotated_vertex.z
+        // );
         
         // Scale by LOD and add both positional and rotational offsets
-        scaled_vertex_offset = tilted_vertex * lod_scale + primary_offset;
+        scaled_vertex_offset = base_vertex * lod_scale + primary_offset;
         
         // Add a small per-face offset to ensure no two faces are exactly coplanar
         let face_specific_hash = hash_voxel_position(world_voxel_pos + vec3i(i32(data.normal_index), 0, 0));
@@ -1126,9 +1126,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         uv = uv * 0.25 + in.tile_offset;
     }
 
-    // if (materialProps.model == LEAF_MODEL) {
-    //     uv = uv * 0.5 + in.tile_offset2;
-    // }
+    if (materialProps.model == LEAF_MODEL) {
+        uv = uv;// * 0.5 + in.tile_offset2;
+    }
     
     if (materialProps.model == GRASS_MODEL) {
         //normal = max(normal, -normal);
@@ -1159,7 +1159,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.metallic,
-        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.roughness,
+        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.roughness * 1.5,
         materialProps.specular,
         shadow_factor,
         materialProps.subsurface  // Pass subsurface parameter
@@ -1187,7 +1187,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
     
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted * ((f32(chunkData.lod) + 0.25) / 4.0);
     
     // Add emission if present
     finalColor += materialProps.emission;

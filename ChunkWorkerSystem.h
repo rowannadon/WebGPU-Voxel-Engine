@@ -226,7 +226,7 @@ public:
     }
 
     // Queue work items with better error handling
-    bool queueTerrainGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position, int distance) {
+    bool queueTerrainGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {

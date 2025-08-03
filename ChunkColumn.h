@@ -187,9 +187,8 @@ private:
 
     ChunkMetaData meta[COLUMN_HEIGHT];
     
-
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
-    std::vector<FaceAttributes> vertexData[8][COLUMN_HEIGHT];
+    std::vector<FaceAttributes> faceData[8][COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[8][COLUMN_HEIGHT];
 
     std::unique_ptr<std::array<uint16_t, CHUNK_SIZE* CHUNK_SIZE* COLUMN_HEIGHT_BLOCKS>> rawMaterialData;
@@ -201,6 +200,8 @@ private:
     mutable std::mutex materialDataMutex;
     mutable std::mutex voxelDataMutex;
     mutable std::mutex meshDataMutex;
+
+    int currentLODLevel;
 
 public:
     ChunkColumn(const ivec2& i = ivec2(0)) : id(i) {
@@ -234,24 +235,37 @@ public:
     int getTextureSlot(int zPos) { return meta[zPos].textureSlot; };
     int getLightSlot(int zPos) { return meta[zPos].lightSlot; };
 
+    int getCurrentLODLevel() { return currentLODLevel; };
+    int updateLODLevel(int level) {
+        currentLODLevel = level;
+        return currentLODLevel;
+    };
+
     const ivec2& getColumnPosition() const { return position; }
+    const ivec2& getColumnChunkPosition() const { return id; }
     
     std::vector<std::pair<int, ivec3>> getTreeData() {
         //std::lock_guard<std::mutex> lock(treeDataMutex);
         return treeData;
     }
 
-    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int distance) {
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int lodLevel) {
         std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
 
         if (state.load() != ColumnState::MeshReady) {
             return output;
         }
 
+        if (lodLevel > 3 || lodLevel < 0) {
+            lodLevel = 3;
+        }
+
+        lodLevel = 0;
+
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            int meshSlot = meta[i].meshSlots[0];
+            int meshSlot = meta[i].meshSlots[lodLevel];
             if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
                 output[i] = std::nullopt;
                 continue;
@@ -262,13 +276,13 @@ public:
                 continue;
             }
 
-            if (vertexData[0][i].empty() || indexData[0][i].empty()) {
+            if (faceData[lodLevel][i].empty() || indexData[lodLevel][i].empty()) {
                 output[i] = std::nullopt;
                 continue;
             }
 
             DAIC daic;
-            uint32_t numFaces = static_cast<uint32_t>(vertexData[0][i].size());
+            uint32_t numFaces = static_cast<uint32_t>(faceData[lodLevel][i].size());
             daic.indexCount = numFaces * 6;
             daic.instanceCount = 1;
 
@@ -292,12 +306,30 @@ private:
 
         meta[zPos].meshSlots[0] = buf->
             getStorageBufferPool("storage_pool")->
-            allocateSlot(meta[zPos].resourceId, vertexData[0][zPos].size());
+            allocateSlot(meta[zPos].resourceId + "-0", faceData[0][zPos].size());
+
+        /*meta[zPos].meshSlots[1] = buf->
+            getStorageBufferPool("storage_pool")->
+            allocateSlot(meta[zPos].resourceId + "-1", faceData[1][zPos].size());
+
+        meta[zPos].meshSlots[2] = buf->
+            getStorageBufferPool("storage_pool")->
+            allocateSlot(meta[zPos].resourceId + "-2", faceData[2][zPos].size());*/
 
         if (meta[zPos].meshSlots[0] == -1) {
             std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
         }
+
+        /*if (meta[zPos].meshSlots[1] == -1) {
+            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+            return;
+        }
+
+        if (meta[zPos].meshSlots[2] == -1) {
+            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+            return;
+        }*/
 
         meta[zPos].meshBufferGPUInitialized = true;
     }
@@ -316,13 +348,25 @@ private:
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
-        if (vertexData[0][zPos].empty() || indexData[0][zPos].empty()) {
+        if (faceData[0][zPos].empty() || indexData[0][zPos].empty()) {
             std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
             return;
         }
 
+        /*if (faceData[1][zPos].empty() || indexData[1][zPos].empty()) {
+            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
+            return;
+        }
+
+        if (faceData[2][zPos].empty() || indexData[2][zPos].empty()) {
+            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
+            return;
+        }*/
+
         auto pool = buf->getStorageBufferPool("storage_pool");
-        pool->writeToSlot(meta[zPos].resourceId, vertexData[0][zPos], indexData[0][zPos]);
+        pool->writeToSlot(meta[zPos].resourceId + "-0", faceData[0][zPos], indexData[0][zPos]);
+        //pool->writeToSlot(meta[zPos].resourceId + "-1", faceData[1][zPos], indexData[1][zPos]);
+        //pool->writeToSlot(meta[zPos].resourceId + "-2", faceData[2][zPos], indexData[2][zPos]);
     }
 
     void uploadAllMeshes(BufferManager* buf) {
@@ -354,7 +398,7 @@ public:
 
         ChunkData chunkData;
         chunkData.worldPosition = meta[zPos].position;
-        chunkData.lod = 0;
+        chunkData.lod = currentLODLevel;
         chunkData.meshSlot = meta[zPos].meshSlots[0];
         chunkData.lightSlot = meta[zPos].lightSlot;
 
@@ -1538,6 +1582,7 @@ public:
                         }
 
                         int faces = 6;
+                        //bool shouldAdd = true;
                         if (groupMaterial.materialType == BlockType::TallGrass ||
                             groupMaterial.materialType == BlockType::Grass0 ||
                             groupMaterial.materialType == BlockType::Grass1 ||
@@ -1548,13 +1593,16 @@ public:
                             ) {
                             faces = 2;
                             repeat = 1;
+                            /*if (lodLevel > 1) {
+                                shouldAdd = false;
+                            }*/
                         }
                         if (groupIsSolid) {
                             for (int i = 0; i < repeat; i++) {
                                 for (int face = 0; face < faces; ++face) {
                                     // Use the improved culling function that checks ALL neighbor voxels
                                     if (faces == 2 || !shouldCullLODFace(groupPos, face)) {
-                                        uint32_t baseIndex = static_cast<uint32_t>(vertexData[meshSlot][zPos].size()) * 6;
+                                        uint32_t baseIndex = static_cast<uint32_t>(faceData[meshSlot][zPos].size()) * 6;
 
                                         std::array<uint32_t, 4> aoValues;
                                         for (int vertex = 0; vertex < 4; ++vertex) {
@@ -1563,11 +1611,11 @@ public:
 
                                         bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
-                                        FaceAttributes faceData;
+                                        FaceAttributes currentFace;
                                         // Use group position (which represents the LOD voxel position)
-                                        faceData.data = packData(x, y, z, face, aoValues);
-                                        faceData.materialId = groupMaterial.materialType;
-                                        vertexData[meshSlot][zPos].push_back(faceData);
+                                        currentFace.data = packData(x, y, z, face, aoValues);
+                                        currentFace.materialId = groupMaterial.materialType;
+                                        faceData[meshSlot][zPos].push_back(currentFace);
 
                                         if (i == 0) {
                                             if (flipQuad) {
@@ -1639,16 +1687,25 @@ public:
         {
             std::lock_guard<std::mutex> lock(meshDataMutex);
             indexData[0][zPos].clear();
-            vertexData[0][zPos].clear();
+            faceData[0][zPos].clear();
 
             /*indexData[1][zPos].clear();
-            vertexData[1][zPos].clear();*/
+            faceData[1][zPos].clear();
+
+            indexData[2][zPos].clear();
+            faceData[2][zPos].clear();*/
         }
 
         //beginMaterialEditing();
 
-        bool solid = generateOneMesh(zPos, neighbors, false, 1, 0);
-        bool transparent = generateOneMesh(zPos, neighbors, true, 1, 0);
+        bool solid0 = generateOneMesh(zPos, neighbors, false, 1, 0);
+        bool transparent0 = generateOneMesh(zPos, neighbors, true, 1, 0);
+
+        /*bool solid1 = generateOneMesh(zPos, neighbors, false, 2, 1);
+        bool transparent1 = generateOneMesh(zPos, neighbors, true, 2, 1);
+
+        bool solid2 = generateOneMesh(zPos, neighbors, false, 4, 2);
+        bool transparent2 = generateOneMesh(zPos, neighbors, true, 4, 2);*/
 
         finishMaterialEditing();
 
@@ -1657,7 +1714,7 @@ public:
         }
 
         setChunkState(zPos, ChunkState::MeshReady);
-        return solid;
+        return solid0;
     }
 
     bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
@@ -1684,7 +1741,7 @@ public:
             return;
         }
 
-        if (vertexData[0][zPos].empty() || indexData[0][zPos].empty()) {
+        if (faceData[0][zPos].empty() || indexData[0][zPos].empty()) {
             if (meta[zPos].meshSlots[0] != -1)
                 buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(meta[zPos].resourceId);
             setChunkState(zPos, ChunkState::Solid);
@@ -1717,7 +1774,7 @@ public:
 
     size_t getVertexDataSize(int zPos) const {
         std::lock_guard<std::mutex> lock(meshDataMutex);
-        return vertexData[0][zPos].size();
+        return faceData[0][zPos].size();
     }
 
     size_t getIndexDataSize(int zPos) const {
@@ -1748,7 +1805,7 @@ public:
         {
             std::lock_guard<std::mutex> lock2(meshDataMutex);
             for (int i = 0; i < 8; i++) {
-                vertexData[i][zPos].clear();
+                faceData[i][zPos].clear();
                 indexData[i][zPos].clear();
             }
         }

@@ -318,27 +318,27 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
 @fragment
 fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
     let material_id = in.material_id;
-    if (material_id == 0u || material_id == 11u) {
+    if (material_id == 0u || material_id > 11u) {
         discard;
     }
 
-    var uv = in.uv;
-    if (material_id != 9u) { // not trunk
-        let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
-        if (material_id == 10u) { // is leaves
-            uv = rotated_uv;
-        } else { // is not leaves
-            uv = rotated_uv * 0.25 + in.tile_offset;
-        }
-    } else { // is trunk
-        uv = in.uv * 0.25 + in.tile_offset;
-    }
+    // var uv = in.uv;
+    // if (material_id != 9u) { // not trunk
+    //     let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
+    //     if (material_id == 10u) { // is leaves
+    //         uv = rotated_uv;
+    //     } else { // is not leaves
+    //         uv = rotated_uv * 0.25 + in.tile_offset;
+    //     }
+    // } else { // is trunk
+    //     uv = in.uv * 0.25 + in.tile_offset;
+    // }
 
-    let textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
+    // let textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
 
-    if (textureColor.a < 0.9) {
-        discard; 
-    }
+    // if (textureColor.a < 0.9) {
+    //     discard; 
+    // }
     // For shadow mapping, we only care about depth, but we need to return something
     // The depth is automatically written to the depth buffer
     return vec4f(0.0, 0.0, 0.0, 1.0);
