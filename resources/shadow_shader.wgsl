@@ -67,7 +67,7 @@ struct FaceData {
 
 const CHUNK_SIZE: f32 = 32.0;
 const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 18000;
+const NUM_TOTAL_SLOTS = 9000;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var textureArray: texture_2d_array<f32>;

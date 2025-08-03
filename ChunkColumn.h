@@ -1408,7 +1408,7 @@ public:
             }
 
             // Require majority of voxels to be solid for the LOD group to be considered solid
-            bool groupIsSolid = solidVoxels > totalVoxels / 4;
+            bool groupIsSolid = solidVoxels > 0;
 
             VoxelMaterial dominantMaterial = {};
             if (groupIsSolid && !materialCounts.empty()) {

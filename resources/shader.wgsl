@@ -144,7 +144,7 @@ struct Atmosphere {
 
 // number of face data per slot 
 const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 18000;
+const NUM_TOTAL_SLOTS = 9000;
 
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -1203,6 +1203,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Add emission if present
     finalColor += materialProps.emission;
+    
+    // Apply chunk edge highlighting
+    // if (in.chunk_edge_factor > 0.0) {
+    //     let edgeColor = vec3f(0.8, 0.9, 1.0); // Light blue/white edge color
+    //     finalColor = mix(finalColor, edgeColor, in.chunk_edge_factor * CHUNK_EDGE_INTENSITY);
+    // }
     
     // Apply highlighting
     if (in.highlighted > 0) {

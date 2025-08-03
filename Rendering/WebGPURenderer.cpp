@@ -1017,7 +1017,7 @@ bool WebGPURenderer::initRenderPipeline() {
 	config.colorFormat = TextureFormat::BGRA8Unorm;
 	config.depthFormat = TextureFormat::Depth32Float;
 	config.sampleCount = 4;
-	config.cullMode = CullMode::None;
+	config.cullMode = CullMode::Back;
 	config.depthWriteEnabled = true;
 	config.depthCompare = CompareFunction::Less;
 	config.fragmentShaderName = "fs_main";  // Fragment shader entry point
