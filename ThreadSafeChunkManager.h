@@ -501,7 +501,7 @@ public:
         data.reserve(columns.size());
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 6.0f, 20.0f, 128.0f, 128.0f };
+        std::vector<float> lodDistances = { 10.0f, 20.0f, 128.0f, 128.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         for (const auto& pair : columns) {

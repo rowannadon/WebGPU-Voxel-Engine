@@ -1127,7 +1127,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let materialProps = get_pbr_material_properties(material_id);
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
-    var uv = in.uv;
+    var uv = fract(in.uv * (1.0 / lod_scale));
 
     if (materialProps.random_rotation == true) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);

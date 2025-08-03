@@ -1420,10 +1420,10 @@ public:
 
             if (materialCounts[BlockType::Log] > 0) {
                 dominantMaterial.materialType = BlockType::Log;
-            }
+            }/*
             else if (materialCounts[BlockType::Grass] > 0) {
                 dominantMaterial.materialType = BlockType::Grass;
-            }
+            }*/
 
             return { groupIsSolid, dominantMaterial };
             };
