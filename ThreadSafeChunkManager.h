@@ -216,8 +216,8 @@ public:
         return result;
     }
 
-    int getLODLevel(const ivec2& chunkPos, const ivec2& viewerPos, const std::vector<float>& lodDistances) const {
-        float distance = glm::length(vec2(chunkPos - viewerPos));
+    int getLODLevel(const int zHeight, const ivec2& chunkPos, const ivec2& viewerPos, const std::vector<float>& lodDistances) const {
+        float distance = glm::length(vec3(ivec3(chunkPos.x, chunkPos.y, 0) - ivec3(viewerPos.x, viewerPos.y, zHeight)));
 
         // Determine what LOD level this distance should be at
         int distanceLODLevel = lodDistances.size(); // Default to highest LOD level
@@ -501,15 +501,15 @@ public:
         data.reserve(columns.size());
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 12.0f, 24.0f, 48.0f, 96.0f };
+        std::vector<float> lodDistances = { 6.0f, 20.0f, 128.0f, 128.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         for (const auto& pair : columns) {
             ivec2 columnPos = pair.second->getColumnChunkPosition();
 
              //Calculate LOD level using quadtree
-            int lodLevel = quadTree->getLODLevel(columnPos, cameraChunkPos, lodDistances);
-            
+            int lodLevel = quadTree->getLODLevel(glm::floor(cameraPos.z / 32.0f), columnPos, cameraChunkPos, lodDistances);
+            //lodLevel = 0;
             // Update the chunk's LOD level and debug color
             pair.second->updateLODLevel(lodLevel);
 

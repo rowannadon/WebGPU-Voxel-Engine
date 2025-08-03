@@ -80,7 +80,7 @@ struct ChunkData {
     lod: u32,
     meshSlot: u32,
     lightSlot: u32,
-    right: u32,
+    meshSlot2: u32,
     left: u32,
     front: u32,
     back: u32,
@@ -144,7 +144,7 @@ struct Atmosphere {
 
 // number of face data per slot 
 const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 9000;
+const NUM_TOTAL_SLOTS = 18000;
 
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -776,10 +776,17 @@ fn hash_voxel_position(pos: vec3i) -> u32 {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
-    let chunkData = chunkDataArray[in.instance_idx];
+    let dataIndex = in.instance_idx;
+
+    let chunkData = chunkDataArray[dataIndex];
     
-    // The storage buffer slot is passed via firstInstance in the DAIC
-    let storageSlot = in.instance_idx;  // This comes from DAIC.firstInstance
+    var storageSlot = chunkData.meshSlot;
+
+    if (chunkData.lod == 1u) {
+        storageSlot = chunkData.lightSlot;
+    } else if (chunkData.lod == 2u) {
+        storageSlot = chunkData.meshSlot2;
+    }
     
     // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
     let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
@@ -814,7 +821,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var voxel_pos: vec3f;
     var uv: vec2f;
     
-    let lod_scale = f32(data.lod_level);
+    var lod_scale = 1.0;
+    if (chunkData.lod == 1u) {
+        lod_scale = 2.0;
+    } else if (chunkData.lod == 2u) {
+        lod_scale = 8.0;
+    }
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
     var normal = faceNormals[data.normal_index];
@@ -883,12 +895,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             base_vertex.x * sin_rot + base_vertex.z * cos_rot
         );
         
-        // Then apply a slight tilt
-        // let tilted_vertex = vec3f(
-        //     rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
-        //     rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
-        //     rotated_vertex.z
-        // );
+        //Then apply a slight tilt
+        let tilted_vertex = vec3f(
+            rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
+            rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
+            rotated_vertex.z
+        );
         
         // Scale by LOD and add both positional and rotational offsets
         scaled_vertex_offset = base_vertex * lod_scale + primary_offset;
@@ -1167,7 +1179,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
     let ambient_strength = 2.0; // Increased from 0.15
-    let ambient_color = vec3f(0.5, 0.7, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.25); // Brighter colors
+    let ambient_color = vec3f(0.3, 0.4, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.25); // Brighter colors
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
     // Apply AO with fade parameters
@@ -1187,7 +1199,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
     
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted * ((f32(chunkData.lod) + 0.25) / 4.0);
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted; // * ((f32(chunkData.lod) + 0.5) / 4.0);
     
     // Add emission if present
     finalColor += materialProps.emission;

@@ -256,11 +256,9 @@ public:
             return output;
         }
 
-        if (lodLevel > 3 || lodLevel < 0) {
-            lodLevel = 3;
+        if (lodLevel > 2 || lodLevel < 0) {
+            lodLevel = 2;
         }
-
-        lodLevel = 0;
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
@@ -304,24 +302,28 @@ private:
             return;
         }
 
+        if (faceData[0][zPos].size() > 16384) {
+            std::cerr << "Too many faces in chunk: Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
+        }
+
         meta[zPos].meshSlots[0] = buf->
             getStorageBufferPool("storage_pool")->
             allocateSlot(meta[zPos].resourceId + "-0", faceData[0][zPos].size());
 
-        /*meta[zPos].meshSlots[1] = buf->
+        meta[zPos].meshSlots[1] = buf->
             getStorageBufferPool("storage_pool")->
             allocateSlot(meta[zPos].resourceId + "-1", faceData[1][zPos].size());
 
         meta[zPos].meshSlots[2] = buf->
             getStorageBufferPool("storage_pool")->
-            allocateSlot(meta[zPos].resourceId + "-2", faceData[2][zPos].size());*/
+            allocateSlot(meta[zPos].resourceId + "-2", faceData[2][zPos].size());
 
         if (meta[zPos].meshSlots[0] == -1) {
             std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
         }
 
-        /*if (meta[zPos].meshSlots[1] == -1) {
+        if (meta[zPos].meshSlots[1] == -1) {
             std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
         }
@@ -329,7 +331,7 @@ private:
         if (meta[zPos].meshSlots[2] == -1) {
             std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
             return;
-        }*/
+        }
 
         meta[zPos].meshBufferGPUInitialized = true;
     }
@@ -341,7 +343,7 @@ private:
     }
 
     void uploadMesh(const int zPos, BufferManager* buf) {
-        if (!meta[zPos].meshBufferGPUInitialized || meta[zPos].meshSlots[0] == -1) {
+        if (!meta[zPos].meshBufferGPUInitialized || meta[zPos].meshSlots[0] == -1 || meta[zPos].meshSlots[1] == -1 || meta[zPos].meshSlots[2] == -1) {
             //std::cerr << "Mesh buffer not initialized for chunk " << getResourceId() << std::endl;
             return;
         }
@@ -353,20 +355,20 @@ private:
             return;
         }
 
-        /*if (faceData[1][zPos].empty() || indexData[1][zPos].empty()) {
+        if (faceData[1][zPos].empty() || indexData[1][zPos].empty()) {
+            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
+            return;
+        }
+        
+        if (faceData[2][zPos].empty() || indexData[2][zPos].empty()) {
             std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
             return;
         }
 
-        if (faceData[2][zPos].empty() || indexData[2][zPos].empty()) {
-            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
-            return;
-        }*/
-
         auto pool = buf->getStorageBufferPool("storage_pool");
         pool->writeToSlot(meta[zPos].resourceId + "-0", faceData[0][zPos], indexData[0][zPos]);
-        //pool->writeToSlot(meta[zPos].resourceId + "-1", faceData[1][zPos], indexData[1][zPos]);
-        //pool->writeToSlot(meta[zPos].resourceId + "-2", faceData[2][zPos], indexData[2][zPos]);
+        pool->writeToSlot(meta[zPos].resourceId + "-1", faceData[1][zPos], indexData[1][zPos]);
+        pool->writeToSlot(meta[zPos].resourceId + "-2", faceData[2][zPos], indexData[2][zPos]);
     }
 
     void uploadAllMeshes(BufferManager* buf) {
@@ -399,8 +401,9 @@ public:
         ChunkData chunkData;
         chunkData.worldPosition = meta[zPos].position;
         chunkData.lod = currentLODLevel;
-        chunkData.meshSlot = meta[zPos].meshSlots[0];
-        chunkData.lightSlot = meta[zPos].lightSlot;
+        chunkData.meshSlot0 = meta[zPos].meshSlots[0];
+        chunkData.meshSlot1 = meta[zPos].meshSlots[1];
+        chunkData.meshSlot2 = meta[zPos].meshSlots[2];
 
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
     }
@@ -833,7 +836,7 @@ public:
         std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
         worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
 
-        int index = 0;
+        /*int index = 0;
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -843,18 +846,18 @@ public:
                     }
                 }
             }
-        }
+        }*/
 
-        //for (int y = 0; y < CHUNK_SIZE; y++) {
-        //    for (int x = 0; x < CHUNK_SIZE; x++) {
-        //        // Generate height for this column
-        //        float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
-        //        int targetHeight = static_cast<int>(height * 200.0f);
-        //        for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
-        //            setVoxelWholeColumn(ivec3(x, y, z), true, false);
-        //        }
-        //    }
-        //}
+        for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                // Generate height for this column
+                float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+                int targetHeight = static_cast<int>(height * 200.0f + 150.0f);
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
+                    setVoxelWholeColumn(ivec3(x, y, z), true, false);
+                }
+            }
+        }
 
         setState(ColumnState::TerrainReady);
     }
@@ -1582,7 +1585,7 @@ public:
                         }
 
                         int faces = 6;
-                        //bool shouldAdd = true;
+                        bool shouldAdd = true;
                         if (groupMaterial.materialType == BlockType::TallGrass ||
                             groupMaterial.materialType == BlockType::Grass0 ||
                             groupMaterial.materialType == BlockType::Grass1 ||
@@ -1593,11 +1596,11 @@ public:
                             ) {
                             faces = 2;
                             repeat = 1;
-                            /*if (lodLevel > 1) {
+                            if (lodLevel > 1) {
                                 shouldAdd = false;
-                            }*/
+                            }
                         }
-                        if (groupIsSolid) {
+                        if (shouldAdd && groupIsSolid) {
                             for (int i = 0; i < repeat; i++) {
                                 for (int face = 0; face < faces; ++face) {
                                     // Use the improved culling function that checks ALL neighbor voxels
@@ -1689,11 +1692,11 @@ public:
             indexData[0][zPos].clear();
             faceData[0][zPos].clear();
 
-            /*indexData[1][zPos].clear();
+            indexData[1][zPos].clear();
             faceData[1][zPos].clear();
 
             indexData[2][zPos].clear();
-            faceData[2][zPos].clear();*/
+            faceData[2][zPos].clear();
         }
 
         //beginMaterialEditing();
@@ -1701,11 +1704,11 @@ public:
         bool solid0 = generateOneMesh(zPos, neighbors, false, 1, 0);
         bool transparent0 = generateOneMesh(zPos, neighbors, true, 1, 0);
 
-        /*bool solid1 = generateOneMesh(zPos, neighbors, false, 2, 1);
+        bool solid1 = generateOneMesh(zPos, neighbors, false, 2, 1);
         bool transparent1 = generateOneMesh(zPos, neighbors, true, 2, 1);
 
         bool solid2 = generateOneMesh(zPos, neighbors, false, 4, 2);
-        bool transparent2 = generateOneMesh(zPos, neighbors, true, 4, 2);*/
+        bool transparent2 = generateOneMesh(zPos, neighbors, true, 4, 2);
 
         finishMaterialEditing();
 

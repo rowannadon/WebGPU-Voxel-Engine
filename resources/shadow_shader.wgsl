@@ -43,7 +43,7 @@ struct ChunkData {
     lod: u32,
     meshSlot: u32,
     lightSlot: u32,
-    right: u32,
+    meshSlot2: u32,
     left: u32,
     front: u32,
     back: u32,
@@ -67,7 +67,7 @@ struct FaceData {
 
 const CHUNK_SIZE: f32 = 32.0;
 const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 9000;
+const NUM_TOTAL_SLOTS = 18000;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var textureArray: texture_2d_array<f32>;
@@ -76,7 +76,7 @@ const NUM_TOTAL_SLOTS = 9000;
 @group(1) @binding(0) var light_texture_3d: texture_3d<f32>;
 @group(1) @binding(1) var light_sampler_3d: sampler;
 
-@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, 8000>;
+@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
 
@@ -245,10 +245,17 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
         var out: VertexOutput;
 
-    let chunkData = chunkDataArray[in.instance_idx];
+    let dataIndex = in.instance_idx;
+
+    let chunkData = chunkDataArray[dataIndex];
     
-    // The storage buffer slot is passed via firstInstance in the DAIC
-    let storageSlot = in.instance_idx;  // This comes from DAIC.firstInstance
+    var storageSlot = chunkData.meshSlot;
+
+    if (chunkData.lod == 1u) {
+        storageSlot = chunkData.lightSlot;
+    } else if (chunkData.lod == 2u) {
+        storageSlot = chunkData.meshSlot2;
+    }
     
     // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
     let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
@@ -280,7 +287,12 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     var voxel_pos: vec3f;
     var uv: vec2f;
     
-    let lod_scale = f32(data.lod_level);
+    var lod_scale = 1.0;
+    if (chunkData.lod == 1u) {
+        lod_scale = 2.0;
+    } else if (chunkData.lod == 2u) {
+        lod_scale = 8.0;
+    }
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
     
     var scaled_vertex_offset: vec3f;
