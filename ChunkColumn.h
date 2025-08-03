@@ -256,10 +256,6 @@ public:
             return output;
         }
 
-        if (lodLevel > 2 || lodLevel < 0) {
-            lodLevel = 2;
-        }
-
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
@@ -836,6 +832,7 @@ public:
         std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
         worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
 
+        // generate 3d terrain
         /*int index = 0;
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
@@ -848,6 +845,7 @@ public:
             }
         }*/
 
+        // generate 2d terrain
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column

@@ -501,7 +501,7 @@ public:
         data.reserve(columns.size());
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 10.0f, 20.0f, 128.0f, 128.0f };
+        std::vector<float> lodDistances = { 12.0f, 24.0f, 128.0f, 128.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         for (const auto& pair : columns) {
@@ -562,37 +562,6 @@ public:
         }
 
         return neighbors;
-    }
-
-    // New quadtree-related methods
-
-    // Get chunks for LOD rendering based on distance
-    std::vector<ivec2> getChunksForLOD(const vec3& viewerPos, const std::vector<float>& lodDistances) {
-        ivec2 viewerChunkPos = ivec2(glm::floor(viewerPos.x / 32.0f), glm::floor(viewerPos.z / 32.0f));
-
-        std::vector<ivec2> result;
-
-        // Get chunks at different LOD levels based on distance
-        for (int lodLevel = 0; lodLevel < lodDistances.size(); lodLevel++) {
-            float radius = lodDistances[lodLevel];
-            auto chunksAtLevel = quadTree->getChunksInRadius(viewerChunkPos, radius, lodLevel);
-
-            // Filter out chunks that are already covered by higher detail levels
-            for (const auto& chunk : chunksAtLevel) {
-                bool covered = false;
-                for (int higherLevel = 0; higherLevel < lodLevel; higherLevel++) {
-                    if (glm::length(vec2(chunk - viewerChunkPos)) <= lodDistances[higherLevel]) {
-                        covered = true;
-                        break;
-                    }
-                }
-                if (!covered) {
-                    result.push_back(chunk);
-                }
-            }
-        }
-
-        return result;
     }
 
     // Get all nodes at a specific level (useful for LOD mesh generation)
