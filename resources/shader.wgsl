@@ -1179,7 +1179,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
     let ambient_strength = 2.0; // Increased from 0.15
-    let ambient_color = vec3f(0.3, 0.4, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.25); // Brighter colors
+    let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); // Brighter colors
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
     // Apply AO with fade parameters
