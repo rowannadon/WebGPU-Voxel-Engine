@@ -1066,13 +1066,13 @@ public:
                                         material.materialType = BlockType::Grass0; // grass
                                     }
                                     else if (blockHash % 8 == 4) {
-                                        material.materialType = BlockType::Grass0; // grass
+                                        material.materialType = BlockType::Grass1; // grass
                                     }
                                     else if (blockHash % 8 == 5) {
-                                        material.materialType = BlockType::Grass0; // grass
+                                        material.materialType = BlockType::Grass1; // grass
                                     }
                                     else if (blockHash % 8 == 6) {
-                                        material.materialType = BlockType::Grass0; // grass
+                                        material.materialType = BlockType::Grass1; // grass
                                     }
                                     else if (blockHash % 8 == 7) {
                                         material.materialType = BlockType::TallGrass; // grass

@@ -1127,7 +1127,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let materialProps = get_pbr_material_properties(material_id);
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
-    var uv = fract(in.uv * (1.0 / lod_scale));
+    var uv = in.uv;
 
     if (materialProps.random_rotation == true) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
@@ -1179,7 +1179,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
     let ambient_strength = 2.0; // Increased from 0.15
-    let ambient_color = vec3f(0.3, 0.4, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.25); // Brighter colors
+    let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); // Brighter colors
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
     // Apply AO with fade parameters
