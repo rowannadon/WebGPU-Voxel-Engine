@@ -291,7 +291,7 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj);
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj, buf);
     
     renderImGUI();
     
@@ -650,7 +650,7 @@ void Application::processGPUUploads() {
     std::lock_guard<std::mutex> lock(gpuUploadMutex);
 
     // Limit uploads per frame to prevent stutter
-    const int MAX_UPLOADS_PER_FRAME = 512;
+    const int MAX_UPLOADS_PER_FRAME = 2048;
     int uploadsThisFrame = 0;
 
     while (!pendingGPUUploads.empty() && uploadsThisFrame < MAX_UPLOADS_PER_FRAME) {
@@ -660,6 +660,8 @@ void Application::processGPUUploads() {
         if (item.chunk && item.chunk->getState() == ColumnState::MeshReady) {
             item.chunk->uploadAllToGPU(tex, buf, pip);
         }
+
+        //chunkManager.invalidateChunkCache(item.chunkPos);
 
         uploadsThisFrame++;
     }

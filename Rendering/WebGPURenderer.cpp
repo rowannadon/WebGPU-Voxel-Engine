@@ -15,7 +15,17 @@ bool WebGPURenderer::initialize() {
 
 	textureManager->createTexturePool("texture_pool_light");
 	bufferManager->createBufferPool("chunkdata_pool");
-	bufferManager->createStorageBufferPool("storage_pool");
+
+	// 2. Create storage buffer pool with custom size classes
+	std::vector<std::pair<int, int>> sizeClasses = {
+		{1024, 64000},
+		{2048, 9000},
+		{4096, 3100},
+		{16384, 10000},
+		{65536, 100} 
+	};
+
+	auto storagePool = bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);
 	benchmarkManager->initialize();
 	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 
@@ -538,7 +548,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = textureManager->getTextureView("shadow_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;  // Keep depth from sky
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
@@ -554,13 +564,15 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
 		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
-		shadowRenderPass.setBindGroup(3, pipelineManager->getBindGroup("storage_buffer_group"), 0, nullptr);
+
+		// Use the StorageBufferPool's bind group directly
+		shadowRenderPass.setBindGroup(3, bufferManager->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
 
 		auto pool = bufferManager->getStorageBufferPool("storage_pool");
 		shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
 
 		shadowRenderPass.multiDrawIndexedIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
-		
+
 		shadowRenderPass.end();
 		shadowRenderPass.release();
 	}
@@ -571,7 +583,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassColorAttachment renderPassColorAttachment = {};
 		renderPassColorAttachment.view = textureManager->getTextureView("multisample_view");
 		renderPassColorAttachment.resolveTarget = targetView;
-		renderPassColorAttachment.loadOp = LoadOp::Clear;  // Keep sky background
+		renderPassColorAttachment.loadOp = LoadOp::Clear;
 		renderPassColorAttachment.storeOp = StoreOp::Store;
 		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
@@ -584,7 +596,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = textureManager->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear; // clear depth from sky
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
@@ -600,7 +612,9 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		voxelRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
-		voxelRenderPass.setBindGroup(3, pipelineManager->getBindGroup("storage_buffer_group"), 0, nullptr);
+
+		// Use the StorageBufferPool's bind group directly
+		voxelRenderPass.setBindGroup(3, bufferManager->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
 
 		auto pool = bufferManager->getStorageBufferPool("storage_pool");
 		voxelRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
@@ -1025,11 +1039,6 @@ bool WebGPURenderer::initRenderPipeline() {
 	config.useVertexBuffers = false;
 	config.vertexAttributes.clear();
 
-	std::vector<BindGroupLayoutEntry> storageBuffer(1, Default);
-	storageBuffer[0].binding = 0;
-	storageBuffer[0].visibility = ShaderStage::Vertex;
-	storageBuffer[0].buffer.type = BufferBindingType::ReadOnlyStorage;
-
 	// uniforms binding
 	std::vector<BindGroupLayoutEntry> globalUniforms(11, Default);
 	globalUniforms[0].binding = 0;
@@ -1096,8 +1105,10 @@ bool WebGPURenderer::initRenderPipeline() {
 	config.bindGroupLayouts.push_back(
 		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
 	);
+
+	// Use the StorageBufferPool's bind group layout directly
 	config.bindGroupLayouts.push_back(
-		pipelineManager->createBindGroupLayout("storage_buffer", storageBuffer)
+		bufferManager->getStorageBufferPool("storage_pool")->getBindGroupLayout()
 	);
 
 	pipelineManager->createRenderPipeline("voxel_pipeline", config);
@@ -1146,8 +1157,10 @@ bool WebGPURenderer::initShadowPipeline() {
 	config.bindGroupLayouts.push_back(
 		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
 	);
+
+	// Use the StorageBufferPool's bind group layout directly
 	config.bindGroupLayouts.push_back(
-		pipelineManager->getBindGroupLayout("storage_buffer")
+		bufferManager->getStorageBufferPool("storage_pool")->getBindGroupLayout()
 	);
 
 	pipelineManager->createRenderPipeline("shadow_pipeline", config);
@@ -1246,14 +1259,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup shadowBindGroup = pipelineManager->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
 
-	std::vector<BindGroupEntry> storageBindings(1);
-
-	storageBindings[0].binding = 0;
-	storageBindings[0].buffer = bufferManager->getStorageBufferPool("storage_pool")->getVertexBuffer();
-	storageBindings[0].offset = 0;
-	storageBindings[0].size = bufferManager->getStorageBufferPool("storage_pool")->getVertexBufferSize();
-
-	BindGroup storageBindGroup = pipelineManager->createBindGroup("storage_buffer_group", "storage_buffer", storageBindings);
+	// Remove the old storage buffer bind group creation - the StorageBufferPool now handles this
 
 	std::vector<BindGroupEntry> bindings(11);
 
@@ -1296,6 +1302,7 @@ bool WebGPURenderer::initBindGroup() {
 
 	BindGroup bindGroup = pipelineManager->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
 
+	// Rest of the bind groups remain the same...
 	std::vector<BindGroupEntry> transmittanceBindings(2);
 
 	transmittanceBindings[0].binding = 0;
@@ -1441,8 +1448,6 @@ bool WebGPURenderer::initBindGroup() {
 	noiseBindings[1].binding = 1;
 	noiseBindings[1].textureView = textureManager->getTextureView("noise_view");
 
-
-
 	BindGroup noiseBindGroup = pipelineManager->createBindGroup("noise_uniforms_group", "noise_uniforms", noiseBindings);
 
 	std::vector<BindGroupEntry> terrainBindings(2);
@@ -1456,7 +1461,6 @@ bool WebGPURenderer::initBindGroup() {
 	terrainBindings[1].textureView = textureManager->getTextureView("terrain_view");
 
 	BindGroup terrainBindGroup = pipelineManager->createBindGroup("terrain_uniforms_group", "terrain_uniforms", terrainBindings);
-
 
 	return bindGroup != nullptr &&
 		shadowBindGroup != nullptr &&

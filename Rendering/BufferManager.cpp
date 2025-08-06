@@ -1,4 +1,6 @@
+// Simplified BufferManager.cpp - removes redundant functionality
 #include "BufferManager.h"
+#include <iostream>
 
 void BufferManager::deleteBuffer(std::string bufferName) {
     Buffer buffer = getBuffer(bufferName);
@@ -19,7 +21,6 @@ void BufferManager::writeBuffer(const std::string bufferName, uint64_t bufferOff
 Buffer BufferManager::createBuffer(std::string bufferName, BufferDescriptor config) {
     Buffer buffer = device.createBuffer(config);
     buffers[bufferName] = buffer;
-
     return buffer;
 }
 
@@ -35,7 +36,6 @@ std::shared_ptr<MeshBufferPool> BufferManager::createMeshBufferPool(std::string 
     auto pool = std::make_shared<MeshBufferPool>();
     pool->init(device, queue);
     meshPools[name] = pool;
-
     return pool;
 }
 
@@ -51,7 +51,6 @@ std::shared_ptr<StorageBufferPool> BufferManager::createStorageBufferPool(std::s
     auto pool = std::make_shared<StorageBufferPool>();
     pool->init(device, queue);
     storagePools[name] = pool;
-
     return pool;
 }
 
@@ -67,7 +66,6 @@ std::shared_ptr<BufferPool> BufferManager::createBufferPool(std::string name) {
     auto pool = std::make_shared<BufferPool>();
     pool->init(device, queue);
     pools[name] = pool;
-
     return pool;
 }
 
@@ -79,11 +77,64 @@ std::shared_ptr<BufferPool> BufferManager::getBufferPool(std::string name) {
     return nullptr;
 }
 
+std::shared_ptr<StorageBufferPool> BufferManager::createStorageBufferPoolWithSizeClasses(
+    const std::string name,
+    const std::vector<std::pair<int, int>>& sizeClasses) {
+
+    auto pool = std::make_shared<StorageBufferPool>();
+
+    // Set size classes before initialization
+    pool->setSizeClasses(sizeClasses);
+
+    // Initialize the pool (this will create all buffers including bind groups)
+    pool->init(device, queue);
+
+    // Store the pool
+    storagePools[name] = pool;
+
+    std::cout << "Created storage buffer pool '" << name << "' with " << sizeClasses.size() << " size classes" << std::endl;
+
+    return pool;
+}
+
+void BufferManager::updateStoragePoolSizeClasses(
+    const std::string& poolName,
+    const std::vector<std::pair<int, int>>& sizeClasses) {
+
+    auto pool = getStorageBufferPool(poolName);
+    if (!pool) {
+        std::cerr << "Error: Storage pool '" << poolName << "' not found" << std::endl;
+        return;
+    }
+
+    // Update size classes and reinitialize
+    pool->setSizeClasses(sizeClasses);
+    pool->init(device, queue); // This will recreate buffers and bind groups with new size classes
+
+    std::cout << "Updated storage buffer pool '" << poolName << "' with " << sizeClasses.size() << " size classes" << std::endl;
+}
+
+void BufferManager::notifyStoragePoolChanged(const std::string& poolName) {
+    auto pool = getStorageBufferPool(poolName);
+    if (pool) {
+        // The StorageBufferPool handles its own metadata updates internally
+        pool->updateMetadata();
+        std::cout << "Updated metadata for storage pool '" << poolName << "'" << std::endl;
+    }
+}
+
 void BufferManager::terminate() {
+    // Clean up regular buffers
     for (auto pair : buffers) {
         if (pair.second) {
             pair.second.destroy();
             pair.second.release();
         }
     }
+
+    // Clear containers
+    buffers.clear();
+    pools.clear();
+    meshPools.clear();
+    storagePools.clear();
 }

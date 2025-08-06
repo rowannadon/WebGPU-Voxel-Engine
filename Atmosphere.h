@@ -72,21 +72,21 @@ struct Clouds {
 
 inline Clouds getDefaultClouds() {
 	Clouds clouds = {};
-	clouds.height = 35.0f;
-	clouds.thickness = 71.0f;
-	clouds.density = 1.0f;
-	clouds.coverage = 0.22f;
+	clouds.height = 8.5;
+	clouds.thickness = 50.0f;
+	clouds.density = 0.33f;
+	clouds.coverage = 0.15f;
 	clouds.absorption = 0.66f;
 	clouds.scattering = 0.66f;
-	clouds.powder_strength = 3.38f;
-	clouds.sun_brightness = 6.34f;
+	clouds.powder_strength = 4.88f;
+	clouds.sun_brightness = 0.69f;
 	clouds.phase_g1 = 0.19f;
 	clouds.phase_g2 = 0.63f;
 	clouds.phase_blend = 0.44f;
 	clouds.march_steps = 64;
 	clouds.shadow_steps = 8;
 	clouds.light_steps = 8;
-	clouds.scale = 4.24f;
+	clouds.scale = 5.11f;
 	clouds.speed = 0.5f;
 
 	return clouds;
@@ -118,9 +118,9 @@ inline Atmosphere getDefaultAtmosphere() {
 	atmosphere.absorption_density_1_linear_term = -0.0f / 15.0f;
 	atmosphere.absorption_extinction = vec3(0.00229072f, 0.00154036f, 0.0f);
 
-	atmosphere.sky_sun_lum = 16.0f;
-	atmosphere.ap_sun_lum = 6.6f;
-	atmosphere.ap_slice_scale = 0.028;
+	atmosphere.sky_sun_lum = 5.0f;
+	atmosphere.ap_sun_lum = 10.0f;
+	atmosphere.ap_slice_scale = 0.05f;
 
 	return atmosphere;
 }

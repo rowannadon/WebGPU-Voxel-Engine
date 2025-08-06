@@ -1,4 +1,4 @@
-// ChunkColumn.h
+// Updated ChunkColumn.h with Variable Size Class Support
 #ifndef CHUNK_COL
 #define CHUNK_COL
 
@@ -23,6 +23,7 @@
 #include "Rendering/PipelineManager.h"
 #include "VoxelMaterial.h"
 #include "ChunkData.h"
+#include "RunLengthEncoder.h"
 
 using glm::ivec3;
 using glm::vec3;
@@ -62,87 +63,6 @@ enum class ColumnState {
     Unloading,          // Being removed
 };
 
-struct RLEPair {
-    uint16_t value;
-    uint16_t count;
-};
-
-class RunLengthEncoder {
-public:
-    static std::vector<RLEPair> encode(const std::array<uint16_t, 512>& input) {
-        std::vector<RLEPair> encoded;
-
-        // Handle empty input case
-        if (input.size() == 0) {
-            return encoded;
-        }
-
-        uint16_t currentValue = input[0];
-        uint16_t currentCount = 1;
-
-        for (size_t i = 1; i < input.size(); ++i) {
-            if (input[i] == currentValue && currentCount < UINT16_MAX) {
-                currentCount++;
-            }
-            else {
-                // Save the current run
-                encoded.push_back({ currentValue, currentCount });
-
-                // Start a new run
-                currentValue = input[i];
-                currentCount = 1;
-            }
-        }
-
-        // Don't forget the last run
-        encoded.push_back({ currentValue, currentCount });
-
-        return encoded;
-    }
-
-    // Decode back to original array
-    static std::array<uint16_t, 512> decode(const std::vector<RLEPair>& encoded) {
-        std::array<uint16_t, 512> decoded;
-        decoded.fill(0); // Initialize all elements to 0
-
-        // Handle empty encoded data - return array filled with zeros
-        if (encoded.empty()) {
-            return decoded;
-        }
-
-        size_t index = 0;
-
-        for (const auto& pair : encoded) {
-            // Validate the pair data before using it
-            if (pair.count == 0) {
-                continue; // Skip invalid pairs with zero count
-            }
-
-            for (uint16_t i = 0; i < pair.count && index < 512; ++i) {
-                decoded[index++] = pair.value;
-            }
-
-            // Safety check - if we've filled the array, break
-            if (index >= 512) {
-                break;
-            }
-        }
-
-        return decoded;
-    }
-
-    // Calculate compression ratio
-    static double getCompressionRatio(const std::vector<RLEPair>& encoded) {
-        if (encoded.empty()) {
-            return 1.0; // No compression if empty
-        }
-
-        size_t originalSize = 512 * sizeof(uint16_t);
-        size_t compressedSize = encoded.size() * sizeof(RLEPair);
-        return static_cast<double>(originalSize) / compressedSize;
-    }
-};
-
 class ChunkColumn {
 public:
     std::atomic<ColumnState> state{ ColumnState::Empty };
@@ -169,7 +89,7 @@ private:
         ivec3 id;
         std::string resourceId;
 
-        // GPU information
+        // GPU information - updated to support variable slot sizes
         bool meshBufferGPUInitialized = false;
         bool materialGPUInitialized = false;
         bool lightGPUInitialized = false;
@@ -178,7 +98,13 @@ private:
         int textureSlot = -1;
         int lightSlot = -1;
         int dataSlot = -1;
+
+        // Updated mesh slots to support variable size classes
+        // Each LOD level can have different slot assignments based on face count
         int meshSlots[8] = { -1 };
+
+        // Track estimated face counts for each LOD to help with slot allocation
+        size_t estimatedFaceCounts[8] = { 0 };
     };
 
     WorldGenerator worldGen;
@@ -186,7 +112,7 @@ private:
     std::vector<std::pair<int, ivec3>> treeData;
 
     ChunkMetaData meta[COLUMN_HEIGHT];
-    
+
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
     std::vector<FaceAttributes> faceData[8][COLUMN_HEIGHT];
     std::vector<uint16_t> indexData[8][COLUMN_HEIGHT];
@@ -201,6 +127,11 @@ private:
     mutable std::mutex voxelDataMutex;
     mutable std::mutex meshDataMutex;
 
+    std::atomic<bool> daicsGenerated{ false };
+    std::atomic<int> lastLodLevel{ 0 };
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> daics{ std::nullopt };
+
+
     int currentLODLevel;
 
 public:
@@ -212,10 +143,6 @@ public:
             meta[i].position = ivec3(position.x, position.y, i * CHUNK_SIZE);
             meta[i].id = ivec3(id.x, id.y, i);
             meta[i].resourceId = std::to_string(id.x) + "_" + std::to_string(id.y) + "_" + std::to_string(i);
-            //meta[i].state.store(ChunkState::NoMesh);
-            // Add this debug line
-            /*std::cout << "Chunk " << i << " world position: " << meta[i].position.x
-                << ", " << meta[i].position.y << ", " << meta[i].position.z << std::endl;*/
         }
 
         initializeMaterialData();
@@ -243,52 +170,68 @@ public:
 
     const ivec2& getColumnPosition() const { return position; }
     const ivec2& getColumnChunkPosition() const { return id; }
-    
+
     std::vector<std::pair<int, ivec3>> getTreeData() {
-        //std::lock_guard<std::mutex> lock(treeDataMutex);
         return treeData;
     }
 
-    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int lodLevel) {
-        std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int lodLevel, BufferManager *buf) {
 
         if (state.load() != ColumnState::MeshReady) {
+            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
             return output;
         }
 
-        std::lock_guard<std::mutex> lock(meshDataMutex);
-
-        for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            int meshSlot = meta[i].meshSlots[lodLevel];
-            if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
-                output[i] = std::nullopt;
-                continue;
-            }
-
-            if (meta[i].state.load() != ChunkState::Active) {
-                output[i] = std::nullopt;
-                continue;
-            }
-
-            if (faceData[lodLevel][i].empty() || indexData[lodLevel][i].empty()) {
-                output[i] = std::nullopt;
-                continue;
-            }
-
-            DAIC daic;
-            uint32_t numFaces = static_cast<uint32_t>(faceData[lodLevel][i].size());
-            daic.indexCount = numFaces * 6;
-            daic.instanceCount = 1;
-
-            // These should be offsets in ELEMENTS, not bytes
-            daic.firstIndex = static_cast<uint32_t>(meshSlot * 16384 * 6);
-            daic.baseVertex = 0; // static_cast<int32_t>(meshSlot * 8192);
-            daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
-
-            output[i] = { ivec3(position.x, position.y, i * 32), daic };
+        if (lastLodLevel.load() != lodLevel) {
+            daicsGenerated.store(false);
         }
-        
-        return output;
+
+        if (!daicsGenerated.load()) {
+            {
+                std::lock_guard<std::mutex> lock(meshDataMutex);
+
+                for (int i = 0; i < COLUMN_HEIGHT; i++) {
+                    if (meta[i].state.load() != ChunkState::Active) {
+                        daics[i] = std::nullopt;
+                        continue;
+                    }
+
+                    int meshSlot = meta[i].meshSlots[lodLevel];
+                    if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
+                        daics[i] = std::nullopt;
+                        continue;
+                    }
+
+                    if (faceData[lodLevel][i].empty() || indexData[lodLevel][i].empty()) {
+                        daics[i] = std::nullopt;
+                        continue;
+                    }
+
+                    auto storagePool = buf->getStorageBufferPool("storage_pool");
+                    if (!storagePool) {
+                        std::cerr << "Error: Storage pool not found" << std::endl;
+                        daics[i] = std::nullopt;
+                        continue;
+                    }
+
+                    DAIC daic;
+                    uint32_t numFaces = static_cast<uint32_t>(faceData[lodLevel][i].size());
+                    daic.indexCount = numFaces * 6;
+                    daic.instanceCount = 1;
+
+                    // Get the storage buffer pool to calculate proper offsets
+                    daic.firstIndex = storagePool->getIndexOffsetInElements(meshSlot);
+                    daic.baseVertex = 0;
+                    daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
+
+                    daics[i] = { ivec3(position.x, position.y, i * 32), daic };
+                }
+            }
+        }
+
+        lastLodLevel.store(lodLevel);
+
+        return daics;
     }
 
 private:
@@ -298,35 +241,36 @@ private:
             return;
         }
 
-        if (faceData[0][zPos].size() > 16384) {
-            std::cerr << "Too many faces in chunk: Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
-        }
+        // For each LOD level, allocate appropriate size slot based on face count
+        for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+            size_t faceCount = faceData[lodLevel][zPos].size();
 
-        meta[zPos].meshSlots[0] = buf->
-            getStorageBufferPool("storage_pool")->
-            allocateSlot(meta[zPos].resourceId + "-0", faceData[0][zPos].size());
+            // Update estimated face count for future allocations
+            meta[zPos].estimatedFaceCounts[lodLevel] = faceCount;
 
-        meta[zPos].meshSlots[1] = buf->
-            getStorageBufferPool("storage_pool")->
-            allocateSlot(meta[zPos].resourceId + "-1", faceData[1][zPos].size());
+            if (faceCount == 0) {
+                meta[zPos].meshSlots[lodLevel] = -1;
+                continue;
+            }
 
-        meta[zPos].meshSlots[2] = buf->
-            getStorageBufferPool("storage_pool")->
-            allocateSlot(meta[zPos].resourceId + "-2", faceData[2][zPos].size());
+            std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
 
-        if (meta[zPos].meshSlots[0] == -1) {
-            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
-            return;
-        }
+            // Use the new variable size allocation
+            meta[zPos].meshSlots[lodLevel] = buf->
+                getStorageBufferPool("storage_pool")->
+                allocateSlot(slotId, faceCount);
 
-        if (meta[zPos].meshSlots[1] == -1) {
-            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
-            return;
-        }
 
-        if (meta[zPos].meshSlots[2] == -1) {
-            std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId << std::endl;
-            return;
+
+            if (meta[zPos].meshSlots[lodLevel] == -1) {
+                //std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId
+                //    << " LOD " << lodLevel << " with " << faceCount << " faces" << std::endl;
+                continue;
+            }
+
+            //std::cout << "Allocated slot " << meta[zPos].meshSlots[lodLevel]
+            //    << " for chunk " << meta[zPos].resourceId
+            //    << " LOD " << lodLevel << " (" << faceCount << " faces)" << std::endl;
         }
 
         meta[zPos].meshBufferGPUInitialized = true;
@@ -339,32 +283,40 @@ private:
     }
 
     void uploadMesh(const int zPos, BufferManager* buf) {
-        if (!meta[zPos].meshBufferGPUInitialized || meta[zPos].meshSlots[0] == -1 || meta[zPos].meshSlots[1] == -1 || meta[zPos].meshSlots[2] == -1) {
-            //std::cerr << "Mesh buffer not initialized for chunk " << getResourceId() << std::endl;
+        if (!meta[zPos].meshBufferGPUInitialized) {
             return;
         }
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
-        if (faceData[0][zPos].empty() || indexData[0][zPos].empty()) {
-            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
-            return;
-        }
-
-        if (faceData[1][zPos].empty() || indexData[1][zPos].empty()) {
-            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
-            return;
-        }
-        
-        if (faceData[2][zPos].empty() || indexData[2][zPos].empty()) {
-            std::cerr << "No mesh data to upload for chunk " << getResourceId() << std::endl;
-            return;
-        }
-
         auto pool = buf->getStorageBufferPool("storage_pool");
-        pool->writeToSlot(meta[zPos].resourceId + "-0", faceData[0][zPos], indexData[0][zPos]);
-        pool->writeToSlot(meta[zPos].resourceId + "-1", faceData[1][zPos], indexData[1][zPos]);
-        pool->writeToSlot(meta[zPos].resourceId + "-2", faceData[2][zPos], indexData[2][zPos]);
+
+        // Upload each LOD level separately with proper slot management
+        for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+            int slotId = meta[zPos].meshSlots[lodLevel];
+            if (slotId == -1) {
+                continue; // Skip if no slot allocated
+            }
+
+            if (faceData[lodLevel][zPos].empty() || indexData[lodLevel][zPos].empty()) {
+                //std::cerr << "No mesh data to upload for chunk " << meta[zPos].resourceId
+                //    << " LOD " << lodLevel << std::endl;
+                continue;
+            }
+
+            std::string slotIdStr = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
+
+            try {
+                pool->writeToSlot(slotIdStr, faceData[lodLevel][zPos], indexData[lodLevel][zPos]);
+                //std::cout << "Uploaded " << faceData[lodLevel][zPos].size()
+                //    << " faces to slot " << slotId << " for chunk " << meta[zPos].resourceId
+                //    << " LOD " << lodLevel << std::endl;
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Failed to upload mesh data for chunk " << meta[zPos].resourceId
+                    << " LOD " << lodLevel << ": " << e.what() << std::endl;
+            }
+        }
     }
 
     void uploadAllMeshes(BufferManager* buf) {
@@ -410,7 +362,41 @@ public:
         }
     }
 
+    // Helper function to get slot information for rendering
+    struct SlotRenderInfo {
+        int slotIndex;
+        uint32_t faceOffset;
+        uint32_t indexOffset;
+        uint32_t maxFaces;
+        bool isValid;
+    };
+
+    SlotRenderInfo getSlotRenderInfo(int zPos, int lodLevel, BufferManager* buf) {
+        SlotRenderInfo info = {};
+        info.isValid = false;
+
+        if (lodLevel >= 8 || zPos >= COLUMN_HEIGHT) {
+            return info;
+        }
+
+        int slotIndex = meta[zPos].meshSlots[lodLevel];
+        if (slotIndex == -1) {
+            return info;
+        }
+
+        auto pool = buf->getStorageBufferPool("storage_pool");
+        info.slotIndex = slotIndex;
+        info.faceOffset = pool->getFaceOffsetInElements(slotIndex);
+        info.indexOffset = pool->getIndexOffsetInElements(slotIndex);
+        info.maxFaces = pool->getSlotMaxFaces(slotIndex);
+        info.isValid = true;
+
+        return info;
+    }
+
 public:
+    // ... (rest of the voxel and material methods remain the same)
+
     bool getVoxelWholeColumn(ivec3 pos, bool transparent) const {
         int x = pos.x, y = pos.y, z = pos.z;
         if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT_BLOCKS) {
@@ -554,7 +540,6 @@ public:
         return false;
     }
 
-
     void setVoxelWholeColumn(ivec3 pos, bool value, bool transparent) {
         int x = pos.x, y = pos.y, z = pos.z;
         if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE || z < 0 || z >= COLUMN_HEIGHT_BLOCKS) {
@@ -611,13 +596,13 @@ public:
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
-                std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> columnData;
+                std::vector<uint16_t> columnData;
                 if (encodedMaterialData[x][y].empty()) {
                     // Initialize with air if empty
-                    columnData.fill(0);
+                    columnData.assign(COLUMN_HEIGHT_BLOCKS, 0);
                 }
                 else {
-                    columnData = RunLengthEncoder::decode(encodedMaterialData[x][y]);
+                    columnData = RunLengthEncoder::decode(encodedMaterialData[x][y], COLUMN_HEIGHT_BLOCKS);
                 }
 
                 // Copy column data into the linear array
@@ -704,8 +689,7 @@ public:
 
         // Otherwise use compressed access
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
-            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
 
         int globalZ = pos.z + (CHUNK_SIZE * zPos);
         if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
@@ -724,8 +708,7 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
-            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
 
         VoxelMaterial mat;
         mat.materialType = materialData[pos.z];
@@ -759,8 +742,7 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::array<uint16_t, COLUMN_HEIGHT_BLOCKS> materialData =
-            RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y]);
+        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
 
         materialData[pos.z] = material.materialType;
         encodedMaterialData[pos.x][pos.y] = RunLengthEncoder::encode(materialData);
@@ -832,8 +814,7 @@ public:
         std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
         worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
 
-        // generate 3d terrain
-        /*int index = 0;
+        int index = 0;
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                 for (int x = 0; x < CHUNK_SIZE; x++) {
@@ -843,19 +824,19 @@ public:
                     }
                 }
             }
-        }*/
+        }
 
         // generate 2d terrain
-        for (int y = 0; y < CHUNK_SIZE; y++) {
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                // Generate height for this column
-                float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
-                int targetHeight = static_cast<int>(height * 200.0f + 150.0f);
-                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
-                    setVoxelWholeColumn(ivec3(x, y, z), true, false);
-                }
-            }
-        }
+        //for (int y = 0; y < CHUNK_SIZE; y++) {
+        //    for (int x = 0; x < CHUNK_SIZE; x++) {
+        //        // Generate height for this column
+        //        float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+        //        int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
+        //        for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
+        //            setVoxelWholeColumn(ivec3(x, y, z), true, false);
+        //        }
+        //    }
+        //}
 
         setState(ColumnState::TerrainReady);
     }
@@ -892,14 +873,6 @@ public:
                 faceIndex = 3; // Back neighbor
                 neighborPos.y = CHUNK_SIZE + pos.y;
             }
-            //else if (pos.z >= CHUNK_SIZE) {
-            //    faceIndex = 4; // Top neighbor
-            //    neighborPos.z = pos.z - CHUNK_SIZE;
-            //}
-            //else if (pos.z < 0) {
-            //    faceIndex = 5; // Bottom neighbor
-            //    neighborPos.z = CHUNK_SIZE + pos.z;
-            //}
 
             // Check neighbor chunk if available
             if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
@@ -923,7 +896,7 @@ public:
         auto findTopSolidBlock = [&](int x, int y) -> int {
             // Search from top to bottom for the highest solid block
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS - 1; z++) {
-                if (isVoxelSolid(ivec3(x, y, z)) && !isVoxelSolid(ivec3(x, y, z+1))) {
+                if (isVoxelSolid(ivec3(x, y, z)) && !isVoxelSolid(ivec3(x, y, z + 1))) {
                     return z;
                 }
             }
@@ -1018,7 +991,6 @@ public:
                                     if (positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
-                                        //std::lock_guard<std::mutex> lock(treeDataMutex);
                                         int closestDistance = INT_MAX;
                                         for (auto pair : treeData) {
                                             ivec3 pos = pair.second;
@@ -1116,14 +1088,10 @@ public:
             }
         }
 
-        //finishMaterialEditing();
-
         setState(ColumnState::TopsoilReady);
     }
 
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
-        //beginMaterialEditing();
-
         VoxelMaterial trunkMaterial;
         trunkMaterial.materialType = BlockType::Log;
 
@@ -1184,7 +1152,7 @@ public:
                 setVoxelWholeColumn(basePos + ivec3(0, 0, i), true, false);
                 setMaterialFast(basePos + ivec3(0, 0, i), trunkMaterial);
             }
-        };
+            };
 
         auto placeLargeTreeShape = [&](const ivec3& basePos, int treeHeight) {
             int leafHeight = 4;
@@ -1263,22 +1231,18 @@ public:
             };
 
         // 1. Generate trees that are rooted in THIS chunk.
-        {
-            //std::lock_guard<std::mutex> lock(treeDataMutex);
+        for (const auto pair : treeData) {
+            ivec3 localTreePos = pair.second;
+            // Calculate a deterministic height based on the tree's absolute world position
+            // to ensure consistency across chunk boundaries.
+            ivec3 worldTreePos = ivec3(this->position.x, this->position.y, 0) + localTreePos;
+            int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
-            for (const auto pair : treeData) {
-                ivec3 localTreePos = pair.second;
-                // Calculate a deterministic height based on the tree's absolute world position
-                // to ensure consistency across chunk boundaries.
-                ivec3 worldTreePos = ivec3(this->position.x, this->position.y, 0) + localTreePos;
-                int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
-
-                if (pair.first == 2) {
-                    placeLargeTreeShape(localTreePos, treeHeight + 3);
-                }
-                else {
-                    placeTreeShape(localTreePos, treeHeight);
-                }
+            if (pair.first == 2) {
+                placeLargeTreeShape(localTreePos, treeHeight + 3);
+            }
+            else {
+                placeTreeShape(localTreePos, treeHeight);
             }
         }
 
@@ -1322,12 +1286,9 @@ public:
                     else {
                         placeTreeShape(transformedBasePos, treeHeight);
                     }
-                    
                 }
             }
         }
-
-        //finishMaterialEditing();
 
         setState(ColumnState::TreesReady);
     }
@@ -1394,7 +1355,7 @@ public:
 
                         bool hasSolid = this->getVoxelSafe(zPos, voxelPos, false, neighbors);
                         bool hasTransparent = this->getVoxelSafe(zPos, voxelPos, true, neighbors);
-                   
+
                         bool isOccupied = transparent ? hasTransparent : hasSolid;
                         if (isOccupied) {
                             solidVoxels++;
@@ -1405,8 +1366,8 @@ public:
                 }
             }
 
-            // Require majority of voxels to be solid for the LOD group to be considered solid
-            bool groupIsSolid = solidVoxels > 0;
+            
+            bool groupIsSolid = solidVoxels >= glm::max(1, totalVoxels / 4);
 
             VoxelMaterial dominantMaterial = {};
             if (groupIsSolid && !materialCounts.empty()) {
@@ -1416,12 +1377,13 @@ public:
                 dominantMaterial.materialType = maxIt->first;
             }
 
-            if (materialCounts[BlockType::Log] > 0) {
+            if (materialCounts[BlockType::Log] > 4 && totalVoxels <= 8) {
                 dominantMaterial.materialType = BlockType::Log;
-            }/*
-            else if (materialCounts[BlockType::Grass] > 0) {
+            }
+
+            if (materialCounts[BlockType::Grass] > totalVoxels / 8) {
                 dominantMaterial.materialType = BlockType::Grass;
-            }*/
+            }
 
             return { groupIsSolid, dominantMaterial };
             };
@@ -1658,7 +1620,6 @@ public:
                                                 indexData[meshSlot][zPos].push_back(baseIndex + 0);
                                             }
                                         }
-                                        
                                     }
                                 }
                             }
@@ -1696,8 +1657,6 @@ public:
             indexData[2][zPos].clear();
             faceData[2][zPos].clear();
         }
-
-        //beginMaterialEditing();
 
         bool solid0 = generateOneMesh(zPos, neighbors, false, 1, 0);
         bool transparent0 = generateOneMesh(zPos, neighbors, true, 1, 0);
@@ -1743,8 +1702,17 @@ public:
         }
 
         if (faceData[0][zPos].empty() || indexData[0][zPos].empty()) {
-            if (meta[zPos].meshSlots[0] != -1)
-                buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(meta[zPos].resourceId);
+            if (meta[zPos].meshSlots[0] != -1) {
+                // Deallocate slots if they were previously allocated
+                auto pool = buf->getStorageBufferPool("storage_pool");
+                for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+                    if (meta[zPos].meshSlots[lodLevel] != -1) {
+                        std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
+                        pool->deAllocateSlot(slotId);
+                        meta[zPos].meshSlots[lodLevel] = -1;
+                    }
+                }
+            }
             setChunkState(zPos, ChunkState::Solid);
             return;
         }
@@ -1785,12 +1753,19 @@ public:
 
     void cleanupBuffersOnly(int zPos, BufferManager* buf) {
         if (meta[zPos].meshBufferGPUInitialized) {
-            buf->getMeshBufferPool("mesh_pool")->deAllocateSlot(getResourceId());
+            auto pool = buf->getStorageBufferPool("storage_pool");
+            for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+                if (meta[zPos].meshSlots[lodLevel] != -1) {
+                    std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
+                    pool->deAllocateSlot(slotId);
+                    meta[zPos].meshSlots[lodLevel] = -1;
+                }
+            }
             meta[zPos].meshBufferGPUInitialized = false;
         }
 
         if (meta[zPos].chunkDataBufferGPUInitialized) {
-            buf->getBufferPool("chunkdata_pool")->deAllocateSlot(getResourceId());
+            buf->getBufferPool("chunkdata_pool")->deAllocateSlot(meta[zPos].resourceId);
             meta[zPos].chunkDataBufferGPUInitialized = false;
         }
     }
@@ -1817,7 +1792,6 @@ public:
             cleanupChunk(i, tex, buf, pip);
         }
     }
-
 };
 
 #endif

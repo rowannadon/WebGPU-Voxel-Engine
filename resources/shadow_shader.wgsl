@@ -1,4 +1,4 @@
-// Shadow mapping shader for depth-only rendering with LOD support
+// Updated Shadow mapping shader with variable size class support
 // shadow_shader.wgsl
 
 struct VertexInput {
@@ -65,9 +65,9 @@ struct FaceData {
     materialId: u32,
 }
 
+// Updated constants - remove hardcoded slot size
+const NUM_TOTAL_SLOTS = 64000;
 const CHUNK_SIZE: f32 = 32.0;
-const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 18000;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var textureArray: texture_2d_array<f32>;
@@ -77,8 +77,29 @@ const NUM_TOTAL_SLOTS = 18000;
 @group(1) @binding(1) var light_sampler_3d: sampler;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
-@group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
 
+// Updated storage buffer - now dynamically sized based on actual buffer size
+@group(3) @binding(0) var<storage, read> vertexData: array<FaceData>;
+
+// Buffer metadata that gets updated from C++ side when buffer pool is initialized
+struct BufferMetadata {
+    totalFaces: u32,        // Total number of faces across all slots
+    slotCount: u32,         // Total number of slots
+    padding0: u32,
+    padding1: u32,
+}
+
+@group(3) @binding(1) var<uniform> bufferMetadata: BufferMetadata;
+
+// Slot information buffer - contains offset data for each slot
+struct SlotInfo {
+    faceOffset: u32,        // Offset in faces (not bytes)
+    indexOffset: u32,       // Offset in indices (not bytes)  
+    maxFaces: u32,          // Maximum faces this slot can hold
+    maxIndices: u32,        // Maximum indices this slot can hold
+}
+
+@group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
@@ -243,7 +264,7 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 
 @vertex
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
-        var out: VertexOutput;
+    var out: VertexOutput;
 
     let dataIndex = in.instance_idx;
 
@@ -257,16 +278,32 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
         storageSlot = chunkData.meshSlot2;
     }
     
+    // Bounds check for storage slot
+    if (storageSlot >= bufferMetadata.slotCount) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    
+    // Get slot information
+    let slotInfo = slotInfoArray[storageSlot];
+    
     // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
     let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
     let vertexInFace = in.vertex_idx % 6u;  // Which vertex within the face (0-5)
     
-    // Calculate the actual index in the storage buffer
-    // Each slot has STORAGE_BUFFER_SLOT_SIZE faces
-    let globalFaceIndex = storageSlot * STORAGE_BUFFER_SLOT_SIZE + faceIndex;
+    // Bounds check - ensure we don't exceed this slot's capacity
+    if (faceIndex >= slotInfo.maxFaces) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
     
-    // Bounds check
-    if (globalFaceIndex >= STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS) {
+    // Calculate the actual index in the storage buffer using slot offset
+    let globalFaceIndex = slotInfo.faceOffset + faceIndex;
+    
+    // Final bounds check against total buffer size
+    if (globalFaceIndex >= bufferMetadata.totalFaces) {
         // Return a degenerate vertex
         out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
@@ -279,7 +316,6 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     out.material_id = faceData.materialId;
 
     let data = unpack_data(faceData.data);
-    //out.lod_level = data.lod_level;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
@@ -291,15 +327,15 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     if (chunkData.lod == 1u) {
         lod_scale = 2.0;
     } else if (chunkData.lod == 2u) {
-        lod_scale = 8.0;
+        lod_scale = 4.0;
     }
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
     
     var scaled_vertex_offset: vec3f;
     if (faceData.materialId == 10u) {
-        scaled_vertex_offset =  faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale;
+        scaled_vertex_offset = faceVerticesLeaf[data.normal_index][vertexInFace] * lod_scale;
     } else if (faceData.materialId == 11u) {
-        scaled_vertex_offset =  faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale;
+        scaled_vertex_offset = faceVerticesGrass[data.normal_index][vertexInFace] * lod_scale;
     } else {
         scaled_vertex_offset = faceVertices[data.normal_index][vertexInFace] * lod_scale;
     }
@@ -330,10 +366,11 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
 @fragment
 fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
     let material_id = in.material_id;
-    if (material_id == 0u || material_id > 11u) {
+    if (material_id == 0u || material_id > 18u) {
         discard;
     }
 
+    // Optional: Uncomment if you want alpha testing in shadows
     // var uv = in.uv;
     // if (material_id != 9u) { // not trunk
     //     let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
@@ -351,6 +388,7 @@ fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
     // if (textureColor.a < 0.9) {
     //     discard; 
     // }
+    
     // For shadow mapping, we only care about depth, but we need to return something
     // The depth is automatically written to the depth buffer
     return vec4f(0.0, 0.0, 0.0, 1.0);

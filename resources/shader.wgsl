@@ -1,4 +1,3 @@
-// Updated PBR shader with LOD support and Wind Effects
 // shader.wgsl
 
 const pi: f32 = radians(180.0);
@@ -142,9 +141,8 @@ struct Atmosphere {
     padding: f32
 }
 
-// number of face data per slot 
-const STORAGE_BUFFER_SLOT_SIZE = 16384;
-const NUM_TOTAL_SLOTS = 18000;
+// Updated constants - remove hardcoded slot size
+const NUM_TOTAL_SLOTS = 64000;
 
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -174,7 +172,29 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(1) @binding(1) var light_sampler_3d: sampler;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
-@group(3) @binding(0) var<storage, read> vertexData: array<FaceData, STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS>;
+
+// Updated storage buffer - now dynamically sized based on actual buffer size
+@group(3) @binding(0) var<storage, read> vertexData: array<FaceData>;
+
+// Buffer metadata that gets updated from C++ side when buffer pool is initialized
+struct BufferMetadata {
+    totalFaces: u32,        // Total number of faces across all slots
+    slotCount: u32,         // Total number of slots
+    padding0: u32,
+    padding1: u32,
+}
+
+@group(3) @binding(1) var<uniform> bufferMetadata: BufferMetadata;
+
+// Slot information buffer - contains offset data for each slot
+struct SlotInfo {
+    faceOffset: u32,        // Offset in faces (not bytes)
+    indexOffset: u32,       // Offset in indices (not bytes)  
+    maxFaces: u32,          // Maximum faces this slot can hold
+    maxIndices: u32,        // Maximum indices this slot can hold
+}
+
+@group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
 
 // PBR material definitions - expanded with realistic properties
 const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
@@ -193,6 +213,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
         VOXEL_MODEL,
         true
     ),
+    // ... (rest of materials remain the same)
     // ID 2: Grass
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Natural grass green albedo
@@ -630,10 +651,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 16;
+    let samples = 64;
     
-    for (var x = -2; x <= 1; x++) {
-        for (var y = -2; y <= 1; y++) {
+    for (var x = -3; x <= 2; x++) {
+        for (var y = -3; y <= 2; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);
@@ -788,16 +809,32 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         storageSlot = chunkData.meshSlot2;
     }
     
+    // Bounds check for storage slot
+    if (storageSlot >= bufferMetadata.slotCount) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
+    
+    // Get slot information
+    let slotInfo = slotInfoArray[storageSlot];
+    
     // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
     let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
     let vertexInFace = in.vertex_idx % 6u;  // Which vertex within the face (0-5)
     
-    // Calculate the actual index in the storage buffer
-    // Each slot has STORAGE_BUFFER_SLOT_SIZE faces
-    let globalFaceIndex = storageSlot * STORAGE_BUFFER_SLOT_SIZE + faceIndex;
+    // Bounds check - ensure we don't exceed this slot's capacity
+    if (faceIndex >= slotInfo.maxFaces) {
+        // Return a degenerate vertex
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        return out;
+    }
     
-    // Bounds check
-    if (globalFaceIndex >= STORAGE_BUFFER_SLOT_SIZE * NUM_TOTAL_SLOTS) {
+    // Calculate the actual index in the storage buffer using slot offset
+    let globalFaceIndex = slotInfo.faceOffset + faceIndex;
+    
+    // Final bounds check against total buffer size
+    if (globalFaceIndex >= bufferMetadata.totalFaces) {
         // Return a degenerate vertex
         out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
@@ -813,7 +850,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     // ... rest of your vertex shader code remains the same
     let data = unpack_data(faceData.data);
-    out.lod_level = data.lod_level;
+    //out.lod_level = data.lod_level;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
@@ -825,7 +862,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     if (chunkData.lod == 1u) {
         lod_scale = 2.0;
     } else if (chunkData.lod == 2u) {
-        lod_scale = 8.0;
+        lod_scale = 4.0;
     }
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
@@ -1044,7 +1081,7 @@ fn calculate_pbr_lighting(
         total_lighting += brdf * light_color * n_dot_l * shadow_factor;
     }
     
-    // Add subsurface scattering for back-lit surfaces
+    //Add subsurface scattering for back-lit surfaces
     if (subsurface > 0.0) {
         // Calculate back-lighting (light coming from behind the surface)
         let back_n_dot_l = max(dot(-normal, light_dir), 0.0);
@@ -1053,14 +1090,14 @@ fn calculate_pbr_lighting(
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.0;  // How much the light bends through the material
-            let subsurface_scale = 3.75;  // Overall intensity scale
+            let subsurface_scale = 0.75;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
             let v_dot_subsurface = pow(clamp(dot(view_dir, -subsurface_light), 0.0, 1.0), subsurface_power) * subsurface_scale;
             
             // Subsurface color - typically warmer and more saturated than albedo
-            let subsurface_color = albedo * 1.5 * vec3f(1.0, 0.95, 0.8); // Boost saturation for organic glow
+            let subsurface_color = albedo * 1.5 * vec3f(1.0, 0.95, 0.8) * light_color; // Boost saturation for organic glow
             
             // Calculate subsurface contribution
             let subsurface_lighting = subsurface_color * light_color * v_dot_subsurface * back_n_dot_l * subsurface;
@@ -1116,7 +1153,12 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
     var normal = normalize(in.normal);
-    let lod_scale = f32(in.lod_level);
+    var lod_scale = 1.0;
+    if (chunkData.lod == 1u) {
+        lod_scale = 2.0;
+    } else if (chunkData.lod == 2u) {
+        lod_scale = 4.0;
+    }
     let material_id = in.material_id;
     
     if (material_id == 0u) {

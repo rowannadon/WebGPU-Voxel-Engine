@@ -20,6 +20,7 @@ using glm::vec3;
 using glm::ivec3;
 using glm::ivec2;
 using glm::vec2;
+using glm::mat4x4;
 
 struct IVec2Hash {
     std::size_t operator()(const ivec2& k) const {
@@ -47,373 +48,39 @@ struct ChunkPriority {
     }
 };
 
-// Quadtree node for organizing chunks into hierarchical groups
-class QuadTreeNode {
-public:
-    ivec2 position;      // Bottom-left corner of this node's region
-    int size;            // Size of the region (power of 2)
-    int level;           // Level in the quadtree (0 = leaf level with single chunks)
+// Cached DAIC data for a chunk column
+struct CachedDAICData {
+    std::vector<DAIC> cameraDAICs;
+    std::vector<DAIC> shadowDAICs;
+    std::vector<ivec3> chunkPositions;
 
-    // Child nodes (nullptr if this is a leaf or children don't exist yet)
-    std::array<std::unique_ptr<QuadTreeNode>, 4> children;
+    // Cache metadata
+    int lodLevel = -1;
+    glm::mat4x4 lastViewMatrix;
+    glm::mat4x4 lastProjMatrix;
+    glm::mat4x4 lastLightViewMatrix;
+    glm::mat4x4 lastLightProjMatrix;
+    uint64_t frameGenerated = 0;
+    bool isDirty = true;
 
-    // Parent node (nullptr for root)
-    QuadTreeNode* parent;
+    // Performance optimization: pre-computed bounding info
+    vec3 columnBoundsMin;
+    vec3 columnBoundsMax;
 
-    // Chunks contained in this node (only used at leaf level)
-    std::unordered_set<ivec2, IVec2Hash, IVec2Equal> containedChunks;
-
-    // Future: mesh data will be stored here for LOD rendering
-    // MeshData lodMesh;
-
-    QuadTreeNode(ivec2 pos, int sz, int lvl, QuadTreeNode* par = nullptr)
-        : position(pos), size(sz), level(lvl), parent(par), children{} {
-        // children{} initializes all elements to nullptr
-    }
-
-    // Explicitly delete copy constructor and copy assignment operator
-    QuadTreeNode(const QuadTreeNode&) = delete;
-    QuadTreeNode& operator=(const QuadTreeNode&) = delete;
-
-    // Default move constructor and move assignment operator
-    QuadTreeNode(QuadTreeNode&&) = default;
-    QuadTreeNode& operator=(QuadTreeNode&&) = default;
-
-    // Check if a chunk position is contained within this node's region
-    bool contains(const ivec2& chunkPos) const {
-        return chunkPos.x >= position.x &&
-            chunkPos.x < position.x + size &&
-            chunkPos.y >= position.y &&
-            chunkPos.y < position.y + size;
-    }
-
-    // Get the quadrant index (0-3) for a given chunk position
-    int getQuadrant(const ivec2& chunkPos) const {
-        int halfSize = size / 2;
-        int relX = chunkPos.x - position.x;
-        int relY = chunkPos.y - position.y;
-
-        // Quadrant layout:
-        // 2 | 3
-        // --+--
-        // 0 | 1
-        if (relX < halfSize && relY < halfSize) return 0; // Bottom-left
-        if (relX >= halfSize && relY < halfSize) return 1; // Bottom-right
-        if (relX < halfSize && relY >= halfSize) return 2; // Top-left
-        return 3; // Top-right
-    }
-
-    // Get the position for a child quadrant
-    ivec2 getChildPosition(int quadrant) const {
-        int halfSize = size / 2;
-        switch (quadrant) {
-        case 0: return position; // Bottom-left
-        case 1: return position + ivec2(halfSize, 0); // Bottom-right
-        case 2: return position + ivec2(0, halfSize); // Top-left
-        case 3: return position + ivec2(halfSize, halfSize); // Top-right
-        }
-        return position;
-    }
-
-    bool isLeaf() const {
-        return level == 0;
-    }
-
-    // Check if this node has any children created
-    bool hasChildren() const {
-        return children[0] != nullptr || children[1] != nullptr ||
-            children[2] != nullptr || children[3] != nullptr;
-    }
-
-    // Get all chunks in this subtree (for LOD selection)
-    void getAllChunks(std::vector<ivec2>& chunks) const {
-        if (isLeaf()) {
-            for (const auto& chunk : containedChunks) {
-                chunks.push_back(chunk);
-            }
-        }
-        else {
-            for (const auto& child : children) {
-                if (child) {
-                    child->getAllChunks(chunks);
-                }
-            }
-        }
+    void invalidate() {
+        isDirty = true;
     }
 };
 
-class ChunkQuadTree {
-private:
-    std::unique_ptr<QuadTreeNode> root;
-    mutable std::shared_mutex treeMutex;
+struct SpatialBucket {
+    std::vector<ivec2> chunkColumns;
+    vec3 boundsMin;
+    vec3 boundsMax;
+    bool needsUpdate = true;
 
-    // Cache frequently accessed nodes for performance
-    std::unordered_map<ivec2, QuadTreeNode*, IVec2Hash, IVec2Equal> leafNodeCache;
-
-    static constexpr int MAX_TREE_DEPTH = 8; // Supports up to 256x256 chunk regions
-    static constexpr int ROOT_SIZE = 1 << MAX_TREE_DEPTH; // 256
-
-public:
-    ChunkQuadTree() {
-        // Initialize root to cover a large area centered around origin
-        ivec2 rootPos(-ROOT_SIZE / 2, -ROOT_SIZE / 2);
-        root = std::make_unique<QuadTreeNode>(rootPos, ROOT_SIZE, MAX_TREE_DEPTH);
-    }
-
-    // Insert a chunk into the quadtree
-    void insertChunk(const ivec2& chunkPos) {
-        std::unique_lock<std::shared_mutex> lock(treeMutex);
-
-        QuadTreeNode* node = root.get();
-
-        // Navigate down to the leaf level
-        for (int currentLevel = MAX_TREE_DEPTH; currentLevel > 0; currentLevel--) {
-            if (!node->contains(chunkPos)) {
-                // Chunk is outside current tree bounds - would need to expand tree
-                // For now, just return (could implement tree expansion here)
-                return;
-            }
-
-            int quadrant = node->getQuadrant(chunkPos);
-
-            // Create child if it doesn't exist
-            if (!node->children[quadrant]) {
-                ivec2 childPos = node->getChildPosition(quadrant);
-                int childSize = node->size / 2;
-                node->children[quadrant] = std::make_unique<QuadTreeNode>(
-                    childPos, childSize, currentLevel - 1, node);
-            }
-
-            node = node->children[quadrant].get();
-        }
-
-        // At leaf level, add the chunk
-        node->containedChunks.insert(chunkPos);
-        leafNodeCache[chunkPos] = node;
-    }
-
-    // Remove a chunk from the quadtree
-    void removeChunk(const ivec2& chunkPos) {
-        std::unique_lock<std::shared_mutex> lock(treeMutex);
-
-        auto cacheIt = leafNodeCache.find(chunkPos);
-        if (cacheIt != leafNodeCache.end()) {
-            QuadTreeNode* leafNode = cacheIt->second;
-            leafNode->containedChunks.erase(chunkPos);
-            leafNodeCache.erase(cacheIt);
-
-            // Clean up empty nodes from bottom up
-            cleanupEmptyNodes(leafNode);
-        }
-    }
-
-    // Get all chunks within a certain distance for LOD selection
-    std::vector<ivec2> getChunksInRadius(const ivec2& center, float radius, int maxLevel = 0) const {
-        std::shared_lock<std::shared_mutex> lock(treeMutex);
-        std::vector<ivec2> result;
-
-        getChunksInRadiusRecursive(root.get(), center, radius * radius, maxLevel, result);
-        return result;
-    }
-
-    int getLODLevel(const int zHeight, const ivec2& chunkPos, const ivec2& viewerPos, const std::vector<float>& lodDistances) const {
-        float distance = glm::length(vec3(ivec3(chunkPos.x, chunkPos.y, 0) - ivec3(viewerPos.x, viewerPos.y, zHeight)));
-
-        // Determine what LOD level this distance should be at
-        int distanceLODLevel = lodDistances.size(); // Default to highest LOD level
-        for (int i = 0; i < lodDistances.size(); i++) {
-            if (distance <= lodDistances[i]) {
-                distanceLODLevel = i;
-                break;
-            }
-        }
-
-        // Cap the LOD level to reasonable bounds
-        distanceLODLevel = glm::min(distanceLODLevel, MAX_TREE_DEPTH - 1);
-
-        // For LOD levels > 0, check if this chunk belongs to a valid LOD tile
-        for (int testLOD = distanceLODLevel; testLOD > 0; testLOD--) {
-            int lodTileSize = 1 << testLOD; // 2^testLOD
-
-            // Find the LOD tile this chunk belongs to
-            ivec2 lodTileOrigin = ivec2(
-                (chunkPos.x >> testLOD) << testLOD,  // Align to LOD tile boundary
-                (chunkPos.y >> testLOD) << testLOD
-            );
-
-            // Check if all chunks in this LOD tile should be at this LOD level or higher
-            bool allChunksQualify = true;
-
-            for (int dx = 0; dx < lodTileSize && allChunksQualify; dx++) {
-                for (int dy = 0; dy < lodTileSize && allChunksQualify; dy++) {
-                    ivec2 testChunk = lodTileOrigin + ivec2(dx, dy);
-                    float testDistance = glm::length(vec2(testChunk - viewerPos));
-
-                    // Determine what LOD level this test chunk should be at
-                    int testChunkTargetLOD = lodDistances.size();
-                    for (int i = 0; i < lodDistances.size(); i++) {
-                        if (testDistance <= lodDistances[i]) {
-                            testChunkTargetLOD = i;
-                            break;
-                        }
-                    }
-
-                    // If any chunk in the tile should be at a higher detail level, 
-                    // then this tile can't be rendered at the current LOD
-                    if (testChunkTargetLOD < testLOD) {
-                        allChunksQualify = false;
-                    }
-                }
-            }
-
-            // If all chunks in the tile qualify, assign this LOD level to ALL chunks in the tile
-            if (allChunksQualify) {
-                return testLOD; // This chunk gets the LOD level of its tile
-            }
-        }
-
-        // If not part of any valid LOD tile, use LOD 0
-        return 0;
-    }
-
-    // Get nodes at a specific level for LOD mesh generation
-    std::vector<QuadTreeNode*> getNodesAtLevel(int targetLevel) const {
-        std::shared_lock<std::shared_mutex> lock(treeMutex);
-        std::vector<QuadTreeNode*> nodes;
-        getNodesAtLevelRecursive(root.get(), targetLevel, nodes);
-        return nodes;
-    }
-
-    // Debug: print tree structure
-    void printTreeStats() const {
-        std::shared_lock<std::shared_mutex> lock(treeMutex);
-        std::unordered_map<int, int> levelCounts;
-        int totalNodes = 0;
-        int totalChunks = 0;
-
-        countNodesRecursive(root.get(), levelCounts, totalNodes, totalChunks);
-
-        std::cout << "QuadTree Stats - Total nodes: " << totalNodes
-            << ", Total chunks: " << totalChunks << std::endl;
-        for (const auto& pair : levelCounts) {
-            std::cout << "  Level " << pair.first << ": " << pair.second << " nodes" << std::endl;
-        }
-    }
-
-private:
-    void collectAllChunks(QuadTreeNode* node, std::vector<ivec2>& chunks) const {
-        if (!node) return;
-
-        if (node->isLeaf()) {
-            for (const auto& chunk : node->containedChunks) {
-                chunks.push_back(chunk);
-            }
-        }
-        else {
-            for (const auto& child : node->children) {
-                if (child) {
-                    collectAllChunks(child.get(), chunks);
-                }
-            }
-        }
-    }
-
-    void getChunksInRadiusRecursive(QuadTreeNode* node, const ivec2& center,
-        float radiusSquared, int maxLevel,
-        std::vector<ivec2>& result) const {
-        if (!node) return;
-
-        // Check if node's bounding box intersects with search radius
-        vec2 nodeCenter = vec2(node->position) + vec2(node->size) * 0.5f;
-        vec2 toCenter = vec2(center) - nodeCenter;
-
-        // Clamp to node bounds for closest point
-        vec2 closest = glm::clamp(vec2(center), vec2(node->position),
-            vec2(node->position) + vec2(node->size));
-        float distSq = glm::dot(vec2(center) - closest, vec2(center) - closest);
-
-        if (distSq > radiusSquared) {
-            return; // Node is too far away
-        }
-
-        if (node->isLeaf() || node->level <= maxLevel) {
-            // Collect chunks from this level
-            if (node->isLeaf()) {
-                for (const auto& chunk : node->containedChunks) {
-                    float chunkDistSq = glm::dot(vec2(chunk - center), vec2(chunk - center));
-                    if (chunkDistSq <= radiusSquared) {
-                        result.push_back(chunk);
-                    }
-                }
-            }
-            else {
-                node->getAllChunks(result);
-            }
-        }
-        else {
-            // Recurse to children
-            for (const auto& child : node->children) {
-                if (child) {
-                    getChunksInRadiusRecursive(child.get(), center, radiusSquared, maxLevel, result);
-                }
-            }
-        }
-    }
-
-    void getNodesAtLevelRecursive(QuadTreeNode* node, int targetLevel,
-        std::vector<QuadTreeNode*>& nodes) const {
-        if (!node) return;
-
-        if (node->level == targetLevel) {
-            nodes.push_back(node);
-        }
-        else if (node->level > targetLevel) {
-            for (const auto& child : node->children) {
-                if (child) {
-                    getNodesAtLevelRecursive(child.get(), targetLevel, nodes);
-                }
-            }
-        }
-    }
-
-    void countNodesRecursive(QuadTreeNode* node, std::unordered_map<int, int>& levelCounts,
-        int& totalNodes, int& totalChunks) const {
-        if (!node) return;
-
-        totalNodes++;
-        levelCounts[node->level]++;
-
-        if (node->isLeaf()) {
-            totalChunks += node->containedChunks.size();
-        }
-
-        for (const auto& child : node->children) {
-            if (child) {
-                countNodesRecursive(child.get(), levelCounts, totalNodes, totalChunks);
-            }
-        }
-    }
-
-    void cleanupEmptyNodes(QuadTreeNode* node) {
-        if (!node || !node->containedChunks.empty() || node->hasChildren()) {
-            return; // Node is not empty
-        }
-
-        QuadTreeNode* parentNode = node->parent;
-        if (!parentNode) {
-            return; // Don't delete root
-        }
-
-        // Find which child this node is and remove it
-        for (int i = 0; i < 4; i++) {
-            if (parentNode->children[i].get() == node) {
-                parentNode->children[i].reset();
-                break;
-            }
-        }
-
-        // Recursively clean up parent if it's now empty
-        cleanupEmptyNodes(parentNode);
+    void clear() {
+        chunkColumns.clear();
+        needsUpdate = true;
     }
 };
 
@@ -421,9 +88,6 @@ class ChunkColumnManager {
 private:
     std::unordered_map<ivec2, std::shared_ptr<ChunkColumn>, IVec2Hash, IVec2Equal> columns;
     mutable std::shared_mutex columnsMutex;
-
-    // New quadtree for spatial organization
-    std::unique_ptr<ChunkQuadTree> quadTree;
 
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
@@ -437,20 +101,45 @@ private:
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
-    static constexpr int MAX_ACTIVE_COLUMNS = 12288;
-    static constexpr int MAX_TOTAL_COLUMNS = 10000;
+    static constexpr int MAX_ACTIVE_COLUMNS = 24000;
+    static constexpr int MAX_TOTAL_COLUMNS = 24000;
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
     BufferManager* buf;
     TextureManager* tex;
 
+    std::unordered_map<ivec2, std::unique_ptr<CachedDAICData>, IVec2Hash, IVec2Equal> daicCache;
+    std::mutex cacheMutex;
+
+    // Spatial partitioning for faster frustum culling
+    static constexpr int SPATIAL_BUCKET_SIZE = 128; // 128x128 chunk buckets
+    std::unordered_map<ivec2, std::unique_ptr<SpatialBucket>, IVec2Hash, IVec2Equal> spatialBuckets;
+
+    // Frame tracking for cache invalidation
+    std::atomic<uint64_t> currentFrame{ 0 };
+
+    // Configuration
+    static constexpr uint64_t MAX_CACHE_AGE = 1000; // Frames before cache expires
+    static constexpr float MATRIX_CHANGE_THRESHOLD = 0.01f;
+
+    // Performance tracking
+    struct PerformanceStats {
+        std::atomic<uint32_t> cacheHits{ 0 };
+        std::atomic<uint32_t> cacheMisses{ 0 };
+        std::atomic<uint32_t> chunksProcessed{ 0 };
+        std::atomic<uint32_t> chunksCulled{ 0 };
+
+        void reset() {
+            cacheHits = cacheMisses = chunksProcessed = chunksCulled = 0;
+        }
+    } stats;
+
 public:
     ChunkColumnManager() = default;
 
     void init(TextureManager* t, BufferManager* b) {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
-        quadTree = std::make_unique<ChunkQuadTree>();
 
         tex = t;
         buf = b;
@@ -460,7 +149,6 @@ public:
 
     ~ChunkColumnManager() {
         workerSystem.reset(); // Shutdown workers first
-        quadTree.reset();
         columns.clear();
     }
 
@@ -489,51 +177,44 @@ public:
         return readyColumns;
     }
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(vec3 cameraPos, glm::mat4x4 view, glm::mat4x4 proj, glm::mat4x4 lightView, glm::mat4x4 lightProj) {
+    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(
+        vec3 cameraPos,
+        glm::mat4x4 view,
+        glm::mat4x4 proj,
+        glm::mat4x4 lightView,
+        glm::mat4x4 lightProj,
+        BufferManager* buf) {
+
+        currentFrame++;
+
         Frustum cameraFrustum;
         cameraFrustum.extractPlanes(proj * view);
 
         Frustum shadowFrustum;
         shadowFrustum.extractPlanes(lightProj * lightView);
 
-        std::vector<DAIC> data;
-        std::vector<DAIC> shadowData;
-        data.reserve(columns.size());
+        std::vector<DAIC> cameraDAICs;
+        std::vector<DAIC> shadowDAICs;
 
-        // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 12.0f, 24.0f, 128.0f, 128.0f };
+        // Reserve based on estimated visible chunks
+        cameraDAICs.reserve(4096);
+        shadowDAICs.reserve(4096);
+
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
-        for (const auto& pair : columns) {
-            ivec2 columnPos = pair.second->getColumnChunkPosition();
+        // Update spatial buckets if needed
+        updateSpatialBuckets(columns);
 
-             //Calculate LOD level using quadtree
-            int lodLevel = quadTree->getLODLevel(glm::floor(cameraPos.z / 32.0f), columnPos, cameraChunkPos, lodDistances);
-            //lodLevel = 0;
-            // Update the chunk's LOD level and debug color
-            pair.second->updateLODLevel(lodLevel);
+        // Process chunks by spatial buckets for better cache locality
+        processChunksBySpatialBuckets(columns, cameraPos, view, proj, lightView, lightProj,
+            cameraFrustum, shadowFrustum, cameraDAICs, shadowDAICs, buf);
 
-            pair.second->updateAllChunkDataBuffers(buf);
-
-            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> rd = pair.second->getDAICs(lodLevel);
-
-            for (int i = 0; i < COLUMN_HEIGHT; i++) {
-                if (rd[i] && rd[i] != std::nullopt && rd[i].value().second.indexCount > 0) {
-                    vec3 chunkPos = vec3(rd[i].value().first);
-
-                    // Test if the 32x32x32 chunk intersects the frustum
-                    if (cameraFrustum.isCubeInside(chunkPos, 32.0f)) {
-                        data.push_back(rd[i].value().second);
-                    }
-
-                    if (shadowFrustum.isCubeInside(chunkPos, 32.0f)) {
-                        shadowData.push_back(rd[i].value().second);
-                    }
-                }
-            }
+        // Clean old cache entries periodically
+        if (currentFrame % 60 == 0) { // Every 60 frames
+            cleanupCache();
         }
 
-        return { data, shadowData };
+        return { std::move(cameraDAICs), std::move(shadowDAICs) };
     }
 
     void updateChunkDataBuffers(BufferManager* buf) {
@@ -564,15 +245,333 @@ public:
         return neighbors;
     }
 
-    // Get all nodes at a specific level (useful for LOD mesh generation)
-    std::vector<QuadTreeNode*> getQuadTreeNodesAtLevel(int level) const {
-        return quadTree->getNodesAtLevel(level);
-    }
-
     // Check if a specific chunk exists (O(1) lookup)
     bool hasChunk(const ivec2& pos) const {
         std::shared_lock<std::shared_mutex> lock(columnsMutex);
         return columns.find(pos) != columns.end();
+    }
+
+    void invalidateChunkCache(const ivec2& chunkPos) {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = daicCache.find(chunkPos);
+        if (it != daicCache.end()) {
+            it->second->invalidate();
+        }
+    }
+
+    // Invalidate all cache (call when global rendering parameters change)
+    void invalidateAllCache() {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        for (auto& pair : daicCache) {
+            pair.second->invalidate();
+        }
+    }
+
+    // Get performance statistics
+    struct PerfStats {
+        uint32_t cacheHits;
+        uint32_t cacheMisses;
+        uint32_t chunksProcessed;
+        uint32_t chunksCulled;
+        float cacheHitRate;
+    };
+
+    PerfStats getPerformanceStats() const {
+        PerfStats result;
+        result.cacheHits = stats.cacheHits.load();
+        result.cacheMisses = stats.cacheMisses.load();
+        result.chunksProcessed = stats.chunksProcessed.load();
+        result.chunksCulled = stats.chunksCulled.load();
+        result.cacheHitRate = (result.cacheHits + result.cacheMisses > 0) ?
+            float(result.cacheHits) / float(result.cacheHits + result.cacheMisses) : 0.0f;
+        return result;
+    }
+
+    void updateSpatialBuckets(const std::unordered_map<ivec2, std::shared_ptr<ChunkColumn>, IVec2Hash, IVec2Equal>& columns) {
+        // Clear existing buckets
+        for (auto& pair : spatialBuckets) {
+            pair.second->clear();
+        }
+
+        // Redistribute chunks into spatial buckets
+        for (const auto& pair : columns) {
+            const ivec2& chunkPos = pair.first;
+            ivec2 bucketPos = ivec2(
+                chunkPos.x / SPATIAL_BUCKET_SIZE,
+                chunkPos.y / SPATIAL_BUCKET_SIZE
+            );
+
+            auto& bucket = spatialBuckets[bucketPos];
+            if (!bucket) {
+                bucket = std::make_unique<SpatialBucket>();
+
+                // Calculate bucket bounds
+                bucket->boundsMin = vec3(
+                    bucketPos.x * SPATIAL_BUCKET_SIZE * 32.0f,
+                    bucketPos.y * SPATIAL_BUCKET_SIZE * 32.0f,
+                    0.0f
+                );
+                bucket->boundsMax = vec3(
+                    (bucketPos.x + 1) * SPATIAL_BUCKET_SIZE * 32.0f,
+                    (bucketPos.y + 1) * SPATIAL_BUCKET_SIZE * 32.0f,
+                    512.0f // COLUMN_HEIGHT_BLOCKS
+                );
+            }
+
+            bucket->chunkColumns.push_back(chunkPos);
+        }
+    }
+
+    void processChunksBySpatialBuckets(
+        const std::unordered_map<ivec2, std::shared_ptr<ChunkColumn>, IVec2Hash, IVec2Equal>& columns,
+        vec3 cameraPos,
+        glm::mat4x4 view,
+        glm::mat4x4 proj,
+        glm::mat4x4 lightView,
+        glm::mat4x4 lightProj,
+        const Frustum& cameraFrustum,
+        const Frustum& shadowFrustum,
+        std::vector<DAIC>& cameraDAICs,
+        std::vector<DAIC>& shadowDAICs,
+        BufferManager* buf) {
+
+        // Process each spatial bucket
+        for (const auto& bucketPair : spatialBuckets) {
+            const auto& bucket = bucketPair.second;
+
+            if (bucket->chunkColumns.empty()) continue;
+
+            // Early frustum cull entire bucket
+            bool bucketInCameraFrustum = cameraFrustum.isCubeInside(bucket->boundsMin,
+                glm::length(bucket->boundsMax - bucket->boundsMin));
+            bool bucketInShadowFrustum = shadowFrustum.isCubeInside(bucket->boundsMin,
+                glm::length(bucket->boundsMax - bucket->boundsMin));
+
+            if (!bucketInCameraFrustum && !bucketInShadowFrustum) {
+                stats.chunksCulled += bucket->chunkColumns.size();
+                continue;
+            }
+
+            // Process chunks in this bucket
+            for (const ivec2& chunkPos : bucket->chunkColumns) {
+                auto columnIt = columns.find(chunkPos);
+                if (columnIt == columns.end() || !columnIt->second) continue;
+
+                processChunkColumn(columnIt->second, chunkPos, cameraPos, view, proj,
+                    lightView, lightProj, cameraFrustum, shadowFrustum,
+                    cameraDAICs, shadowDAICs, buf);
+            }
+        }
+    }
+
+    void processChunkColumn(
+        std::shared_ptr<ChunkColumn> column,
+        const ivec2& chunkPos,
+        vec3 cameraPos,
+        glm::mat4x4 view,
+        glm::mat4x4 proj,
+        glm::mat4x4 lightView,
+        glm::mat4x4 lightProj,
+        const Frustum& cameraFrustum,
+        const Frustum& shadowFrustum,
+        std::vector<DAIC>& cameraDAICs,
+        std::vector<DAIC>& shadowDAICs,
+        BufferManager* buf) {
+
+        stats.chunksProcessed++;
+
+        // Check cache first
+        std::unique_ptr<CachedDAICData>* cacheEntry = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex);
+            cacheEntry = &daicCache[chunkPos];
+            if (!*cacheEntry) {
+                *cacheEntry = std::make_unique<CachedDAICData>();
+                // Initialize new cache entry properly
+                (*cacheEntry)->isDirty = true;
+                (*cacheEntry)->frameGenerated = 0;
+                (*cacheEntry)->lodLevel = -1;
+            }
+        }
+
+        auto& cache = **cacheEntry;
+
+        // Define LOD distance thresholds
+        std::vector<float> lodDistances = { 12.0f, 24.0f, 256.0f, 256.0f };
+        ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
+
+        // Calculate current LOD level
+        int currentLodLevel = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
+
+        // Check if cache is valid with better logic
+        bool cacheValid = false;
+
+        if (!cache.isDirty && cache.lodLevel == currentLodLevel) {
+            uint64_t frameAge = currentFrame - cache.frameGenerated;
+
+            if (frameAge < MAX_CACHE_AGE) {
+                if (cache.frameGenerated == 0) {
+                    // First time use - invalid
+                    cacheValid = false;
+                }
+                else {
+                    // Use the more lenient view matrix check
+                    bool viewMatrixOK = matrixEqual(cache.lastViewMatrix, view);
+                    bool projMatrixOK = matrixEqual(cache.lastProjMatrix, proj);
+                    bool lightViewOK = matrixEqual(cache.lastLightViewMatrix, lightView);
+                    bool lightProjOK = matrixEqual(cache.lastLightProjMatrix, lightProj);
+
+                    cacheValid = true; // viewMatrixOK&& projMatrixOK&& lightViewOK&& lightProjOK;
+
+                    // Debug logging (remove after testing)
+                    static int debugCounter = 0;
+                    if (debugCounter++ < 5) {
+                        std::cout << "Cache check - View OK: " << viewMatrixOK
+                            << ", Proj OK: " << projMatrixOK
+                            << ", Age: " << frameAge << std::endl;
+                    }
+                }
+            }
+        }
+
+        if (cacheValid) {
+            stats.cacheHits++;
+
+            // Use cached data - perform frustum culling on cached positions
+            for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
+                const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
+
+                if (cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                    cameraDAICs.push_back(cache.cameraDAICs[i]);
+                }
+
+                if (shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                    shadowDAICs.push_back(cache.shadowDAICs[i]);
+                }
+            }
+        }
+        else {
+            stats.cacheMisses++;
+
+            // Generate new cache data
+            regenerateChunkCache(column, chunkPos, currentLodLevel, view, proj,
+                lightView, lightProj, cache, buf);
+
+            // Use newly generated cache data
+            for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
+                const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
+
+                if (cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                    cameraDAICs.push_back(cache.cameraDAICs[i]);
+                }
+
+                if (shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                    shadowDAICs.push_back(cache.shadowDAICs[i]);
+                }
+            }
+        }
+    }
+
+    void regenerateChunkCache(
+        std::shared_ptr<ChunkColumn> column,
+        const ivec2& chunkPos,
+        int lodLevel,
+        glm::mat4x4 view,
+        glm::mat4x4 proj,
+        glm::mat4x4 lightView,
+        glm::mat4x4 lightProj,
+        CachedDAICData& cache,
+        BufferManager* buf) {
+
+        // Update chunk's LOD level
+        column->updateLODLevel(lodLevel);
+        column->updateAllChunkDataBuffers(buf);
+
+        // Get DAICs for all chunks in column
+        std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> columnDAICs =
+            column->getDAICs(lodLevel, buf);
+
+        // Clear cache vectors
+        cache.cameraDAICs.clear();
+        cache.shadowDAICs.clear();
+        cache.chunkPositions.clear();
+
+        // Populate cache
+        for (int i = 0; i < COLUMN_HEIGHT; i++) {
+            if (columnDAICs[i] && columnDAICs[i] != std::nullopt &&
+                columnDAICs[i].value().second.indexCount > 0) {
+
+                ivec3 chunkWorldPos = columnDAICs[i].value().first;
+                DAIC daic = columnDAICs[i].value().second;
+
+                cache.chunkPositions.push_back(chunkWorldPos);
+                cache.cameraDAICs.push_back(daic);
+                cache.shadowDAICs.push_back(daic); // Same DAIC for both for now
+            }
+        }
+
+        // Update cache metadata - FIX: Mark cache as clean!
+        cache.lodLevel = lodLevel;
+        cache.lastViewMatrix = view;
+        cache.lastProjMatrix = proj;
+        cache.lastLightViewMatrix = lightView;
+        cache.lastLightProjMatrix = lightProj;
+        cache.frameGenerated = currentFrame;
+        cache.isDirty = false; // THIS WAS MISSING! Mark as clean after regeneration
+
+        // Calculate column bounds for spatial optimization
+        if (!cache.chunkPositions.empty()) {
+            cache.columnBoundsMin = vec3(cache.chunkPositions[0]);
+            cache.columnBoundsMax = vec3(cache.chunkPositions[0]) + vec3(32.0f);
+
+            for (const auto& pos : cache.chunkPositions) {
+                vec3 chunkMin = vec3(pos);
+                vec3 chunkMax = chunkMin + vec3(32.0f);
+
+                cache.columnBoundsMin = glm::min(cache.columnBoundsMin, chunkMin);
+                cache.columnBoundsMax = glm::max(cache.columnBoundsMax, chunkMax);
+            }
+        }
+    }
+
+    int calculateLODLevel(int zHeight, const ivec2& chunkPos, const ivec2& viewerPos,
+        const std::vector<float>& lodDistances) const {
+        float distance = glm::length(vec3(ivec3(chunkPos.x, chunkPos.y, 0) - ivec3(viewerPos.x, viewerPos.y, zHeight)));
+
+        int distanceLODLevel = lodDistances.size();
+        for (int i = 0; i < lodDistances.size(); i++) {
+            if (distance <= lodDistances[i]) {
+                distanceLODLevel = i;
+                break;
+            }
+        }
+
+        return glm::min(distanceLODLevel, 7); // Cap to reasonable limit
+    }
+
+    bool matrixEqual(const glm::mat4x4& a, const glm::mat4x4& b) const {
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                if (glm::abs(a[i][j] - b[i][j]) > MATRIX_CHANGE_THRESHOLD) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    void cleanupCache() {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+
+        auto it = daicCache.begin();
+        while (it != daicCache.end()) {
+            if (currentFrame - it->second->frameGenerated > MAX_CACHE_AGE * 2) {
+                it = daicCache.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
     }
 
 private:
@@ -601,7 +600,7 @@ private:
                     }
 
                     // Remove from quadtree
-                    quadTree->removeChunk(chunkPos);
+                    //quadTree->removeChunk(chunkPos);
 
                     columns.erase(it);
                 }
@@ -682,7 +681,7 @@ private:
                 columns[nextChunk.position] = newChunk;
 
                 // Add to quadtree
-                quadTree->insertChunk(nextChunk.position);
+                //quadTree->insertChunk(nextChunk.position);
 
                 newChunk->setState(ColumnState::GeneratingTerrain);
                 workerSystem->queueTerrainGeneration(newChunk, nextChunk.position);
@@ -782,6 +781,36 @@ public:
         std::cout << std::endl;
     }
 
+
+    void printCacheStats() {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+
+        int totalEntries = daicCache.size();
+        int cleanEntries = 0;
+        int dirtyEntries = 0;
+        int recentEntries = 0;
+
+        for (const auto& pair : daicCache) {
+            if (pair.second->isDirty) {
+                dirtyEntries++;
+            }
+            else {
+                cleanEntries++;
+            }
+
+            if (currentFrame - pair.second->frameGenerated < 10) {
+                recentEntries++;
+            }
+        }
+
+        auto perfStats = getPerformanceStats();
+        std::cout << "Cache Status - Total: " << totalEntries
+            << ", Clean: " << cleanEntries
+            << ", Dirty: " << dirtyEntries
+            << ", Recent: " << recentEntries
+            << ", Hit Rate: " << (perfStats.cacheHitRate * 100.0f) << "%" << std::endl;
+    }
+
     void printChunkStates() {
         std::unordered_map<ColumnState, int> stateCounts;
         std::unordered_map<ChunkState, int> chunkStateCounts;
@@ -832,9 +861,12 @@ public:
         std::cout << std::endl;
 
         // Also print quadtree statistics
-        quadTree->printTreeStats();
+        //quadTree->printTreeStats();
+
+        buf->getStorageBufferPool("storage_pool")->printStats();
 
         // Print LOD level distribution
+        printCacheStats();
         printLODStats();
     }
 
