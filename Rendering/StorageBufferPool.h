@@ -1,4 +1,4 @@
-// Updated StorageBufferPool.h with bind group support and optimized slot allocation
+// Updated StorageBufferPool.h for non-indexed drawing
 #include <unordered_map>
 #include <webgpu/webgpu.hpp>
 #include "../FaceAttributes.h"
@@ -11,21 +11,17 @@ using namespace wgpu;
 
 struct SizeClass {
     int maxFaces;
-    int maxIndices;
     int slotCount;
     size_t faceChunkSize;
-    size_t indexChunkSize;
     int firstSlotIndex;  // Index of first slot in this size class
     int lastFreeHint;    // Hint for where to start searching for free slots
 
     SizeClass(int faces, int count)
-        : maxFaces(faces), maxIndices(faces * 6), slotCount(count), firstSlotIndex(0), lastFreeHint(0) {
+        : maxFaces(faces), slotCount(count), firstSlotIndex(0), lastFreeHint(0) {
         const size_t FACE_STRIDE = sizeof(FaceAttributes);
-        const size_t INDEX_STRIDE = sizeof(uint16_t);
 
-        // Calculate aligned chunk sizes
+        // Calculate aligned chunk sizes (only face data needed)
         faceChunkSize = ((maxFaces * FACE_STRIDE + 3) / 4) * 4;
-        indexChunkSize = ((maxIndices * INDEX_STRIDE + 3) / 4) * 4;
     }
 };
 
@@ -33,12 +29,11 @@ struct SlotInfoPool {
     int sizeClassIndex;
     int slotWithinClass;
     size_t faceOffset;
-    size_t indexOffset;
     bool occupied;
 
-    SlotInfoPool() : sizeClassIndex(-1), slotWithinClass(-1), faceOffset(0), indexOffset(0), occupied(false) {}
-    SlotInfoPool(int classIdx, int slotIdx, size_t faceOff, size_t indexOff)
-        : sizeClassIndex(classIdx), slotWithinClass(slotIdx), faceOffset(faceOff), indexOffset(indexOff), occupied(false) {
+    SlotInfoPool() : sizeClassIndex(-1), slotWithinClass(-1), faceOffset(0), occupied(false) {}
+    SlotInfoPool(int classIdx, int slotIdx, size_t faceOff)
+        : sizeClassIndex(classIdx), slotWithinClass(slotIdx), faceOffset(faceOff), occupied(false) {
     }
 };
 
@@ -50,34 +45,32 @@ struct BufferMetadata {
     uint32_t padding1;          // Padding for alignment
 };
 
-// Structure to match the shader's SlotInfoPool storage buffer
-struct ShaderSlotInfoPool {
+// Structure to match the shader's SlotInfo storage buffer (updated for non-indexed)
+struct ShaderSlotInfo {
     uint32_t faceOffset;        // Offset in faces (not bytes)
-    uint32_t indexOffset;       // Offset in indices (not bytes)  
     uint32_t maxFaces;          // Maximum faces this slot can hold
-    uint32_t maxIndices;        // Maximum indices this slot can hold
+    uint32_t padding0;          // Padding (removed index-related fields)
+    uint32_t padding1;          // Padding
 };
 
 class StorageBufferPool {
     Device device;
     Queue queue;
-    Buffer vertexBuffer;  // Stores face data
-    Buffer indexBuffer;   // Stores indices for vertex pulling
+    Buffer vertexBuffer;  // Stores face data only
     std::unordered_map<std::string, int> idToSlotMap;  // Maps ID to global slot index
     std::vector<SlotInfoPool> slots;  // Global slot information
     std::vector<SizeClass> sizeClasses;
     std::mutex dataMutex;
 
     size_t totalFaceBufferSize = 0;
-    size_t totalIndexBufferSize = 0;
 
     // Bind group support
     BindGroupLayout bindGroupLayout;
     BindGroup bindGroup;
     Buffer bufferMetadataBuffer;
-    Buffer SlotInfoPoolBuffer;
+    Buffer slotInfoBuffer;
     BufferMetadata currentMetadata;
-    std::vector<ShaderSlotInfoPool> shaderSlotInfoPoolData;
+    std::vector<ShaderSlotInfo> shaderSlotInfoData;
 
 public:
     // Initialize with default size classes
@@ -118,7 +111,6 @@ public:
 
         // Calculate total buffer sizes and create slot layout
         size_t currentFaceOffset = 0;
-        size_t currentIndexOffset = 0;
         int globalSlotIndex = 0;
 
         for (int classIdx = 0; classIdx < sizeClasses.size(); ++classIdx) {
@@ -126,31 +118,21 @@ public:
             sizeClass.firstSlotIndex = globalSlotIndex;  // Record where this size class starts
 
             for (int slotIdx = 0; slotIdx < sizeClass.slotCount; ++slotIdx) {
-                slots.emplace_back(classIdx, slotIdx, currentFaceOffset, currentIndexOffset);
+                slots.emplace_back(classIdx, slotIdx, currentFaceOffset);
                 currentFaceOffset += sizeClass.faceChunkSize;
-                currentIndexOffset += sizeClass.indexChunkSize;
                 globalSlotIndex++;
             }
         }
 
         totalFaceBufferSize = currentFaceOffset;
-        totalIndexBufferSize = currentIndexOffset;
 
-        // Create face data buffer
+        // Create face data buffer only
         BufferDescriptor faceBufferDesc;
         faceBufferDesc.size = totalFaceBufferSize;
         faceBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Storage;
         faceBufferDesc.mappedAtCreation = false;
         faceBufferDesc.label = StringView("Storage Pool Face Data Buffer");
         vertexBuffer = device.createBuffer(faceBufferDesc);
-
-        // Create index buffer
-        BufferDescriptor indexBufferDesc;
-        indexBufferDesc.size = totalIndexBufferSize;
-        indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index | BufferUsage::Storage;
-        indexBufferDesc.mappedAtCreation = false;
-        indexBufferDesc.label = StringView("Storage Pool Index Buffer");
-        indexBuffer = device.createBuffer(indexBufferDesc);
 
         // Create metadata buffer
         BufferDescriptor metadataBufferDesc;
@@ -161,12 +143,12 @@ public:
         bufferMetadataBuffer = device.createBuffer(metadataBufferDesc);
 
         // Create slot info buffer
-        BufferDescriptor SlotInfoPoolBufferDesc;
-        SlotInfoPoolBufferDesc.size = slots.size() * sizeof(ShaderSlotInfoPool);
-        SlotInfoPoolBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Storage;
-        SlotInfoPoolBufferDesc.mappedAtCreation = false;
-        SlotInfoPoolBufferDesc.label = StringView("Slot Info Buffer");
-        SlotInfoPoolBuffer = device.createBuffer(SlotInfoPoolBufferDesc);
+        BufferDescriptor slotInfoBufferDesc;
+        slotInfoBufferDesc.size = slots.size() * sizeof(ShaderSlotInfo);
+        slotInfoBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Storage;
+        slotInfoBufferDesc.mappedAtCreation = false;
+        slotInfoBufferDesc.label = StringView("Slot Info Buffer");
+        slotInfoBuffer = device.createBuffer(slotInfoBufferDesc);
 
         // Initialize metadata
         updateMetadata();
@@ -178,7 +160,6 @@ public:
         }
         std::cout << "Total slots: " << slots.size() << std::endl;
         std::cout << "Face buffer: " << totalFaceBufferSize << " bytes" << std::endl;
-        std::cout << "Index buffer: " << totalIndexBufferSize << " bytes" << std::endl;
     }
 
     void initBindGroupLayout() {
@@ -200,7 +181,7 @@ public:
         entries[2].binding = 2;
         entries[2].visibility = ShaderStage::Vertex;
         entries[2].buffer.type = BufferBindingType::ReadOnlyStorage;
-        entries[2].buffer.minBindingSize = sizeof(ShaderSlotInfoPool);
+        entries[2].buffer.minBindingSize = sizeof(ShaderSlotInfo);
 
         BindGroupLayoutDescriptor layoutDesc;
         layoutDesc.entryCount = entries.size();
@@ -225,9 +206,9 @@ public:
 
         // Slot info binding
         entries[2].binding = 2;
-        entries[2].buffer = SlotInfoPoolBuffer;
+        entries[2].buffer = slotInfoBuffer;
         entries[2].offset = 0;
-        entries[2].size = slots.size() * sizeof(ShaderSlotInfoPool);
+        entries[2].size = slots.size() * sizeof(ShaderSlotInfo);
 
         BindGroupDescriptor bindGroupDesc;
         bindGroupDesc.layout = bindGroupLayout;
@@ -244,31 +225,31 @@ public:
         currentMetadata.padding1 = 0;
 
         // Update slot info data for shader
-        shaderSlotInfoPoolData.clear();
-        shaderSlotInfoPoolData.reserve(slots.size());
+        shaderSlotInfoData.clear();
+        shaderSlotInfoData.reserve(slots.size());
 
         for (const auto& slot : slots) {
-            ShaderSlotInfoPool shaderInfo;
+            ShaderSlotInfo shaderInfo;
             shaderInfo.faceOffset = static_cast<uint32_t>(slot.faceOffset / sizeof(FaceAttributes));
-            shaderInfo.indexOffset = static_cast<uint32_t>(slot.indexOffset / sizeof(uint16_t));
 
             if (slot.sizeClassIndex >= 0 && slot.sizeClassIndex < sizeClasses.size()) {
                 shaderInfo.maxFaces = static_cast<uint32_t>(sizeClasses[slot.sizeClassIndex].maxFaces);
-                shaderInfo.maxIndices = static_cast<uint32_t>(sizeClasses[slot.sizeClassIndex].maxIndices);
             }
             else {
                 shaderInfo.maxFaces = 0;
-                shaderInfo.maxIndices = 0;
             }
 
-            shaderSlotInfoPoolData.push_back(shaderInfo);
+            shaderInfo.padding0 = 0;
+            shaderInfo.padding1 = 0;
+
+            shaderSlotInfoData.push_back(shaderInfo);
         }
 
         // Upload to GPU
         queue.writeBuffer(bufferMetadataBuffer, 0, &currentMetadata, sizeof(BufferMetadata));
-        if (!shaderSlotInfoPoolData.empty()) {
-            queue.writeBuffer(SlotInfoPoolBuffer, 0, shaderSlotInfoPoolData.data(),
-                shaderSlotInfoPoolData.size() * sizeof(ShaderSlotInfoPool));
+        if (!shaderSlotInfoData.empty()) {
+            queue.writeBuffer(slotInfoBuffer, 0, shaderSlotInfoData.data(),
+                shaderSlotInfoData.size() * sizeof(ShaderSlotInfo));
         }
     }
 
@@ -346,13 +327,11 @@ public:
         slots[slotIndex].occupied = true;
         idToSlotMap[id] = slotIndex;
 
-        //std::cout << "Allocated slot " << slotIndex << " in size class " << sizeClassIndex
-        //    << " for " << numFaces << " faces (ID: " << id << ")" << std::endl;
-
         return slotIndex;
     }
 
-    void writeToSlot(const std::string& id, std::vector<FaceAttributes>& faceData, std::vector<uint16_t>& indexData) {
+    // Updated writeToSlot - only handles face data, ignores index data
+    void writeToSlot(const std::string& id, const std::vector<FaceAttributes>& faceData) {
         std::lock_guard<std::mutex> lock(dataMutex);
 
         auto it = idToSlotMap.find(id);
@@ -372,31 +351,14 @@ public:
             return;
         }
 
-        if (indexData.size() > sizeClass.maxIndices) {
-            std::cerr << "Index data too large for slot: " << indexData.size()
-                << " > " << sizeClass.maxIndices << std::endl;
-            return;
-        }
-
-        // Calculate data sizes
+        // Calculate data sizes (only face data)
         const size_t FACE_STRIDE = sizeof(FaceAttributes);
-        const size_t INDEX_STRIDE = sizeof(uint16_t);
-
         size_t faceDataSize = faceData.size() * FACE_STRIDE;
-        size_t indexDataSize = indexData.size() * INDEX_STRIDE;
 
-        // Write face data
+        // Write face data only
         if (!faceData.empty()) {
             queue.writeBuffer(vertexBuffer, slot.faceOffset, faceData.data(), faceDataSize);
         }
-
-        // Write index data
-        if (!indexData.empty()) {
-            queue.writeBuffer(indexBuffer, slot.indexOffset, indexData.data(), indexDataSize);
-        }
-
-        //std::cout << "Written " << faceData.size() << " faces and " << indexData.size()
-        //    << " indices to slot " << slotIndex << " (ID: " << id << ")" << std::endl;
     }
 
     void deAllocateSlot(const std::string& id) {
@@ -420,43 +382,26 @@ public:
         }
     }
 
-    // Getters
-    Buffer getIndexBuffer() { return indexBuffer; }
+    // Getters - removed index buffer related functions
     Buffer getVertexBuffer() { return vertexBuffer; }
     uint32_t getVertexBufferSize() { return static_cast<uint32_t>(totalFaceBufferSize); }
-    uint32_t getIndexBufferSize() { return static_cast<uint32_t>(totalIndexBufferSize); }
 
     BindGroupLayout getBindGroupLayout() { return bindGroupLayout; }
     BindGroup getBindGroup() { return bindGroup; }
 
-    // Get slot information
+    // Get slot information (removed index-related functions)
     size_t getFaceOffset(int slotIndex) {
         return slotIndex < slots.size() ? slots[slotIndex].faceOffset : 0;
-    }
-
-    size_t getIndexOffset(int slotIndex) {
-        return slotIndex < slots.size() ? slots[slotIndex].indexOffset : 0;
     }
 
     uint32_t getFaceOffsetInElements(int slotIndex) {
         return static_cast<uint32_t>(getFaceOffset(slotIndex) / sizeof(FaceAttributes));
     }
 
-    uint32_t getIndexOffsetInElements(int slotIndex) {
-        return static_cast<uint32_t>(getIndexOffset(slotIndex) / sizeof(uint16_t));
-    }
-
     // Get slot capacity information
     int getSlotMaxFaces(int slotIndex) {
         if (slotIndex < slots.size()) {
             return sizeClasses[slots[slotIndex].sizeClassIndex].maxFaces;
-        }
-        return 0;
-    }
-
-    int getSlotMaxIndices(int slotIndex) {
-        if (slotIndex < slots.size()) {
-            return sizeClasses[slots[slotIndex].sizeClassIndex].maxIndices;
         }
         return 0;
     }
@@ -479,7 +424,8 @@ public:
         for (int i = 0; i < sizeClasses.size(); ++i) {
             const auto& sc = sizeClasses[i];
             std::cout << "Size Class " << i << " (" << sc.maxFaces << " faces): "
-                << occupiedPerClass[i] << "/" << totalPerClass[i] << " occupied - " << ((float)occupiedPerClass[i] / (float)totalPerClass[i]) * 100.0f << " %" << "\n";
+                << occupiedPerClass[i] << "/" << totalPerClass[i] << " occupied - "
+                << ((float)occupiedPerClass[i] / (float)totalPerClass[i]) * 100.0f << " %" << "\n";
         }
         std::cout << "Total allocated IDs: " << idToSlotMap.size() << std::endl;
         std::cout << std::endl;

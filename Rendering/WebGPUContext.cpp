@@ -217,9 +217,9 @@ Limits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
     // We should also tell that we use 1 vertex buffers
     requiredLimits.maxVertexBuffers = 1;
     // Maximum size of a buffer is 6 vertices of 2 float each
-    requiredLimits.maxBufferSize = 18000 * 32768 * sizeof(VertexAttributes);
+    requiredLimits.maxBufferSize = 36000 * 32768 * sizeof(VertexAttributes);
 
-    requiredLimits.maxStorageBufferBindingSize = 18000 * 6 * 8196 * sizeof(uint32_t);
+    requiredLimits.maxStorageBufferBindingSize = 4294967295;
     // Maximum stride between 2 consecutive vertices in the vertex buffer
     requiredLimits.maxVertexBufferArrayStride = sizeof(VertexAttributes);
 

@@ -659,6 +659,7 @@ void Application::processGPUUploads() {
         pendingGPUUploads.pop();
 
         if (item.chunk && item.chunk->getState() == ColumnState::MeshReady) {
+            item.chunk->setState(ColumnState::UploadingToGPU);
             item.chunk->uploadAllToGPU(tex, buf, pip);
         }
 

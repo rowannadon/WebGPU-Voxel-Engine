@@ -5,7 +5,7 @@
 #include "glm/ext.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "webgpu-utils.h"
-#include "ThreadSafeChunkManager.h"
+#include "ChunkColumnManager.h"
 #include "Rendering/WebGPURenderer.h"
 #include "Ray.h"
 
@@ -196,7 +196,7 @@ private:
 
     // Timing control for chunk updates
     std::atomic<float> lastChunkUpdateTime{ 0.0f };
-    static constexpr float CHUNK_UPDATE_INTERVAL = 0.05f; // 50Hz chunk updates
+    static constexpr float CHUNK_UPDATE_INTERVAL = 0.1f; // 50Hz chunk updates
 
     // GPU upload queue (main thread only)
     struct GPUUploadItem {

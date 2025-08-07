@@ -52,6 +52,26 @@ struct VertexOutput {
     @location(14) @interpolate(flat) tile_rotation: u32,
 };
 
+struct FragmentInput {
+    @builtin(position) position: vec4f,
+    @builtin(front_facing) frontFacing: bool,
+    @location(0) normal: vec3f,
+    @location(1) uv: vec2f,
+    @location(2) world_position: vec3f,
+    @location(3) fog_distance: f32,
+    @location(4) ao: f32,
+    @location(5) voxel_pos: vec3f,
+    @location(6) highlighted: f32,
+    @location(7) @interpolate(flat) idx: u32,
+    @location(8) chunk_edge_factor: f32,
+    @location(9) shadow_pos: vec4f,
+    @location(10) @interpolate(flat) material_id: u32,
+    @location(11) @interpolate(flat) lod_level: u32,
+    @location(12) tile_offset: vec2f,
+    @location(13) tile_offset2: vec2f,
+    @location(14) @interpolate(flat) tile_rotation: u32,
+};
+
 struct MyUniforms {
     projectionMatrix: mat4x4f,
     infiniteProjectionMatrix: mat4x4f,
@@ -93,7 +113,8 @@ struct UnpackedData {
     position_z: u32,
     normal_index: u32,
     lod_level: u32,
-    ao: vec4u
+    ao: vec4u,
+    reversed: u32,
 }
 
 // Enhanced PBR Material Properties
@@ -188,9 +209,9 @@ struct BufferMetadata {
 // Slot information buffer - contains offset data for each slot
 struct SlotInfo {
     faceOffset: u32,        // Offset in faces (not bytes)
-    indexOffset: u32,       // Offset in indices (not bytes)  
-    maxFaces: u32,          // Maximum faces this slot can hold
-    maxIndices: u32,        // Maximum indices this slot can hold
+    maxFaces: u32,       // Offset in indices (not bytes)  
+    padding: u32,          // Maximum faces this slot can hold
+    padding2: u32,        // Maximum indices this slot can hold
 }
 
 @group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
@@ -578,6 +599,8 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     ao[1] = (packed_bits >> 22u) & 0x3u;
     ao[2] = (packed_bits >> 24u) & 0x3u;
     ao[3] = (packed_bits >> 26u) & 0x3u;
+
+    let reversed = (packed_bits >> 28u) & 0x1u;
     
     var lod_level: u32;
     switch (lod_bits) {
@@ -594,7 +617,8 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         position_z,
         normal_index,
         lod_level,
-        ao
+        ao,
+        reversed
     );
 }
 
@@ -753,6 +777,15 @@ const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4
     )
 );
 
+const faceNormalsLeaf: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
+    vec3<f32>(0.0, 1.0, 1.0),
+    vec3<f32>(0.0, -1.0, 1.0),
+    vec3<f32>(1.0, -1.0, 0.0),
+    vec3<f32>(1.0, 1.0, 0.0),
+    vec3<f32>(-1.0, 0.0, 1.0),
+    vec3<f32>(1.0, 0.0, 1.0),
+);
+
 const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
     array<vec3<f32>, 4>(
         vec3<f32>(-0.207, -0.207, 0.0), vec3<f32>(-0.207, -0.207, 1.414), 
@@ -765,9 +798,11 @@ const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 
 );
 
 const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
-    vec3<f32>(0.0, 0.0, 1.0),
-    vec3<f32>(0.0, 0.0, 1.0),
+    vec3<f32>(1.0, -1.0, 0.0),
+    vec3<f32>(1.0, 1.0, 0.0),
 );
+
+
 
 const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     array<f32, 4>(
@@ -792,12 +827,73 @@ fn hash_voxel_position(pos: vec3i) -> u32 {
     return h;
 }
 
+fn generate_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 {
+    let face_vertex = vertex_idx % 6u;  // Which vertex within this face (0-5)
+    
+    // Convert the 6 vertices per quad into the proper triangle vertex indices
+    // This replicates the triangle index pattern: [0,1,2], [0,2,3] for each quad
+    if (reversed == 1u) {
+        switch (face_vertex) {
+            case 0u: { return 2u; } 
+            case 1u: { return 1u; } 
+            case 2u: { return 0u; } 
+            case 3u: { return 3u; } 
+            case 4u: { return 2u; } 
+            case 5u: { return 0u; }
+            default: { return 0u; }
+        }
+    } else {
+        switch (face_vertex) {
+            case 0u: { return 0u; }
+            case 1u: { return 1u; }
+            case 2u: { return 2u; }
+            case 3u: { return 0u; }
+            case 4u: { return 2u; }
+            case 5u: { return 3u; }
+            default: { return 0u; }
+        }
+    }
+}
+
+// Check if we should flip the quad based on AO values (from old index generation)
+fn should_flip_quad(ao_values: vec4u) -> bool {
+    return (ao_values[0] + ao_values[2]) > (ao_values[1] + ao_values[3]);
+}
+
+// Generate flipped vertex indices
+fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 {
+    let face_vertex = vertex_idx % 6u;
+    
+    // Flipped triangle pattern: [0,1,3], [1,2,3]
+    if (reversed == 1u) {
+        switch (face_vertex) {
+            case 0u: { return 3u; }
+            case 1u: { return 1u; } 
+            case 2u: { return 0u; } 
+            case 3u: { return 3u; } 
+            case 4u: { return 2u; } 
+            case 5u: { return 1u; }
+            default: { return 0u; }
+        }
+    } else {
+        switch (face_vertex) {
+            case 0u: { return 0u; }
+            case 1u: { return 1u; } 
+            case 2u: { return 3u; }
+            case 3u: { return 1u; } 
+            case 4u: { return 2u; } 
+            case 5u: { return 3u; }
+            default: { return 0u; }
+        }
+    }
+    
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let dataIndex = in.instance_idx;
-
     let chunkData = chunkDataArray[dataIndex];
     
     var storageSlot = chunkData.meshSlot;
@@ -812,46 +908,35 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     // Bounds check for storage slot
     if (storageSlot >= bufferMetadata.slotCount) {
-        // Return a degenerate vertex
         out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
     }
     
-    // Get slot information
     let slotInfo = slotInfoArray[storageSlot];
     
-    // For vertex pulling: vertex_idx goes from 0 to (numFaces * 6 - 1) for THIS chunk
-    let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk (0, 1, 2, ...)
-    let vertexInFace = in.vertex_idx % 6u;  // Which vertex within the face (0-5)
+    // For non-indexed drawing: vertex_idx goes from 0 to (numFaces * 6 - 1)
+    let faceIndex = in.vertex_idx / 6u;  // Which face within this chunk
     
-    // Bounds check - ensure we don't exceed this slot's capacity
+    // Bounds check
     if (faceIndex >= slotInfo.maxFaces) {
-        // Return a degenerate vertex
         out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
     }
     
-    // Calculate the actual index in the storage buffer using slot offset
     let globalFaceIndex = slotInfo.faceOffset + faceIndex;
     
-    // Final bounds check against total buffer size
     if (globalFaceIndex >= bufferMetadata.totalFaces) {
-        // Return a degenerate vertex
         out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
     }
     
-    // Get the face data using the global index
     let faceData = vertexData[globalFaceIndex];
     
     out.idx = in.instance_idx;
     out.material_id = faceData.materialId;
 
     let materialProps = get_pbr_material_properties(faceData.materialId);
-
-    // ... rest of your vertex shader code remains the same
     let data = unpack_data(faceData.data);
-    //out.lod_level = data.lod_level;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
@@ -864,7 +949,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var normal = faceNormals[data.normal_index];
     if (materialProps.model == GRASS_MODEL) {
-        normal = faceNormalsGrass[data.normal_index];
+        normal = normalize(faceNormalsGrass[data.normal_index]);
+    } else if (materialProps.model == LEAF_MODEL) {
+        normal = normalize(faceNormalsLeaf[data.normal_index]);
     }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
@@ -882,69 +969,71 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_y_2 = (hash >> 6u) & 7u;
     let tile_z_2 = (hash >> 12u) & 7u;
 
+    // Generate the proper vertex index within the face (0-3) based on triangle pattern
+    var vertexInFace: u32;
+    
+    // Check if this face should be flipped based on AO values
+    let shouldFlip = should_flip_quad(data.ao);
+    
+    if (shouldFlip) {
+        vertexInFace = generate_flipped_vertex_in_face_index(in.vertex_idx, data.reversed);
+    } else {
+        vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
+    }
+
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     
     if (materialProps.model == LEAF_MODEL) {
-        // Generate more varied offsets using multiple hash components
+        // ... (leaf model code remains the same, using vertexInFace) ...
         let hash2 = hash_voxel_position(world_voxel_pos + vec3i(1, 0, 0));
         let hash3 = hash_voxel_position(world_voxel_pos + vec3i(0, 1, 0));
         let hash4 = hash_voxel_position(world_voxel_pos + vec3i(0, 0, 1));
         
-        // Extract different offset components from multiple hashes
         let offset_x_coarse = f32((hash >> 16u) & 0xFFu) / 255.0;
         let offset_y_coarse = f32((hash2 >> 8u) & 0xFFu) / 255.0;
         let offset_z_coarse = f32((hash3 >> 24u) & 0xFFu) / 255.0;
         
-        // Fine-grained offsets for micro-positioning
         let offset_x_fine = f32((hash4 >> 4u) & 0xFu) / 15.0;
         let offset_y_fine = f32((hash >> 12u) & 0xFu) / 15.0;
         let offset_z_fine = f32((hash2 >> 20u) & 0xFu) / 15.0;
         
-        // Combine coarse and fine offsets with different scales
         let primary_offset = vec3f(
             (offset_x_coarse - 0.5) * 0.4 + (offset_x_fine - 0.5) * 0.15,
             (offset_y_coarse - 0.5) * 0.4 + (offset_y_fine - 0.5) * 0.15,
             (offset_z_coarse - 0.5) * 0.4 + (offset_z_fine - 0.5) * 0.15
         );
         
-        // Add rotational variance to break alignment
         let rotation_angle = f32((hash3 >> 4u) & 0x3Fu) / 63.0 * tau;
-        let tilt_angle = f32((hash4 >> 12u) & 0x1Fu) / 31.0 * 0.3; // Max 0.3 radians tilt
+        let tilt_angle = f32((hash4 >> 12u) & 0x1Fu) / 31.0 * 0.3;
         
-        // Create rotation matrix for random orientation
         let cos_rot = cos(rotation_angle);
         let sin_rot = sin(rotation_angle);
         let cos_tilt = cos(tilt_angle);
         let sin_tilt = sin(tilt_angle);
         
-        // Apply rotation to the base vertex position before adding offset
         base_vertex = faceVerticesLeaf[data.normal_index][vertexInFace];
         
-        // Rotate around Y axis first
         let rotated_vertex = vec3f(
             base_vertex.x * cos_rot - base_vertex.z * sin_rot,
             base_vertex.y,
             base_vertex.x * sin_rot + base_vertex.z * cos_rot
         );
         
-        //Then apply a slight tilt
         let tilted_vertex = vec3f(
             rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
             rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
             rotated_vertex.z
         );
         
-        // Scale by LOD and add both positional and rotational offsets
         scaled_vertex_offset = base_vertex * lod_scale + primary_offset;
         
-        // Add a small per-face offset to ensure no two faces are exactly coplanar
         let face_specific_hash = hash_voxel_position(world_voxel_pos + vec3i(i32(data.normal_index), 0, 0));
         let face_offset = vec3f(
             f32((face_specific_hash >> 8u) & 0x7u) / 7.0 - 0.5,
             f32((face_specific_hash >> 16u) & 0x7u) / 7.0 - 0.5,
             f32((face_specific_hash >> 24u) & 0x7u) / 7.0 - 0.5
-        ) * 0.08; // Small offset to break coplanarity
+        ) * 0.08;
         
         scaled_vertex_offset += face_offset;
         
@@ -962,27 +1051,22 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
     if (materialProps.model == GRASS_MODEL) {
-        // For grass, only apply wind to the top vertices (higher Y values)
-        let vertex_height = base_vertex.z; // Using Z as height for grass
-        if (vertex_height > 0.5) { // Only affect the top half of the grass
-            let wind_strength = vertex_height; // Stronger effect at the top
+        let vertex_height = base_vertex.z;
+        if (vertex_height > 0.5) {
+            let wind_strength = vertex_height;
             wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
         }
     } else if (materialProps.model == LEAF_MODEL) {
-        // For leaves, apply wind to all vertices with varying intensity
-        let center_offset = length(base_vertex - vec3f(0.5)); // Distance from leaf center
-        let wind_strength = 0.3 + center_offset * 0.7; // Edges move more than center
+        let center_offset = length(base_vertex - vec3f(0.5));
+        let wind_strength = 0.3 + center_offset * 0.7;
         wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.5);
     }
     
-    // Apply wind displacement
     position = base_position + wind_displacement;
     
     uv = faceUVsIndependent[data.normal_index][vertexInFace];
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
-    
-
     var ao = aoLevels[data.ao[vertexInFace]];
     if (materialProps.model == GRASS_MODEL) {
         ao = aoLevelsGrass[data.normal_index][vertexInFace];
@@ -1146,9 +1230,12 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+fn fs_main(in: FragmentInput) -> @location(0) vec4f {
+    if (!in.frontFacing) {
+        discard;
+    }
     let chunkData = chunkDataArray[in.idx];
-    var normal = normalize(in.normal);
+    var normal = in.normal;
 
     let lod_scale = pow(2.0, f32(chunkData.lod));
     let material_id = in.material_id;
@@ -1160,6 +1247,39 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Get PBR material properties
     let materialProps = get_pbr_material_properties(material_id);
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
+
+    var blendState = 1.0;
+    if (materialProps.model == GRASS_MODEL || materialProps.model == LEAF_MODEL) {
+        let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
+        
+        // Define blending ranges
+        var discardThreshold = 0.25;    // Hard discard at very sharp angles
+        var blendStartThreshold = 0.25;  // Start blending at this angle
+        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+        
+        //Hard discard at very sharp angles
+        if (viewAlignment < discardThreshold) {
+            discard;
+        }
+        
+        // Smooth alpha blending between discard and blend thresholds
+        // if (viewAlignment < blendEndThreshold) {
+        //     if (viewAlignment < blendStartThreshold) {
+        //         // Linear blend from 0 to 1 between discard and blend start
+        //         blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+        //     } else {
+        //         // Smooth transition from blend start to full opacity
+        //         let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+        //         blendState = smoothstep(0.0, 1.0, blendFactor);
+        //     }
+        //     blendState = clamp(blendState, 0.0, 1.0);
+        // }
+
+        if (materialProps.model == GRASS_MODEL) {
+            normal = vec3f(0.0, 0.0, 1.0);
+        }
+
+    }
 
     var uv = in.uv;
 
@@ -1266,5 +1386,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         finalColor = clamp(mix(finalColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(10.0));
     }
 
-    return vec4f(clamp(finalColor, vec3f(0.0), vec3f(10.0)), 1.0);
+    //return vec4f(mix(vec3f(0.0, 1.0, 1.0), clamp(finalColor, vec3f(0.0), vec3f(10.0)), blendState), 1.0);
+    return vec4f(clamp(finalColor, vec3f(0.0), vec3f(10.0)), blendState);
 }

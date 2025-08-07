@@ -1,4 +1,4 @@
-// ThreadSafeChunkManager.h
+// ChunkColumnManager.h
 #include <unordered_map>
 #include <vector>
 #include <mutex>
@@ -120,7 +120,7 @@ private:
     std::atomic<uint64_t> currentFrame{ 0 };
 
     // Configuration
-    static constexpr uint64_t MAX_CACHE_AGE = 1000; // Frames before cache expires
+    static constexpr uint64_t MAX_CACHE_AGE = 150; // Frames before cache expires
     static constexpr float MATRIX_CHANGE_THRESHOLD = 0.01f;
 
     // Performance tracking
@@ -408,7 +408,6 @@ public:
 
         // Check if cache is valid with better logic
         bool cacheValid = false;
-
         if (!cache.isDirty && cache.lodLevel == currentLodLevel) {
             uint64_t frameAge = currentFrame - cache.frameGenerated;
 
@@ -418,21 +417,7 @@ public:
                     cacheValid = false;
                 }
                 else {
-                    // Use the more lenient view matrix check
-                    bool viewMatrixOK = matrixEqual(cache.lastViewMatrix, view);
-                    bool projMatrixOK = matrixEqual(cache.lastProjMatrix, proj);
-                    bool lightViewOK = matrixEqual(cache.lastLightViewMatrix, lightView);
-                    bool lightProjOK = matrixEqual(cache.lastLightProjMatrix, lightProj);
-
                     cacheValid = true; // viewMatrixOK&& projMatrixOK&& lightViewOK&& lightProjOK;
-
-                    // Debug logging (remove after testing)
-                    static int debugCounter = 0;
-                    if (debugCounter++ < 5) {
-                        std::cout << "Cache check - View OK: " << viewMatrixOK
-                            << ", Proj OK: " << projMatrixOK
-                            << ", Age: " << frameAge << std::endl;
-                    }
                 }
             }
         }
@@ -501,7 +486,7 @@ public:
 
         // Populate cache using reference
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            if (columnDAICs[i].has_value() && columnDAICs[i].value().second.indexCount > 0) {
+            if (columnDAICs[i].has_value() && columnDAICs[i].value().second.vertexCount > 0) {
 
                 ivec3 chunkWorldPos = columnDAICs[i].value().first;
                 DAIC daic = columnDAICs[i].value().second;

@@ -18,17 +18,17 @@ bool WebGPURenderer::initialize() {
 
 	// 2. Create storage buffer pool with custom size classes
 	std::vector<std::pair<int, int>> sizeClasses = {
-		{16, 30000},
-		{32, 15000},
-		{64, 22000},
-		{128, 6000},
-		{256, 27000},
-		{512, 5000},
-		{1024, 20000},
-		{2048, 10000},
-		{4096, 4000},
-		{16384, 11000},
-		{65536, 1000},
+		{16, 24390/2},
+		{32, 9157/2},
+		{64, 30382/2},
+		{128, 6333/2},
+		{256, 26445/2},
+		{512, 8324/2},
+		{1024, 12486/2},
+		{2048, 7124/2},
+		{4096, 10686/2},
+		{16384, 16663/2},
+		{65536, 1185/2},
 	};
 
 	auto storagePool = bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);
@@ -53,6 +53,7 @@ bool WebGPURenderer::initialize() {
 	initSkyViewPipeline();
 	initAerialPerspectivePipeline();
 	initRenderPipeline();
+	initAlphaTransparentPipeline();
 	initShadowPipeline();
 	initSkyPipeline();
 	initTerrainPipeline();
@@ -570,14 +571,9 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		shadowRenderPass.setBindGroup(0, pipelineManager->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
 		shadowRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
-
-		// Use the StorageBufferPool's bind group directly
 		shadowRenderPass.setBindGroup(3, bufferManager->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
-
-		auto pool = bufferManager->getStorageBufferPool("storage_pool");
-		shadowRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
-
-		shadowRenderPass.multiDrawIndexedIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
+		
+		shadowRenderPass.multiDrawIndirect(shadowIndirectBuffer, 0, chunkRenderData.second.size(), nullptr, 0);
 
 		shadowRenderPass.end();
 		shadowRenderPass.release();
@@ -618,14 +614,9 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		voxelRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
-
-		// Use the StorageBufferPool's bind group directly
 		voxelRenderPass.setBindGroup(3, bufferManager->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
 
-		auto pool = bufferManager->getStorageBufferPool("storage_pool");
-		voxelRenderPass.setIndexBuffer(pool->getIndexBuffer(), IndexFormat::Uint16, 0, pool->getIndexBufferSize());
-
-		voxelRenderPass.multiDrawIndexedIndirect(indirectBuffer, 0, chunkRenderData.first.size(), nullptr, 0);
+		voxelRenderPass.multiDrawIndirect(indirectBuffer, 0, chunkRenderData.first.size(), nullptr, 0);
 
 		voxelRenderPass.end();
 		voxelRenderPass.release();
@@ -1029,6 +1020,48 @@ bool WebGPURenderer::initDepthTexture() {
 	textureManager->createSampler("depth_sampler", depthSamplerDesc);
 
 	return depthTextureView != nullptr;
+}
+
+bool WebGPURenderer::initAlphaTransparentPipeline() {
+	PipelineConfig config;
+	config.shaderPath = RESOURCE_DIR "/shader.wgsl"; // Same shader as opaque
+	config.colorFormat = TextureFormat::BGRA8Unorm;
+	config.depthFormat = TextureFormat::Depth32Float;
+	config.sampleCount = 4;
+	config.cullMode = CullMode::None;  // IMPORTANT: Disable culling for transparency
+	config.depthWriteEnabled = true;  // CRITICAL: Disable depth writes
+	config.depthCompare = CompareFunction::Less; // Still test depth for proper ordering
+	config.fragmentShaderName = "fs_main";
+	config.vertexShaderName = "vs_main";
+	config.useVertexBuffers = false;
+	config.vertexAttributes.clear();
+	config.useCustomBlending = true;  // Enable custom blending
+
+	// ALPHA BLENDING SETUP
+	config.blendState.color.operation = BlendOperation::Add;
+	config.blendState.color.srcFactor = BlendFactor::SrcAlpha;        // Use source alpha
+	config.blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha; // Use 1 - source alpha
+
+	config.blendState.alpha.operation = BlendOperation::Add;
+	config.blendState.alpha.srcFactor = BlendFactor::One;             // Preserve source alpha
+	config.blendState.alpha.dstFactor = BlendFactor::OneMinusSrcAlpha; // Blend alpha properly
+
+	// Use same bind group layouts as opaque pipeline
+	config.bindGroupLayouts.push_back(
+		pipelineManager->getBindGroupLayout("global_uniforms")
+	);
+	config.bindGroupLayouts.push_back(
+		textureManager->getTexturePool("texture_pool_light")->getBindGroupLayout()
+	);
+	config.bindGroupLayouts.push_back(
+		bufferManager->getBufferPool("chunkdata_pool")->getBindGroupLayout()
+	);
+	config.bindGroupLayouts.push_back(
+		bufferManager->getStorageBufferPool("storage_pool")->getBindGroupLayout()
+	);
+
+	pipelineManager->createRenderPipeline("transparent_voxel_pipeline", config);
+	return true;
 }
 
 bool WebGPURenderer::initRenderPipeline() {

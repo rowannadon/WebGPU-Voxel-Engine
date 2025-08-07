@@ -17,7 +17,7 @@ add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
 add_subdirectory(imgui)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ChunkColumn.h" "ThreadSafeChunkManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp" "Atmosphere.h" "Noise.h" "Terrain.h" "Rendering/StorageBufferPool.h" "FaceAttributes.h" "RunLengthEncoder.h")
+add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ChunkColumn.h" "ChunkColumnManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp" "Atmosphere.h" "Noise.h" "Terrain.h" "Rendering/StorageBufferPool.h" "FaceAttributes.h" "RunLengthEncoder.h")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.

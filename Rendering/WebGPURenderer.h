@@ -60,6 +60,7 @@ public:
     bool initSkyPipeline();
     bool initRenderPipeline();
     bool initShadowPipeline();
+    bool initAlphaTransparentPipeline();
     bool initTerrainPipeline();
     bool initTerrainTexture();
 
