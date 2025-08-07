@@ -479,7 +479,7 @@ public:
         for (int i = 0; i < sizeClasses.size(); ++i) {
             const auto& sc = sizeClasses[i];
             std::cout << "Size Class " << i << " (" << sc.maxFaces << " faces): "
-                << occupiedPerClass[i] << "/" << totalPerClass[i] << " occupied" << std::endl;
+                << occupiedPerClass[i] << "/" << totalPerClass[i] << " occupied - " << ((float)occupiedPerClass[i] / (float)totalPerClass[i]) * 100.0f << " %" << "\n";
         }
         std::cout << "Total allocated IDs: " << idToSlotMap.size() << std::endl;
         std::cout << std::endl;

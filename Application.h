@@ -7,6 +7,7 @@
 #include "webgpu-utils.h"
 #include "ThreadSafeChunkManager.h"
 #include "Rendering/WebGPURenderer.h"
+#include "Ray.h"
 
 //#include "magic_enum.hpp"
 

@@ -1,8 +1,13 @@
 #include "glm/glm.hpp"
 #include <functional>
+#include <memory>
 
 using glm::vec3;
 using glm::ivec3;
+using glm::ivec2;
+
+// Forward declaration
+class ChunkColumn;
 
 struct RayIntersectionResult {
     bool hit;                    // Whether an intersection was found
@@ -12,7 +17,7 @@ struct RayIntersectionResult {
 
 class Ray {
 public:
-    static RayIntersectionResult rayVoxelIntersection(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance, std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
+    static RayIntersectionResult rayVoxelIntersection(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance, std::function<std::shared_ptr<ChunkColumn>(const ivec2&)> getChunkCallback) {
         // Normalize the direction vector
         glm::vec3 dir = glm::normalize(direction);
 
@@ -66,37 +71,39 @@ public:
         // Perform DDA traversal
         int side = 0; // Which side was hit (0=x, 1=y, 2=z)
         constexpr int CHUNK_SIZE = 32;
+        constexpr int COLUMN_HEIGHT_BLOCKS = 512;
         float totalDistance = 0.0f;
 
         // Keep track of the previous voxel position for adjacency calculation
         glm::ivec3 previousVoxelPos = worldVoxelPos;
 
         while (totalDistance < maxDistance) {
-            // Calculate which chunk this world voxel belongs to
-            ivec3 chunkPos = ivec3(
+            // Calculate which chunk column this world voxel belongs to
+            ivec2 chunkPos = ivec2(
                 worldVoxelPos.x >= 0 ? worldVoxelPos.x / CHUNK_SIZE : (worldVoxelPos.x - CHUNK_SIZE + 1) / CHUNK_SIZE,
-                worldVoxelPos.y >= 0 ? worldVoxelPos.y / CHUNK_SIZE : (worldVoxelPos.y - CHUNK_SIZE + 1) / CHUNK_SIZE,
-                worldVoxelPos.z >= 0 ? worldVoxelPos.z / CHUNK_SIZE : (worldVoxelPos.z - CHUNK_SIZE + 1) / CHUNK_SIZE
+                worldVoxelPos.y >= 0 ? worldVoxelPos.y / CHUNK_SIZE : (worldVoxelPos.y - CHUNK_SIZE + 1) / CHUNK_SIZE
             );
 
-            // Get the chunk at this position
-            std::shared_ptr<ThreadSafeChunk> chunk = getChunkCallback(chunkPos);
+            // Get the chunk column at this position
+            std::shared_ptr<ChunkColumn> chunkColumn = getChunkCallback(chunkPos);
 
-            if (chunk) {
+            if (chunkColumn) {
                 // Convert world voxel position to chunk-local coordinates
                 ivec3 localVoxelPos = ivec3(
                     worldVoxelPos.x - chunkPos.x * CHUNK_SIZE,
                     worldVoxelPos.y - chunkPos.y * CHUNK_SIZE,
-                    worldVoxelPos.z - chunkPos.z * CHUNK_SIZE
+                    worldVoxelPos.z
                 );
 
                 // Ensure local coordinates are within chunk bounds
                 if (localVoxelPos.x >= 0 && localVoxelPos.x < CHUNK_SIZE &&
                     localVoxelPos.y >= 0 && localVoxelPos.y < CHUNK_SIZE &&
-                    localVoxelPos.z >= 0 && localVoxelPos.z < CHUNK_SIZE) {
+                    localVoxelPos.z >= 0 && localVoxelPos.z < COLUMN_HEIGHT_BLOCKS) {
 
-                    // Check if current voxel is solid
-                    if (chunk->getVoxel(localVoxelPos) || chunk->getTransparentVoxel(localVoxelPos)) {
+                    // Check if current voxel is solid (check both solid and transparent voxels)
+                    if (chunkColumn->getVoxelWholeColumn(localVoxelPos, false) ||
+                        chunkColumn->getVoxelWholeColumn(localVoxelPos, true)) {
+
                         // Calculate the adjacent voxel position based on which face we hit
                         glm::ivec3 adjacentPos = worldVoxelPos;
                         if (side == 0) { // Hit X face
@@ -154,9 +161,9 @@ public:
         };
     }
 
-    // Modified multi-chunk version
+    // Modified multi-chunk version for chunk columns
     static RayIntersectionResult rayVoxelIntersectionMultiChunk(const glm::vec3& cameraPos, const glm::vec3& direction, float maxDistance,
-        std::function<std::shared_ptr<ThreadSafeChunk>(const ivec3&)> getChunkCallback) {
+        std::function<std::shared_ptr<ChunkColumn>(const ivec2&)> getChunkCallback) {
 
         // Normalize the direction vector
         glm::vec3 dir = glm::normalize(direction);
@@ -171,29 +178,30 @@ public:
 
         float totalDistance = 0.0f;
         constexpr int CHUNK_SIZE = 32;
+        constexpr int COLUMN_HEIGHT_BLOCKS = 512;
 
         while (totalDistance < maxDistance) {
-            // Calculate which chunk we're currently in
-            ivec3 chunkPos = ivec3(
+            // Calculate which chunk column we're currently in
+            ivec2 chunkPos = ivec2(
                 currentPos.x >= 0 ? static_cast<int>(currentPos.x) / CHUNK_SIZE : (static_cast<int>(currentPos.x) - CHUNK_SIZE + 1) / CHUNK_SIZE,
-                currentPos.y >= 0 ? static_cast<int>(currentPos.y) / CHUNK_SIZE : (static_cast<int>(currentPos.y) - CHUNK_SIZE + 1) / CHUNK_SIZE,
-                currentPos.z >= 0 ? static_cast<int>(currentPos.z) / CHUNK_SIZE : (static_cast<int>(currentPos.z) - CHUNK_SIZE + 1) / CHUNK_SIZE
+                currentPos.y >= 0 ? static_cast<int>(currentPos.y) / CHUNK_SIZE : (static_cast<int>(currentPos.y) - CHUNK_SIZE + 1) / CHUNK_SIZE
             );
 
-            // Get the chunk at this position
-            auto chunk = getChunkCallback(chunkPos);
+            // Get the chunk column at this position
+            auto chunkColumn = getChunkCallback(chunkPos);
 
-            if (chunk) {
+            if (chunkColumn) {
                 // Convert to chunk-local coordinates
-                vec3 localPos = currentPos - vec3(chunkPos * CHUNK_SIZE);
+                vec3 localPos = currentPos - vec3(chunkPos.x * CHUNK_SIZE, chunkPos.y * CHUNK_SIZE, 0);
                 ivec3 voxelPos = ivec3(glm::floor(localPos));
 
-                // Check bounds and voxel
+                // Check bounds and voxel (z bound is now the full column height)
                 if (voxelPos.x >= 0 && voxelPos.x < CHUNK_SIZE &&
                     voxelPos.y >= 0 && voxelPos.y < CHUNK_SIZE &&
-                    voxelPos.z >= 0 && voxelPos.z < CHUNK_SIZE) {
+                    voxelPos.z >= 0 && voxelPos.z < COLUMN_HEIGHT_BLOCKS) {
 
-                    if (chunk->getVoxel(voxelPos) || chunk->getTransparentVoxel(voxelPos)) {
+                    if (chunkColumn->getVoxelWholeColumn(voxelPos, false) ||
+                        chunkColumn->getVoxelWholeColumn(voxelPos, true)) {
                         // Hit a solid voxel - calculate adjacent position
                         glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
                         glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));

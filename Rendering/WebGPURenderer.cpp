@@ -18,11 +18,17 @@ bool WebGPURenderer::initialize() {
 
 	// 2. Create storage buffer pool with custom size classes
 	std::vector<std::pair<int, int>> sizeClasses = {
-		{1024, 64000},
-		{2048, 9000},
-		{4096, 3100},
-		{16384, 10000},
-		{65536, 100} 
+		{16, 30000},
+		{32, 15000},
+		{64, 22000},
+		{128, 6000},
+		{256, 27000},
+		{512, 5000},
+		{1024, 20000},
+		{2048, 10000},
+		{4096, 4000},
+		{16384, 11000},
+		{65536, 1000},
 	};
 
 	auto storagePool = bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);

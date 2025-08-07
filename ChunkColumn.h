@@ -98,6 +98,7 @@ private:
         int textureSlot = -1;
         int lightSlot = -1;
         int dataSlot = -1;
+        int dataSlot2 = -1;
 
         // Updated mesh slots to support variable size classes
         // Each LOD level can have different slot assignments based on face count
@@ -175,11 +176,9 @@ public:
         return treeData;
     }
 
-    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> getDAICs(int lodLevel, BufferManager *buf) {
-
+    const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& getDAICs(int lodLevel, BufferManager* buf) {
         if (state.load() != ColumnState::MeshReady) {
-            std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> output{ std::nullopt };
-            return output;
+            return daics;
         }
 
         if (lastLodLevel.load() != lodLevel) {
@@ -189,6 +188,8 @@ public:
         if (!daicsGenerated.load()) {
             {
                 std::lock_guard<std::mutex> lock(meshDataMutex);
+
+                auto storagePool = buf->getStorageBufferPool("storage_pool");
 
                 for (int i = 0; i < COLUMN_HEIGHT; i++) {
                     if (meta[i].state.load() != ChunkState::Active) {
@@ -207,7 +208,6 @@ public:
                         continue;
                     }
 
-                    auto storagePool = buf->getStorageBufferPool("storage_pool");
                     if (!storagePool) {
                         std::cerr << "Error: Storage pool not found" << std::endl;
                         daics[i] = std::nullopt;
@@ -226,6 +226,8 @@ public:
 
                     daics[i] = { ivec3(position.x, position.y, i * 32), daic };
                 }
+
+                daicsGenerated.store(true);
             }
         }
 
@@ -242,7 +244,7 @@ private:
         }
 
         // For each LOD level, allocate appropriate size slot based on face count
-        for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
             size_t faceCount = faceData[lodLevel][zPos].size();
 
             // Update estimated face count for future allocations
@@ -259,8 +261,6 @@ private:
             meta[zPos].meshSlots[lodLevel] = buf->
                 getStorageBufferPool("storage_pool")->
                 allocateSlot(slotId, faceCount);
-
-
 
             if (meta[zPos].meshSlots[lodLevel] == -1) {
                 //std::cerr << "Failed to allocate mesh buffer slot for chunk " << meta[zPos].resourceId
@@ -283,6 +283,37 @@ private:
     }
 
     void uploadMesh(const int zPos, BufferManager* buf) {
+        for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
+            if (meta[zPos].meshSlots[lodLevel] == -1) continue;
+
+            size_t faceCount = faceData[lodLevel][zPos].size();
+            size_t indexCount = indexData[lodLevel][zPos].size();
+
+            if (faceCount > 0) {
+                // Check for index corruption
+                uint16_t maxIndex = 0;
+                for (const auto& idx : indexData[lodLevel][zPos]) {
+                    maxIndex = std::max(maxIndex, idx);
+                }
+
+                uint16_t expectedMaxIndex = (faceCount - 1) * 6 + 5;
+                if (maxIndex > expectedMaxIndex) {
+                    std::cerr << "INDEX CORRUPTION: Max index " << maxIndex
+                        << " > expected max " << expectedMaxIndex
+                        << " for chunk " << meta[zPos].resourceId
+                        << " LOD " << lodLevel << std::endl;
+                }
+
+                // Check for face data corruption
+                for (size_t i = 0; i < faceCount; i++) {
+                    if (faceData[lodLevel][zPos][i].materialId == 0) {
+                        std::cerr << "FACE CORRUPTION: Zero material ID at face " << i
+                            << " for chunk " << meta[zPos].resourceId << std::endl;
+                    }
+                }
+            }
+        }
+
         if (!meta[zPos].meshBufferGPUInitialized) {
             return;
         }
@@ -292,10 +323,20 @@ private:
         auto pool = buf->getStorageBufferPool("storage_pool");
 
         // Upload each LOD level separately with proper slot management
-        for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
             int slotId = meta[zPos].meshSlots[lodLevel];
             if (slotId == -1) {
                 continue; // Skip if no slot allocated
+            }
+
+            size_t actualFaceCount = faceData[lodLevel][zPos].size();
+            int maxFaces = pool->getSlotMaxFaces(slotId);
+
+            if (actualFaceCount > maxFaces) {
+                std::cerr << "CRITICAL: Actual face count " << actualFaceCount
+                    << " exceeds allocated slot capacity " << maxFaces
+                    << " for chunk " << meta[zPos].resourceId
+                    << " LOD " << lodLevel << std::endl;
             }
 
             if (faceData[lodLevel][zPos].empty() || indexData[lodLevel][zPos].empty()) {
@@ -349,9 +390,12 @@ public:
         ChunkData chunkData;
         chunkData.worldPosition = meta[zPos].position;
         chunkData.lod = currentLODLevel;
+
         chunkData.meshSlot0 = meta[zPos].meshSlots[0];
         chunkData.meshSlot1 = meta[zPos].meshSlots[1];
         chunkData.meshSlot2 = meta[zPos].meshSlots[2];
+        chunkData.meshSlot3 = meta[zPos].meshSlots[3];
+        
 
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
     }
@@ -1341,6 +1385,11 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
+        ivec3 connectedTextureOffsets[6][4] = {
+            //
+            {}
+        };
+
         // Sample voxels in a LOD group and return the most common material
         auto sampleLODGroup = [this, &neighbors, transparent, zPos, lodLevel](ivec3 groupPos) -> std::pair<bool, VoxelMaterial> {
             std::unordered_map<uint32_t, int> materialCounts;
@@ -1539,9 +1588,10 @@ public:
                         ivec3 groupPos = ivec3(x, y, z);
                         auto [groupIsSolid, groupMaterial] = sampleLODGroup(groupPos);
 
-                        int repeat = 1;
+                        bool doubleSided = false;
+
                         if (groupMaterial.materialType == BlockType::Leaf) {
-                            repeat = 1;
+                            doubleSided = true;
                         }
 
                         int faces = 6;
@@ -1555,69 +1605,83 @@ public:
                             groupMaterial.materialType == BlockType::Grass5
                             ) {
                             faces = 2;
-                            repeat = 1;
+                            doubleSided = true;
                             if (lodLevel > 1) {
                                 shouldAdd = false;
                             }
                         }
                         if (shouldAdd && groupIsSolid) {
-                            for (int i = 0; i < repeat; i++) {
-                                for (int face = 0; face < faces; ++face) {
-                                    // Use the improved culling function that checks ALL neighbor voxels
-                                    if (faces == 2 || !shouldCullLODFace(groupPos, face)) {
-                                        uint32_t baseIndex = static_cast<uint32_t>(faceData[meshSlot][zPos].size()) * 6;
+                            for (int face = 0; face < faces; ++face) {
+                                // Use the improved culling function that checks ALL neighbor voxels
+                                if (faces == 2 || !shouldCullLODFace(groupPos, face)) {
+                                    uint32_t baseIndex = static_cast<uint32_t>(faceData[meshSlot][zPos].size()) * 6;
 
-                                        std::array<uint32_t, 4> aoValues;
-                                        for (int vertex = 0; vertex < 4; ++vertex) {
-                                            aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
-                                        }
+                                    std::array<uint32_t, 4> aoValues;
+                                    for (int vertex = 0; vertex < 4; ++vertex) {
+                                        aoValues[vertex] = calculateAmbientOcclusion(zPos, groupPos, face, vertex);
+                                    }
 
-                                        bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
+                                    bool flipQuad = aoValues[0] + aoValues[2] > aoValues[1] + aoValues[3];
 
-                                        FaceAttributes currentFace;
-                                        // Use group position (which represents the LOD voxel position)
-                                        currentFace.data = packData(x, y, z, face, aoValues);
-                                        currentFace.materialId = groupMaterial.materialType;
-                                        faceData[meshSlot][zPos].push_back(currentFace);
+                                    FaceAttributes currentFace;
+                                    // Use group position (which represents the LOD voxel position)
+                                    currentFace.data = packData(x, y, z, face, aoValues);
+                                    currentFace.materialId = groupMaterial.materialType;
+                                    
+                                    faceData[meshSlot][zPos].push_back(currentFace);
+                                    if (flipQuad) {
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
 
-                                        if (i == 0) {
-                                            if (flipQuad) {
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                    }
+                                    else {
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 1);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
 
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                            }
-                                            else {
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 2);
+                                        indexData[meshSlot][zPos].push_back(baseIndex + 3);
+                                    }
 
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                            }
+                                    if (doubleSided) {
+                                        uint32_t backBaseIndex = static_cast<uint32_t>(faceData[meshSlot][zPos].size()) * 6;
+
+                                        FaceAttributes backFace = currentFace;
+                                        faceData[meshSlot][zPos].push_back(backFace);
+
+                                        if (flipQuad) {
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 3);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 1);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 0);
+
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 3);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 2);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 1);
                                         }
                                         else {
-                                            if (flipQuad) {
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 2);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 1);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 0);
 
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                            }
-                                            else {
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 1);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 3);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 2);
+                                            indexData[meshSlot][zPos].push_back(backBaseIndex + 0);
+                                        }
 
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 3);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 2);
-                                                indexData[meshSlot][zPos].push_back(baseIndex + 0);
+                                        size_t currentFaceCount = faceData[meshSlot][zPos].size();
+                                        size_t maxValidIndex = (currentFaceCount - 1) * 6 + 5;
+
+                                        for (size_t i = indexData[meshSlot][zPos].size() - 12; i < indexData[meshSlot][zPos].size(); i++) {
+                                            if (indexData[meshSlot][zPos][i] > maxValidIndex) {
+                                                std::cerr << "CORRUPTION: Invalid index " << indexData[meshSlot][zPos][i]
+                                                    << " > max " << maxValidIndex
+                                                    << " at position " << i
+                                                    << " for chunk " << meta[zPos].resourceId << std::endl;
                                             }
                                         }
                                     }
@@ -1648,14 +1712,10 @@ public:
 
         {
             std::lock_guard<std::mutex> lock(meshDataMutex);
-            indexData[0][zPos].clear();
-            faceData[0][zPos].clear();
-
-            indexData[1][zPos].clear();
-            faceData[1][zPos].clear();
-
-            indexData[2][zPos].clear();
-            faceData[2][zPos].clear();
+            for (int slot = 0; slot < 4; slot++) {
+                indexData[slot][zPos].clear();
+                faceData[slot][zPos].clear();
+            }
         }
 
         bool solid0 = generateOneMesh(zPos, neighbors, false, 1, 0);
@@ -1667,6 +1727,9 @@ public:
         bool solid2 = generateOneMesh(zPos, neighbors, false, 4, 2);
         bool transparent2 = generateOneMesh(zPos, neighbors, true, 4, 2);
 
+        bool solid3 = generateOneMesh(zPos, neighbors, false, 8, 3);
+        bool transparent3 = generateOneMesh(zPos, neighbors, true, 8, 3);
+
         finishMaterialEditing();
 
         if (state.load() == ColumnState::Unloading) {
@@ -1674,7 +1737,7 @@ public:
         }
 
         setChunkState(zPos, ChunkState::MeshReady);
-        return solid0;
+        return solid1;
     }
 
     bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
@@ -1705,7 +1768,7 @@ public:
             if (meta[zPos].meshSlots[0] != -1) {
                 // Deallocate slots if they were previously allocated
                 auto pool = buf->getStorageBufferPool("storage_pool");
-                for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+                for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
                     if (meta[zPos].meshSlots[lodLevel] != -1) {
                         std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
                         pool->deAllocateSlot(slotId);
@@ -1754,7 +1817,7 @@ public:
     void cleanupBuffersOnly(int zPos, BufferManager* buf) {
         if (meta[zPos].meshBufferGPUInitialized) {
             auto pool = buf->getStorageBufferPool("storage_pool");
-            for (int lodLevel = 0; lodLevel < 3; lodLevel++) {
+            for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
                 if (meta[zPos].meshSlots[lodLevel] != -1) {
                     std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
                     pool->deAllocateSlot(slotId);

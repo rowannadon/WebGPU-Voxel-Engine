@@ -166,6 +166,9 @@ public:
     std::vector<std::pair<ivec2, std::shared_ptr<ChunkColumn>>> getChunksReadyForGPU() {
         std::vector<std::pair<ivec2, std::shared_ptr<ChunkColumn>>> readyColumns;
 
+        std::shared_lock<std::shared_mutex> lock(columnsMutex);
+        readyColumns.reserve(columns.size());
+
         for (const auto& pair : columns) {
             if (pair.second) {
                 if (pair.second->getState() == ColumnState::MeshReady) {
@@ -397,7 +400,7 @@ public:
         auto& cache = **cacheEntry;
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 12.0f, 24.0f, 256.0f, 256.0f };
+        std::vector<float> lodDistances = { 16.0f, 32.0f, 64.0f, 1024.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         // Calculate current LOD level
@@ -487,8 +490,8 @@ public:
         column->updateLODLevel(lodLevel);
         column->updateAllChunkDataBuffers(buf);
 
-        // Get DAICs for all chunks in column
-        std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> columnDAICs =
+        // Get reference to DAICs for all chunks in column
+        const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& columnDAICs =
             column->getDAICs(lodLevel, buf);
 
         // Clear cache vectors
@@ -496,10 +499,9 @@ public:
         cache.shadowDAICs.clear();
         cache.chunkPositions.clear();
 
-        // Populate cache
+        // Populate cache using reference
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            if (columnDAICs[i] && columnDAICs[i] != std::nullopt &&
-                columnDAICs[i].value().second.indexCount > 0) {
+            if (columnDAICs[i].has_value() && columnDAICs[i].value().second.indexCount > 0) {
 
                 ivec3 chunkWorldPos = columnDAICs[i].value().first;
                 DAIC daic = columnDAICs[i].value().second;
@@ -510,14 +512,14 @@ public:
             }
         }
 
-        // Update cache metadata - FIX: Mark cache as clean!
+        // Update cache metadata - Mark cache as clean!
         cache.lodLevel = lodLevel;
         cache.lastViewMatrix = view;
         cache.lastProjMatrix = proj;
         cache.lastLightViewMatrix = lightView;
         cache.lastLightProjMatrix = lightProj;
         cache.frameGenerated = currentFrame;
-        cache.isDirty = false; // THIS WAS MISSING! Mark as clean after regeneration
+        cache.isDirty = false; // Mark as clean after regeneration
 
         // Calculate column bounds for spatial optimization
         if (!cache.chunkPositions.empty()) {
@@ -576,32 +578,34 @@ public:
 
 private:
     void removeDistantChunks(ivec2 playerPos) {
+        std::vector<ivec2> chunksToRemove;
+
+        // First pass: identify chunks to remove (with read lock)
         {
-            std::vector<ivec2> chunksToRemove;
+            std::shared_lock<std::shared_mutex> readLock(columnsMutex);
             chunksToRemove.reserve(128);
 
             for (const auto& pair : columns) {
                 ivec2 chunkPos = pair.first;
                 float distanceX = glm::abs(chunkPos.x - playerPos.x);
                 float distanceY = glm::abs(chunkPos.y - playerPos.y);
-
                 float maxDistance = renderDistance + 1;
 
                 if (distanceX > maxDistance || distanceY > maxDistance) {
                     chunksToRemove.push_back(chunkPos);
                 }
             }
+        }
 
+        // Second pass: remove chunks (with write lock)
+        if (!chunksToRemove.empty()) {
+            std::unique_lock<std::shared_mutex> writeLock(columnsMutex);
             for (auto chunkPos : chunksToRemove) {
                 auto it = columns.find(chunkPos);
                 if (it != columns.end()) {
                     if (it->second) {
                         it->second->setState(ColumnState::Unloading);
                     }
-
-                    // Remove from quadtree
-                    //quadTree->removeChunk(chunkPos);
-
                     columns.erase(it);
                 }
             }
@@ -667,9 +671,12 @@ private:
 
                 auto chunkDeleter = [tex = this->tex, buf = this->buf](ChunkColumn* chunk) {
                     if (chunk) {
-                        // This is called when the last shared_ptr is destroyed.
-                        // It cleans up all GPU resources from the pools.
-                        chunk->cleanupAllBuffers(buf);
+                        try {
+                            chunk->cleanupAllBuffers(buf);
+                        }
+                        catch (...) {
+                            std::cerr << "Error cleaning up chunk buffers" << std::endl;
+                        }
                     }
                     // Finally, delete the chunk object itself.
                     delete chunk;

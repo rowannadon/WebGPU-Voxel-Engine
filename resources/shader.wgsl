@@ -80,7 +80,7 @@ struct ChunkData {
     meshSlot: u32,
     lightSlot: u32,
     meshSlot2: u32,
-    left: u32,
+    meshSlot3: u32,
     front: u32,
     back: u32,
     top: u32,
@@ -173,7 +173,6 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
 
-// Updated storage buffer - now dynamically sized based on actual buffer size
 @group(3) @binding(0) var<storage, read> vertexData: array<FaceData>;
 
 // Buffer metadata that gets updated from C++ side when buffer pool is initialized
@@ -807,6 +806,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         storageSlot = chunkData.lightSlot;
     } else if (chunkData.lod == 2u) {
         storageSlot = chunkData.meshSlot2;
+    } else if (chunkData.lod == 3u) {
+        storageSlot = chunkData.meshSlot3;
     }
     
     // Bounds check for storage slot
@@ -857,13 +858,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var position: vec3f;
     var voxel_pos: vec3f;
     var uv: vec2f;
-    
-    var lod_scale = 1.0;
-    if (chunkData.lod == 1u) {
-        lod_scale = 2.0;
-    } else if (chunkData.lod == 2u) {
-        lod_scale = 4.0;
-    }
+
+    let lod_scale = pow(2.0, f32(chunkData.lod));
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
     var normal = faceNormals[data.normal_index];
@@ -1153,12 +1149,8 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
     var normal = normalize(in.normal);
-    var lod_scale = 1.0;
-    if (chunkData.lod == 1u) {
-        lod_scale = 2.0;
-    } else if (chunkData.lod == 2u) {
-        lod_scale = 4.0;
-    }
+
+    let lod_scale = pow(2.0, f32(chunkData.lod));
     let material_id = in.material_id;
     
     if (material_id == 0u) {
@@ -1174,6 +1166,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     if (materialProps.random_rotation == true) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
         uv = rotated_uv;
+    }
+
+    if (materialProps.model == VOXEL_MODEL && chunkData.lod > 0u) {
+        uv = fract(uv * lod_scale);
     }
 
     if (materialProps.model == VOXEL_MODEL) {
@@ -1205,7 +1201,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 5.0; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 5.5; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,

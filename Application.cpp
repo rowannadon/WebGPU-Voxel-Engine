@@ -229,24 +229,25 @@ void Application::MainLoop() {
     // Early exit if frame budget is already exceeded
     float frameStartTime = currentFrame;
 
-    auto getChunkCallback = [this](ivec3 c) -> std::shared_ptr<ChunkColumn> {
+    auto getChunkCallback = [this](ivec2 c) -> std::shared_ptr<ChunkColumn> {
         return chunkManager.getChunk(c);
         };
 
-    /*RayIntersectionResult result;
+    // TODO define getColumnCallback
+    RayIntersectionResult result;
     {
         std::lock_guard<std::mutex> lock(cameraMutex);
         result = Ray::rayVoxelIntersection(camera.position, camera.front, 100.0f, getChunkCallback);
-    }*/
+    }
 
-   /* if (result.hit) {
+    if (result.hit) {
         lookingAtBlockPos = result.hitVoxelPos;
         placeBlockPos = result.adjacentVoxelPos;
-    }*/
-    /*else {
+    }
+    else {
         lookingAtBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
         placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
-    }*/
+    }
 
     // Only process block interactions if ImGUI doesn't want mouse input
     /*if (!io.WantCaptureMouse) {
@@ -660,8 +661,6 @@ void Application::processGPUUploads() {
         if (item.chunk && item.chunk->getState() == ColumnState::MeshReady) {
             item.chunk->uploadAllToGPU(tex, buf, pip);
         }
-
-        //chunkManager.invalidateChunkCache(item.chunkPos);
 
         uploadsThisFrame++;
     }

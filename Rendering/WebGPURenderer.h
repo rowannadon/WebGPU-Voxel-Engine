@@ -46,7 +46,6 @@ public:
     bool initSkyViewTexture();
 	bool initAerialPerspectiveTexture();
     bool initNoiseTextures();
-    bool initCloudTextures();
     bool initMultiSampleTexture();
     bool initDepthTexture();
     bool initShadowTexture();

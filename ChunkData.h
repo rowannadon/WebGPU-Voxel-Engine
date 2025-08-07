@@ -9,7 +9,7 @@ struct ChunkData {
     uint32_t meshSlot0;
     uint32_t meshSlot1;
     uint32_t meshSlot2;
-    uint32_t left;
+    uint32_t meshSlot3;
     uint32_t front;
     uint32_t back;
     uint32_t top;
