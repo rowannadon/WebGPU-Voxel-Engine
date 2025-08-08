@@ -21,6 +21,7 @@ enum BlockType: uint16_t {
     Grass3,
     Grass4,
     Grass5,
+    Water,
 };
 
 struct VoxelMaterial {

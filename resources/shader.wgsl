@@ -217,7 +217,7 @@ struct SlotInfo {
 @group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
 
 // PBR material definitions - expanded with realistic properties
-const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
+const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 19>(
     // ID 1: Dirt
     PBRMaterialProperties(
         vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
@@ -482,6 +482,20 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 18>(
         0.0,
         GRASS_MODEL,
         false
+    ),
+    PBRMaterialProperties(
+        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        0.0,                      // Non-metallic
+        0.01,                      // Very rough leaf surface
+        0.3,                     // Lower specular for matte leaves
+        vec3f(0.0),              // No emission
+        1.0,                      // High normals for leaf vein texture
+        0.2,                      // Lower AO for thin material
+        0.15,                     // High subsurface for leaf translucency
+        0.0,                      // No clearcoat
+        0.0,
+        VOXEL_MODEL,
+        true
     )
 );
 
@@ -581,7 +595,7 @@ fn get_sun_color(sun_elevation: f32) -> vec3f {
 }
 
 fn get_pbr_material_properties(material_id: u32) -> PBRMaterialProperties {
-    let index = clamp(material_id - 1u, 0u, 11u);
+    let index = clamp(material_id - 1u, 0u, 19u);
     return PBR_MATERIAL_PROPERTIES[index];
 }
 
@@ -778,8 +792,8 @@ const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4
 );
 
 const faceNormalsLeaf: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
-    vec3<f32>(0.0, 1.0, 1.0),
-    vec3<f32>(0.0, -1.0, 1.0),
+    vec3<f32>(1.0, 0.0, 1.0),
+    vec3<f32>(-1.0, 0.0, 1.0),
     vec3<f32>(1.0, -1.0, 0.0),
     vec3<f32>(1.0, 1.0, 0.0),
     vec3<f32>(-1.0, 0.0, 1.0),
@@ -1231,9 +1245,7 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
 
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4f {
-    if (!in.frontFacing) {
-        discard;
-    }
+    
     let chunkData = chunkDataArray[in.idx];
     var normal = in.normal;
 
@@ -1246,6 +1258,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     // Get PBR material properties
     let materialProps = get_pbr_material_properties(material_id);
+
+    if (materialProps.model == VOXEL_MODEL && !in.frontFacing) {
+        discard;
+    } 
+
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
     var blendState = 1.0;
@@ -1263,22 +1280,26 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         }
         
         // Smooth alpha blending between discard and blend thresholds
-        // if (viewAlignment < blendEndThreshold) {
-        //     if (viewAlignment < blendStartThreshold) {
-        //         // Linear blend from 0 to 1 between discard and blend start
-        //         blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-        //     } else {
-        //         // Smooth transition from blend start to full opacity
-        //         let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-        //         blendState = smoothstep(0.0, 1.0, blendFactor);
-        //     }
-        //     blendState = clamp(blendState, 0.0, 1.0);
-        // }
+        if (viewAlignment < blendEndThreshold) {
+            if (viewAlignment < blendStartThreshold) {
+                // Linear blend from 0 to 1 between discard and blend start
+                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+            } else {
+                // Smooth transition from blend start to full opacity
+                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+                blendState = smoothstep(0.0, 1.0, blendFactor);
+            }
+            blendState = clamp(blendState, 0.0, 1.0);
+        }
 
         if (materialProps.model == GRASS_MODEL) {
             normal = vec3f(0.0, 0.0, 1.0);
         }
 
+    }
+
+    if (material_id == 19) {
+        blendState = 0.5;
     }
 
     var uv = in.uv;

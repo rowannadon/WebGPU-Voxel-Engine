@@ -1,4 +1,5 @@
 // ChunkColumnManager.h
+#define GLM_ENABLE_EXPERIMENTAL
 #include <unordered_map>
 #include <vector>
 #include <mutex>
@@ -6,7 +7,10 @@
 #include <queue>
 #include <map>
 #include <memory>
+#include <chrono>
+#include <algorithm>
 #include "glm/glm.hpp"
+#include "glm/gtx/norm.hpp"
 #include <webgpu/webgpu.hpp>
 #include <unordered_set>
 #include "ChunkColumn.h"
@@ -111,16 +115,24 @@ private:
 
     std::unordered_map<ivec2, std::unique_ptr<CachedDAICData>, IVec2Hash, IVec2Equal> daicCache;
     std::mutex cacheMutex;
+    
+    // Pre-allocated cache entries pool to avoid frequent allocations
+    std::vector<std::unique_ptr<CachedDAICData>> cachePool;
+    std::mutex cachePoolMutex;
 
     // Spatial partitioning for faster frustum culling
     static constexpr int SPATIAL_BUCKET_SIZE = 128; // 128x128 chunk buckets
     std::unordered_map<ivec2, std::unique_ptr<SpatialBucket>, IVec2Hash, IVec2Equal> spatialBuckets;
+    
+    // Optimization: Track if spatial buckets need updating
+    bool spatialBucketsNeedUpdate = true;
+    uint64_t lastSpatialUpdateFrame = 0;
 
     // Frame tracking for cache invalidation
     std::atomic<uint64_t> currentFrame{ 0 };
 
     // Configuration
-    static constexpr uint64_t MAX_CACHE_AGE = 150; // Frames before cache expires
+    static constexpr uint64_t MAX_CACHE_AGE = 1000; // Frames before cache expires
     static constexpr float MATRIX_CHANGE_THRESHOLD = 0.01f;
 
     // Performance tracking
@@ -145,6 +157,12 @@ public:
         buf = b;
 
         columns.reserve(MAX_TOTAL_COLUMNS);
+        
+        // Pre-allocate cache pool to avoid allocations during rendering
+        cachePool.reserve(MAX_TOTAL_COLUMNS / 4);
+        for (int i = 0; i < MAX_TOTAL_COLUMNS / 4; i++) {
+            cachePool.push_back(std::make_unique<CachedDAICData>());
+        }
     }
 
     ~ChunkColumnManager() {
@@ -180,6 +198,14 @@ public:
         return readyColumns;
     }
 
+    // Structure to hold DAIC with its world position for sorting
+    struct DAICWithPosition {
+        DAIC daic;
+        vec3 worldPosition;
+        
+        DAICWithPosition(const DAIC& d, const vec3& pos) : daic(d), worldPosition(pos) {}
+    };
+
     std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(
         vec3 cameraPos,
         glm::mat4x4 view,
@@ -196,28 +222,86 @@ public:
         Frustum shadowFrustum;
         shadowFrustum.extractPlanes(lightProj * lightView);
 
-        std::vector<DAIC> cameraDAICs;
-        std::vector<DAIC> shadowDAICs;
-
-        // Reserve based on estimated visible chunks
-        cameraDAICs.reserve(4096);
-        shadowDAICs.reserve(4096);
+        // Pre-allocate vectors to avoid reallocation during rendering
+        static std::vector<DAICWithPosition> cameraDAICsWithPos;
+        static std::vector<DAIC> shadowDAICs;
+        
+        cameraDAICsWithPos.clear();
+        shadowDAICs.clear();
+        
+        // Reserve generous capacity to avoid reallocations at high DAIC counts
+        if (cameraDAICsWithPos.capacity() < 16384) cameraDAICsWithPos.reserve(16384);
+        if (shadowDAICs.capacity() < 16384) shadowDAICs.reserve(16384);
 
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
-        // Update spatial buckets if needed
-        updateSpatialBuckets(columns);
+        // Update spatial buckets only when necessary
+        if (spatialBucketsNeedUpdate || (currentFrame - lastSpatialUpdateFrame) > 30) {
+            updateSpatialBuckets(columns);
+            spatialBucketsNeedUpdate = false;
+            lastSpatialUpdateFrame = currentFrame;
+        }
 
         // Process chunks by spatial buckets for better cache locality
         processChunksBySpatialBuckets(columns, cameraPos, view, proj, lightView, lightProj,
-            cameraFrustum, shadowFrustum, cameraDAICs, shadowDAICs, buf);
+            cameraFrustum, shadowFrustum, cameraDAICsWithPos, shadowDAICs, buf);
 
         // Clean old cache entries periodically
         if (currentFrame % 60 == 0) { // Every 60 frames
             cleanupCache();
         }
 
-        return { std::move(cameraDAICs), std::move(shadowDAICs) };
+        // Debug output every 30 frames to diagnose performance cliffs
+        /*if (currentFrame % 30 == 0) {
+            auto perfStats = getPerformanceStats();
+            size_t totalCacheEntries = daicCache.size();
+            size_t activeBuckets = 0;
+            size_t totalChunksInBuckets = 0;
+            
+            for (const auto& bucketPair : spatialBuckets) {
+                if (!bucketPair.second->chunkColumns.empty()) {
+                    activeBuckets++;
+                    totalChunksInBuckets += bucketPair.second->chunkColumns.size();
+                }
+            }
+
+            std::cout << "DAIC Debug - Frame: " << currentFrame 
+                << ", Cache entries: " << totalCacheEntries
+                << ", Cache hits: " << perfStats.cacheHits 
+                << ", Cache misses: " << perfStats.cacheMisses
+                << ", Hit rate: " << (perfStats.cacheHitRate * 100.0f) << "%"
+                << ", Active buckets: " << activeBuckets
+                << ", Chunks in buckets: " << totalChunksInBuckets
+                << ", Output DAICs: " << (cameraDAICs.size() + shadowDAICs.size())
+                << ", Cam capacity: " << cameraDAICs.capacity()
+                << ", Shadow capacity: " << shadowDAICs.capacity()
+                << std::endl;
+        }*/
+
+        // Sort camera DAICs for back-to-front rendering (transparent rendering)
+        std::sort(cameraDAICsWithPos.begin(), cameraDAICsWithPos.end(),
+            [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
+                // Calculate chunk center positions
+                vec3 aCenterPos = a.worldPosition + vec3(16.0f, 16.0f, 16.0f);
+                vec3 bCenterPos = b.worldPosition + vec3(16.0f, 16.0f, 16.0f);
+                
+                // Calculate squared distances (avoiding sqrt for performance)
+                float aDistSq = glm::length2(aCenterPos - cameraPos);
+                float bDistSq = glm::length2(bCenterPos - cameraPos);
+                
+                // Sort in descending order (furthest first for back-to-front rendering)
+                return aDistSq > bDistSq;
+            });
+        
+        // Extract sorted DAICs from the position-paired structure
+        std::vector<DAIC> sortedCameraDAICs;
+        sortedCameraDAICs.reserve(cameraDAICsWithPos.size());
+        
+        for (const auto& daicWithPos : cameraDAICsWithPos) {
+            sortedCameraDAICs.push_back(daicWithPos.daic);
+        }
+        
+        return { std::move(sortedCameraDAICs), std::move(shadowDAICs) };
     }
 
     void updateChunkDataBuffers(BufferManager* buf) {
@@ -260,6 +344,9 @@ public:
         if (it != daicCache.end()) {
             it->second->invalidate();
         }
+        
+        // Mark spatial buckets for update when chunks change
+        spatialBucketsNeedUpdate = true;
     }
 
     // Invalidate all cache (call when global rendering parameters change)
@@ -334,35 +421,49 @@ public:
         glm::mat4x4 lightProj,
         const Frustum& cameraFrustum,
         const Frustum& shadowFrustum,
-        std::vector<DAIC>& cameraDAICs,
+        std::vector<DAICWithPosition>& cameraDAICs,
         std::vector<DAIC>& shadowDAICs,
         BufferManager* buf) {
 
-        // Process each spatial bucket
-        for (const auto& bucketPair : spatialBuckets) {
-            const auto& bucket = bucketPair.second;
+        // Calculate camera bucket position to prioritize nearby buckets
+        ivec2 cameraBucketPos = ivec2(
+            static_cast<int>(cameraPos.x / 32.0f) / SPATIAL_BUCKET_SIZE,
+            static_cast<int>(cameraPos.y / 32.0f) / SPATIAL_BUCKET_SIZE
+        );
 
-            if (bucket->chunkColumns.empty()) continue;
+        // Process buckets in distance order rather than iterating all
+        const int MAX_BUCKET_RANGE = 5; // Only check buckets within this range to avoid O(n) iteration
 
-            // Early frustum cull entire bucket
-            bool bucketInCameraFrustum = cameraFrustum.isCubeInside(bucket->boundsMin,
-                glm::length(bucket->boundsMax - bucket->boundsMin));
-            bool bucketInShadowFrustum = shadowFrustum.isCubeInside(bucket->boundsMin,
-                glm::length(bucket->boundsMax - bucket->boundsMin));
+        for (int dx = -MAX_BUCKET_RANGE; dx <= MAX_BUCKET_RANGE; dx++) {
+            for (int dy = -MAX_BUCKET_RANGE; dy <= MAX_BUCKET_RANGE; dy++) {
+                ivec2 bucketPos = cameraBucketPos + ivec2(dx, dy);
+                
+                auto bucketIt = spatialBuckets.find(bucketPos);
+                if (bucketIt == spatialBuckets.end()) continue;
+                
+                const auto& bucket = bucketIt->second;
+                if (bucket->chunkColumns.empty()) continue;
 
-            if (!bucketInCameraFrustum && !bucketInShadowFrustum) {
-                stats.chunksCulled += bucket->chunkColumns.size();
-                continue;
-            }
+                // Early frustum cull entire bucket
+                bool bucketInCameraFrustum = cameraFrustum.isCubeInside(bucket->boundsMin,
+                    glm::length(bucket->boundsMax - bucket->boundsMin));
+                bool bucketInShadowFrustum = shadowFrustum.isCubeInside(bucket->boundsMin,
+                    glm::length(bucket->boundsMax - bucket->boundsMin));
 
-            // Process chunks in this bucket
-            for (const ivec2& chunkPos : bucket->chunkColumns) {
-                auto columnIt = columns.find(chunkPos);
-                if (columnIt == columns.end() || !columnIt->second) continue;
+                if (!bucketInCameraFrustum && !bucketInShadowFrustum) {
+                    stats.chunksCulled += bucket->chunkColumns.size();
+                    continue;
+                }
 
-                processChunkColumn(columnIt->second, chunkPos, cameraPos, view, proj,
-                    lightView, lightProj, cameraFrustum, shadowFrustum,
-                    cameraDAICs, shadowDAICs, buf);
+                // Process chunks in this bucket
+                for (const ivec2& chunkPos : bucket->chunkColumns) {
+                    auto columnIt = columns.find(chunkPos);
+                    if (columnIt == columns.end() || !columnIt->second) continue;
+
+                    processChunkColumn(columnIt->second, chunkPos, cameraPos, view, proj,
+                        lightView, lightProj, cameraFrustum, shadowFrustum,
+                        cameraDAICs, shadowDAICs, buf);
+                }
             }
         }
     }
@@ -377,20 +478,40 @@ public:
         glm::mat4x4 lightProj,
         const Frustum& cameraFrustum,
         const Frustum& shadowFrustum,
-        std::vector<DAIC>& cameraDAICs,
+        std::vector<DAICWithPosition>& cameraDAICs,
         std::vector<DAIC>& shadowDAICs,
         BufferManager* buf) {
 
         stats.chunksProcessed++;
 
-        // Check cache first
+        // Check cache first - use pool to avoid allocations
         std::unique_ptr<CachedDAICData>* cacheEntry = nullptr;
         {
-            std::lock_guard<std::mutex> lock(cacheMutex);
+            //std::lock_guard<std::mutex> lock(cacheMutex);
             cacheEntry = &daicCache[chunkPos];
             if (!*cacheEntry) {
-                *cacheEntry = std::make_unique<CachedDAICData>();
-                // Initialize new cache entry properly
+                // Try to reuse from pool first
+                bool usedPool = false;
+                {
+                    //std::lock_guard<std::mutex> poolLock(cachePoolMutex);
+                    if (!cachePool.empty()) {
+                        *cacheEntry = std::move(cachePool.back());
+                        cachePool.pop_back();
+                        usedPool = true;
+                    }
+                }
+                
+                // If pool is empty, allocate new
+                if (!*cacheEntry) {
+                    *cacheEntry = std::make_unique<CachedDAICData>();
+                    static uint32_t newAllocations = 0;
+                    newAllocations++;
+                    if (newAllocations % 100 == 0) {
+                        std::cout << "Cache pool exhausted! New allocation #" << newAllocations << std::endl;
+                    }
+                }
+                
+                // Initialize cache entry
                 (*cacheEntry)->isDirty = true;
                 (*cacheEntry)->frameGenerated = 0;
                 (*cacheEntry)->lodLevel = -1;
@@ -400,61 +521,79 @@ public:
         auto& cache = **cacheEntry;
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 16.0f, 32.0f, 64.0f, 1024.0f };
+        std::vector<float> lodDistances = { 8.0f, 32.0f, 64.0f, 1024.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         // Calculate current LOD level
         int currentLodLevel = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 
-        // Check if cache is valid with better logic
+        // Check if cache is valid with better logic - prioritize cache hits
         bool cacheValid = false;
-        if (!cache.isDirty && cache.lodLevel == currentLodLevel) {
+        if (!cache.isDirty && cache.lodLevel == currentLodLevel && cache.frameGenerated > 0) {
             uint64_t frameAge = currentFrame - cache.frameGenerated;
-
-            if (frameAge < MAX_CACHE_AGE) {
-                if (cache.frameGenerated == 0) {
-                    // First time use - invalid
-                    cacheValid = false;
-                }
-                else {
-                    cacheValid = true; // viewMatrixOK&& projMatrixOK&& lightViewOK&& lightProjOK;
-                }
-            }
+            cacheValid = (frameAge < MAX_CACHE_AGE);
         }
 
         if (cacheValid) {
             stats.cacheHits++;
 
-            // Use cached data - perform frustum culling on cached positions
-            for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
-                const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
+            // Early column-level frustum culling using bounds
+            bool columnInCameraFrustum = cameraFrustum.isCubeInside(cache.columnBoundsMin, 
+                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
+            bool columnInShadowFrustum = shadowFrustum.isCubeInside(cache.columnBoundsMin,
+                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
+            
+            // Skip individual chunk tests if entire column is outside frustum
+            if (columnInCameraFrustum || columnInShadowFrustum) {
+                // Use cached data - perform frustum culling on cached positions
+                for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
+                    const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
 
-                if (cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                    cameraDAICs.push_back(cache.cameraDAICs[i]);
-                }
+                    if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                        cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
+                    }
 
-                if (shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                    shadowDAICs.push_back(cache.shadowDAICs[i]);
+                    if (columnInShadowFrustum && shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                        shadowDAICs.push_back(cache.shadowDAICs[i]);
+                    }
                 }
             }
         }
         else {
             stats.cacheMisses++;
 
+            // Debug: Track expensive cache regenerations
+            /*static uint32_t regenerationCount = 0;
+            regenerationCount++;
+            if (regenerationCount % 100 == 0) {
+                std::cout << "Cache regeneration #" << regenerationCount 
+                    << " for chunk " << chunkPos.x << "," << chunkPos.y 
+                    << " LOD " << currentLodLevel << std::endl;
+            }*/
+
             // Generate new cache data
             regenerateChunkCache(column, chunkPos, currentLodLevel, view, proj,
                 lightView, lightProj, cache, buf);
 
-            // Use newly generated cache data
-            for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
-                const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
+            // Early column-level frustum culling using bounds  
+            bool columnInCameraFrustum = cameraFrustum.isCubeInside(cache.columnBoundsMin,
+                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
+            bool columnInShadowFrustum = shadowFrustum.isCubeInside(cache.columnBoundsMin,
+                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
 
-                if (cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                    cameraDAICs.push_back(cache.cameraDAICs[i]);
-                }
+            // Skip individual chunk tests if entire column is outside frustum
+            if (columnInCameraFrustum || columnInShadowFrustum) {
+                // Use newly generated cache data
+                for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
+                    const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
 
-                if (shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                    shadowDAICs.push_back(cache.shadowDAICs[i]);
+                    if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                        cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
+                    }
+
+                    if (columnInShadowFrustum && shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
+                        shadowDAICs.push_back(cache.shadowDAICs[i]);
+                    }
                 }
             }
         }
@@ -475,7 +614,10 @@ public:
         column->updateLODLevel(lodLevel);
         column->updateAllChunkDataBuffers(buf);
 
-        // Get reference to DAICs for all chunks in column
+        // Debug: Track expensive getDAICs calls
+        static uint32_t getDAICsCount = 0;
+        getDAICsCount++;
+        
         const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& columnDAICs =
             column->getDAICs(lodLevel, buf);
 
@@ -523,7 +665,7 @@ public:
 
     int calculateLODLevel(int zHeight, const ivec2& chunkPos, const ivec2& viewerPos,
         const std::vector<float>& lodDistances) const {
-        float distance = glm::length(vec3(ivec3(chunkPos.x, chunkPos.y, 0) - ivec3(viewerPos.x, viewerPos.y, zHeight)));
+        float distance = glm::length(vec2(chunkPos - viewerPos));
 
         int distanceLODLevel = lodDistances.size();
         for (int i = 0; i < lodDistances.size(); i++) {

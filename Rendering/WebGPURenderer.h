@@ -35,6 +35,9 @@ private:
     // Add this for ImGUI support
     RenderPassEncoder currentCommandEncoder = nullptr;
 
+    Buffer indirectBuffer;
+    Buffer shadowIndirectBuffer;
+
 public:
     bool initialize();
 

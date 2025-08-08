@@ -16,3 +16,4 @@
 15 better_grass_3
 16 better_grass_4
 17 better_grass_5
+18 water

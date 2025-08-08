@@ -168,8 +168,8 @@ private:
     mutable std::mutex voxelDataMutex;
     mutable std::mutex meshDataMutex;
 
-    std::atomic<bool> daicsGenerated{ false };
-    std::atomic<int> lastLodLevel{ 0 };
+    bool daicsGenerated = false;
+    int lastLodLevel = 0;
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> daics{ std::nullopt };
 
 
@@ -221,15 +221,20 @@ public:
             return daics;
         }
 
-        if (lastLodLevel.load() != lodLevel) {
-            daicsGenerated.store(false);
+        if (lastLodLevel != lodLevel) {
+            daicsGenerated = false;
         }
 
-        if (!daicsGenerated.load()) {
+        if (!daicsGenerated) {
             {
                 std::lock_guard<std::mutex> lock(meshDataMutex);
 
+                // Get storage pool reference (avoid static due to potential issues with LOD switching)
                 auto storagePool = buf->getStorageBufferPool("storage_pool");
+
+                // Track expensive operations for LOD1
+                static uint32_t lod1ProcessingCount = 0;
+                if (lodLevel == 1) lod1ProcessingCount++;
 
                 for (int i = 0; i < COLUMN_HEIGHT; i++) {
                     if (meta[i].state.load() != ChunkState::Active) {
@@ -264,11 +269,17 @@ public:
                     daics[i] = { ivec3(position.x, position.y, i * 32), daic };
                 }
 
-                daicsGenerated.store(true);
+                // Debug LOD1 processing frequency
+                if (lodLevel == 1 && lod1ProcessingCount % 1000 == 0) {
+                    std::cout << "LOD1 processing #" << lod1ProcessingCount 
+                        << " for column " << position.x << "," << position.y << std::endl;
+                }
+
+                daicsGenerated = true;
             }
         }
 
-        lastLodLevel.store(lodLevel);
+        lastLodLevel = lodLevel;
 
         return daics;
     }
@@ -973,10 +984,12 @@ public:
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    int waterLevel = 150;
+                    VoxelMaterial material;
                     if (getVoxelWholeColumn(ivec3(x, y, z), false)) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
-                        VoxelMaterial material;
+                        
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = BlockType::Limestone;
                         }
@@ -1017,7 +1030,7 @@ public:
                         ivec3 positionAbove = ivec3(x, y, z + 1);
                         bool isAtSurface = !isVoxelSolid(positionAbove);
 
-                        if (isAtSurface) {
+                        if (isAtSurface && z > waterLevel) {
                             // Calculate steepness by checking the 8 surrounding columns
                             int maxHeightDifference = calculateSteepness(x, y, z);
                             uint32_t blockHash = hash_ivec3(pos);
@@ -1027,7 +1040,7 @@ public:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
                                 if (pos.z > (-10 + blockHash % 20) && blockHash % 32 == 0) {
-                                    if (positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+                                    if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
                                         int closestDistance = INT_MAX;
@@ -1060,7 +1073,7 @@ public:
                                 // Top 2 layers: grass
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                if (grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                if (grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     VoxelMaterial material;
                                     if (blockHash % 8 == 0) {
                                         material.materialType = BlockType::TallGrass; // grass
@@ -1122,6 +1135,11 @@ public:
                                 }
                             }
                         }
+                    }
+                    else if (z < waterLevel) {
+                        setVoxelWholeColumn(ivec3(x, y, z), true, true);
+                        material.materialType = BlockType::Water;
+                        setMaterialFast(ivec3(x, y, z), material);
                     }
                 }
             }
@@ -1649,7 +1667,7 @@ public:
 
                                                         faceData[meshSlot][zPos].push_back(currentFace);
 
-                                                        if (doubleSided) {
+                                                        if (doubleSided && false) {
                                                             currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x1, lodLevel);
                                                             faceData[meshSlot][zPos].push_back(currentFace);
                                                         }

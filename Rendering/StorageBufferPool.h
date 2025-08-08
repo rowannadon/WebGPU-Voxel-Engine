@@ -406,6 +406,14 @@ public:
         return 0;
     }
 
+    int getTotalSlotCount() const {
+        int total = 0;
+        for (const auto& sc : sizeClasses) {
+            total += sc.slotCount;
+        }
+        return total;
+    }
+
     // Utility function to get memory usage statistics
     void printStats() {
         std::lock_guard<std::mutex> lock(dataMutex);

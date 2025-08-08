@@ -18,22 +18,34 @@ bool WebGPURenderer::initialize() {
 
 	// 2. Create storage buffer pool with custom size classes
 	std::vector<std::pair<int, int>> sizeClasses = {
-		{16, 24390/2},
-		{32, 9157/2},
-		{64, 30382/2},
-		{128, 6333/2},
-		{256, 26445/2},
-		{512, 8324/2},
-		{1024, 12486/2},
-		{2048, 7124/2},
-		{4096, 10686/2},
-		{16384, 16663/2},
-		{65536, 1185/2},
+		{16, 24390/4},
+		{32, 9157/4},
+		{64, 30382/4},
+		{128, 6333/4},
+		{256, 26445/4},
+		{512, 8324/4},
+		{1024, 12486/4},
+		{2048, 7124/4},
+		{4096, 10686/4},
+		{16384, 16663/4},
+		{65536, 1185/4},
 	};
 
 	auto storagePool = bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);
 	benchmarkManager->initialize();
 	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
+
+	BufferDescriptor indirectBufferDesc = Default;
+	indirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount();
+	indirectBufferDesc.mappedAtCreation = false;
+	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
+	indirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+
+	BufferDescriptor shadowIndirectBufferDesc = Default;
+	shadowIndirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount();
+	shadowIndirectBufferDesc.mappedAtCreation = false;
+	shadowIndirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
+	shadowIndirectBuffer = context->getDevice().createBuffer(shadowIndirectBufferDesc);
 
 	// create resources
 	initNoiseTextures();
@@ -424,22 +436,13 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	// Begin frame timing
 	benchmarkManager->beginFrame("frame_timer", encoder);
 
-	BufferDescriptor indirectBufferDesc = Default;
-	indirectBufferDesc.size = sizeof(DAIC) * chunkRenderData.first.size();
-	indirectBufferDesc.mappedAtCreation = false;
-	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
-	Buffer indirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	
 	if (chunkRenderData.first.size() > 0) {
-		context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), indirectBufferDesc.size);
+		context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), chunkRenderData.first.size() * sizeof(DAIC));
 	}
-
-	BufferDescriptor shadowIndirectBufferDesc = Default;
-	shadowIndirectBufferDesc.size = sizeof(DAIC) * chunkRenderData.second.size();
-	shadowIndirectBufferDesc.mappedAtCreation = false;
-	shadowIndirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
-	Buffer shadowIndirectBuffer = context->getDevice().createBuffer(shadowIndirectBufferDesc);
+	
 	if (chunkRenderData.second.size() > 0) {
-		context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), shadowIndirectBufferDesc.size);
+		context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), chunkRenderData.second.size() * sizeof(DAIC));
 	}
 
 
@@ -587,7 +590,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		renderPassColorAttachment.resolveTarget = targetView;
 		renderPassColorAttachment.loadOp = LoadOp::Clear;
 		renderPassColorAttachment.storeOp = StoreOp::Store;
-		renderPassColorAttachment.clearValue = Color{ 0.0, 0.0, 0.0, 1.0 };
+		renderPassColorAttachment.clearValue = Color{ 0.5, 0.5, 0.6, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
 		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif
@@ -610,7 +613,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
-		voxelRenderPass.setPipeline(pipelineManager->getPipeline("voxel_pipeline"));
+		voxelRenderPass.setPipeline(pipelineManager->getPipeline("transparent_voxel_pipeline"));
 		voxelRenderPass.setBindGroup(0, pipelineManager->getBindGroup("global_uniforms_group"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, textureManager->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, bufferManager->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
@@ -690,8 +693,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 		imguiRenderPass.release();
 	}
 
-	indirectBuffer.release();
-	shadowIndirectBuffer.release();
+
 
 	// End frame timing
 	benchmarkManager->endFrame("frame_timer", encoder);
@@ -1546,6 +1548,9 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 }
 
 void WebGPURenderer::terminate() {
+	indirectBuffer.release();
+	shadowIndirectBuffer.release();
+
 	textureManager->terminate();
 	textureManager->terminate();
 	pipelineManager->terminate();
