@@ -132,7 +132,7 @@ private:
     std::atomic<uint64_t> currentFrame{ 0 };
 
     // Configuration
-    static constexpr uint64_t MAX_CACHE_AGE = 1000; // Frames before cache expires
+    static constexpr uint64_t MAX_CACHE_AGE = 150; // Frames before cache expires
     static constexpr float MATRIX_CHANGE_THRESHOLD = 0.01f;
 
     // Performance tracking
@@ -445,10 +445,10 @@ public:
                 if (bucket->chunkColumns.empty()) continue;
 
                 // Early frustum cull entire bucket
-                bool bucketInCameraFrustum = cameraFrustum.isCubeInside(bucket->boundsMin,
-                    glm::length(bucket->boundsMax - bucket->boundsMin));
-                bool bucketInShadowFrustum = shadowFrustum.isCubeInside(bucket->boundsMin,
-                    glm::length(bucket->boundsMax - bucket->boundsMin));
+                bool bucketInCameraFrustum =
+                    cameraFrustum.isAABBInside(bucket->boundsMin, bucket->boundsMax);
+                bool bucketInShadowFrustum =
+                    shadowFrustum.isAABBInside(bucket->boundsMin, bucket->boundsMax);
 
                 if (!bucketInCameraFrustum && !bucketInShadowFrustum) {
                     stats.chunksCulled += bucket->chunkColumns.size();
@@ -521,7 +521,7 @@ public:
         auto& cache = **cacheEntry;
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 8.0f, 32.0f, 64.0f, 1024.0f };
+        std::vector<float> lodDistances = { 5.0f, 18.0f, 38.0f, 1024.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         // Calculate current LOD level
@@ -538,10 +538,10 @@ public:
             stats.cacheHits++;
 
             // Early column-level frustum culling using bounds
-            bool columnInCameraFrustum = cameraFrustum.isCubeInside(cache.columnBoundsMin, 
-                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
-            bool columnInShadowFrustum = shadowFrustum.isCubeInside(cache.columnBoundsMin,
-                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
+            bool columnInCameraFrustum =
+                cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
+            bool columnInShadowFrustum =
+                shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
             
             // Skip individual chunk tests if entire column is outside frustum
             if (columnInCameraFrustum || columnInShadowFrustum) {
@@ -572,7 +572,7 @@ public:
             }*/
 
             // Generate new cache data
-            regenerateChunkCache(column, chunkPos, currentLodLevel, view, proj,
+            regenerateChunkCache(column, chunkPos, currentLodLevel, cameraPos, view, proj,
                 lightView, lightProj, cache, buf);
 
             // Early column-level frustum culling using bounds  
@@ -603,6 +603,7 @@ public:
         std::shared_ptr<ChunkColumn> column,
         const ivec2& chunkPos,
         int lodLevel,
+        vec3 cameraPos,
         glm::mat4x4 view,
         glm::mat4x4 proj,
         glm::mat4x4 lightView,
@@ -619,7 +620,7 @@ public:
         getDAICsCount++;
         
         const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& columnDAICs =
-            column->getDAICs(lodLevel, buf);
+            column->getDAICs(lodLevel, buf, cameraPos);
 
         // Clear cache vectors
         cache.cameraDAICs.clear();

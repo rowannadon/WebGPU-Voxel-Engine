@@ -16,22 +16,39 @@ bool WebGPURenderer::initialize() {
 	textureManager->createTexturePool("texture_pool_light");
 	bufferManager->createBufferPool("chunkdata_pool");
 
-	// 2. Create storage buffer pool with custom size classes
-	std::vector<std::pair<int, int>> sizeClasses = {
-		{16, 24390/4},
-		{32, 9157/4},
-		{64, 30382/4},
-		{128, 6333/4},
-		{256, 26445/4},
-		{512, 8324/4},
-		{1024, 12486/4},
-		{2048, 7124/4},
-		{4096, 10686/4},
-		{16384, 16663/4},
-		{65536, 1185/4},
-	};
+	// Baseline derived from your three snapshots: target ~65% peak utilization.
+	struct SizeClassCfg { int faces; int baseCount; };
 
-	auto storagePool = bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);
+	static const std::array<SizeClassCfg, 11> kBaseline = { {
+		{ 16,     9771 },
+		{ 32,     4234 },
+		{ 64,    12200 },
+		{ 128,    4579 },
+		{ 256,   13445 },
+		{ 512,    3094 },
+		{ 1024,  11748 },
+		{ 2048,   4250 },
+		{ 4096,   3404 },
+		{ 16384,  3760 },
+		{ 65536,    16 }, // was 1185 and never used; keep tiny safety tier or remove.
+	} };
+
+	// Single knob: <1.0 shrinks, >1.0 grows total pool, ratios remain constant.
+	float capacityScale = 5.0f;
+
+	// Optional safety: never drop below this many slots per class.
+	int minPerClass = 8;
+
+	std::vector<std::pair<int, int>> sizeClasses;
+	sizeClasses.reserve(kBaseline.size());
+	for (const auto& sc : kBaseline) {
+		int scaled = std::max(minPerClass, int(std::lround(sc.baseCount * capacityScale)));
+		sizeClasses.emplace_back(sc.faces, scaled);
+	}
+
+	auto storagePool =
+		bufferManager->createStorageBufferPoolWithSizeClasses("storage_pool", sizeClasses);
+
 	benchmarkManager->initialize();
 	benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 

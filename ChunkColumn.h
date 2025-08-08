@@ -2,7 +2,10 @@
 #ifndef CHUNK_COL
 #define CHUNK_COL
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include "glm/glm.hpp"
+#include "glm/gtx/norm.hpp"
 #include <webgpu/webgpu.hpp>
 #include <iostream>
 #include <vector>
@@ -17,6 +20,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <algorithm>
 #include "WorldGenerator.h"
 #include "Rendering/TextureManager.h"
 #include "Rendering/BufferManager.h"
@@ -170,7 +174,9 @@ private:
 
     bool daicsGenerated = false;
     int lastLodLevel = 0;
+    vec3 lastCameraPos = vec3(0.0f);
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> daics{ std::nullopt };
+    std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> sortedDaics{ std::nullopt };
 
 
     int currentLODLevel;
@@ -216,16 +222,24 @@ public:
         return treeData;
     }
 
-    const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& getDAICs(int lodLevel, BufferManager* buf) {
+    const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& getDAICs(int lodLevel, BufferManager* buf, vec3 cameraPos = vec3(0.0f)) {
         if (state.load() != ColumnState::Active) {
             return daics;
         }
 
+        // Check if cache needs invalidation due to LOD level or camera position change
+        bool needsRegeneration = false;
         if (lastLodLevel != lodLevel) {
-            daicsGenerated = false;
+            needsRegeneration = true;
+        }
+        
+        // Check if camera moved significantly enough to require re-sorting
+        float cameraMoveThreshold = 16.0f; // Half a chunk size
+        if (glm::length(cameraPos - lastCameraPos) > cameraMoveThreshold) {
+            needsRegeneration = true;
         }
 
-        if (!daicsGenerated) {
+        if (!daicsGenerated || needsRegeneration) {
             {
                 std::lock_guard<std::mutex> lock(meshDataMutex);
 
@@ -276,15 +290,49 @@ public:
                 }
 
                 daicsGenerated = true;
+                lastLodLevel = lodLevel;
+                lastCameraPos = cameraPos;
             }
+            
+            // Sort DAICs by depth for back-to-front rendering (transparent materials)
+            sortDAICsByDepth(cameraPos);
         }
 
-        lastLodLevel = lodLevel;
-
-        return daics;
+        return sortedDaics;
     }
 
 private:
+
+    void sortDAICsByDepth(const vec3& cameraPos) {
+        // Create a vector of indices paired with distances for sorting
+        std::vector<std::pair<float, int>> daicDistances;
+        daicDistances.reserve(COLUMN_HEIGHT);
+        
+        // Collect valid DAICs and calculate distances
+        for (int i = 0; i < COLUMN_HEIGHT; i++) {
+            if (daics[i].has_value()) {
+                const ivec3& chunkPos = daics[i].value().first;
+                vec3 chunkCenter = vec3(chunkPos) + vec3(16.0f, 16.0f, 16.0f); // Center of 32x32x32 chunk
+                float distanceSquared = glm::length2(chunkCenter - cameraPos);
+                daicDistances.emplace_back(distanceSquared, i);
+            }
+        }
+        
+        // Sort by distance in descending order (furthest first for back-to-front rendering)
+        std::sort(daicDistances.begin(), daicDistances.end(),
+                  [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                      return a.first > b.first; // Descending order
+                  });
+        
+        // Clear the sorted array and repopulate in sorted order
+        sortedDaics.fill(std::nullopt);
+        
+        // Place sorted DAICs back into the array maintaining original indices for rendering order
+        for (size_t sortedIdx = 0; sortedIdx < daicDistances.size(); sortedIdx++) {
+            int originalIdx = daicDistances[sortedIdx].second;
+            sortedDaics[sortedIdx] = daics[originalIdx];
+        }
+    }
 
     void initializeMeshBuffer(const int zPos, BufferManager* buf) {
         if (meta[zPos].meshBufferGPUInitialized) {
@@ -1505,41 +1553,134 @@ public:
             };
 
         // Face culling function
-        auto shouldCullLODFace = [&](ivec3 groupPos, int faceIndex, int lodLevel, bool transparent) -> bool {
-            ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
 
-            bool neighborInSameChunk = (neighborGroupPos.x >= 0 && neighborGroupPos.x < CHUNK_SIZE &&
-                neighborGroupPos.y >= 0 && neighborGroupPos.y < CHUNK_SIZE &&
-                neighborGroupPos.z >= 0 && neighborGroupPos.z < CHUNK_SIZE);
+// Quick material helpers
+        auto isLeaf = [](uint32_t t) -> bool {
+            return t == BlockType::Leaf;
+            };
+        auto isGrassBillboard = [](uint32_t t) -> bool {
+            return t == BlockType::TallGrass ||
+                t == BlockType::Grass0 ||
+                t == BlockType::Grass1 ||
+                t == BlockType::Grass2 ||
+                t == BlockType::Grass3 ||
+                t == BlockType::Grass4 ||
+                t == BlockType::Grass5;
+            };
 
-            if (neighborInSameChunk) {
-                return !isEmptyLODGroup(neighborGroupPos, lodLevel, transparent);
+        // Fetch a material safely across chunk boundaries (local coords: 0..CHUNK_SIZE-1)
+        auto getMaterialTypeSafe = [&](int zPosLocal, ivec3 posLocal) -> uint32_t {
+            // within current chunk
+            if (posLocal.x >= 0 && posLocal.x < CHUNK_SIZE &&
+                posLocal.y >= 0 && posLocal.y < CHUNK_SIZE &&
+                posLocal.z >= 0 && posLocal.z < CHUNK_SIZE) {
+                return getMaterialCompressed(zPosLocal, posLocal).materialType;
             }
 
-            // Check individual voxels for cross-chunk boundaries
-            for (int u = 0; u < lodLevel; ++u) {
-                for (int v = 0; v < lodLevel; ++v) {
-                    ivec3 faceOffset, neighborOffset;
-
-                    switch (faceIndex) {
-                    case 0: faceOffset = ivec3(lodLevel - 1, u, v); neighborOffset = ivec3(1, 0, 0); break;
-                    case 1: faceOffset = ivec3(0, u, v); neighborOffset = ivec3(-1, 0, 0); break;
-                    case 2: faceOffset = ivec3(u, lodLevel - 1, v); neighborOffset = ivec3(0, 1, 0); break;
-                    case 3: faceOffset = ivec3(u, 0, v); neighborOffset = ivec3(0, -1, 0); break;
-                    case 4: faceOffset = ivec3(u, v, lodLevel - 1); neighborOffset = ivec3(0, 0, 1); break;
-                    case 5: faceOffset = ivec3(u, v, 0); neighborOffset = ivec3(0, 0, -1); break;
-                    }
-
-                    ivec3 neighborVoxelPos = groupPos + faceOffset + neighborOffset;
-                    auto [hasSolid, hasTransparent] = getVoxelCached(neighborVoxelPos);
-                    bool isEmpty = transparent ? (!hasSolid) : (!hasSolid || hasTransparent);
-
-                    if (isEmpty) {
-                        return false;
-                    }
+            // vertical neighbors in same column
+            if (posLocal.x >= 0 && posLocal.x < CHUNK_SIZE &&
+                posLocal.y >= 0 && posLocal.y < CHUNK_SIZE) {
+                if (posLocal.z >= CHUNK_SIZE) {
+                    if (zPosLocal < COLUMN_HEIGHT - 1)
+                        return getMaterialCompressed(zPosLocal + 1, ivec3(posLocal.x, posLocal.y, posLocal.z - CHUNK_SIZE)).materialType;
+                    return 0;
+                }
+                else if (posLocal.z < 0) {
+                    if (zPosLocal > 0)
+                        return getMaterialCompressed(zPosLocal - 1, ivec3(posLocal.x, posLocal.y, posLocal.z + CHUNK_SIZE)).materialType;
+                    return 0;
                 }
             }
-            return true;
+
+            // horizontal neighbors (use neighbors[0..3])
+            ivec3 np = posLocal;
+            int ni = -1;
+            if (posLocal.x >= CHUNK_SIZE) { ni = 0; np.x -= CHUNK_SIZE; }
+            else if (posLocal.x < 0) { ni = 1; np.x += CHUNK_SIZE; }
+            else if (posLocal.y >= CHUNK_SIZE) { ni = 2; np.y -= CHUNK_SIZE; }
+            else if (posLocal.y < 0) { ni = 3; np.y += CHUNK_SIZE; }
+
+            if (ni >= 0 && neighbors[ni] && neighbors[ni]->getState() != ColumnState::Unloading) {
+                if (np.x >= 0 && np.x < CHUNK_SIZE && np.y >= 0 && np.y < CHUNK_SIZE && np.z >= 0 && np.z < CHUNK_SIZE) {
+                    return neighbors[ni]->getMaterialCompressed(zPosLocal, np).materialType;
+                }
+            }
+            return 0; // air
+            };
+
+        // --- replace your existing shouldCullLODFace with this version -----------------
+
+        auto shouldCullLODFace = [&](ivec3 groupPos,
+            int faceIndex,
+            int lodLevel,
+            bool transparentPass,
+            uint32_t currentMatType) -> bool
+            {
+                // Rule 1: No culling for grass billboards and leaves
+                if (isLeaf(currentMatType) || isGrassBillboard(currentMatType)) {
+                    return false;
+                }
+
+                ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
+
+                auto cullTransparentIfSame = [&](ivec3 nPosSameChunk) -> bool {
+                    // neighbor LOD group (same chunk) � use cached sampling
+                    auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/true);
+                    return nOcc && (nMat.materialType == currentMatType);
+                    };
+
+                auto cullSolidIfSolid = [&](ivec3 nPosSameChunk) -> bool {
+                    auto [nOcc, _] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/false);
+                    return nOcc; // "solid" pass occupancy means neighbor has solid -> cull
+                    };
+
+                bool neighborInSameChunk =
+                    (neighborGroupPos.x >= 0 && neighborGroupPos.x < CHUNK_SIZE &&
+                        neighborGroupPos.y >= 0 && neighborGroupPos.y < CHUNK_SIZE &&
+                        neighborGroupPos.z >= 0 && neighborGroupPos.z < CHUNK_SIZE);
+
+                if (neighborInSameChunk) {
+                    if (transparentPass) {
+                        // Rule 2: transparent culls only when neighbor material matches
+                        return cullTransparentIfSame(neighborGroupPos);
+                    }
+                    else {
+                        // Rule 3: solid culls when neighbor is also solid
+                        return cullSolidIfSolid(neighborGroupPos);
+                    }
+                }
+
+                // Cross-chunk boundary: check the actual voxels along the face
+                // We cull the whole face only if ALL the neighboring voxels meet the cull condition.
+                for (int u = 0; u < lodLevel; ++u) {
+                    for (int v = 0; v < lodLevel; ++v) {
+                        ivec3 faceOffset, neighborOffset;
+                        switch (faceIndex) {
+                        case 0: faceOffset = ivec3(lodLevel - 1, u, v); neighborOffset = ivec3(1, 0, 0); break;
+                        case 1: faceOffset = ivec3(0, u, v);           neighborOffset = ivec3(-1, 0, 0); break;
+                        case 2: faceOffset = ivec3(u, lodLevel - 1, v); neighborOffset = ivec3(0, 1, 0); break;
+                        case 3: faceOffset = ivec3(u, 0, v);           neighborOffset = ivec3(0, -1, 0); break;
+                        case 4: faceOffset = ivec3(u, v, lodLevel - 1); neighborOffset = ivec3(0, 0, 1); break;
+                        default: // 5
+                            faceOffset = ivec3(u, v, 0);            neighborOffset = ivec3(0, 0, -1); break;
+                        }
+
+                        ivec3 neighborVoxelPos = groupPos + faceOffset + neighborOffset;
+                        auto [nHasSolid, nHasTransp] = getVoxelCached(neighborVoxelPos);
+
+                        if (transparentPass) {
+                            // Must be a transparent neighbor with the SAME material, otherwise don't cull
+                            if (!nHasTransp) return false;
+                            uint32_t nMatType = getMaterialTypeSafe(zPos, neighborVoxelPos);
+                            if (nMatType != currentMatType) return false;
+                        }
+                        else {
+                            // Solid pass: neighbor must be solid, otherwise don't cull
+                            if (!nHasSolid) return false;
+                        }
+                    }
+                }
+                return true; // all neighbor checks matched the cull condition
             };
 
         // AO calculation function
@@ -1655,7 +1796,9 @@ public:
 
                                             if (shouldAdd && groupIsSolid) {
                                                 for (int face = 0; face < faces; ++face) {
-                                                    if (faces == 2 || !shouldCullLODFace(groupPos, face, lodLevel, transparent)) {
+                                                    if (faces == 2 || // billboards (grass) � always render
+                                                        !shouldCullLODFace(groupPos, face, lodLevel, /*transparentPass=*/transparent,
+                                                            groupMaterial.materialType)) {
                                                         std::array<uint32_t, 4> aoValues;
                                                         for (int vertex = 0; vertex < 4; ++vertex) {
                                                             aoValues[vertex] = calculateAmbientOcclusion(groupPos, face, vertex, lodLevel, transparent);
@@ -1664,13 +1807,9 @@ public:
                                                         FaceAttributes currentFace;
                                                         currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
                                                         currentFace.materialId = groupMaterial.materialType;
-
                                                         faceData[meshSlot][zPos].push_back(currentFace);
 
-                                                        if (doubleSided && false) {
-                                                            currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x1, lodLevel);
-                                                            faceData[meshSlot][zPos].push_back(currentFace);
-                                                        }
+                                                        // (double-sided for leaves still disabled as in your code)
                                                     }
                                                 }
                                             }

@@ -23,6 +23,36 @@ const WIND_FREQUENCY: f32 = 6.0;       // Wind wave frequency
 const WIND_SPEED: f32 = 4.0;           // Wind animation speed
 const WIND_DIRECTION: vec2f = vec2f(1.0, 0.3); // Wind direction (x, z)
 
+// --- Stylized water settings (tweak away) ---
+const WATER_BASE_ALPHA: f32      = 0.62;   // Base transparency when looking straight down
+const WATER_FRESNEL_POWER: f32   = 5.0;    // Stronger = more opaque at grazing angles
+const WATER_FRESNEL_STRENGTH: f32= 0.85;   // Fresnel intensity scaling
+const WATER_TINT_SHALLOW: vec3f  = vec3f(0.12, 0.30, 0.38);
+const WATER_TINT_DEEP: vec3f     = vec3f(0.02, 0.06, 0.12);
+const WATER_SKY_COLOR: vec3f     = vec3f(0.55, 0.70, 0.95); // very cheap "reflection" color
+
+const WATER_WAVE_AMPLITUDE: f32  = 0.04;   // Height of wave function (for normals/foam only)
+const WATER_WAVE_LENGTH: f32     = 6.0;    // Larger = broader waves
+const WATER_WAVE_SPEED: f32      = 5.0;    // Wave animation speed
+const WATER_NORMAL_STRENGTH: f32 = 0.99;    // How hard the waves bend the normal
+const WATER_UV_DISTORTION: f32   = 0.05;   // Distort the *existing* water texture
+
+const WATER_FLOW_DIR0: vec2f     = normalize(vec2f(0.8, 0.2));
+const WATER_FLOW_DIR1: vec2f     = normalize(vec2f(-0.35, 1.0));
+const WATER_FLOW_SPEED0: f32     = 0.03;
+const WATER_FLOW_SPEED1: f32     = -0.02;
+
+const WATER_FOAM_COLOR: vec3f    = vec3f(0.95, 0.97, 1.0);
+const WATER_FOAM_INTENSITY: f32  = 0.35;
+const WATER_FOAM_THRESHOLD: f32  = 0.65;
+
+// --- Noise-based waves ---
+const WATER_NOISE_FREQ: f32          = 1.0 / 4.0; // base world scale of waves
+const WATER_DOMAIN_WARP_STRENGTH: f32= 1.4;        // breaks repetition
+const WATER_FBM_OCTAVES: i32         = 4;          // 3-5 is plenty
+const WATER_FBM_GAIN: f32            = 0.5;        // amplitude falloff per octave
+const WATER_FBM_LACUNARITY: f32      = 2.0;        // frequency multiplier per octave
+
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
     @builtin(vertex_index) vertex_idx: u32,
@@ -363,7 +393,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 19>(
         vec3f(0.0),              // No emission
         1.0,                      // High normals for leaf vein texture
         0.7,                      // Lower AO for thin material
-        0.5,                     // High subsurface for leaf translucency
+        0.8,                     // High subsurface for leaf translucency
         0.0,                      // No clearcoat
         0.0,
         LEAF_MODEL,
@@ -483,16 +513,17 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 19>(
         GRASS_MODEL,
         false
     ),
+    // Water material
     PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
+        vec3f(0.5, 0.5, 0.5), 
         0.0,                      // Non-metallic
-        0.01,                      // Very rough leaf surface
-        0.3,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.2,                      // Lower AO for thin material
-        0.15,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
+        0.2,                   
+        0.02,                
+        vec3f(0.0),       
+        1.0,                 
+        0.2,             
+        0.15,                  
+        0.0,  
         0.0,
         VOXEL_MODEL,
         true
@@ -802,12 +833,12 @@ const faceNormalsLeaf: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
 
 const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
     array<vec3<f32>, 4>(
-        vec3<f32>(-0.207, -0.207, 0.0), vec3<f32>(-0.207, -0.207, 1.414), 
-        vec3<f32>(1.207, 1.207, 1.414), vec3<f32>(1.207, 1.207, 0.0)
+        vec3<f32>(-0.207, -0.207, 0.0), vec3<f32>(-0.207, -0.207, 1.585), 
+        vec3<f32>(1.207, 1.207, 1.585), vec3<f32>(1.207, 1.207, 0.0)
     ),
     array<vec3<f32>, 4>(
-        vec3<f32>(-0.207, 1.207, 1.414), vec3<f32>(-0.207, 1.207, 0.0), 
-        vec3<f32>(1.207, -0.207, 0.0), vec3<f32>(1.207, -0.207, 1.414)
+        vec3<f32>(-0.207, 1.207, 1.585), vec3<f32>(-0.207, 1.207, 0.0), 
+        vec3<f32>(1.207, -0.207, 0.0), vec3<f32>(1.207, -0.207, 1.585)
     )
 );
 
@@ -1182,9 +1213,9 @@ fn calculate_pbr_lighting(
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
-            let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
-            let subsurface_distortion = 0.0;  // How much the light bends through the material
-            let subsurface_scale = 0.75;  // Overall intensity scale
+            let subsurface_power = 3.0;  // Controls the falloff of the subsurface effect
+            let subsurface_distortion = 0.2;  // How much the light bends through the material
+            let subsurface_scale = 1.25;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -1243,6 +1274,91 @@ fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
     return rotated_uv + 0.5;
 }
 
+struct Noise2D { v: f32, d: vec2f } // value and derivative
+
+fn hash12(p: vec2f) -> f32 {
+    // tiny, fast, repeatable
+    let h = dot(p, vec2f(127.1, 311.7));
+    return fract(sin(h) * 43758.5453123);
+}
+
+fn value_noise2d_with_deriv(p: vec2f) -> Noise2D {
+    let i = floor(p);
+    let f = fract(p);
+
+    let a = hash12(i);
+    let b = hash12(i + vec2f(1.0, 0.0));
+    let c = hash12(i + vec2f(0.0, 1.0));
+    let d = hash12(i + vec2f(1.0, 1.0));
+
+    let u  = f * f * (3.0 - 2.0 * f);          // smoothstep
+    let du = 6.0 * f * (1.0 - f);              // derivative of smoothstep
+
+    let x1 = mix(a, b, u.x);
+    let x2 = mix(c, d, u.x);
+    let v  = mix(x1, x2, u.y);
+
+    let dv_dx = mix(b - a, d - c, u.y) * du.x;
+    let dv_dy = mix(c - a, d - b, u.x) * du.y;
+
+    return Noise2D(v, vec2f(dv_dx, dv_dy));
+}
+
+fn fbm2d_with_deriv(p0: vec2f) -> Noise2D {
+    var v   = 0.0;
+    var d   = vec2f(0.0);
+    var amp = 0.5;
+    var freq = 1.0;
+
+    // fixed loop for WGSL
+    for (var o = 0; o < 4; o++) {
+        let p = p0 * freq;
+        let n = value_noise2d_with_deriv(p);
+        v += amp * n.v;
+        d += amp * n.d * freq; // chain rule
+        amp *= WATER_FBM_GAIN;
+        freq *= WATER_FBM_LACUNARITY;
+    }
+    return Noise2D(v, d);
+}
+
+fn domain_warp(p: vec2f, t: f32) -> vec2f {
+    // two animated warps to kill any residual patterning
+    let w1 = value_noise2d_with_deriv(p * 0.75 + vec2f( 0.08*t,  0.02*t)).v;
+    let w2 = value_noise2d_with_deriv(p * 1.35 + vec2f(-0.03*t,  0.06*t)).v;
+    return p + (vec2f(w1, w2) - 0.5) * WATER_DOMAIN_WARP_STRENGTH;
+}
+
+fn wave_gradient(p_world_xy: vec2f, t: f32) -> vec2f {
+    // advection (flow)
+    var p = (p_world_xy
+            + WATER_FLOW_DIR0 * (t * WATER_FLOW_SPEED0)
+            + WATER_FLOW_DIR1 * (t * WATER_FLOW_SPEED1)) * WATER_NOISE_FREQ;
+
+    // warp, then FBM
+    p = domain_warp(p, t);
+    let n = fbm2d_with_deriv(p);
+
+    // scale to slope
+    return n.d * WATER_WAVE_AMPLITUDE * 1.5;
+}
+
+fn water_normal_from_grad(grad: vec2f) -> vec3f {
+    // Z-up surface
+    return normalize(vec3f(-grad.x * WATER_NORMAL_STRENGTH,
+                           -grad.y * WATER_NORMAL_STRENGTH,
+                            1.0));
+}
+
+fn water_foam_from_grad(p_world_xy: vec2f, t: f32, grad_len: f32) -> f32 {
+    // crest = steep + some high-freq breakup
+    let hf = value_noise2d_with_deriv((p_world_xy * WATER_NOISE_FREQ * 6.0)
+                                      + vec2f(0.2*t, -0.1*t)).v;
+    let crest = smoothstep(WATER_FOAM_THRESHOLD, WATER_FOAM_THRESHOLD + 0.5, grad_len);
+    let breakup = smoothstep(0.35, 0.8, hf);
+    return clamp(crest * breakup, 0.0, 1.0);
+}
+
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
@@ -1298,11 +1414,36 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     }
 
-    if (material_id == 19) {
-        blendState = 0.5;
-    }
-
     var uv = in.uv;
+
+    var waterTint: vec3f = vec3f(1.0);
+    var foam: f32 = 0.0;
+    var fresnelTerm: f32 = 0.0;
+
+    if (material_id == 19u) {
+    let p = in.world_position.xy; // Z-up
+    let t = uMyUniforms.time;
+
+    // Noise-driven slope + normal
+    let grad = wave_gradient(p, t);
+    let wN = water_normal_from_grad(grad);
+    normal = normalize(mix(normal, wN, 0.85));
+
+    // Distort existing texture with the noise slope
+    uv += grad * WATER_UV_DISTORTION;
+
+    // Fresnel-based transparency as before
+    let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
+    fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
+    blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
+
+    // Depth-ish tint from choppiness
+    let slope = length(grad);
+    waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
+
+    // Foam from steep crests (uses the same procedural noise)
+    foam = water_foam_from_grad(p, t, slope);
+}
 
     if (materialProps.random_rotation == true) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
@@ -1328,12 +1469,18 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
 
-    if (textureColor.a < 0.9) {
+    if (material_id != 19u && textureColor.a < 0.9) {
         discard;
     }
 
     // Combine material albedo with texture
-    let albedo = materialProps.albedo * textureColor.rgb;
+    var albedo = materialProps.albedo * textureColor.rgb;
+
+    if (material_id == 19u) {
+        let transmitted = textureColor.rgb * waterTint;
+        let simpleSkyReflect = WATER_SKY_COLOR; // cheap env reflection approximation
+        albedo = mix(transmitted, simpleSkyReflect, 0.15);
+    }
     
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
@@ -1382,6 +1529,15 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     // Add emission if present
     finalColor += materialProps.emission;
+
+    if (material_id == 19u) {
+        // Fresnel reflection of a cheap sky color
+        let reflectionColor = WATER_SKY_COLOR * (0.5 + 0.5 * pow(max(dot(normalize(normal), normalize(-sunDirection)), 0.0), 8.0));
+        finalColor = mix(finalColor * waterTint, reflectionColor, fresnelTerm);
+
+        // Foam over the top (additive-ish via mix)
+        finalColor = mix(finalColor, WATER_FOAM_COLOR, foam * WATER_FOAM_INTENSITY);
+    }
     
     // Apply chunk edge highlighting
     // if (in.chunk_edge_factor > 0.0) {
