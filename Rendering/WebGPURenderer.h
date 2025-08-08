@@ -9,6 +9,16 @@
 #include "WebGPUContext.h"
 #include "../ChunkColumn.h"
 #include "BenchmarkManager.h"
+#include "Pipelines/AerialPerspectivePipeline.h"
+#include "Pipelines/TransmittancePipeline.h"
+#include "Pipelines/VoxelPipeline.h"
+#include "Pipelines/MultiScatteringPipeline.h"
+#include "Pipelines/NoisePipeline.h"
+#include "Pipelines/SkyViewPipeline.h"
+#include "Pipelines/TerrainPipeline.h"
+#include "Pipelines/SkyPipeline.h"
+#include "Pipelines/ShadowPipeline.h"
+#include "Pipelines/TransparentVoxelPipeline.h"
 #include "../Atmosphere.h"
 #include "../Noise.h"
 #include "../Terrain.h"
@@ -43,38 +53,23 @@ public:
 
     void registerMovementCallbacks();
 
-    // textures
-	bool initTransmittanceTexture();
-    bool initMultiScatteringTexture();
-    bool initSkyViewTexture();
-	bool initAerialPerspectiveTexture();
-    bool initNoiseTextures();
-    bool initMultiSampleTexture();
-    bool initDepthTexture();
-    bool initShadowTexture();
-
-
     // pipelines
-    bool initNoisePipeline();
-    bool initTransmittancePipeline();
-	bool initMultiScatteringPipeline();
-    bool initSkyViewPipeline();
-	bool initAerialPerspectivePipeline();
-    bool initSkyPipeline();
-    bool initRenderPipeline();
-    bool initShadowPipeline();
-    bool initAlphaTransparentPipeline();
-    bool initTerrainPipeline();
-    bool initTerrainTexture();
-
+    AerialPerspectivePipeline aerialPerspectivePipeline;
+    MultiScatteringPipeline multiScatteringPipeline;
+    NoisePipeline noisePipeline;
+    ShadowPipeline shadowPipeline;
+    SkyPipeline skyPipeline;
+    SkyViewPipeline skyViewPipeline;
+    TerrainPipeline terrainPipeline;
+    TransmittancePipeline transmittancePipeline;
+    VoxelPipeline voxelPipeline;
+    TransparentVoxelPipeline transparentVoxelPipeline;
 
     bool initTextures();
+    bool initSharedUniformBuffers();
+    bool initBindGroups();
 
-    // uniforms
-    bool initUniformBuffers();
-
-    // bind groups
-    bool initBindGroup();
+    void recreateRenderingTextures();
 
     PipelineManager* getPipelineManager();
     BufferManager* getBufferManager();

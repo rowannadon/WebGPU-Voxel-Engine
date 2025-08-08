@@ -1,3 +1,6 @@
+#ifndef ATMOSPHERE
+#define ATMOSPHERE
+
 #include "glm/glm.hpp"
 
 using glm::vec3;
@@ -124,3 +127,5 @@ inline Atmosphere getDefaultAtmosphere() {
 
 	return atmosphere;
 }
+
+#endif

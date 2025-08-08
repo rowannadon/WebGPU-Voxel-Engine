@@ -17,7 +17,50 @@ add_subdirectory(glfw3webgpu)
 add_subdirectory(FastNoise2)
 add_subdirectory(imgui)
 
-add_executable(App main.cpp ResourceManager.cpp Application.cpp Application.h "ChunkColumn.h" "ChunkColumnManager.h" "ChunkWorkerSystem.h" "WorldGenerator.h" "Rendering/WebGPURenderer.h" "Rendering/WebGPURenderer.cpp" "Rendering/PipelineManager.h" "Rendering/BufferManager.h" "Rendering/TextureManager.h" "Rendering/WebGPUContext.h" "VertexAttributes.h" "Rendering/TextureManager.cpp" "Rendering/PipelineManager.cpp" "Rendering/BufferManager.cpp" "Rendering/WebGPUContext.cpp" "Rendering/MeshBufferPool.h" "Rendering/TexturePool.h" "VoxelMaterial.h" "ChunkData.h" "Rendering/BufferPool.h" "Uniforms.h" "Frustum.h" "Rendering/BenchmarkManager.cpp" "Atmosphere.h" "Noise.h" "Terrain.h" "Rendering/StorageBufferPool.h" "FaceAttributes.h" "RunLengthEncoder.h")
+add_executable(
+    App 
+    main.cpp 
+    ResourceManager.cpp 
+    Application.cpp 
+    Application.h 
+    "ChunkColumn.h" 
+    "ChunkColumnManager.h" 
+    "ChunkWorkerSystem.h" 
+    "WorldGenerator.h" 
+    "Rendering/WebGPURenderer.h" 
+    "Rendering/WebGPURenderer.cpp" 
+    "Rendering/PipelineManager.h" 
+    "Rendering/BufferManager.h" 
+    "Rendering/TextureManager.h" 
+    "Rendering/WebGPUContext.h" 
+    "VertexAttributes.h" 
+    "Rendering/TextureManager.cpp" 
+    "Rendering/PipelineManager.cpp" 
+    "Rendering/BufferManager.cpp" 
+    "Rendering/WebGPUContext.cpp" 
+    "Rendering/MeshBufferPool.h" 
+    "Rendering/TexturePool.h" 
+    "VoxelMaterial.h" 
+    "ChunkData.h" 
+    "Rendering/BufferPool.h" 
+    "Uniforms.h" 
+    "Frustum.h" 
+    "Rendering/BenchmarkManager.cpp" 
+    "Atmosphere.h" 
+    "Noise.h" 
+    "Terrain.h" 
+    "Rendering/StorageBufferPool.h" 
+    "FaceAttributes.h" 
+    "RunLengthEncoder.h" 
+    "Rendering/Pipelines/AerialPerspectivePipeline.h" 
+    "Rendering/Pipelines/TransmittancePipeline.h" 
+    "Rendering/Pipelines/VoxelPipeline.h" 
+    "Rendering/Pipelines/MultiScatteringPipeline.h" 
+    "Rendering/Pipelines/NoisePipeline.h" 
+    "Rendering/Pipelines/SkyViewPipeline.h" 
+    "Rendering/Pipelines/TerrainPipeline.h" 
+    "Rendering/Pipelines/SkyPipeline.h" 
+    "Rendering/Pipelines/ShadowPipeline.h" "Rendering/Pipelines/TransparentVoxelPipeline.h" "Rendering/ModelManager.h" "Rendering/ModelManager.cpp")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.

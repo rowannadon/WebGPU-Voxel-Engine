@@ -688,11 +688,10 @@ void Application::onResize() {
     gpu.getContext()->configureSurface();
 
     // Re-create textures with new dimensions
-    gpu.initMultiSampleTexture();
-    gpu.initDepthTexture();
+    gpu.recreateRenderingTextures();
 
     // CRITICAL: Recreate the sky bind group with the new depth texture
-    gpu.initBindGroup();  // This will recreate all bind groups including sky_uniforms_group
+    gpu.initBindGroups();  // This will recreate all bind groups including sky_uniforms_group
 
     // Update projection matrix
     updateProjectionMatrix(camera.zoom);

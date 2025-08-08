@@ -1,3 +1,5 @@
+#ifndef NOISE
+#define NOISE
 #include "glm/glm.hpp"
 
 using glm::vec3;
@@ -77,3 +79,5 @@ inline Noise getCumulusBlueNoise(int seed) {
 
 	return noise;
 }
+
+#endif
