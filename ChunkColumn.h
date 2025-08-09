@@ -1127,7 +1127,7 @@ public:
                                         material.materialType = BlockType::TallGrass; // grass
                                     }
                                     else if (blockHash % 8 == 1) {
-                                        material.materialType = BlockType::Grass0; // grass
+                                        material.materialType = BlockType::Fern; // grass
                                     }
                                     else if (blockHash % 8 == 2) {
                                         material.materialType = BlockType::Grass0; // grass
@@ -1790,6 +1790,13 @@ public:
                                                 groupMaterial.materialType == BlockType::Grass4 ||
                                                 groupMaterial.materialType == BlockType::Grass5) {
                                                 faces = 2;
+                                                if (!includeGrass) {
+                                                    shouldAdd = false;
+                                                }
+                                            }
+
+                                            if (groupMaterial.materialType == BlockType::Fern) {
+                                                faces = 12;
                                                 if (!includeGrass) {
                                                     shouldAdd = false;
                                                 }

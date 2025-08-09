@@ -262,17 +262,20 @@ bool WebGPURenderer::initSharedUniformBuffers() {
 	atmosphereBufferDesc.mappedAtCreation = false;
 	Buffer atmosphereBuffer = bufferManager->createBuffer("atmosphere_buffer", atmosphereBufferDesc);
 
-	BufferDescriptor materialBufferDesc;
-	materialBufferDesc.size = sizeof(MaterialProperties) * 100;
-	materialBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	materialBufferDesc.mappedAtCreation = false;
-	Buffer materialBuffer = bufferManager->createBuffer("material_buffer", materialBufferDesc);
+
 
 
 	return uniformBuffer != nullptr && atmosphereBuffer != nullptr;
 }
 
 bool WebGPURenderer::initTextures() {
+
+	BufferDescriptor materialBufferDesc;
+	materialBufferDesc.size = sizeof(MaterialProperties) * 100;
+	materialBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	materialBufferDesc.mappedAtCreation = false;
+	Buffer materialBuffer = bufferManager->createBuffer("material_buffer", materialBufferDesc);
+
 	SamplerDescriptor lutSamplerDesc;
 	lutSamplerDesc.addressModeU = AddressMode::ClampToEdge;
 	lutSamplerDesc.addressModeV = AddressMode::ClampToEdge;
@@ -298,12 +301,18 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("block_array_sampler", samplerDesc);
-
-	modelManager->createModel("leaf_model", RESOURCE_DIR "/fern2.obj");
+	
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model.obj");
+	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model.obj");
+	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
 	modelManager->writeModelsToBuffer();
 
-	Texture blockTextureArray = textureManager->loadTextureArray("block_array", "block_array_view", RESOURCE_DIR "/textures/");
+	textureManager->setModelOffsetResolver([mod = modelManager.get()](std::string_view modelName) -> uint32_t {
+		return mod->getModelOffsetInBuffer(std::string(modelName));
+		});
 
+	Texture blockTextureArray = textureManager->loadTextureArray("block_array", "block_array_view", RESOURCE_DIR "/textures/");
+	
 	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 
 	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/rgba_noise_256.png");

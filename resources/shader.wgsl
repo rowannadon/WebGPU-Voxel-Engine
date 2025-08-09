@@ -173,6 +173,7 @@ struct PBRMaterialProperties {
 const VOXEL_MODEL = 0;
 const LEAF_MODEL = 1;
 const GRASS_MODEL = 2;
+const FERN_MODEL = 3;
 
 struct Atmosphere {
     rayleigh_scattering: vec3<f32>,
@@ -199,7 +200,39 @@ struct Atmosphere {
     padding: f32
 }
 
-// Updated constants - remove hardcoded slot size
+struct PBRMaterialPropertiesUniform {
+    // 16 bytes
+    albedo    : vec3f,
+    metallic  : f32,
+
+    // 16 bytes
+    emission  : vec3f,
+    roughness : f32,
+
+    // 16 bytes
+    dielectric: f32,
+    normal    : f32,
+    AO        : f32,
+    subsurface: f32,
+
+    // 16 bytes
+    clearcoat           : f32,
+    clearcoatRoughness  : f32,
+    _pad0               : f32,   // padding to 16B
+    _pad1               : f32
+};
+
+// Matches C++ MaterialProperties (pbr + 16 bytes of scalars)
+struct MaterialProperties {
+    pbr            : PBRMaterialPropertiesUniform,
+
+    // pack these four scalars as 16 bytes total
+    randomRotation : u32,  // 0/1 instead of bool
+    modelOffset    : u32,
+    id             : u32,
+    modelId          : u32   // padding
+};
+
 const NUM_TOTAL_SLOTS = 64000;
 const NUM_TOTAL_QUADS = 10000;
 
@@ -216,16 +249,17 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
 @group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
-@group(0) @binding(2) var textureArray: texture_2d_array<f32>;
-@group(0) @binding(3) var textureSampler: sampler;
-@group(0) @binding(4) var shadowMap: texture_depth_2d;
-@group(0) @binding(5) var shadowSampler: sampler_comparison;
+@group(0) @binding(2) var<uniform> material_buffer: array<MaterialProperties, 100>;
+@group(0) @binding(3) var textureArray: texture_2d_array<f32>;
+@group(0) @binding(4) var textureSampler: sampler;
+@group(0) @binding(5) var shadowMap: texture_depth_2d;
+@group(0) @binding(6) var shadowSampler: sampler_comparison;
 
-@group(0) @binding(6) var lut_sampler: sampler;
-@group(0) @binding(7) var transmittance_lut: texture_2d<f32>;
-@group(0) @binding(8) var sky_view_lut: texture_2d<f32>;
-@group(0) @binding(9) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(10) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(7) var lut_sampler: sampler;
+@group(0) @binding(8) var transmittance_lut: texture_2d<f32>;
+@group(0) @binding(9) var sky_view_lut: texture_2d<f32>;
+@group(0) @binding(10) var aerial_perspective_lut: texture_3d<f32>;
+@group(0) @binding(11) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -252,290 +286,6 @@ struct SlotInfo {
 }
 
 @group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
-
-// PBR material definitions - expanded with realistic properties
-const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 19>(
-    // ID 1: Dirt
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich brown soil albedo
-        0.0,                      // Non-metallic
-        0.95,                     // Very rough, loose soil
-        0.04,                     // Standard dielectric specular
-        vec3f(0.0),              // No emission
-        1.0,                      // Normal strength
-        1.2,                      // High AO for soil texture
-        0.0,                     // Slight subsurface for organic matter
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ... (rest of materials remain the same)
-    // ID 2: Grass
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Natural grass green albedo
-        0.0,                      // Non-metallic
-        0.85,                     // Rough organic surface
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.3,                      // Strong normals for grass blade texture
-        0.9,                      // Moderate AO
-        0.0,                     // High subsurface for organic translucency
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 3: Limestone
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Light cream limestone albedo
-        0.0,                      // Non-metallic
-        0.6,                      // Medium roughness for sedimentary rock
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.0,                      // Normal strength
-        1.0,                      // Standard AO
-        0.0,                     // Minimal subsurface for stone
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 4: Glowstone
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Bright golden albedo
-        0.0,                      // Non-metallic
-        0.3,                      // Smooth crystalline surface
-        0.06,                     // Higher specular for crystal
-        vec3f(3.5, 2.8, 1.2),    // Bright warm emission
-        0.4,                      // Reduced normals for smooth glow
-        0.2,                      // Very low AO for bright surface
-        0.6,                      // High subsurface for inner glow
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 5: Brick
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Classic red brick albedo
-        0.0,                      // Non-metallic
-        0.8,                      // Rough fired clay surface
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.2,                      // Strong normals for brick texture
-        1.1,                      // High AO for mortar lines
-        0.0,                      // No subsurface for fired clay
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 6: Slate  
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Dark blue-gray slate albedo
-        0.0,                      // Non-metallic
-        0.4,                      // Smooth cleaved surface
-        0.05,                     // Slightly higher specular for polished stone
-        vec3f(0.0),              // No emission
-        0.8,                      // Moderate normals for smooth slate
-        1.0,                      // Standard AO
-        0.0,                      // No subsurface for metamorphic rock
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 7: Andesite
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Medium gray volcanic rock albedo
-        0.0,                      // Non-metallic
-        0.75,                     // Rough volcanic surface
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.1,                      // Strong normals for volcanic texture
-        1.0,                      // Standard AO
-        0.0,                      // No subsurface for igneous rock
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 8: Gneiss
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Light gray-brown metamorphic albedo
-        0.0,                      // Non-metallic
-        0.65,                     // Medium roughness for banded texture
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.0,                      // Normal strength for banded structure
-        1.0,                      // Standard AO
-        0.0,                      // No subsurface for metamorphic rock
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        true
-    ),
-    // ID 9: Log
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Natural wood brown albedo
-        0.0,                      // Non-metallic
-        0.7,                      // Rough bark/wood surface
-        0.04,                     // Standard dielectric
-        vec3f(0.0),              // No emission
-        1.0,                      // Normal strength for wood grain
-        1.0,                      // Standard AO
-        0.0,                     // Moderate subsurface for organic material
-        0.0,                      // No clearcoat
-        0.0,
-        VOXEL_MODEL,
-        false
-    ),
-    // ID 10: Leaf
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.5,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.8,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        LEAF_MODEL,
-        false
-    ),
-    // ID 11: Tall Grass
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.7,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    // Fern
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.5,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.35,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.4,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.6,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.4,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.55,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5),  // Rich leaf green albedo
-        0.0,                      // Non-metallic
-        0.9,                      // Very rough leaf surface
-        0.06,                     // Lower specular for matte leaves
-        vec3f(0.0),              // No emission
-        1.0,                      // High normals for leaf vein texture
-        0.7,                      // Lower AO for thin material
-        0.45,                     // High subsurface for leaf translucency
-        0.0,                      // No clearcoat
-        0.0,
-        GRASS_MODEL,
-        false
-    ),
-    // Water material
-    PBRMaterialProperties(
-        vec3f(0.5, 0.5, 0.5), 
-        0.0,                      // Non-metallic
-        0.2,                   
-        0.02,                
-        vec3f(0.0),       
-        1.0,                 
-        0.2,             
-        0.15,                  
-        0.0,  
-        0.0,
-        VOXEL_MODEL,
-        true
-    )
-);
 
 // Wind displacement function
 fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_strength_multiplier: f32) -> vec3f {
@@ -630,11 +380,6 @@ fn get_sun_color(sun_elevation: f32) -> vec3f {
     }
     
     return sun_color;
-}
-
-fn get_pbr_material_properties(material_id: u32) -> PBRMaterialProperties {
-    let index = clamp(material_id - 1u, 0u, 19u);
-    return PBR_MATERIAL_PROPERTIES[index];
 }
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
@@ -987,7 +732,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.idx = in.instance_idx;
     out.material_id = faceData.materialId;
 
-    let materialProps = get_pbr_material_properties(faceData.materialId);
+    let materialProps2 = material_buffer[faceData.materialId - 1];
     let data = unpack_data(faceData.data);
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -1011,10 +756,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
 
     var normal: vec3f;
-    if (materialProps.model == GRASS_MODEL) {
-        normal = normalize(faceNormalsGrass[data.normal_index]);
-    } else if (materialProps.model == LEAF_MODEL) {
-        normal = modelDataArray[data.normal_index].normal.xyz;
+    if (materialProps2.modelId != VOXEL_MODEL) {
+        normal = modelDataArray[materialProps2.modelOffset + data.normal_index].normal.xyz;
     } else {
         normal = faceNormals[data.normal_index];
     }
@@ -1037,62 +780,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     
-    if (materialProps.model == LEAF_MODEL) {
-        // ... (leaf model code remains the same, using vertexInFace) ...
-        let hash2 = hash_voxel_position(world_voxel_pos + vec3i(1, 0, 0));
-        let hash3 = hash_voxel_position(world_voxel_pos + vec3i(0, 1, 0));
-        let hash4 = hash_voxel_position(world_voxel_pos + vec3i(0, 0, 1));
-        
-        let offset_x_coarse = f32((hash >> 16u) & 0xFFu) / 255.0;
-        let offset_y_coarse = f32((hash2 >> 8u) & 0xFFu) / 255.0;
-        let offset_z_coarse = f32((hash3 >> 24u) & 0xFFu) / 255.0;
-        
-        let offset_x_fine = f32((hash4 >> 4u) & 0xFu) / 15.0;
-        let offset_y_fine = f32((hash >> 12u) & 0xFu) / 15.0;
-        let offset_z_fine = f32((hash2 >> 20u) & 0xFu) / 15.0;
-        
-        let primary_offset = vec3f(
-            (offset_x_coarse - 0.5) * 0.4 + (offset_x_fine - 0.5) * 0.15,
-            (offset_y_coarse - 0.5) * 0.4 + (offset_y_fine - 0.5) * 0.15,
-            (offset_z_coarse - 0.5) * 0.4 + (offset_z_fine - 0.5) * 0.15
-        );
-        
-        let rotation_angle = f32((hash3 >> 4u) & 0x3Fu) / 63.0 * tau;
-        let tilt_angle = f32((hash4 >> 12u) & 0x1Fu) / 31.0 * 0.3;
-        
-        let cos_rot = cos(rotation_angle);
-        let sin_rot = sin(rotation_angle);
-        let cos_tilt = cos(tilt_angle);
-        let sin_tilt = sin(tilt_angle);
-        
-        base_vertex = modelDataArray[data.normal_index].vertexPositions[vertexInFace].xyz;
-        
-        let rotated_vertex = vec3f(
-            base_vertex.x * cos_rot - base_vertex.z * sin_rot,
-            base_vertex.y,
-            base_vertex.x * sin_rot + base_vertex.z * cos_rot
-        );
-        
-        let tilted_vertex = vec3f(
-            rotated_vertex.x * cos_tilt - rotated_vertex.y * sin_tilt,
-            rotated_vertex.x * sin_tilt + rotated_vertex.y * cos_tilt,
-            rotated_vertex.z
-        );
-        
-        scaled_vertex_offset = base_vertex * lod_scale; // + primary_offset;
-        
-        let face_specific_hash = hash_voxel_position(world_voxel_pos + vec3i(i32(data.normal_index), 0, 0));
-        let face_offset = vec3f(
-            f32((face_specific_hash >> 8u) & 0x7u) / 7.0 - 0.5,
-            f32((face_specific_hash >> 16u) & 0x7u) / 7.0 - 0.5,
-            f32((face_specific_hash >> 24u) & 0x7u) / 7.0 - 0.5
-        ) * 0.08;
-        
-        //scaled_vertex_offset += face_offset;
-        
-    } else if (materialProps.model == GRASS_MODEL) {
-        base_vertex = faceVerticesGrass[data.normal_index][vertexInFace];
-        scaled_vertex_offset = base_vertex * lod_scale + 0.04 - (0.02 * vec3f(f32(tile_x_2), f32(tile_y_2), 0.0));
+    if (materialProps2.modelId != VOXEL_MODEL) {
+        base_vertex = modelDataArray[materialProps2.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+        scaled_vertex_offset = base_vertex * lod_scale;
     } else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
         scaled_vertex_offset = base_vertex * lod_scale;
@@ -1103,13 +793,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     // Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
-    if (materialProps.model == GRASS_MODEL) {
+    if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == FERN_MODEL) {
         let vertex_height = base_vertex.z;
-        if (vertex_height > 0.5) {
+        if (vertex_height > 0.1) {
             let wind_strength = vertex_height;
             wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
         }
-    } else if (materialProps.model == LEAF_MODEL) {
+    } else if (materialProps2.modelId == LEAF_MODEL) {
         let center_offset = length(base_vertex - vec3f(0.5));
         let wind_strength = 0.3 + center_offset * 0.7;
         wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.5);
@@ -1117,14 +807,16 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     position = base_position + wind_displacement;
     
-    var uv = faceUVsIndependent[data.normal_index][vertexInFace];
-    if (materialProps.model == LEAF_MODEL) {
-        uv = modelDataArray[data.normal_index].uvs[vertexInFace];
+    var uv: vec2f;
+    if (materialProps2.modelId != VOXEL_MODEL) {
+        uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
+    } else {
+        uv = faceUVsIndependent[data.normal_index][vertexInFace];
     }
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
-    if (materialProps.model == GRASS_MODEL) {
+    if (materialProps2.modelId == GRASS_MODEL) {
         ao = aoLevelsGrass[data.normal_index][vertexInFace];
     }
     
@@ -1384,46 +1076,46 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     // Get PBR material properties
-    let materialProps = get_pbr_material_properties(material_id);
+    let materialProps2 = material_buffer[material_id - 1];
 
-    if (materialProps.model == VOXEL_MODEL && !in.frontFacing) {
+    if (materialProps2.modelId == VOXEL_MODEL && !in.frontFacing) {
         //discard;
     } 
 
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
     var blendState = 1.0;
-    // if (materialProps.model == GRASS_MODEL || materialProps.model == LEAF_MODEL) {
-    //     let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
+    if (materialProps2.modelId != VOXEL_MODEL) {
+        let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
         
-    //     // Define blending ranges
-    //     var discardThreshold = 0.25;    // Hard discard at very sharp angles
-    //     var blendStartThreshold = 0.25;  // Start blending at this angle
-    //     var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+        // Define blending ranges
+        var discardThreshold = 0.25;    // Hard discard at very sharp angles
+        var blendStartThreshold = 0.25;  // Start blending at this angle
+        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
-    //     //Hard discard at very sharp angles
-    //     if (viewAlignment < discardThreshold) {
-    //         discard;
-    //     }
+        //Hard discard at very sharp angles
+        if (viewAlignment < discardThreshold) {
+            discard;
+        }
         
-    //     // Smooth alpha blending between discard and blend thresholds
-    //     if (viewAlignment < blendEndThreshold) {
-    //         if (viewAlignment < blendStartThreshold) {
-    //             // Linear blend from 0 to 1 between discard and blend start
-    //             blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-    //         } else {
-    //             // Smooth transition from blend start to full opacity
-    //             let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-    //             blendState = smoothstep(0.0, 1.0, blendFactor);
-    //         }
-    //         blendState = clamp(blendState, 0.0, 1.0);
-    //     }
+        // Smooth alpha blending between discard and blend thresholds
+        if (viewAlignment < blendEndThreshold) {
+            if (viewAlignment < blendStartThreshold) {
+                // Linear blend from 0 to 1 between discard and blend start
+                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+            } else {
+                // Smooth transition from blend start to full opacity
+                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+                blendState = smoothstep(0.0, 1.0, blendFactor);
+            }
+            blendState = clamp(blendState, 0.0, 1.0);
+        }
 
-    //     if (materialProps.model == GRASS_MODEL) {
-    //         normal = vec3f(0.0, 0.0, 1.0);
-    //     }
+        if (materialProps2.modelId == GRASS_MODEL) {
+            normal = vec3f(0.0, 0.0, 1.0);
+        }
 
-    // }
+    }
 
     var uv = in.uv;
 
@@ -1456,24 +1148,20 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         foam = water_foam_from_grad(p, t, slope);
     }
 
-    if (materialProps.random_rotation == true) {
+    if (materialProps2.randomRotation == 1u) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
         uv = rotated_uv;
     }
 
-    if (materialProps.model == VOXEL_MODEL && chunkData.lod > 0u) {
+    if (materialProps2.modelId == VOXEL_MODEL && chunkData.lod > 0u) {
         uv = fract(uv * lod_scale);
     }
 
-    if (materialProps.model == VOXEL_MODEL) {
+    if (materialProps2.modelId == VOXEL_MODEL) {
         uv = uv * 0.25 + in.tile_offset;
     }
-
-    // if (materialProps.model == LEAF_MODEL) {
-    //     uv = uv * 0.5; // + in.tile_offset2;
-    // }
     
-    if (materialProps.model == GRASS_MODEL) {
+    if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == LEAF_MODEL) {
         uv = uv * 0.5 + in.tile_offset2;
     }
 
@@ -1484,7 +1172,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     // Combine material albedo with texture
-    var albedo = materialProps.albedo * textureColor.rgb;
+    var albedo = materialProps2.pbr.albedo * textureColor.rgb;
 
     if (material_id == 19u) {
         let transmitted = textureColor.rgb * waterTint;
@@ -1506,11 +1194,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         viewDir,
         sunDirection,
         sunColor * boosted_sun_intensity,
-        materialProps.metallic,
-        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.roughness * 1.5,
-        materialProps.specular,
+        materialProps2.pbr.metallic,
+        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps2.pbr.roughness * 1.5,
+        materialProps2.pbr.dielectric,
         shadow_factor,
-        materialProps.subsurface  // Pass subsurface parameter
+        materialProps2.pbr.subsurface  // Pass subsurface parameter
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
@@ -1529,7 +1217,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let normalFadeStart = 75.0;
     let normalFadeEnd = 150.0;
     let normalFadeFactor = clamp((in.fog_distance - normalFadeStart) / (normalFadeEnd - normalFadeStart), 0.0, 1.0);
-    let baseAoStrength = materialProps.aoStrength;
+    let baseAoStrength = materialProps2.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
@@ -1538,7 +1226,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted; // * ((f32(chunkData.lod) + 0.5) / 4.0);
     
     // Add emission if present
-    finalColor += materialProps.emission;
+    finalColor += materialProps2.pbr.emission;
 
     if (material_id == 19u) {
         // Fresnel reflection of a cheap sky color

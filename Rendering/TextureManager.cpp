@@ -1,73 +1,56 @@
 #include "TextureManager.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "../stb_image.h"
+#include <cstring>
+#include <iostream>
 
+using std::uint32_t;
+
+// ---------- pools ----------
 std::shared_ptr<TexturePool> TextureManager::createTexturePool(std::string name) {
     auto pool = std::make_shared<TexturePool>();
     pool->init(device, queue);
-
     pools[name] = pool;
     return pool;
 }
-
 std::shared_ptr<TexturePool> TextureManager::getTexturePool(std::string name) {
     auto pool = pools.find(name);
-    if (pool != pools.end()) {
-        return pool->second;
-    }
+    if (pool != pools.end()) return pool->second;
     return nullptr;
 }
 
+// ---------- basic IO ----------
 void TextureManager::writeTexture(const TexelCopyTextureInfo& destination,
     const void* data, size_t size,
     const TexelCopyBufferLayout& source,
     const Extent3D& writeSize) {
-
     queue.writeTexture(destination, data, size, source, writeSize);
 }
 
 Texture TextureManager::getTexture(const std::string textureName) {
-    auto texture = textures.find(textureName);
-    if (texture != textures.end()) {
-        return texture->second;
-    }
-    return nullptr;
+    auto it = textures.find(textureName);
+    return it != textures.end() ? it->second : nullptr;
 }
-
 TextureView TextureManager::getTextureView(const std::string viewName) {
-    auto textureView = textureViews.find(viewName);
-    if (textureView != textureViews.end()) {
-        return textureView->second;
-    }
-    return nullptr;
+    auto it = textureViews.find(viewName);
+    return it != textureViews.end() ? it->second : nullptr;
 }
-
 Sampler TextureManager::getSampler(const std::string samplerName) {
-    auto sampler = samplers.find(samplerName);
-    if (sampler != samplers.end()) {
-        return sampler->second;
-    }
-    return nullptr;
+    auto it = samplers.find(samplerName);
+    return it != samplers.end() ? it->second : nullptr;
 }
-
 Texture TextureManager::createTexture(const std::string& name, const TextureDescriptor& config) {
     Texture texture = device.createTexture(config);
     textures[name] = texture;
-
     return texture;
 }
-
 TextureView TextureManager::createTextureView(const std::string& textureName, const std::string& viewName, const TextureViewDescriptor& config) {
-    auto texture = textures.find(textureName);
-    if (texture == textures.end()) {
-        return nullptr;
-    }
-
-    TextureView view = texture->second.createView(config);
+    auto it = textures.find(textureName);
+    if (it == textures.end()) return nullptr;
+    TextureView view = it->second.createView(config);
     textureViews[viewName] = view;
     return view;
 }
-
 Sampler TextureManager::createSampler(const std::string& samplerName, const SamplerDescriptor& config) {
     Sampler sampler = device.createSampler(config);
     samplers[samplerName] = sampler;
@@ -75,347 +58,356 @@ Sampler TextureManager::createSampler(const std::string& samplerName, const Samp
 }
 
 void TextureManager::terminate() {
-    for (auto it : textures) {
-        if (it.second) {
-            it.second.destroy();
-            it.second.release();
+    for (auto& kv : textures) {
+        if (kv.second) {
+            kv.second.destroy();
+            kv.second.release();
         }
     }
 }
 
 uint32_t TextureManager::bit_width(uint32_t m) {
     if (m == 0) return 0;
-    else { uint32_t w = 0; while (m >>= 1) ++w; return w; }
+    uint32_t w = 0;
+    while (m >>= 1) ++w;
+    return w;
 }
 
+// ---------- single texture ----------
 Texture TextureManager::loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path) {
     int width, height, channels;
-    unsigned char* pixelData = stbi_load(path.string().c_str(), &width, &height, &channels, 4 /* force 4 channels */);
-    if (nullptr == pixelData) return nullptr;
+    unsigned char* pixelData = stbi_load(path.string().c_str(), &width, &height, &channels, 4 /* force 4 */);
+    if (!pixelData) return nullptr;
 
-    TextureDescriptor textureDesc;
+    TextureDescriptor textureDesc{};
     textureDesc.dimension = TextureDimension::_2D;
-    textureDesc.format = TextureFormat::RGBA8Unorm; // by convention for bmp, png and jpg file. Be careful with other formats.
+    textureDesc.format = TextureFormat::RGBA8Unorm;
     textureDesc.sampleCount = 1;
     textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
     textureDesc.mipLevelCount = bit_width(std::max(textureDesc.size.width, textureDesc.size.height));
-
     textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
-    textureDesc.viewFormatCount = 0;
-    textureDesc.viewFormats = nullptr;
+
     Texture texture = createTexture(name, textureDesc);
-
     writeMipMaps(texture, textureDesc.size, textureDesc.mipLevelCount, pixelData);
-
     stbi_image_free(pixelData);
 
-    if (textureViewName.length() > 0) {
-        TextureViewDescriptor textureViewDesc;
-        textureViewDesc.aspect = TextureAspect::All;
-        textureViewDesc.baseArrayLayer = 0;
-        textureViewDesc.arrayLayerCount = 1;
-        textureViewDesc.baseMipLevel = 0;
-        textureViewDesc.mipLevelCount = textureDesc.mipLevelCount;
-        textureViewDesc.dimension = TextureViewDimension::_2D;
-        textureViewDesc.format = textureDesc.format;
-        TextureView view = createTextureView(name, textureViewName, textureViewDesc);
+    if (!textureViewName.empty()) {
+        TextureViewDescriptor vd{};
+        vd.aspect = TextureAspect::All;
+        vd.baseArrayLayer = 0;
+        vd.arrayLayerCount = 1;
+        vd.baseMipLevel = 0;
+        vd.mipLevelCount = textureDesc.mipLevelCount;
+        vd.dimension = TextureViewDimension::_2D;
+        vd.format = textureDesc.format;
+        createTextureView(name, textureViewName, vd);
     }
-
     return texture;
 }
 
-void TextureManager::removeTextureView(const std::string& name) {
-    auto it = textureViews.find(name);
-    if (it != textureViews.end()) {
-        it->second.release();
-        textureViews.erase(it);
-    }
-}
-
+// ---------- legacy ids.txt ----------
 std::vector<TextureMapping> TextureManager::parseIdsFile(const std::filesystem::path& idsFilePath) {
     std::vector<TextureMapping> mappings;
-
     std::ifstream file(idsFilePath);
-    if (!file.is_open()) {
-        return mappings; // Return empty vector if file doesn't exist or can't be opened
-    }
+    if (!file.is_open()) return mappings;
 
     std::string line;
     while (std::getline(file, line)) {
-        // Skip empty lines and comments (lines starting with #)
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-
+        if (line.empty() || line[0] == '#') continue;
         std::istringstream iss(line);
         uint32_t id;
         std::string filename;
-
         if (iss >> id >> filename) {
-            mappings.push_back({ id, filename + ".png"});
+            mappings.push_back({ id, filename + ".png" });
         }
     }
-
     return mappings;
 }
 
 bool TextureManager::validateTextureMapping(const std::vector<TextureMapping>& mappings, const std::filesystem::path& directoryPath) {
-    // Check for duplicate IDs
-    std::set<uint32_t> usedIds;
-    for (const auto& mapping : mappings) {
-        if (usedIds.count(mapping.id) > 0) {
-            return false; // Duplicate ID found
-        }
-        usedIds.insert(mapping.id);
-
-        // Check if the file exists
-        std::filesystem::path fullPath = directoryPath / mapping.filename;
-        if (!std::filesystem::exists(fullPath)) {
-            return false; // File doesn't exist
-        }
-
-        // Check if it's a PNG file
-        auto extension = fullPath.extension().string();
-        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-        if (extension != ".png") {
-            return false; // Not a PNG file
-        }
+    std::set<uint32_t> used;
+    for (const auto& m : mappings) {
+        if (!used.insert(m.id).second) return false;
+        auto full = directoryPath / m.filename;
+        if (!std::filesystem::exists(full)) return false;
+        auto ext = full.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext != ".png") return false;
     }
-
     return true;
 }
 
+// ---------- JSON support ----------
+TextureArrayInfo TextureManager::getTextureArrayInfo(const std::string& name) {
+    auto it = textureArrayInfos.find(name);
+    if (it != textureArrayInfos.end()) return it->second;
+    return {};
+}
+
+static glm::vec3 to_vec3(const json& j) {
+    if (j.is_array() && j.size() == 3) {
+        return glm::vec3(j[0].get<float>(), j[1].get<float>(), j[2].get<float>());
+    }
+    // fallback
+    return glm::vec3(0.0f);
+}
+
+void TextureManager::setModelOffsetResolver(std::function<uint32_t(std::string_view)> fn) {
+    modelOffsetResolver_ = std::move(fn);
+}
+
+TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
+    if (s == "VOXEL_MODEL") return CpuModelKind::Voxel;
+    if (s == "LEAF_MODEL")  return CpuModelKind::Leaf;
+    if (s == "GRASS_MODEL") return CpuModelKind::Grass;
+    if (s == "FERN_MODEL") return CpuModelKind::Fern;
+    return CpuModelKind::Unknown;
+}
+
+void TextureManager::fillMaterialProperties(MaterialProperties& dst, const MaterialJsonEntry& src, uint32_t modelOffset) {
+    // Pack to your CPU-side structs (matching std140-ish alignment you enforced)
+    dst.id = src.id;
+    dst.randomRotation = src.randomRotation;
+    dst.modelOffset = modelOffset;
+
+    dst.pbr.albedo = src.pbr.albedo;
+    dst.pbr.metallic = src.pbr.metallic;
+    dst.pbr.emission = src.pbr.emission;
+    dst.pbr.roughness = src.pbr.roughness;
+    dst.pbr.dielectric = src.pbr.dielectric;
+    dst.pbr.normal = src.pbr.normal;
+    dst.pbr.AO = src.pbr.AO;
+    dst.pbr.subsurface = src.pbr.subsurface;
+    dst.pbr.clearcoat = src.pbr.clearcoat;
+    dst.pbr.clearcoatRoughness = src.pbr.clearcoatRoughness;
+    // padding fields are left as default
+}
+
+bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
+    std::vector<MaterialJsonEntry>& out,
+    std::vector<TextureMapping>& outMappings,
+    uint32_t& outMaxId)
+{
+    out.clear();
+    outMappings.clear();
+    outMaxId = 0;
+
+    if (!std::filesystem::exists(jsonPath)) return false;
+
+    std::ifstream f(jsonPath);
+    if (!f.is_open()) return false;
+
+    json root;
+    try { f >> root; }
+    catch (...) { return false; }
+
+    // Accept either {"materials":[...] } or a bare array [...]
+    const json* materials = nullptr;
+    if (root.is_object() && root.contains("materials")) materials = &root["materials"];
+    else if (root.is_array())                           materials = &root;
+    else return false;
+
+    for (const auto& m : *materials) {
+        MaterialJsonEntry e{};
+        e.id = m.at("id").get<uint32_t>();
+        if (m.contains("name")) e.name = m["name"].get<std::string>();
+        e.texture = m.at("texture").get<std::string>();
+        e.model = m.at("model").get<std::string>();
+        e.randomRotation = m.value("randomRotation", false);
+
+        // PBR block: JSON uses your C++ field names
+        const auto& p = m.at("pbr");
+        PBRMaterialProperties pbr{};
+        pbr.albedo = to_vec3(p.at("albedo"));
+        pbr.metallic = p.value("metallic", 0.0f);
+        pbr.emission = to_vec3(p.value("emission", json::array({ 0.0,0.0,0.0 })));
+        pbr.roughness = p.value("roughness", 1.0f);
+        pbr.dielectric = p.value("dielectric", 0.04f); // (specular in WGSL)
+        pbr.normal = p.value("normal", 1.0f);          // (normalStrength)
+        pbr.AO = p.value("AO", 1.0f);                  // (aoStrength)
+        pbr.subsurface = p.value("subsurface", 0.0f);
+        pbr.clearcoat = p.value("clearcoat", 0.0f);
+        pbr.clearcoatRoughness = p.value("clearcoatRoughness", 0.0f);
+        e.pbr = pbr;
+
+        out.push_back(e);
+        outMappings.push_back(TextureMapping{ e.id, e.texture });
+        outMaxId = std::max(outMaxId, e.id);
+    }
+    return true;
+}
+
+void TextureManager::buildMaterialTables(const std::vector<MaterialJsonEntry>& entries,
+    uint32_t maxId,
+    const std::function<uint32_t(CpuModelKind)>& modelOffsetResolver)
+{
+    materialMap.clear();
+    materialTable.clear();
+    materialTable.resize(maxId + 1); // dense: index == ID
+
+    for (const auto& e : entries) {
+        CpuModelKind mk = parseModel(e.model);
+        uint32_t modelOffset = modelOffsetResolver ? modelOffsetResolver(mk) : 0u;
+
+        MaterialProperties mp{};
+        fillMaterialProperties(mp, e, modelOffset);
+
+        mp.modelId = static_cast<uint32_t>(mk);
+
+        materialMap[e.id] = mp;
+        materialTable[e.id] = mp;
+    }
+}
+
 Texture TextureManager::loadTextureArray(const std::string& name, const std::string& textureViewName, const std::filesystem::path& directoryPath) {
-    // Check if ids.txt exists
-    std::filesystem::path idsFilePath = directoryPath / "ids.txt";
-    std::vector<TextureMapping> mappings = parseIdsFile(idsFilePath);
+    const auto jsonPath = directoryPath / "materials.json";
+    std::vector<MaterialJsonEntry> jsonEntries;
+    std::vector<TextureMapping> mappings;
+    uint32_t maxIdFromJson = 0;
 
-    if (mappings.empty()) {
-        return nullptr; // No valid mappings found
-    }
+    bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, mappings, maxIdFromJson);
 
-    // Validate the mappings
-    if (!validateTextureMapping(mappings, directoryPath)) {
-        return nullptr; // Invalid mappings (duplicates, missing files, etc.)
-    }
+    // Validate textures exist
+    if (!validateTextureMapping(mappings, directoryPath)) return nullptr;
 
-    // Sort mappings by ID to ensure consistent ordering
+    // Sort by id for stable array layer order
     std::sort(mappings.begin(), mappings.end(), [](const TextureMapping& a, const TextureMapping& b) {
         return a.id < b.id;
         });
 
-    // Find the maximum ID to determine array size
+    // Determine array size
     uint32_t maxId = 0;
-    for (const auto& mapping : mappings) {
-        maxId = std::max(maxId, mapping.id);
-    }
+    for (const auto& m : mappings) maxId = std::max(maxId, m.id);
     uint32_t arraySize = maxId + 1;
 
-    // Load the first image to determine dimensions
+    // Load first image for dimensions
     std::filesystem::path firstImagePath = directoryPath / mappings[0].filename;
     int width, height, channels;
     unsigned char* firstPixelData = stbi_load(firstImagePath.string().c_str(), &width, &height, &channels, 4);
-    if (nullptr == firstPixelData) {
-        return nullptr; // Failed to load first image
-    }
+    if (!firstPixelData) return nullptr;
 
-    // Calculate mip levels based on the largest dimension
     uint32_t mipLevelCount = bit_width(std::max(width, height));
 
-    // Create texture descriptor for 2D array
-    TextureDescriptor textureDesc;
-    textureDesc.dimension = TextureDimension::_2D;
-    textureDesc.format = TextureFormat::RGBA8Unorm;
-    textureDesc.sampleCount = 1;
-    textureDesc.size = { (unsigned int)width, (unsigned int)height, arraySize };
-    textureDesc.mipLevelCount = mipLevelCount;
-    textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
-    textureDesc.viewFormatCount = 0;
-    textureDesc.viewFormats = nullptr;
+    TextureDescriptor td{};
+    td.dimension = TextureDimension::_2D;
+    td.format = TextureFormat::RGBA8Unorm;
+    td.sampleCount = 1;
+    td.size = { (unsigned int)width, (unsigned int)height, arraySize };
+    td.mipLevelCount = mipLevelCount;
+    td.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
 
-    // Create the texture array
-    Texture texture = createTexture(name, textureDesc);
+    Texture texture = createTexture(name, td);
 
-    // Store texture array info for reference
-    TextureArrayInfo arrayInfo;
-    arrayInfo.width = width;
-    arrayInfo.height = height;
-    arrayInfo.layerCount = arraySize;
-    arrayInfo.mipLevelCount = mipLevelCount;
-    arrayInfo.mappings = mappings;
-    textureArrayInfos[name] = arrayInfo;
+    // Store array meta
+    TextureArrayInfo info{};
+    info.width = width; info.height = height;
+    info.layerCount = arraySize; info.mipLevelCount = mipLevelCount;
+    info.mappings = mappings;
+    textureArrayInfos[name] = info;
 
-    // Load each image according to the mapping
-    for (const auto& mapping : mappings) {
-        std::filesystem::path imagePath = directoryPath / mapping.filename;
+    // Upload each layer
+    for (size_t k = 0; k < mappings.size(); ++k) {
+        const auto& map = mappings[k];
+        std::filesystem::path imagePath = directoryPath / map.filename;
 
-        unsigned char* pixelData;
-        int imgWidth, imgHeight, imgChannels;
-
-        if (mapping.filename == mappings[0].filename) {
-            // Use already loaded first image
-            pixelData = firstPixelData;
-            imgWidth = width;
-            imgHeight = height;
+        unsigned char* pixelData = nullptr;
+        int w = 0, h = 0, ch = 0;
+        if (k == 0 && imagePath == firstImagePath) {
+            pixelData = firstPixelData; w = width; h = height;
         }
         else {
-            // Load subsequent images
-            pixelData = stbi_load(imagePath.string().c_str(), &imgWidth, &imgHeight, &imgChannels, 4);
-            if (nullptr == pixelData) {
-                continue; // Skip this image if it fails to load
-            }
+            pixelData = stbi_load(imagePath.string().c_str(), &w, &h, &ch, 4);
+            if (!pixelData) continue;
         }
 
-        // Verify dimensions match the first image
-        if (imgWidth != width || imgHeight != height) {
-            if (mapping.filename != mappings[0].filename) {
-                stbi_image_free(pixelData); // Free if not the first image
-            }
-            continue; // Skip images with different dimensions
+        if (w == width && h == height) {
+            writeMipMapsArray(texture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, map.id, pixelData);
         }
-
-        // Write mipmaps for this array layer at the specified ID
-        writeMipMapsArray(texture, { (unsigned int)width, (unsigned int)height, 1 }, mipLevelCount, mapping.id, pixelData);
-
-        // Free pixel data (but not the first one yet, we'll free it after the loop)
-        if (mapping.filename != mappings[0].filename) {
-            stbi_image_free(pixelData);
-        }
+        if (pixelData != firstPixelData) stbi_image_free(pixelData);
     }
-
-    // Free the first image data
     stbi_image_free(firstPixelData);
 
-    // Create texture view if requested
-    if (textureViewName.length() > 0) {
-        TextureViewDescriptor textureViewDesc;
-        textureViewDesc.aspect = TextureAspect::All;
-        textureViewDesc.baseArrayLayer = 0;
-        textureViewDesc.arrayLayerCount = arraySize;
-        textureViewDesc.baseMipLevel = 0;
-        textureViewDesc.mipLevelCount = mipLevelCount;
-        textureViewDesc.dimension = TextureViewDimension::_2DArray;
-        textureViewDesc.format = textureDesc.format;
-        TextureView view = createTextureView(name, textureViewName, textureViewDesc);
+    // Create view if requested
+    if (!textureViewName.empty()) {
+        TextureViewDescriptor vd{};
+        vd.aspect = TextureAspect::All;
+        vd.baseArrayLayer = 0;
+        vd.arrayLayerCount = arraySize;
+        vd.baseMipLevel = 0;
+        vd.mipLevelCount = mipLevelCount;
+        vd.dimension = TextureViewDimension::_2DArray;
+        vd.format = td.format;
+        createTextureView(name, textureViewName, vd);
+    }
+
+    // If JSON was supplied, build the material tables now.
+    if (haveJson) {
+        auto resolver = [this](CpuModelKind mk) -> uint32_t {
+            if (!modelOffsetResolver_) return 0u;
+            switch (mk) {
+            case CpuModelKind::Voxel: return modelOffsetResolver_("VOXEL_MODEL");
+            case CpuModelKind::Leaf:  return modelOffsetResolver_("LEAF_MODEL");
+            case CpuModelKind::Grass: return modelOffsetResolver_("GRASS_MODEL");
+            case CpuModelKind::Fern: return modelOffsetResolver_("FERN_MODEL");
+            default: return 0u;
+            }
+        };
+        buildMaterialTables(jsonEntries, std::max(maxIdFromJson, maxId), resolver);
     }
 
     return texture;
 }
 
+// ---------- mipmap writers (unchanged except kept your alpha-aware downsample) ----------
 void TextureManager::writeMipMaps(
     Texture texture,
     Extent3D textureSize,
     uint32_t mipLevelCount,
     const unsigned char* pixelData)
 {
-    // Arguments telling which part of the texture we upload to
-    TexelCopyTextureInfo destination;
+    TexelCopyTextureInfo destination{};
     destination.texture = texture;
     destination.origin = { 0, 0, 0 };
     destination.aspect = TextureAspect::All;
 
-    // Arguments telling how the C++ side pixel memory is laid out
-    TexelCopyBufferLayout source;
+    TexelCopyBufferLayout source{};
     source.offset = 0;
 
-    // Create image data
     Extent3D mipLevelSize = textureSize;
     std::vector<unsigned char> previousLevelPixels;
     Extent3D previousMipLevelSize;
 
     for (uint32_t level = 0; level < mipLevelCount; ++level) {
-        // Pixel data for the current level
         std::vector<unsigned char> pixels(4 * mipLevelSize.width * mipLevelSize.height);
         if (level == 0) {
-            // We cannot really avoid this copy since we need this
-            // in previousLevelPixels at the next iteration
             memcpy(pixels.data(), pixelData, pixels.size());
         }
         else {
-            // Create mip level data with proper alpha handling
             for (uint32_t i = 0; i < mipLevelSize.width; ++i) {
                 for (uint32_t j = 0; j < mipLevelSize.height; ++j) {
                     unsigned char* p = &pixels[4 * (j * mipLevelSize.width + i)];
-
-                    // Get the corresponding 4 pixels from the previous level
                     unsigned char* p00 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 0))];
                     unsigned char* p01 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 1))];
                     unsigned char* p10 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 0))];
                     unsigned char* p11 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 1))];
 
-                    // Collect alpha values and determine which pixels contribute
-                    float alpha00 = p00[3] / 255.0f;
-                    float alpha01 = p01[3] / 255.0f;
-                    float alpha10 = p10[3] / 255.0f;
-                    float alpha11 = p11[3] / 255.0f;
+                    float a00 = p00[3] / 255.0f, a01 = p01[3] / 255.0f, a10 = p10[3] / 255.0f, a11 = p11[3] / 255.0f;
+                    float avgA = (a00 + a01 + a10 + a11) / 4.0f;
+                    unsigned char finalA = (avgA >= 0.5f) ? 255 : 0;
 
-                    // Calculate average alpha
-                    float avgAlpha = (alpha00 + alpha01 + alpha10 + alpha11) / 4.0f;
-
-                    // Use alpha threshold to determine final alpha value
-                    // This preserves the binary nature of your alpha test
-                    unsigned char finalAlpha = (avgAlpha >= 0.5f) ? 255 : 0;
-
-                    if (finalAlpha > 0) {
-                        // For opaque pixels, use weighted average based on alpha
-                        float totalWeight = 0.0f;
-                        float weightedR = 0.0f, weightedG = 0.0f, weightedB = 0.0f;
-
-                        // Only include pixels that would pass the alpha test
-                        if (alpha00 >= 0.5f) {
-                            float weight = alpha00;
-                            weightedR += p00[0] * weight;
-                            weightedG += p00[1] * weight;
-                            weightedB += p00[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha01 >= 0.5f) {
-                            float weight = alpha01;
-                            weightedR += p01[0] * weight;
-                            weightedG += p01[1] * weight;
-                            weightedB += p01[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha10 >= 0.5f) {
-                            float weight = alpha10;
-                            weightedR += p10[0] * weight;
-                            weightedG += p10[1] * weight;
-                            weightedB += p10[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha11 >= 0.5f) {
-                            float weight = alpha11;
-                            weightedR += p11[0] * weight;
-                            weightedG += p11[1] * weight;
-                            weightedB += p11[2] * weight;
-                            totalWeight += weight;
-                        }
-
-                        if (totalWeight > 0.0f) {
-                            p[0] = (unsigned char)(weightedR / totalWeight);
-                            p[1] = (unsigned char)(weightedG / totalWeight);
-                            p[2] = (unsigned char)(weightedB / totalWeight);
-                        }
-                        else {
-                            // Fallback if no pixels pass alpha test
-                            p[0] = (p00[0] + p01[0] + p10[0] + p11[0]) / 4;
-                            p[1] = (p00[1] + p01[1] + p10[1] + p11[1]) / 4;
-                            p[2] = (p00[2] + p01[2] + p10[2] + p11[2]) / 4;
-                        }
+                    if (finalA > 0) {
+                        float total = 0.f, wr = 0.f, wg = 0.f, wb = 0.f;
+                        auto acc = [&](unsigned char* s, float a) { if (a >= 0.5f) { wr += s[0] * a; wg += s[1] * a; wb += s[2] * a; total += a; } };
+                        acc(p00, a00); acc(p01, a01); acc(p10, a10); acc(p11, a11);
+                        if (total > 0) { p[0] = unsigned char(wr / total); p[1] = unsigned char(wg / total); p[2] = unsigned char(wb / total); }
+                        else { p[0] = (p00[0] + p01[0] + p10[0] + p11[0]) / 4; p[1] = (p00[1] + p01[1] + p10[1] + p11[1]) / 4; p[2] = (p00[2] + p01[2] + p10[2] + p11[2]) / 4; }
                     }
-                    else {
-                        // For transparent pixels, set RGB to black to avoid color bleeding
-                        p[0] = 0;
-                        p[1] = 0;
-                        p[2] = 0;
-                    }
-
-                    p[3] = finalAlpha;
+                    else { p[0] = p[1] = p[2] = 0; }
+                    p[3] = finalA;
                 }
             }
         }
-
-        // Upload data to the GPU texture
         destination.mipLevel = level;
         source.bytesPerRow = 4 * mipLevelSize.width;
         source.rowsPerImage = mipLevelSize.height;
@@ -423,10 +415,8 @@ void TextureManager::writeMipMaps(
 
         previousLevelPixels = std::move(pixels);
         previousMipLevelSize = mipLevelSize;
-        mipLevelSize.width /= 2;
-        mipLevelSize.height /= 2;
-        if (mipLevelSize.width == 0) mipLevelSize.width = 1;
-        if (mipLevelSize.height == 0) mipLevelSize.height = 1;
+        mipLevelSize.width = std::max(1u, mipLevelSize.width / 2);
+        mipLevelSize.height = std::max(1u, mipLevelSize.height / 2);
     }
 }
 
@@ -437,151 +427,76 @@ void TextureManager::writeMipMapsArray(
     uint32_t arrayLayer,
     const unsigned char* pixelData)
 {
-    // Arguments telling which part of the texture we upload to
-    TexelCopyTextureInfo destination;
+    TexelCopyTextureInfo destination{};
     destination.texture = texture;
-    destination.origin = { 0, 0, arrayLayer }; // Set the array layer
+    destination.origin = { 0, 0, arrayLayer };
     destination.aspect = TextureAspect::All;
 
-    // Arguments telling how the C++ side pixel memory is laid out
-    TexelCopyBufferLayout source;
+    TexelCopyBufferLayout source{};
     source.offset = 0;
 
-    // Create image data for mipmaps
     Extent3D mipLevelSize = textureSize;
     std::vector<unsigned char> previousLevelPixels;
     Extent3D previousMipLevelSize;
 
     for (uint32_t level = 0; level < mipLevelCount; ++level) {
-        // Pixel data for the current level
         std::vector<unsigned char> pixels(4 * mipLevelSize.width * mipLevelSize.height);
         if (level == 0) {
-            // Copy original image data
             memcpy(pixels.data(), pixelData, pixels.size());
         }
         else {
-            // Create mip level data with proper alpha handling
             for (uint32_t i = 0; i < mipLevelSize.width; ++i) {
                 for (uint32_t j = 0; j < mipLevelSize.height; ++j) {
                     unsigned char* p = &pixels[4 * (j * mipLevelSize.width + i)];
-
-                    // Get the corresponding 4 pixels from the previous level
                     unsigned char* p00 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 0))];
                     unsigned char* p01 = &previousLevelPixels[4 * ((2 * j + 0) * previousMipLevelSize.width + (2 * i + 1))];
                     unsigned char* p10 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 0))];
                     unsigned char* p11 = &previousLevelPixels[4 * ((2 * j + 1) * previousMipLevelSize.width + (2 * i + 1))];
 
-                    // Collect alpha values and determine which pixels contribute
-                    float alpha00 = p00[3] / 255.0f;
-                    float alpha01 = p01[3] / 255.0f;
-                    float alpha10 = p10[3] / 255.0f;
-                    float alpha11 = p11[3] / 255.0f;
+                    float a00 = p00[3] / 255.0f, a01 = p01[3] / 255.0f, a10 = p10[3] / 255.0f, a11 = p11[3] / 255.0f;
+                    float avgA = (a00 + a01 + a10 + a11) / 4.0f;
+                    unsigned char finalA = (avgA >= 0.5f) ? 255 : 0;
 
-                    // Calculate average alpha
-                    float avgAlpha = (alpha00 + alpha01 + alpha10 + alpha11) / 4.0f;
-
-                    // Use alpha threshold to determine final alpha value
-                    // This preserves the binary nature of your alpha test
-                    unsigned char finalAlpha = (avgAlpha >= 0.5f) ? 255 : 0;
-
-                    if (finalAlpha > 0) {
-                        // For opaque pixels, use weighted average based on alpha
-                        float totalWeight = 0.0f;
-                        float weightedR = 0.0f, weightedG = 0.0f, weightedB = 0.0f;
-
-                        // Only include pixels that would pass the alpha test
-                        if (alpha00 >= 0.5f) {
-                            float weight = alpha00;
-                            weightedR += p00[0] * weight;
-                            weightedG += p00[1] * weight;
-                            weightedB += p00[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha01 >= 0.5f) {
-                            float weight = alpha01;
-                            weightedR += p01[0] * weight;
-                            weightedG += p01[1] * weight;
-                            weightedB += p01[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha10 >= 0.5f) {
-                            float weight = alpha10;
-                            weightedR += p10[0] * weight;
-                            weightedG += p10[1] * weight;
-                            weightedB += p10[2] * weight;
-                            totalWeight += weight;
-                        }
-                        if (alpha11 >= 0.5f) {
-                            float weight = alpha11;
-                            weightedR += p11[0] * weight;
-                            weightedG += p11[1] * weight;
-                            weightedB += p11[2] * weight;
-                            totalWeight += weight;
-                        }
-
-                        if (totalWeight > 0.0f) {
-                            p[0] = (unsigned char)(weightedR / totalWeight);
-                            p[1] = (unsigned char)(weightedG / totalWeight);
-                            p[2] = (unsigned char)(weightedB / totalWeight);
-                        }
-                        else {
-                            // Fallback if no pixels pass alpha test
-                            p[0] = (p00[0] + p01[0] + p10[0] + p11[0]) / 4;
-                            p[1] = (p00[1] + p01[1] + p10[1] + p11[1]) / 4;
-                            p[2] = (p00[2] + p01[2] + p10[2] + p11[2]) / 4;
-                        }
+                    if (finalA > 0) {
+                        float total = 0.f, wr = 0.f, wg = 0.f, wb = 0.f;
+                        auto acc = [&](unsigned char* s, float a) { if (a >= 0.5f) { wr += s[0] * a; wg += s[1] * a; wb += s[2] * a; total += a; } };
+                        acc(p00, a00); acc(p01, a01); acc(p10, a10); acc(p11, a11);
+                        if (total > 0) { p[0] = unsigned char(wr / total); p[1] = unsigned char(wg / total); p[2] = unsigned char(wb / total); }
+                        else { p[0] = (p00[0] + p01[0] + p10[0] + p11[0]) / 4; p[1] = (p00[1] + p01[1] + p10[1] + p11[1]) / 4; p[2] = (p00[2] + p01[2] + p10[2] + p11[2]) / 4; }
                     }
-                    else {
-                        // For transparent pixels, set RGB to black to avoid color bleeding
-                        p[0] = 0;
-                        p[1] = 0;
-                        p[2] = 0;
-                    }
-
-                    p[3] = finalAlpha;
+                    else { p[0] = p[1] = p[2] = 0; }
+                    p[3] = finalA;
                 }
             }
         }
-
-        // Upload data to the GPU texture at the specific array layer and mip level
         destination.mipLevel = level;
         source.bytesPerRow = 4 * mipLevelSize.width;
         source.rowsPerImage = mipLevelSize.height;
-
-        Extent3D writeSize = mipLevelSize;
-        writeSize.depthOrArrayLayers = 1; // Only write to one array layer at a time
-
+        Extent3D writeSize = mipLevelSize; writeSize.depthOrArrayLayers = 1;
         queue.writeTexture(destination, pixels.data(), pixels.size(), source, writeSize);
 
         previousLevelPixels = std::move(pixels);
         previousMipLevelSize = mipLevelSize;
-        mipLevelSize.width /= 2;
-        mipLevelSize.height /= 2;
-        if (mipLevelSize.width == 0) mipLevelSize.width = 1;
-        if (mipLevelSize.height == 0) mipLevelSize.height = 1;
+        mipLevelSize.width = std::max(1u, mipLevelSize.width / 2);
+        mipLevelSize.height = std::max(1u, mipLevelSize.height / 2);
     }
 }
 
-TextureArrayInfo TextureManager::getTextureArrayInfo(const std::string& name) {
-    auto it = textureArrayInfos.find(name);
-    if (it != textureArrayInfos.end()) {
-        return it->second;
+// ---------- cleanup ----------
+void TextureManager::removeTextureView(const std::string& name) {
+    auto it = textureViews.find(name);
+    if (it != textureViews.end()) {
+        it->second.release();
+        textureViews.erase(it);
     }
-    return {}; // Return empty struct if not found
 }
-
-// Update the removeTexture method to also clean up array info
 void TextureManager::removeTexture(const std::string& name) {
     auto it = textures.find(name);
     if (it != textures.end()) {
         it->second.destroy();
         it->second.release();
         textures.erase(it);
-
-        // Also remove texture array info if it exists
-        auto arrayInfoIt = textureArrayInfos.find(name);
-        if (arrayInfoIt != textureArrayInfos.end()) {
-            textureArrayInfos.erase(arrayInfoIt);
-        }
+        auto ai = textureArrayInfos.find(name);
+        if (ai != textureArrayInfos.end()) textureArrayInfos.erase(ai);
     }
 }

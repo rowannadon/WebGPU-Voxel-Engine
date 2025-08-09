@@ -52,6 +52,10 @@ bool Application::Initialize() {
     uniforms.lightDirection = sunDirection;
     uniforms.lightPosition = sunPosition;
 
+    const auto& mats = tex->getMaterialTable();
+
+    buf->writeBuffer("material_buffer", 0, (void*)mats.data(), mats.size() * sizeof(MaterialProperties));
+
     buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
 
     clouds = getDefaultClouds();

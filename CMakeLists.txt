@@ -22,7 +22,8 @@ add_executable(
     main.cpp 
     ResourceManager.cpp 
     Application.cpp 
-    Application.h 
+    Application.h
+    "json.hpp"
     "ChunkColumn.h" 
     "ChunkColumnManager.h" 
     "ChunkWorkerSystem.h" 

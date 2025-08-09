@@ -49,7 +49,7 @@ struct MaterialProperties {
     bool randomRotation;
     uint32_t modelOffset;
     uint32_t id;
-    float padding;
+    uint32_t modelId;
 };
 
 static_assert(sizeof(MaterialProperties) % 16 == 0);
