@@ -1705,7 +1705,7 @@ public:
                 position_x &= 0x1F;
                 position_y &= 0x1F;
                 position_z &= 0x1F;
-                normal_index &= 0x7;
+                normal_index &= 0xF;
 
                 aoValues[0] &= 0x3;
                 aoValues[1] &= 0x3;
@@ -1729,12 +1729,12 @@ public:
                 packed |= static_cast<uint32_t>(position_y) << 5;
                 packed |= static_cast<uint32_t>(position_z) << 10;
                 packed |= static_cast<uint32_t>(normal_index) << 15;
-                packed |= static_cast<uint32_t>(lodBits) << 18;
-                packed |= static_cast<uint32_t>(aoValues[0]) << 20;
-                packed |= static_cast<uint32_t>(aoValues[1]) << 22;
-                packed |= static_cast<uint32_t>(aoValues[2]) << 24;
-                packed |= static_cast<uint32_t>(aoValues[3]) << 26;
-                packed |= static_cast<uint32_t>(reversed) << 28;
+                packed |= static_cast<uint32_t>(lodBits) << 19;
+                packed |= static_cast<uint32_t>(aoValues[0]) << 21;
+                packed |= static_cast<uint32_t>(aoValues[1]) << 23;
+                packed |= static_cast<uint32_t>(aoValues[2]) << 25;
+                packed |= static_cast<uint32_t>(aoValues[3]) << 27;
+                packed |= static_cast<uint32_t>(reversed) << 29;
 
                 return packed;
             };
@@ -1775,10 +1775,12 @@ public:
 
                                             auto [groupIsSolid, groupMaterial] = sampleLODGroupCached(groupPos, lodLevel, transparent);
 
-                                            bool doubleSided = (groupMaterial.materialType == BlockType::Leaf);
-
                                             int faces = 6;
                                             bool shouldAdd = true;
+
+                                            if (groupMaterial.materialType == BlockType::Leaf) {
+                                                faces = 6;
+                                            }
 
                                             if (groupMaterial.materialType == BlockType::TallGrass ||
                                                 groupMaterial.materialType == BlockType::Grass0 ||
@@ -1788,7 +1790,6 @@ public:
                                                 groupMaterial.materialType == BlockType::Grass4 ||
                                                 groupMaterial.materialType == BlockType::Grass5) {
                                                 faces = 2;
-                                                doubleSided = true;
                                                 if (!includeGrass) {
                                                     shouldAdd = false;
                                                 }
@@ -1796,7 +1797,7 @@ public:
 
                                             if (shouldAdd && groupIsSolid) {
                                                 for (int face = 0; face < faces; ++face) {
-                                                    if (faces == 2 || // billboards (grass) � always render
+                                                    if (faces == 2 || // billboards (grass) always render
                                                         !shouldCullLODFace(groupPos, face, lodLevel, /*transparentPass=*/transparent,
                                                             groupMaterial.materialType)) {
                                                         std::array<uint32_t, 4> aoValues;
@@ -1808,8 +1809,6 @@ public:
                                                         currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
                                                         currentFace.materialId = groupMaterial.materialType;
                                                         faceData[meshSlot][zPos].push_back(currentFace);
-
-                                                        // (double-sided for leaves still disabled as in your code)
                                                     }
                                                 }
                                             }

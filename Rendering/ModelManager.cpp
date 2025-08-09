@@ -5,6 +5,17 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <iomanip>
+#include <cstring> // for std::memcpy
+
+// Turn to 0 to silence logs without code edits elsewhere.
+#ifndef MODEL_LOADER_DEBUG
+#define MODEL_LOADER_DEBUG 1
+#endif
+
+#if MODEL_LOADER_DEBUG
+static std::ostream& dbg() { return std::cout; }
+#endif
 
 static inline glm::vec3 computeFaceNormal(const glm::vec3& a,
     const glm::vec3& b,
@@ -15,6 +26,52 @@ static inline glm::vec3 computeFaceNormal(const glm::vec3& a,
     float len = glm::length(n);
     if (len > 1e-8f) n /= len;
     return n;
+}
+
+void ModelManager::initBuffer() {
+    BufferDescriptor modelDataBufferDesc;
+    modelDataBufferDesc.size = MAX_TOTAL_QUADS * sizeof(Quad);
+    modelDataBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Storage;
+    modelDataBufferDesc.mappedAtCreation = false;
+    modelDataBufferDesc.label = StringView("Model Data Storage Buffer");
+
+    modelStorageBuffer = device.createBuffer(modelDataBufferDesc);
+
+    std::cout << "Model storage buffer initialized: " << MAX_TOTAL_QUADS << " total quads, "
+        << "Storage buffer: " << MAX_TOTAL_QUADS * sizeof(Quad) << " bytes" << std::endl;
+}
+
+void ModelManager::initBindGroup() {
+    std::vector<BindGroupEntry> modelDataBindings(1);
+
+    // Chunk data buffer binding
+    modelDataBindings[0].binding = 0;
+    modelDataBindings[0].buffer = modelStorageBuffer;
+    modelDataBindings[0].offset = 0;
+    modelDataBindings[0].size = sizeof(Quad) * MAX_TOTAL_QUADS; // sizeof(ChunkData)
+
+    BindGroupDescriptor bindGroupDesc;
+    bindGroupDesc.layout = bindGroupLayout;
+    bindGroupDesc.entryCount = (uint32_t)modelDataBindings.size();
+    bindGroupDesc.entries = modelDataBindings.data();
+    bindGroupDesc.label = StringView("Model Data Storage Buffer Bind Group");
+
+    bindGroup = device.createBindGroup(bindGroupDesc);
+}
+
+void ModelManager::initBindGroupLayout() {
+    std::vector<BindGroupLayoutEntry> modelDataStorage(1, Default);
+    modelDataStorage[0].binding = 0;
+    modelDataStorage[0].visibility = ShaderStage::Vertex;
+    modelDataStorage[0].buffer.type = BufferBindingType::ReadOnlyStorage;
+    modelDataStorage[0].buffer.minBindingSize = sizeof(Quad) * MAX_TOTAL_QUADS;
+
+    BindGroupLayoutDescriptor modelDataBindGroupLayoutDesc{};
+    modelDataBindGroupLayoutDesc.entryCount = (uint32_t)modelDataStorage.size();
+    modelDataBindGroupLayoutDesc.entries = modelDataStorage.data();
+    modelDataBindGroupLayoutDesc.label = StringView("Model Data Storage Buffer Bind Group Layout");
+
+    bindGroupLayout = device.createBindGroupLayout(modelDataBindGroupLayoutDesc);
 }
 
 bool ModelManager::createModel(std::string modelName, const std::filesystem::path& path) {
@@ -39,6 +96,38 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
         return false;
     }
 
+#if MODEL_LOADER_DEBUG
+    dbg() << "[ModelManager] ===== OBJ ATTRIB DUMP: " << path.filename().string() << " =====\n";
+    dbg() << "  Vertices:  " << (attrib.vertices.size() / 3) << "\n";
+    dbg() << "  Texcoords: " << (attrib.texcoords.size() / 2) << "\n";
+    dbg() << "  Normals:   " << (attrib.normals.size() / 3) << "\n";
+
+    dbg() << std::fixed << std::setprecision(6);
+
+    // Vertices
+    for (size_t i = 0; i + 2 < attrib.vertices.size(); i += 3) {
+        dbg() << "    v[" << (i / 3) << "] = ("
+            << attrib.vertices[i + 0] << ", "
+            << attrib.vertices[i + 1] << ", "
+            << attrib.vertices[i + 2] << ")\n";
+    }
+
+    // UVs
+    for (size_t i = 0; i + 1 < attrib.texcoords.size(); i += 2) {
+        dbg() << "    vt[" << (i / 2) << "] = ("
+            << attrib.texcoords[i + 0] << ", "
+            << attrib.texcoords[i + 1] << ")\n";
+    }
+
+    // Normals
+    for (size_t i = 0; i + 2 < attrib.normals.size(); i += 3) {
+        dbg() << "    vn[" << (i / 3) << "] = ("
+            << attrib.normals[i + 0] << ", "
+            << attrib.normals[i + 1] << ", "
+            << attrib.normals[i + 2] << ")\n";
+    }
+#endif
+
     Model model;
     model.quads.reserve(256); // hint; will grow as needed
 
@@ -48,9 +137,18 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
             int fv = shape.mesh.num_face_vertices[f]; // number of vertices for this face
             if (fv != 3 && fv != 4) {
                 // Skip n-gons other than tris/quads to keep pipeline simple
+#if MODEL_LOADER_DEBUG
+                dbg() << "[ModelManager] Shape: \"" << shape.name << "\"  Face #" << f
+                    << "  fv=" << fv << " (skipped: n-gon)\n";
+#endif
                 index_offset += fv;
                 continue;
             }
+
+#if MODEL_LOADER_DEBUG
+            dbg() << "[ModelManager] Shape: \"" << shape.name << "\"  Face #" << f
+                << "  fv=" << fv << "\n";
+#endif
 
             // Collect up to 4 vertices for this face
             glm::vec3 pos[4];
@@ -80,7 +178,7 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
                 if (idx.texcoord_index >= 0 && (size_t)idx.texcoord_index * 2 + 1 < attrib.texcoords.size()) {
                     uv[v] = glm::vec2(
                         attrib.texcoords[2 * idx.texcoord_index + 0],
-                        attrib.texcoords[2 * idx.texcoord_index + 1]
+                        1.0f - attrib.texcoords[2 * idx.texcoord_index + 1] // <- flip V for WebGPU
                     );
                 }
                 else {
@@ -102,6 +200,20 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
                 }
             }
 
+#if MODEL_LOADER_DEBUG
+            for (int vtx = 0; vtx < fv; ++vtx) {
+                const tinyobj::index_t idx = shape.mesh.indices[index_offset + vtx];
+                dbg() << "  idx[" << vtx << "] { vi=" << idx.vertex_index
+                    << ", ti=" << idx.texcoord_index
+                    << ", ni=" << idx.normal_index << " } -> "
+                    << "P(" << pos[vtx].x << ", " << pos[vtx].y << ", " << pos[vtx].z << "), "
+                    << "UV(" << uv[vtx].x << ", " << uv[vtx].y << "), "
+                    << "N(" << vnorm[vtx].x << ", " << vnorm[vtx].y << ", " << vnorm[vtx].z << ")\n";
+            }
+            if (!haveAnyUV)     dbg() << "    [note] UVs missing on this face; using (0,0).\n";
+            if (!haveAnyNormal) dbg() << "    [note] Normals missing on this face; will use face normal.\n";
+#endif
+
             index_offset += fv;
 
             // Build a quad (degenerate if triangle)
@@ -109,6 +221,9 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
 
             // If triangle, duplicate the last vertex to make a 4th corner
             if (fv == 3) {
+#if MODEL_LOADER_DEBUG
+                dbg() << "    Tri -> Quad duplication: duplicating vertex 2 into slot 3\n";
+#endif
                 pos[3] = pos[2];
                 uv[3] = uv[2];
                 vnorm[3] = vnorm[2];
@@ -116,17 +231,51 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
 
             // Normal: prefer face normal (flat) if any normals missing
             glm::vec3 faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
-            q.normal = haveAnyNormal ? faceN /* still use flat for consistency */ : faceN;
+
+#if MODEL_LOADER_DEBUG
+            dbg() << "    Face normal (pre-flip): (" << faceN.x << ", " << faceN.y << ", " << faceN.z << ")\n";
+#endif
+
+            // Enforce consistent CCW order if needed
+//            if (glm::dot(faceN, computeFaceNormal(pos[0], pos[3], pos[2])) < 0.0f) {
+//#if MODEL_LOADER_DEBUG
+//                dbg() << "    Winding flip applied (swap v1 <-> v3)\n";
+//#endif
+//                std::swap(pos[1], pos[3]);
+//                std::swap(uv[1], uv[3]);
+//                std::swap(vnorm[1], vnorm[3]);
+//                // Recompute the face normal after flip (optional but nice)
+//                faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
+//            }
+
+            q.normal = glm::vec4(faceN, 0.0f);
 
             for (int i = 0; i < 4; ++i) {
-                q.vertexPositions[i] = pos[i];
+                q.vertexPositions[i] = glm::vec4(pos[i], 1.0f);
                 q.uvs[i] = haveAnyUV ? uv[i] : glm::vec2(0.0f);
                 q.aoValues[i] = 1.0f; // default AO (fully lit); you can bake/import later if desired
             }
 
+#if MODEL_LOADER_DEBUG
+            dbg() << "    Final Quad:\n";
+            for (int i = 0; i < 4; ++i) {
+                dbg() << "      V" << i << " P("
+                    << q.vertexPositions[i].x << ", "
+                    << q.vertexPositions[i].y << ", "
+                    << q.vertexPositions[i].z << ")  UV("
+                    << q.uvs[i].x << ", " << q.uvs[i].y << ")\n";
+            }
+            dbg() << "      Quad normal: (" << q.normal.x << ", " << q.normal.y << ", " << q.normal.z << ")\n";
+#endif
+
             model.quads.push_back(q);
         }
     }
+
+#if MODEL_LOADER_DEBUG
+    dbg() << "[ModelManager] Loaded model \"" << modelName
+        << "\" -> " << model.quads.size() << " quads\n";
+#endif
 
     models[modelName] = std::move(model);
     return true;
@@ -145,6 +294,9 @@ bool ModelManager::loadAllModels(const std::filesystem::path& dirPath) {
         for (auto& c : ext) c = (char)std::tolower(c);
         if (ext == ".obj") {
             auto name = entry.path().stem().string();
+#if MODEL_LOADER_DEBUG
+            dbg() << "[ModelManager] Loading OBJ: " << entry.path() << " as \"" << name << "\"\n";
+#endif
             if (!createModel(name, entry.path())) {
                 std::cerr << "[ModelManager] Failed to load model: " << entry.path() << "\n";
                 // keep going; try others
@@ -185,6 +337,10 @@ bool ModelManager::writeModelsToBuffer() {
         if (!model.quads.empty()) {
             std::memcpy(packed.data() + currentOffset, model.quads.data(),
                 model.quads.size() * sizeof(Quad));
+#if MODEL_LOADER_DEBUG
+            dbg() << "[ModelManager] Copy \"" << name << "\"  quads=" << model.quads.size()
+                << "  offset=" << currentOffset << "\n";
+#endif
             currentOffset += (int)model.quads.size();
         }
     }
@@ -211,6 +367,10 @@ bool ModelManager::writeModelsToBuffer() {
     if (!packed.empty()) {
         queue.writeBuffer(modelStorageBuffer, /*offset*/ 0, packed.data(),
             packed.size() * sizeof(Quad));
+#if MODEL_LOADER_DEBUG
+        dbg() << "[ModelManager] Wrote " << packed.size() << " quads to GPU buffer ("
+            << (packed.size() * sizeof(Quad)) << " bytes)\n";
+#endif
     }
 
     // If there is unused space up to MAX_TOTAL_QUADS, that's fine.

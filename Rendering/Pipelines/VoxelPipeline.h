@@ -8,13 +8,15 @@ private:
 	TextureManager* tex;
 	PipelineManager* pip;
 	WebGPUContext* context;
+	ModelManager* mod;
 
 public:
-	void init(BufferManager* b, TextureManager* t, PipelineManager* p, WebGPUContext *con) {
+	void init(BufferManager* b, TextureManager* t, PipelineManager* p, ModelManager *m, WebGPUContext *con) {
 		buf = b;
 		tex = t;
 		pip = p;
 		context = con;
+		mod = m;
 	}
 
 	bool createResources() {
@@ -93,7 +95,7 @@ public:
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth32Float;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::Back;
+		config.cullMode = CullMode::None;
 		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
@@ -162,7 +164,7 @@ public:
 			pip->createBindGroupLayout("global_uniforms", globalUniforms)
 		);
 		config.bindGroupLayouts.push_back(
-			tex->getTexturePool("texture_pool_light")->getBindGroupLayout()
+			mod->getBindGroupLayout()
 		);
 		config.bindGroupLayouts.push_back(
 			buf->getBufferPool("chunkdata_pool")->getBindGroupLayout()
@@ -253,9 +255,9 @@ public:
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
-		voxelRenderPass.setPipeline(pip->getPipeline("transparent_voxel_pipeline"));
+		voxelRenderPass.setPipeline(pip->getPipeline("voxel_pipeline"));
 		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group"), 0, nullptr);
-		voxelRenderPass.setBindGroup(1, tex->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		voxelRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
 

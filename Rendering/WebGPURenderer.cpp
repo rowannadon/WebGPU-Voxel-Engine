@@ -12,6 +12,7 @@ bool WebGPURenderer::initialize() {
 	bufferManager = std::make_unique<BufferManager>(context->getDevice(), context->getQueue());
 	textureManager = std::make_unique<TextureManager>(context->getDevice(), context->getQueue());
 	benchmarkManager = std::make_unique<BenchmarkManager>(context->getDevice(), context->getQueue());
+	modelManager = std::make_unique<ModelManager>(context->getDevice(), context->getQueue());
 
 	textureManager->createTexturePool("texture_pool_light");
 	bufferManager->createBufferPool("chunkdata_pool");
@@ -62,6 +63,7 @@ bool WebGPURenderer::initialize() {
 	BufferManager* buf = bufferManager.get();
 	TextureManager* tex = textureManager.get();
 	PipelineManager* pip = pipelineManager.get();
+	ModelManager* mod = modelManager.get();
 
 	aerialPerspectivePipeline.init(buf, tex, pip);
 	multiScatteringPipeline.init(buf, tex, pip);
@@ -71,10 +73,11 @@ bool WebGPURenderer::initialize() {
 	skyViewPipeline.init(buf, tex, pip);
 	terrainPipeline.init(buf, tex, pip);
 	transmittancePipeline.init(buf, tex, pip);
-	voxelPipeline.init(buf, tex, pip, context.get());
-	transparentVoxelPipeline.init(buf, tex, pip, context.get());
+	voxelPipeline.init(buf, tex, pip, mod, context.get());
+	transparentVoxelPipeline.init(buf, tex, pip, mod, context.get());
 
 	// create resources
+	initTextures();
 	noisePipeline.createResources();
 	transmittancePipeline.createResources();
 	multiScatteringPipeline.createResources();
@@ -98,7 +101,6 @@ bool WebGPURenderer::initialize() {
 	transparentVoxelPipeline.createPipeline();
 
 	initSharedUniformBuffers();
-	initTextures();
 	initBindGroups();
 
 	return true;
@@ -260,6 +262,13 @@ bool WebGPURenderer::initSharedUniformBuffers() {
 	atmosphereBufferDesc.mappedAtCreation = false;
 	Buffer atmosphereBuffer = bufferManager->createBuffer("atmosphere_buffer", atmosphereBufferDesc);
 
+	BufferDescriptor materialBufferDesc;
+	materialBufferDesc.size = sizeof(MaterialProperties) * 100;
+	materialBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+	materialBufferDesc.mappedAtCreation = false;
+	Buffer materialBuffer = bufferManager->createBuffer("material_buffer", materialBufferDesc);
+
+
 	return uniformBuffer != nullptr && atmosphereBuffer != nullptr;
 }
 
@@ -289,6 +298,9 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("block_array_sampler", samplerDesc);
+
+	modelManager->createModel("leaf_model", RESOURCE_DIR "/fern2.obj");
+	modelManager->writeModelsToBuffer();
 
 	Texture blockTextureArray = textureManager->loadTextureArray("block_array", "block_array_view", RESOURCE_DIR "/textures/");
 

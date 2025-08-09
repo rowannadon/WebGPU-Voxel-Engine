@@ -6,6 +6,7 @@
 #include "PipelineManager.h"
 #include "BufferManager.h"
 #include "TextureManager.h"
+#include "ModelManager.h"
 #include "WebGPUContext.h"
 #include "../ChunkColumn.h"
 #include "BenchmarkManager.h"
@@ -38,6 +39,7 @@ private:
     std::unique_ptr<BufferManager> bufferManager;
     std::unique_ptr<TextureManager> textureManager;
     std::unique_ptr<BenchmarkManager> benchmarkManager;
+    std::unique_ptr<ModelManager> modelManager;
 
     const float PI = 3.14159265358979323846f;
     MyUniforms uniforms;

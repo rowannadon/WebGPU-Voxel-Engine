@@ -8,13 +8,15 @@ private:
 	TextureManager* tex;
 	PipelineManager* pip;
 	WebGPUContext* context;
+	ModelManager* mod;
 
 public:
-	void init(BufferManager* b, TextureManager* t, PipelineManager* p, WebGPUContext* con) {
+	void init(BufferManager* b, TextureManager* t, PipelineManager* p, ModelManager *m, WebGPUContext* con) {
 		buf = b;
 		tex = t;
 		pip = p;
 		context = con;
+		mod = m;
 	}
 
 	bool createResources() {
@@ -50,7 +52,7 @@ public:
 			pip->getBindGroupLayout("global_uniforms")
 		);
 		config.bindGroupLayouts.push_back(
-			tex->getTexturePool("texture_pool_light")->getBindGroupLayout()
+			mod->getBindGroupLayout()
 		);
 		config.bindGroupLayouts.push_back(
 			buf->getBufferPool("chunkdata_pool")->getBindGroupLayout()

@@ -1,6 +1,10 @@
 #ifndef VOXEL_MATERIAL
 #define VOXEL_MATERIAL
 
+#include "glm/glm.hpp"
+
+using glm::vec3;
+
 enum BlockType: uint16_t {
     Air,
     Dirt,
@@ -23,6 +27,32 @@ enum BlockType: uint16_t {
     Grass5,
     Water,
 };
+
+struct PBRMaterialProperties {
+    vec3 albedo;
+    float metallic;
+    vec3 emission;
+    float roughness;
+    float dielectric;
+    float normal;
+    float AO;
+    float subsurface;
+    float clearcoat;
+    float clearcoatRoughness;
+    float padding[2];
+};
+
+static_assert(sizeof(PBRMaterialProperties) % 16 == 0);
+
+struct MaterialProperties {
+    PBRMaterialProperties pbr;
+    bool randomRotation;
+    uint32_t modelOffset;
+    uint32_t id;
+    float padding;
+};
+
+static_assert(sizeof(MaterialProperties) % 16 == 0);
 
 struct VoxelMaterial {
     uint16_t materialType = 0;  // 0=air, 1=dirt, 2=grass, 3=grass, etc.

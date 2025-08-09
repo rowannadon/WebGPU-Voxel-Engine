@@ -137,6 +137,13 @@ struct ChunkData {
     bottom: u32,
 };
 
+struct Quad {
+    vertexPositions: array<vec4f, 4>,
+    uvs: array<vec2f, 4>,
+    aoValues: array<f32, 4>,
+    normal: vec4f,
+}
+
 struct UnpackedData {
     position_x: u32,
     position_y: u32,
@@ -194,6 +201,7 @@ struct Atmosphere {
 
 // Updated constants - remove hardcoded slot size
 const NUM_TOTAL_SLOTS = 64000;
+const NUM_TOTAL_QUADS = 10000;
 
 const CHUNK_SIZE: f32 = 32.0;
 
@@ -219,8 +227,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(9) var aerial_perspective_lut: texture_3d<f32>;
 @group(0) @binding(10) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
-@group(1) @binding(0) var light_texture_3d: texture_3d<f32>;
-@group(1) @binding(1) var light_sampler_3d: sampler;
+@group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
 @group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
 
@@ -397,7 +404,7 @@ const PBR_MATERIAL_PROPERTIES = array<PBRMaterialProperties, 19>(
         0.0,                      // No clearcoat
         0.0,
         LEAF_MODEL,
-        true
+        false
     ),
     // ID 11: Tall Grass
     PBRMaterialProperties(
@@ -636,16 +643,16 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_x = packed_bits & 0x1Fu;
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0x7u;
-    let lod_bits = (packed_bits >> 18u) & 0x7u;
+    let normal_index = (packed_bits >> 15u) & 0xFu;
+    let lod_bits = (packed_bits >> 19u) & 0x7u;
 
     var ao = vec4u(0);
-    ao[0] = (packed_bits >> 20u) & 0x3u;
-    ao[1] = (packed_bits >> 22u) & 0x3u;
-    ao[2] = (packed_bits >> 24u) & 0x3u;
-    ao[3] = (packed_bits >> 26u) & 0x3u;
+    ao[0] = (packed_bits >> 21u) & 0x3u;
+    ao[1] = (packed_bits >> 23u) & 0x3u;
+    ao[2] = (packed_bits >> 25u) & 0x3u;
+    ao[3] = (packed_bits >> 27u) & 0x3u;
 
-    let reversed = (packed_bits >> 28u) & 0x1u;
+    let reversed = (packed_bits >> 29u) & 0x1u;
     
     var lod_level: u32;
     switch (lod_bits) {
@@ -987,16 +994,29 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     var position: vec3f;
     var voxel_pos: vec3f;
-    var uv: vec2f;
 
     let lod_scale = pow(2.0, f32(chunkData.lod));
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
-    var normal = faceNormals[data.normal_index];
+    // Generate the proper vertex index within the face (0-3) based on triangle pattern
+    var vertexInFace: u32;
+    
+    // Check if this face should be flipped based on AO values
+    let shouldFlip = should_flip_quad(data.ao);
+    
+    if (shouldFlip) {
+        vertexInFace = generate_flipped_vertex_in_face_index(in.vertex_idx, data.reversed);
+    } else {
+        vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
+    }
+
+    var normal: vec3f;
     if (materialProps.model == GRASS_MODEL) {
         normal = normalize(faceNormalsGrass[data.normal_index]);
     } else if (materialProps.model == LEAF_MODEL) {
-        normal = normalize(faceNormalsLeaf[data.normal_index]);
+        normal = modelDataArray[data.normal_index].normal.xyz;
+    } else {
+        normal = faceNormals[data.normal_index];
     }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
@@ -1013,18 +1033,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_x_2 = hash & 7u;
     let tile_y_2 = (hash >> 6u) & 7u;
     let tile_z_2 = (hash >> 12u) & 7u;
-
-    // Generate the proper vertex index within the face (0-3) based on triangle pattern
-    var vertexInFace: u32;
-    
-    // Check if this face should be flipped based on AO values
-    let shouldFlip = should_flip_quad(data.ao);
-    
-    if (shouldFlip) {
-        vertexInFace = generate_flipped_vertex_in_face_index(in.vertex_idx, data.reversed);
-    } else {
-        vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
-    }
 
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
@@ -1057,7 +1065,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let cos_tilt = cos(tilt_angle);
         let sin_tilt = sin(tilt_angle);
         
-        base_vertex = faceVerticesLeaf[data.normal_index][vertexInFace];
+        base_vertex = modelDataArray[data.normal_index].vertexPositions[vertexInFace].xyz;
         
         let rotated_vertex = vec3f(
             base_vertex.x * cos_rot - base_vertex.z * sin_rot,
@@ -1071,7 +1079,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             rotated_vertex.z
         );
         
-        scaled_vertex_offset = base_vertex * lod_scale + primary_offset;
+        scaled_vertex_offset = base_vertex * lod_scale; // + primary_offset;
         
         let face_specific_hash = hash_voxel_position(world_voxel_pos + vec3i(i32(data.normal_index), 0, 0));
         let face_offset = vec3f(
@@ -1080,7 +1088,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             f32((face_specific_hash >> 24u) & 0x7u) / 7.0 - 0.5
         ) * 0.08;
         
-        scaled_vertex_offset += face_offset;
+        //scaled_vertex_offset += face_offset;
         
     } else if (materialProps.model == GRASS_MODEL) {
         base_vertex = faceVerticesGrass[data.normal_index][vertexInFace];
@@ -1109,7 +1117,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     position = base_position + wind_displacement;
     
-    uv = faceUVsIndependent[data.normal_index][vertexInFace];
+    var uv = faceUVsIndependent[data.normal_index][vertexInFace];
+    if (materialProps.model == LEAF_MODEL) {
+        uv = modelDataArray[data.normal_index].uvs[vertexInFace];
+    }
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
@@ -1376,43 +1387,43 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let materialProps = get_pbr_material_properties(material_id);
 
     if (materialProps.model == VOXEL_MODEL && !in.frontFacing) {
-        discard;
+        //discard;
     } 
 
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
     var blendState = 1.0;
-    if (materialProps.model == GRASS_MODEL || materialProps.model == LEAF_MODEL) {
-        let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
+    // if (materialProps.model == GRASS_MODEL || materialProps.model == LEAF_MODEL) {
+    //     let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
         
-        // Define blending ranges
-        var discardThreshold = 0.25;    // Hard discard at very sharp angles
-        var blendStartThreshold = 0.25;  // Start blending at this angle
-        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+    //     // Define blending ranges
+    //     var discardThreshold = 0.25;    // Hard discard at very sharp angles
+    //     var blendStartThreshold = 0.25;  // Start blending at this angle
+    //     var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
-        //Hard discard at very sharp angles
-        if (viewAlignment < discardThreshold) {
-            discard;
-        }
+    //     //Hard discard at very sharp angles
+    //     if (viewAlignment < discardThreshold) {
+    //         discard;
+    //     }
         
-        // Smooth alpha blending between discard and blend thresholds
-        if (viewAlignment < blendEndThreshold) {
-            if (viewAlignment < blendStartThreshold) {
-                // Linear blend from 0 to 1 between discard and blend start
-                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-            } else {
-                // Smooth transition from blend start to full opacity
-                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-                blendState = smoothstep(0.0, 1.0, blendFactor);
-            }
-            blendState = clamp(blendState, 0.0, 1.0);
-        }
+    //     // Smooth alpha blending between discard and blend thresholds
+    //     if (viewAlignment < blendEndThreshold) {
+    //         if (viewAlignment < blendStartThreshold) {
+    //             // Linear blend from 0 to 1 between discard and blend start
+    //             blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+    //         } else {
+    //             // Smooth transition from blend start to full opacity
+    //             let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+    //             blendState = smoothstep(0.0, 1.0, blendFactor);
+    //         }
+    //         blendState = clamp(blendState, 0.0, 1.0);
+    //     }
 
-        if (materialProps.model == GRASS_MODEL) {
-            normal = vec3f(0.0, 0.0, 1.0);
-        }
+    //     if (materialProps.model == GRASS_MODEL) {
+    //         normal = vec3f(0.0, 0.0, 1.0);
+    //     }
 
-    }
+    // }
 
     var uv = in.uv;
 
@@ -1421,29 +1432,29 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var fresnelTerm: f32 = 0.0;
 
     if (material_id == 19u) {
-    let p = in.world_position.xy; // Z-up
-    let t = uMyUniforms.time;
+        let p = in.world_position.xy; // Z-up
+        let t = uMyUniforms.time;
 
-    // Noise-driven slope + normal
-    let grad = wave_gradient(p, t);
-    let wN = water_normal_from_grad(grad);
-    normal = normalize(mix(normal, wN, 0.85));
+        // Noise-driven slope + normal
+        let grad = wave_gradient(p, t);
+        let wN = water_normal_from_grad(grad);
+        normal = normalize(mix(normal, wN, 0.85));
 
-    // Distort existing texture with the noise slope
-    uv += grad * WATER_UV_DISTORTION;
+        // Distort existing texture with the noise slope
+        uv += grad * WATER_UV_DISTORTION;
 
-    // Fresnel-based transparency as before
-    let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
-    fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
-    blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
+        // Fresnel-based transparency as before
+        let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
+        fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
+        blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
 
-    // Depth-ish tint from choppiness
-    let slope = length(grad);
-    waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
+        // Depth-ish tint from choppiness
+        let slope = length(grad);
+        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
 
-    // Foam from steep crests (uses the same procedural noise)
-    foam = water_foam_from_grad(p, t, slope);
-}
+        // Foam from steep crests (uses the same procedural noise)
+        foam = water_foam_from_grad(p, t, slope);
+    }
 
     if (materialProps.random_rotation == true) {
         let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
@@ -1458,13 +1469,12 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         uv = uv * 0.25 + in.tile_offset;
     }
 
-    if (materialProps.model == LEAF_MODEL) {
-        uv = uv;// * 0.5 + in.tile_offset2;
-    }
+    // if (materialProps.model == LEAF_MODEL) {
+    //     uv = uv * 0.5; // + in.tile_offset2;
+    // }
     
     if (materialProps.model == GRASS_MODEL) {
-        //normal = max(normal, -normal);
-        uv = clamp(uv, vec2f(0.01), vec2f(0.99)) * 0.5 + in.tile_offset2;
+        uv = uv * 0.5 + in.tile_offset2;
     }
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);

@@ -9,7 +9,7 @@
 8 oak_log
 9 leaves2
 10 better_grass_long
-11 large_fern_top
+11 fern
 12 better_grass_0
 13 better_grass_1
 14 better_grass_2
