@@ -60,7 +60,7 @@ struct VertexInput {
 
 struct FaceData {
     data: u32,
-    materialId: u32,
+    materialData: u32,
 }
 
 struct VertexOutput {
@@ -80,6 +80,7 @@ struct VertexOutput {
     @location(12) tile_offset: vec2f,
     @location(13) tile_offset2: vec2f,
     @location(14) @interpolate(flat) tile_rotation: u32,
+    @location(15) @interpolate(flat) is_surrounded: u32,
 };
 
 struct FragmentInput {
@@ -100,6 +101,7 @@ struct FragmentInput {
     @location(12) tile_offset: vec2f,
     @location(13) tile_offset2: vec2f,
     @location(14) @interpolate(flat) tile_rotation: u32,
+    @location(15) @interpolate(flat) is_surrounded: u32,
 };
 
 struct MyUniforms {
@@ -152,6 +154,14 @@ struct UnpackedData {
     lod_level: u32,
     ao: vec4u,
     reversed: u32,
+}
+
+struct UnpackedMaterialData {
+    material_id: u32,
+    up: u32,
+    down: u32,
+    left: u32,
+    right: u32,
 }
 
 // Enhanced PBR Material Properties
@@ -419,6 +429,25 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     );
 }
 
+fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
+    let packed_bits = bitcast<u32>(packed_data);
+    
+    let material_id = packed_bits & 0x1FFFFu;
+    let up = (packed_bits >> 17u) & 0x1u;
+    let down = (packed_bits >> 18u) & 0x1u;
+    let left = (packed_bits >> 19u) & 0x1u;
+    let right = (packed_bits >> 20u) & 0x1u;
+
+    return UnpackedMaterialData(
+        material_id,
+        up,
+        down,
+        left,
+        right
+    );
+}
+
+
 fn calculate_chunk_edge_factor(voxel_pos: vec3f, normal_index: u32, lod_level: u32) -> f32 {
     let lod_size = f32(lod_level);
     let effective_chunk_size = CHUNK_SIZE / lod_size;
@@ -494,29 +523,29 @@ const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
 );
 
 const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
-    array<vec2<f32>, 4>(
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>(
+    array<vec2<f32>, 4>( // +X
         vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
     ),
-    array<vec2<f32>, 4>( // +Y
-        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
-        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
+    array<vec2<f32>, 4>( // -X
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
+        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
     ),
-    array<vec2<f32>, 4>( // -Y
-        vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), 
-        vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0)
+    array<vec2<f32>, 4>( // +Y (flipped horizontally)
+        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0), 
+        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0)
+    ),
+    array<vec2<f32>, 4>( // -Y (flipped horizontally from the rotated version)
+        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), 
+        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0)
     ),
     array<vec2<f32>, 4>( // +Z
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
+        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
     ),
-    array<vec2<f32>, 4>( // -Z
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
+    array<vec2<f32>, 4>( // -Z (rotated 180°)
+        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
+        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
     ),
 );
 
@@ -686,6 +715,67 @@ fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 
     
 }
 
+fn get_face_ct(up: u32, down: u32, left: u32, right: u32) -> vec2f {
+    var edges = u32(0);
+    var side = u32(0);
+    let number_same = left + right + up + down;
+    if (number_same == 4u) { //surrounded
+        return vec2f(0.25, 0.5);
+    }
+    if (number_same == 3u) { //edge
+        if (left == 0u) {
+            return vec2f(0.0);
+        }
+        if (up == 0u) {
+            return vec2f(0.0, 0.25);
+        }
+        if (right == 0u) {
+            return vec2f(0.0, 0.5);
+        }
+        if (down == 0u) {
+            return vec2f(0.0, 0.75);
+        }
+    }
+    if (number_same == 2u) { //strip or corner
+        if (left == 0u && right == 0u) { //strip
+            return vec2f(0.25, 0.0);
+        }
+        if (up == 0u && down == 0u) { //strip
+            return vec2f(0.25, 0.25);
+        }
+        if (left == 0u && up == 0u) { //corner
+            return vec2f(0.5, 0.0);
+        }
+        if (left == 0u && down == 0u) { //corner
+            return vec2f(0.5, 0.75);
+        }
+        if (right == 0u && up == 0u) { //corner
+            return vec2f(0.5, 0.25);
+        }
+        if (right == 0u && down == 0u) { //corner
+            return vec2f(0.5, 0.5);
+        }
+    }
+    if (number_same == 1u) { //end
+        if (left == 0u && up == 0u && right == 0u) {
+            return vec2f(0.75, 0.0);
+        }
+        if (left == 0u && down == 0u && right == 0u) {
+            return vec2f(0.75, 0.5);
+        }
+        if (left == 0u && right == 0u && down == 0u) {
+            return vec2f(0.75, 0.25);
+        }
+        if (up == 0u && left == 0u && down == 0u) {
+            return vec2f(0.75, 0.75);
+        }
+    }
+    if (number_same == 0u) { //single
+        return vec2f(0.5, 0.0);
+    }
+    return vec2f(0.25, 0.75);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -728,11 +818,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     let faceData = vertexData[globalFaceIndex];
-    
-    out.idx = in.instance_idx;
-    out.material_id = faceData.materialId;
+    let materialData = unpack_material_data(faceData.materialData);
 
-    let materialProps2 = material_buffer[faceData.materialId - 1];
+    out.idx = in.instance_idx;
+    out.material_id = materialData.material_id;
+    if (materialData.up + materialData.down + materialData.left + materialData.right >= 3) {
+        out.is_surrounded = 1u;
+    } else {
+        out.is_surrounded = 0u;
+    }
+
+    let materialProps2 = material_buffer[materialData.material_id - 1];
     let data = unpack_data(faceData.data);
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -812,6 +908,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
     } else {
         uv = faceUVsIndependent[data.normal_index][vertexInFace];
+        uv = uv*0.25 + get_face_ct(materialData.up, materialData.down, materialData.left, materialData.right);
     }
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
@@ -1153,13 +1250,13 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         uv = rotated_uv;
     }
 
-    if (materialProps2.modelId == VOXEL_MODEL && chunkData.lod > 0u) {
-        uv = fract(uv * lod_scale);
-    }
+    // if (materialProps2.modelId == VOXEL_MODEL && chunkData.lod > 0u) {
+    //     uv = fract(uv * lod_scale);
+    // }
 
-    if (materialProps2.modelId == VOXEL_MODEL) {
-        uv = uv * 0.25 + in.tile_offset;
-    }
+    // if (materialProps2.modelId == VOXEL_MODEL) {
+    //     uv = uv * 0.25 + in.tile_offset;
+    // }
     
     if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == LEAF_MODEL) {
         uv = uv * 0.5 + in.tile_offset2;

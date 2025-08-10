@@ -230,7 +230,7 @@ Limits WebGPUContext::GetRequiredLimits(Adapter adapter) const {
     requiredLimits.minStorageBufferOffsetAlignment = deviceLimits.minStorageBufferOffsetAlignment;
 
     // There is a maximum of 3 float forwarded from vertex to fragment shader
-    requiredLimits.maxInterStageShaderVariables = 8;
+    requiredLimits.maxInterStageShaderVariables = 18;
 
     // We use at most 1 bind group for now
     requiredLimits.maxBindGroups = 4;
