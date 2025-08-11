@@ -302,6 +302,7 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
+	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
 	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model.obj");
 	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");

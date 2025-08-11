@@ -521,7 +521,7 @@ public:
         auto& cache = **cacheEntry;
 
         // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 5.0f, 18.0f, 38.0f, 1024.0f };
+        std::vector<float> lodDistances = { 18.0f, 36.0f, 72.0f, 1024.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
 
         // Calculate current LOD level

@@ -756,11 +756,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
 
     var normal: vec3f;
-    if (materialProps2.modelId != VOXEL_MODEL) {
+    //if (materialProps2.modelId != VOXEL_MODEL) {
         normal = modelDataArray[materialProps2.modelOffset + data.normal_index].normal.xyz;
-    } else {
-        normal = faceNormals[data.normal_index];
-    }
+    //} else {
+    //    normal = faceNormals[data.normal_index];
+    //}
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
@@ -808,11 +808,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     position = base_position + wind_displacement;
     
     var uv: vec2f;
-    if (materialProps2.modelId != VOXEL_MODEL) {
+    //if (materialProps2.modelId != VOXEL_MODEL) {
         uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
-    } else {
-        uv = faceUVsIndependent[data.normal_index][vertexInFace];
-    }
+    //} else {
+    //    uv = faceUVsIndependent[data.normal_index][vertexInFace];
+    //}
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
