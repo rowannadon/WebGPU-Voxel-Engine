@@ -33,7 +33,7 @@ bool WebGPURenderer::initialize() {
 		{ 65536,    16 },
 	} };
 
-	float capacityScale = 5.0f;
+	float capacityScale = 1.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());

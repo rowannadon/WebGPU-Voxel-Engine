@@ -1472,6 +1472,20 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
+        ivec3 faceNeighborOffsets[6][4] = {
+            //Right
+            {neighborOffsets[4], neighborOffsets[5], neighborOffsets[2], neighborOffsets[3]},
+            //Left
+            {neighborOffsets[4], neighborOffsets[5], neighborOffsets[3], neighborOffsets[2]},
+            //Front
+            {neighborOffsets[4], neighborOffsets[5], neighborOffsets[0], neighborOffsets[1]},
+            //Back
+            {neighborOffsets[4], neighborOffsets[5], neighborOffsets[1], neighborOffsets[0]},
+			//Top
+            {neighborOffsets[2], neighborOffsets[3], neighborOffsets[0], neighborOffsets[1]},
+            //Bottom
+            {neighborOffsets[2], neighborOffsets[3], neighborOffsets[1], neighborOffsets[0]}
+        };
         // Cache for voxel data - only sample each voxel once
         std::unordered_map<ivec3, std::pair<bool, bool>, IVec3Hash, IVec3Equal> voxelCache; // pos -> {hasSolid, hasTransparent}
 
@@ -1739,6 +1753,22 @@ public:
                 return packed;
             };
 
+        auto packMaterialData = [](uint32_t material, std::array<uint32_t, 4> flags) -> uint32_t {
+                material &= 0xFFFF;
+                for (int i = 0; i < 4; i++) {
+					flags[i] &= 0x1;
+				}
+
+                uint32_t packed = 0;
+                packed |= static_cast<uint32_t>(material);
+                packed |= static_cast<uint32_t>(flags.at(0)) << 17;
+                packed |= static_cast<uint32_t>(flags.at(1)) << 18;
+                packed |= static_cast<uint32_t>(flags.at(2)) << 19;
+                packed |= static_cast<uint32_t>(flags.at(3)) << 20;
+
+                return packed;
+            };
+
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         try {
@@ -1805,16 +1835,27 @@ public:
                                             if (shouldAdd && groupIsSolid) {
                                                 for (int face = 0; face < faces; ++face) {
                                                     if (faces == 2 || // billboards (grass) always render
-                                                        !shouldCullLODFace(groupPos, face, lodLevel, /*transparentPass=*/transparent,
+                                                        !shouldCullLODFace(groupPos, face, lodLevel, transparent,
                                                             groupMaterial.materialType)) {
-                                                        std::array<uint32_t, 4> aoValues;
+														
+                                                        std::array<uint32_t, 4> aoValues{ 0 };
                                                         for (int vertex = 0; vertex < 4; ++vertex) {
                                                             aoValues[vertex] = calculateAmbientOcclusion(groupPos, face, vertex, lodLevel, transparent);
                                                         }
 
+
+                                                        std::array<uint32_t, 4> neighborSolidFlags{ 0 };
+                                                        if (faces > 2) {
+                                                            for (int i = 0; i < 4; i++) {
+                                                                ivec3 neighborOffset = faceNeighborOffsets[face][i];
+                                                                auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);
+                                                                neighborSolidFlags[i] = groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
+                                                            }
+                                                        }
+
                                                         FaceAttributes currentFace;
                                                         currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
-                                                        currentFace.materialId = groupMaterial.materialType;
+                                                        currentFace.materialData = packMaterialData(groupMaterial.materialType, neighborSolidFlags);
                                                         faceData[meshSlot][zPos].push_back(currentFace);
                                                     }
                                                 }

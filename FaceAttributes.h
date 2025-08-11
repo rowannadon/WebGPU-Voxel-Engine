@@ -3,7 +3,7 @@
 
 struct FaceAttributes {
     uint32_t data;
-    uint32_t materialId;
+    uint32_t materialData;
 };
 
 #endif
