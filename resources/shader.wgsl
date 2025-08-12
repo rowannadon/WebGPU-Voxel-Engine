@@ -730,93 +730,159 @@ fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 
 
 const EDGE = 0;
 const CORNER = 1;
-const STRIP = 3;
-const U = 4;
+const STRIP = 2;
+const U = 3;
 const SURROUNDED = 4;
 const ONE_INNER = 5;
 const TWO_INNER = 6;
 const THREE_INNER = 7;
-const 4_INNER = 8;
+const ZERO_INNER = 8;
+const EDGE_ONE_INNER_ONE = 11;
+const EDGE_ONE_INNER_TWO = 12;
+const CORNER_ONE_INNER = 13;
+const TWO_INNER_DIAGONAL = 14;
+const FOUR_INNER = 15;
+const TEXTURE_SIZE = 64;
+const TILE_SIZE = 8;
+const NUM_TILES_PER_SIDE = TEXTURE_SIZE / TILE_SIZE;
+const UV_PER_TILE = 1.0 / NUM_TILES_PER_SIDE;
 
 fn get_offset(index: u32) -> vec2f {
-    
+    return vec2f(f32(index % 8) * UV_PER_TILE, f32(index / 8) * UV_PER_TILE);
 }
 
 
 fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
-    var edges = u32(0);
-    var side = u32(0);
-    let number_same = m.left + m.right + m.up + m.down + m.up_left + m.up_right + m.down_left + m.down_right;
-    let number_same_4 = m.left + m.right + m.up + m.down;
-    if (number_same == 8u) { //surrounded
-        return uv * 0.125 + vec2f(7 * 0.125, 0.0);
+    let four_neighborhood = m.left + m.right + m.up + m.down;
+    let corners = m.up_left + m.up_right + m.down_left + m.down_right;
+    if (four_neighborhood == 4u) { //surrounded
+        if (corners == 3u) {
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(ONE_INNER);
+            }
+        }
+        if (corners == 2u) {
+            if (m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.up_right == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(TWO_INNER);
+            }
+
+            if (m.down_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(TWO_INNER_DIAGONAL);
+            }
+            if (m.up_left == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(TWO_INNER_DIAGONAL);
+            }
+        }
+        if (corners == 1u) {
+            if (m.down_left == 0u && m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.up_left == 0u && m.up_right == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.up_right == 0u && m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.down_right == 0u && m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(THREE_INNER);
+            }
+        }
+        if (corners == 0u) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(FOUR_INNER);
+        }
+        return uv * 0.125 + get_offset(ZERO_INNER);
     }
-    if (number_same == 7u) { // one free
+    if (four_neighborhood == 3u) { //edge
         if (m.left == 0u) {
-            return rotate_uv(uv, 0) * 0.125;
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE);
         }
         if (m.up == 0u) {
-            return rotate_uv(uv, 1) * 0.125;
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE);
         }
         if (m.right == 0u) {
-            return rotate_uv(uv, 2) * 0.125;
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE);
         }
         if (m.down == 0u) {
-            return rotate_uv(uv, 2) * 0.125;
-        }
-
-        if (m.up_left == 0u) {
-            return rotate_uv(uv, 1) * 0.125 + vec2f(5 * 0.125, 0.0);
-        }
-        if (m.up_right == 0u) {
-            return 0.125 * rotate_uv(uv, 2) + vec2f(5 * 0.125, 0.0);
-        }
-        if (m.down_right == 0u) {
-            return 0.125 * rotate_uv(uv, 3) + vec2f(5 * 0.125, 0.0);
-        }
-        if (m.down_left == 0u) {
-            return 0.125 * rotate_uv(uv, 0) + vec2f(5 * 0.125, 0.0);
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE);
         }
     }
+    if (four_neighborhood == 2u) { //corner or strip
+        if (m.left == 0u && m.right == 0u) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(STRIP);
+        }
+        if (m.up == 0u && m.down == 0u) {
+            return rotate_uv(uv, 1) * 0.125 + get_offset(STRIP);
+        }
+        if (m.left == 0u && m.up == 0u) {
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 0) * 0.125 + get_offset(CORNER);
+        }
+        if (m.up == 0u && m.right == 0u) {
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 1) * 0.125 + get_offset(CORNER);
+        }
+        if (m.right == 0u && m.down == 0u) {
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 2) * 0.125 + get_offset(CORNER);
+        }
+        if (m.down == 0u && m.left == 0u) {
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 3) * 0.125 + get_offset(CORNER);
+        }
 
-    if (number_same_4 == 2u) { //strip or corner
-        if (m.left == 0u && m.right == 0u) { //strip
-            return 0.125 * rotate_uv(uv, 1) + vec2f(2 * 0.125, 0.0);
-        }
-        if (m.up == 0u && m.down == 0u) { //strip
-            return 0.125 * rotate_uv(uv, 0) + vec2f(2 * 0.125, 0.0);
-        }
-        // if (left == 0u && up == 0u) { //corner
-        //     return vec2f(0.5, 0.0);
-        // }
-        // if (left == 0u && down == 0u) { //corner
-        //     return vec2f(0.5, 0.75);
-        // }
-        // if (right == 0u && up == 0u) { //corner
-        //     return vec2f(0.5, 0.25);
-        // }
-        // if (right == 0u && down == 0u) { //corner
-        //     return vec2f(0.5, 0.5);
-        // }
     }
-    // if (number_same == 1u) { //end
-    //     if (left == 0u && up == 0u && right == 0u) {
-    //         return vec2f(0.75, 0.0);
-    //     }
-    //     if (left == 0u && down == 0u && right == 0u) {
-    //         return vec2f(0.75, 0.5);
-    //     }
-    //     if (left == 0u && right == 0u && down == 0u) {
-    //         return vec2f(0.75, 0.25);
-    //     }
-    //     if (up == 0u && left == 0u && down == 0u) {
-    //         return vec2f(0.75, 0.75);
-    //     }
-    // }
-    // if (number_same == 0u) { //single
-    //     return vec2f(0.5, 0.0);
-    // }
-    return 0.125 * uv + vec2f(7 * 0.125, 2 * 0.125);
+    
+    return uv * 0.125 + get_offset(ZERO_INNER);
 }
 
 @vertex
@@ -948,7 +1014,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     var uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
     if (materialProps2.modelId == VOXEL_MODEL) {
-        uv = faceUVsIndependent[data.normal_index][vertexInFace];
+        //uv = faceUVsIndependent[data.normal_index][vertexInFace];
         uv = get_ct_offset(uv, materialData);
     }
     
