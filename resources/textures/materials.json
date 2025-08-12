@@ -30,7 +30,7 @@
     {
       "id": 1,
       "name": "Grass",
-      "texture": "ctm.png",
+      "texture": "ctm2.png",
       "model": "VOXEL_MODEL",
       "randomRotation": false,
       "pbr": {
@@ -138,7 +138,7 @@
     {
       "id": 5,
       "name": "Slate",
-      "texture": "ctm.png",
+      "texture": "ctm2.png",
       "model": "VOXEL_MODEL",
       "randomRotation": false,
       "pbr": {
@@ -219,7 +219,7 @@
     {
       "id": 8,
       "name": "Oak Log",
-      "texture": "oak_log_connected.png",
+      "texture": "oak_log.png",
       "model": "VOXEL_MODEL",
       "randomRotation": false,
       "pbr": {

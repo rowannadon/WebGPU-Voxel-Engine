@@ -162,6 +162,10 @@ struct UnpackedMaterialData {
     down: u32,
     left: u32,
     right: u32,
+    up_left: u32,
+    up_right: u32,
+    down_left: u32,
+    down_right: u32,
 }
 
 // Enhanced PBR Material Properties
@@ -438,12 +442,21 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let left = (packed_bits >> 19u) & 0x1u;
     let right = (packed_bits >> 20u) & 0x1u;
 
+    let up_left = (packed_bits >> 21u) & 0x1u;
+    let up_right = (packed_bits >> 22u) & 0x1u;
+    let down_left = (packed_bits >> 23u) & 0x1u;
+    let down_right = (packed_bits >> 24u) & 0x1u;
+
     return UnpackedMaterialData(
         material_id,
         up,
         down,
         left,
-        right
+        right,
+        up_left,
+        up_right,
+        down_left,
+        down_right,
     );
 }
 
@@ -715,65 +728,95 @@ fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 
     
 }
 
-fn get_face_ct(up: u32, down: u32, left: u32, right: u32) -> vec2f {
+const EDGE = 0;
+const CORNER = 1;
+const STRIP = 3;
+const U = 4;
+const SURROUNDED = 4;
+const ONE_INNER = 5;
+const TWO_INNER = 6;
+const THREE_INNER = 7;
+const 4_INNER = 8;
+
+fn get_offset(index: u32) -> vec2f {
+    
+}
+
+
+fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
     var edges = u32(0);
     var side = u32(0);
-    let number_same = left + right + up + down;
-    if (number_same == 4u) { //surrounded
-        return vec2f(0.25, 0.5);
+    let number_same = m.left + m.right + m.up + m.down + m.up_left + m.up_right + m.down_left + m.down_right;
+    let number_same_4 = m.left + m.right + m.up + m.down;
+    if (number_same == 8u) { //surrounded
+        return uv * 0.125 + vec2f(7 * 0.125, 0.0);
     }
-    if (number_same == 3u) { //edge
-        if (left == 0u) {
-            return vec2f(0.0);
+    if (number_same == 7u) { // one free
+        if (m.left == 0u) {
+            return rotate_uv(uv, 0) * 0.125;
         }
-        if (up == 0u) {
-            return vec2f(0.0, 0.25);
+        if (m.up == 0u) {
+            return rotate_uv(uv, 1) * 0.125;
         }
-        if (right == 0u) {
-            return vec2f(0.0, 0.5);
+        if (m.right == 0u) {
+            return rotate_uv(uv, 2) * 0.125;
         }
-        if (down == 0u) {
-            return vec2f(0.0, 0.75);
+        if (m.down == 0u) {
+            return rotate_uv(uv, 2) * 0.125;
         }
-    }
-    if (number_same == 2u) { //strip or corner
-        if (left == 0u && right == 0u) { //strip
-            return vec2f(0.25, 0.0);
+
+        if (m.up_left == 0u) {
+            return rotate_uv(uv, 1) * 0.125 + vec2f(5 * 0.125, 0.0);
         }
-        if (up == 0u && down == 0u) { //strip
-            return vec2f(0.25, 0.25);
+        if (m.up_right == 0u) {
+            return 0.125 * rotate_uv(uv, 2) + vec2f(5 * 0.125, 0.0);
         }
-        if (left == 0u && up == 0u) { //corner
-            return vec2f(0.5, 0.0);
+        if (m.down_right == 0u) {
+            return 0.125 * rotate_uv(uv, 3) + vec2f(5 * 0.125, 0.0);
         }
-        if (left == 0u && down == 0u) { //corner
-            return vec2f(0.5, 0.75);
-        }
-        if (right == 0u && up == 0u) { //corner
-            return vec2f(0.5, 0.25);
-        }
-        if (right == 0u && down == 0u) { //corner
-            return vec2f(0.5, 0.5);
+        if (m.down_left == 0u) {
+            return 0.125 * rotate_uv(uv, 0) + vec2f(5 * 0.125, 0.0);
         }
     }
-    if (number_same == 1u) { //end
-        if (left == 0u && up == 0u && right == 0u) {
-            return vec2f(0.75, 0.0);
+
+    if (number_same_4 == 2u) { //strip or corner
+        if (m.left == 0u && m.right == 0u) { //strip
+            return 0.125 * rotate_uv(uv, 1) + vec2f(2 * 0.125, 0.0);
         }
-        if (left == 0u && down == 0u && right == 0u) {
-            return vec2f(0.75, 0.5);
+        if (m.up == 0u && m.down == 0u) { //strip
+            return 0.125 * rotate_uv(uv, 0) + vec2f(2 * 0.125, 0.0);
         }
-        if (left == 0u && right == 0u && down == 0u) {
-            return vec2f(0.75, 0.25);
-        }
-        if (up == 0u && left == 0u && down == 0u) {
-            return vec2f(0.75, 0.75);
-        }
+        // if (left == 0u && up == 0u) { //corner
+        //     return vec2f(0.5, 0.0);
+        // }
+        // if (left == 0u && down == 0u) { //corner
+        //     return vec2f(0.5, 0.75);
+        // }
+        // if (right == 0u && up == 0u) { //corner
+        //     return vec2f(0.5, 0.25);
+        // }
+        // if (right == 0u && down == 0u) { //corner
+        //     return vec2f(0.5, 0.5);
+        // }
     }
-    if (number_same == 0u) { //single
-        return vec2f(0.5, 0.0);
-    }
-    return vec2f(0.25, 0.75);
+    // if (number_same == 1u) { //end
+    //     if (left == 0u && up == 0u && right == 0u) {
+    //         return vec2f(0.75, 0.0);
+    //     }
+    //     if (left == 0u && down == 0u && right == 0u) {
+    //         return vec2f(0.75, 0.5);
+    //     }
+    //     if (left == 0u && right == 0u && down == 0u) {
+    //         return vec2f(0.75, 0.25);
+    //     }
+    //     if (up == 0u && left == 0u && down == 0u) {
+    //         return vec2f(0.75, 0.75);
+    //     }
+    // }
+    // if (number_same == 0u) { //single
+    //     return vec2f(0.5, 0.0);
+    // }
+    return 0.125 * uv + vec2f(7 * 0.125, 2 * 0.125);
 }
 
 @vertex
@@ -861,12 +904,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
     let hash = hash_voxel_position(world_voxel_pos + vec3i(i32(normal.x), i32(normal.y), i32(normal.z)));
-    let tile_x = hash & 3u;
-    let tile_y = (hash >> 2u) & 3u;
-    let tile_z = (hash >> 8u) & 3u;
-    let rotation = (hash >> 4u) & 3u;
-    out.tile_offset = vec2f(f32(tile_x) * 0.25, f32(tile_y) * 0.25);
-    out.tile_offset2 = vec2f(f32(tile_x % 2) * 0.5, f32(tile_y % 2) * 0.5);
+    let tile_x = hash & 7u;
+    let tile_y = (hash >> 4u) & 7u;
+    let tile_z = (hash >> 8u) & 7u;
+    let rotation = (hash >> 16u) & 7u;
+    out.tile_offset = vec2f(f32(tile_x) * 0.125, f32(tile_y) * 0.125);
+    out.tile_offset2 = vec2f(f32(tile_x / 2) * 0.25, f32(tile_y / 2) * 0.25);
     out.tile_rotation = rotation;
 
     let tile_x_2 = hash & 7u;
@@ -903,13 +946,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     position = base_position + wind_displacement;
     
-    var uv: vec2f;
-    //if (materialProps2.modelId != VOXEL_MODEL) {
-        uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
-    } else {
+    var uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
+    if (materialProps2.modelId == VOXEL_MODEL) {
         uv = faceUVsIndependent[data.normal_index][vertexInFace];
-        uv = uv*0.25 + get_face_ct(materialData.up, materialData.down, materialData.left, materialData.right);
+        uv = get_ct_offset(uv, materialData);
     }
+    
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
@@ -1254,12 +1296,12 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     //     uv = fract(uv * lod_scale);
     // }
 
-    // if (materialProps2.modelId == VOXEL_MODEL) {
-    //     uv = uv * 0.25 + in.tile_offset;
-    // }
+    if (materialProps2.modelId == VOXEL_MODEL) {
+        uv = uv; // + in.tile_offset;
+    }
     
     if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == LEAF_MODEL) {
-        uv = uv * 0.5 + in.tile_offset2;
+        uv = uv * 0.25 + in.tile_offset2;
     }
 
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
