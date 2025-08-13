@@ -61,7 +61,11 @@ add_executable(
     "Rendering/Pipelines/SkyViewPipeline.h" 
     "Rendering/Pipelines/TerrainPipeline.h" 
     "Rendering/Pipelines/SkyPipeline.h" 
-    "Rendering/Pipelines/ShadowPipeline.h" "Rendering/Pipelines/TransparentVoxelPipeline.h" "Rendering/ModelManager.h" "Rendering/ModelManager.cpp")
+    "Rendering/Pipelines/ShadowPipeline.h" 
+    "Rendering/Pipelines/TransparentVoxelPipeline.h" 
+    "Rendering/ModelManager.h" 
+    "Rendering/ModelManager.cpp" 
+    "ColumnDAICs.h")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.

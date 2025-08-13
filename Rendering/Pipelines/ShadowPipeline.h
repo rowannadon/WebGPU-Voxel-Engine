@@ -135,7 +135,7 @@ public:
 
 		// Binding 0: MyUniforms
 		shadowBindings[0].binding = 0;
-		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer");
+		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer_opaque");
 		shadowBindings[0].offset = 0;
 		shadowBindings[0].size = sizeof(MyUniforms);
 

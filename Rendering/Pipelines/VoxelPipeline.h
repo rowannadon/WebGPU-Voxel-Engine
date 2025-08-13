@@ -104,6 +104,7 @@ public:
 		config.vertexShaderName = "vs_main";  // Vertex shader entry point
 		config.useVertexBuffers = false;
 		config.vertexAttributes.clear();
+		config.useCustomBlending = false;
 
 		// uniforms binding
 		std::vector<BindGroupLayoutEntry> globalUniforms(12, Default);
@@ -191,7 +192,7 @@ public:
 		std::vector<BindGroupEntry> bindings(12);
 
 		bindings[0].binding = 0;
-		bindings[0].buffer = buf->getBuffer("uniform_buffer");
+		bindings[0].buffer = buf->getBuffer("uniform_buffer_opaque");
 		bindings[0].offset = 0;
 		bindings[0].size = sizeof(MyUniforms);
 
@@ -232,7 +233,7 @@ public:
 		bindings[11].binding = 11;
 		bindings[11].textureView = tex->getTextureView("cloud_noise_64_view");
 
-		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group", "global_uniforms", bindings);
+		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_opaque", "global_uniforms", bindings);
 
 		return bindGroup != nullptr;
 	}
@@ -268,7 +269,7 @@ public:
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
 		voxelRenderPass.setPipeline(pip->getPipeline("voxel_pipeline"));
-		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group"), 0, nullptr);
+		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group_opaque"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);

@@ -155,7 +155,7 @@ public:
 		skyBindings[1].size = sizeof(Clouds);
 
 		skyBindings[2].binding = 2;
-		skyBindings[2].buffer = buf->getBuffer("uniform_buffer");
+		skyBindings[2].buffer = buf->getBuffer("uniform_buffer_opaque");
 		skyBindings[2].offset = 0;
 		skyBindings[2].size = sizeof(MyUniforms);
 

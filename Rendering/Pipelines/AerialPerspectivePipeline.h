@@ -95,7 +95,7 @@ public:
 		aerialPerspectiveBindings[0].size = sizeof(Atmosphere);
 
 		aerialPerspectiveBindings[1].binding = 1;
-		aerialPerspectiveBindings[1].buffer = buf->getBuffer("uniform_buffer");
+		aerialPerspectiveBindings[1].buffer = buf->getBuffer("uniform_buffer_opaque");
 		aerialPerspectiveBindings[1].offset = 0;
 		aerialPerspectiveBindings[1].size = sizeof(MyUniforms);
 

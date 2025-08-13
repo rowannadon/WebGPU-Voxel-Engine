@@ -95,7 +95,7 @@ public:
 		skyViewBindings[0].size = sizeof(Atmosphere);
 
 		skyViewBindings[1].binding = 1;
-		skyViewBindings[1].buffer = buf->getBuffer("uniform_buffer");
+		skyViewBindings[1].buffer = buf->getBuffer("uniform_buffer_opaque");
 		skyViewBindings[1].offset = 0;
 		skyViewBindings[1].size = sizeof(MyUniforms);
 

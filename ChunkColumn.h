@@ -28,18 +28,12 @@
 #include "VoxelMaterial.h"
 #include "ChunkData.h"
 #include "RunLengthEncoder.h"
+#include "ColumnDAICs.h"
 
 using glm::ivec3;
 using glm::vec3;
 using glm::vec2;
 using glm::ivec2;
-
-struct DAIC {
-    uint32_t vertexCount;
-    uint32_t instanceCount;
-    uint32_t firstVertex;
-    uint32_t firstInstance;
-};
 
 struct IVec3Hash {
     std::size_t operator()(const ivec3& k) const {
@@ -117,6 +111,8 @@ private:
 
     std::string resourceId;
 
+    static constexpr int TRANSPARENT_OFFSET = 4;
+
     static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
@@ -178,6 +174,10 @@ private:
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> daics{ std::nullopt };
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> sortedDaics{ std::nullopt };
 
+    std::array<std::optional<std::pair<glm::ivec3, DAIC>>, COLUMN_HEIGHT> daicsPerPass[2];
+    bool        daicsGeneratedPerPass[2] = { false, false };
+    int         lastLodLevelPerPass[2] = { -1, -1 };
+    glm::vec3   lastCameraPosPerPass[2] = { glm::vec3(1e9f), glm::vec3(1e9f) };
 
     int currentLODLevel;
 
@@ -222,83 +222,91 @@ public:
         return treeData;
     }
 
-    const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& getDAICs(int lodLevel, BufferManager* buf, vec3 cameraPos = vec3(0.0f)) {
+    const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>&
+        getDAICs(int lodLevel, bool transparent, BufferManager* buf, vec3 cameraPos = vec3(0.0f))
+    {
+        // Early out if the column isn't ready
         if (state.load() != ColumnState::Active) {
-            return daics;
+            static const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> kEmpty{};
+            return kEmpty;
         }
 
-        // Check if cache needs invalidation due to LOD level or camera position change
-        bool needsRegeneration = false;
-        if (lastLodLevel != lodLevel) {
+        const int passIdx = transparent ? 1 : 0;
+        auto& out = daicsPerPass[passIdx];
+        auto& generated = daicsGeneratedPerPass[passIdx];
+        auto& lastLOD = lastLodLevelPerPass[passIdx];
+        auto& lastCam = lastCameraPosPerPass[passIdx];
+
+        // Decide whether to rebuild this PASS's cache
+        bool needsRegeneration = !generated || (lastLOD != lodLevel);
+        const float cameraMoveThreshold = 16.0f; // half a chunk
+        if (!needsRegeneration && glm::length(cameraPos - lastCam) > cameraMoveThreshold) {
             needsRegeneration = true;
         }
-        
-        // Check if camera moved significantly enough to require re-sorting
-        float cameraMoveThreshold = 16.0f; // Half a chunk size
-        if (glm::length(cameraPos - lastCameraPos) > cameraMoveThreshold) {
-            needsRegeneration = true;
+
+        if (!needsRegeneration) {
+            return out; // return the per-pass cache as-is
         }
 
-        if (!daicsGenerated || needsRegeneration) {
-            {
-                std::lock_guard<std::mutex> lock(meshDataMutex);
+        const int passSlot = lodLevel + (transparent ? 4 : 0);
 
-                // Get storage pool reference (avoid static due to potential issues with LOD switching)
-                auto storagePool = buf->getStorageBufferPool("storage_pool");
+        std::lock_guard<std::mutex> lock(meshDataMutex);
+        auto storagePool = buf->getStorageBufferPool("storage_pool");
+        if (!storagePool) {
+            // Clear all for safety
+            for (int i = 0; i < COLUMN_HEIGHT; ++i) out[i] = std::nullopt;
+            generated = true;
+            lastLOD = lodLevel;
+            lastCam = cameraPos;
+            return out;
+        }
 
-                // Track expensive operations for LOD1
-                static uint32_t lod1ProcessingCount = 0;
-                if (lodLevel == 1) lod1ProcessingCount++;
-
-                for (int i = 0; i < COLUMN_HEIGHT; i++) {
-                    if (meta[i].state.load() != ChunkState::Active) {
-                        daics[i] = std::nullopt;
-                        continue;
-                    }
-
-                    int meshSlot = meta[i].meshSlots[lodLevel];
-                    if (!meta[i].meshBufferGPUInitialized || meshSlot < 0) {
-                        daics[i] = std::nullopt;
-                        continue;
-                    }
-
-                    if (faceData[lodLevel][i].empty()) {
-                        daics[i] = std::nullopt;
-                        continue;
-                    }
-
-                    if (!storagePool) {
-                        std::cerr << "Error: Storage pool not found" << std::endl;
-                        daics[i] = std::nullopt;
-                        continue;
-                    }
-
-                    DAIC daic;
-                    uint32_t numFaces = static_cast<uint32_t>(faceData[lodLevel][i].size());
-                    daic.vertexCount = numFaces * 6;  // 6 vertices per face (2 triangles)
-                    daic.instanceCount = 1;
-                    daic.firstVertex = 0;  // Always 0 for vertex pulling
-                    daic.firstInstance = static_cast<uint32_t>(meta[i].dataSlot);
-
-                    daics[i] = { ivec3(position.x, position.y, i * 32), daic };
-                }
-
-                // Debug LOD1 processing frequency
-                if (lodLevel == 1 && lod1ProcessingCount % 1000 == 0) {
-                    std::cout << "LOD1 processing #" << lod1ProcessingCount 
-                        << " for column " << position.x << "," << position.y << std::endl;
-                }
-
-                daicsGenerated = true;
-                lastLodLevel = lodLevel;
-                lastCameraPos = cameraPos;
+        for (int z = 0; z < COLUMN_HEIGHT; ++z) {
+            if (meta[z].state.load() != ChunkState::Active) {
+                out[z] = std::nullopt;
+                continue;
             }
-            
-            // Sort DAICs by depth for back-to-front rendering (transparent materials)
-            sortDAICsByDepth(cameraPos);
+
+            // Must have GPU buffers initialized and a valid slot for THIS pass
+            const int storageSlotId = meta[z].meshSlots[passSlot];
+            if (!meta[z].meshBufferGPUInitialized || storageSlotId < 0) {
+                out[z] = std::nullopt;
+                continue;
+            }
+
+            // Number of faces for THIS pass/LOD/Z
+            const uint32_t faceCount = static_cast<uint32_t>(faceData[passSlot][z].size());
+            if (faceCount == 0) {
+                out[z] = std::nullopt;
+                continue;
+            }
+
+            // (Optional) sanity: ensure the pool capacity for this slot is >= faceCount
+            // If your pool API exposes it, check and log once:
+            // const auto info = storagePool->getSlotInfoBySlotIndex(storageSlotId);
+            // if (info.maxFaces < faceCount) { log once; out[z] = std::nullopt; continue; }
+
+            DAIC d{};
+            d.vertexCount = faceCount * 6;                  // 6 verts per face
+            d.instanceCount = 1;
+            d.firstVertex = 0;                              // vertex pulling path
+            d.firstInstance = static_cast<uint32_t>(meta[z].dataSlot);  // index into chunkData array
+
+            // World position of this subchunk
+            ivec3 chunkWorldPos(position.x, position.y, z * 32);
+
+            out[z] = std::make_pair(chunkWorldPos, d);
         }
 
-        return sortedDaics;
+        // Update per-pass cache metadata
+        generated = true;
+        lastLOD = lodLevel;
+        lastCam = cameraPos;
+
+        // IMPORTANT: do NOT sort here.
+        // The manager aggregates and sorts across all columns later.
+
+        return out;
     }
 
 private:
@@ -340,7 +348,7 @@ private:
         }
 
         // For each LOD level, allocate appropriate size slot based on face count
-        for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 8; lodLevel++) {
             size_t faceCount = faceData[lodLevel][zPos].size();
 
             // Update estimated face count for future allocations
@@ -388,7 +396,7 @@ private:
         auto pool = buf->getStorageBufferPool("storage_pool");
 
         // Upload each LOD level separately with proper slot management
-        for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 8; lodLevel++) {
             int slotId = meta[zPos].meshSlots[lodLevel];
             if (slotId == -1) {
                 continue; // Skip if no slot allocated
@@ -446,11 +454,9 @@ public:
         chunkData.worldPosition = meta[zPos].position;
         chunkData.lod = currentLODLevel;
 
-        chunkData.meshSlot0 = meta[zPos].meshSlots[0];
-        chunkData.meshSlot1 = meta[zPos].meshSlots[1];
-        chunkData.meshSlot2 = meta[zPos].meshSlots[2];
-        chunkData.meshSlot3 = meta[zPos].meshSlots[3];
-        
+        for (int i = 0; i < 8; i++) {
+            chunkData.meshSlots[i] = meta[zPos].meshSlots[i];
+        }
 
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
     }
@@ -470,7 +476,10 @@ public:
         bool isValid;
     };
 
-    SlotRenderInfo getSlotRenderInfo(int zPos, int lodLevel, BufferManager* buf) {
+    SlotRenderInfo getSlotRenderInfo(int zPos, int lodLevel, bool transparent, BufferManager* buf) {
+        if (lodLevel < 0 || lodLevel >= 4) return {};
+        const int slotIndexInMeta = lodLevel + (transparent ? TRANSPARENT_OFFSET : 0);
+
         SlotRenderInfo info = {};
         info.isValid = false;
 
@@ -478,15 +487,14 @@ public:
             return info;
         }
 
-        int slotIndex = meta[zPos].meshSlots[lodLevel];
-        if (slotIndex == -1) {
+        if (slotIndexInMeta == -1) {
             return info;
         }
 
         auto pool = buf->getStorageBufferPool("storage_pool");
-        info.slotIndex = slotIndex;
-        info.faceOffset = pool->getFaceOffsetInElements(slotIndex);
-        info.maxFaces = pool->getSlotMaxFaces(slotIndex);
+        info.slotIndex = slotIndexInMeta;
+        info.faceOffset = pool->getFaceOffsetInElements(slotIndexInMeta);
+        info.maxFaces = pool->getSlotMaxFaces(slotIndexInMeta);
         info.isValid = true;
 
         return info;
@@ -1847,7 +1855,7 @@ public:
                             // Process each LOD level for this 8x8x8 region
                             for (const auto& config : lodConfigs) {
                                 int lodLevel = config.level;
-                                int meshSlot = config.meshSlot;
+                                int meshSlot = config.meshSlot + (transparent ? TRANSPARENT_OFFSET : 0);
                                 bool includeGrass = config.includeGrass;
 
                                 // Iterate through LOD groups at this level within the 8x8x8 region
@@ -1968,7 +1976,10 @@ public:
             return;
         }
 
-        if (faceData[0][zPos].empty()) {
+        auto emptyAll = true;
+        for (int slot = 0; slot < 8; ++slot)
+            emptyAll &= faceData[slot][zPos].empty();
+        if (emptyAll) {
             if (meta[zPos].meshSlots[0] != -1) {
                 // Deallocate slots if they were previously allocated
                 auto pool = buf->getStorageBufferPool("storage_pool");

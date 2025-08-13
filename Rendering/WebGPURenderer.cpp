@@ -51,13 +51,15 @@ bool WebGPURenderer::initialize() {
 	indirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount();
 	indirectBufferDesc.mappedAtCreation = false;
 	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
-	indirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
 
-	BufferDescriptor shadowIndirectBufferDesc = Default;
-	shadowIndirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount();
-	shadowIndirectBufferDesc.mappedAtCreation = false;
-	shadowIndirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
-	shadowIndirectBuffer = context->getDevice().createBuffer(shadowIndirectBufferDesc);
+	indirectBufferDesc.label = StringView("opaque indirect buffer");
+	opaqueIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+
+	indirectBufferDesc.label = StringView("transparent indirect buffer");
+	transparentIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+
+	indirectBufferDesc.label = StringView("shadow indirect buffer");
+	shadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
 
 	// initialize pipeline objects
 	BufferManager* buf = bufferManager.get();
@@ -126,7 +128,7 @@ BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
 }
 
-void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData) {
+void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderData) {
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
 	if (!targetView) return;
 
@@ -134,15 +136,44 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	encoderDesc.label = StringView("Frame command encoder");
 	CommandEncoder encoder = context->getDevice().createCommandEncoder(encoderDesc);
 
+	{
+		MyUniforms uOpaque = uniforms;
+		uOpaque.transparent = 0u;
+		bufferManager->writeBuffer("uniform_buffer_opaque", 0, &uOpaque, sizeof(MyUniforms));
+
+		MyUniforms uTransp = uniforms;
+		uTransp.transparent = 1u;
+		bufferManager->writeBuffer("uniform_buffer_transparent", 0, &uTransp, sizeof(MyUniforms));
+	}
+
 	// Begin frame timing
 	//benchmarkManager->beginFrame("frame_timer", encoder);
 
-	if (chunkRenderData.first.size() > 0) {
-		context->getQueue().writeBuffer(indirectBuffer, 0, chunkRenderData.first.data(), chunkRenderData.first.size() * sizeof(DAIC));
+	if (chunkRenderData.transparentDAICs.size() > 0) {
+		context->getQueue().writeBuffer(
+			transparentIndirectBuffer, 
+			0, 
+			chunkRenderData.transparentDAICs.data(), 
+			chunkRenderData.transparentDAICs.size() * sizeof(DAIC)
+		);
+	}
+
+	if (chunkRenderData.opaqueDAICs.size() > 0) {
+		context->getQueue().writeBuffer(
+			opaqueIndirectBuffer, 
+			0, 
+			chunkRenderData.opaqueDAICs.data(), 
+			chunkRenderData.opaqueDAICs.size() * sizeof(DAIC)
+		);
 	}
 	
-	if (chunkRenderData.second.size() > 0) {
-		context->getQueue().writeBuffer(shadowIndirectBuffer, 0, chunkRenderData.second.data(), chunkRenderData.second.size() * sizeof(DAIC));
+	if (chunkRenderData.shadowDAICs.size() > 0) {
+		context->getQueue().writeBuffer(
+			shadowIndirectBuffer, 
+			0, 
+			chunkRenderData.shadowDAICs.data(), 
+			chunkRenderData.shadowDAICs.size() * sizeof(DAIC)
+		);
 	}
 
 	// === NOISE COMPUTE PASS ===
@@ -164,19 +195,29 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	aerialPerspectivePipeline.render(encoder);
 
 	// === SHADOW RENDER PASS ===
-	if (chunkRenderData.second.size() > 0) {
+	if (chunkRenderData.shadowDAICs.size() > 0) {
 		shadowPipeline.render(
-			chunkRenderData.second.size(),
+			chunkRenderData.shadowDAICs.size(),
 			shadowIndirectBuffer,
 			encoder
 		);
 	}
 
-	// === VOXEL RENDER PASS ===
-	if (chunkRenderData.first.size() > 0) {
+	// === OPAQUE VOXEL RENDER PASS ===
+	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		voxelPipeline.render(
-			chunkRenderData.first.size(),
-			indirectBuffer,
+			chunkRenderData.opaqueDAICs.size(),
+			opaqueIndirectBuffer,
+			targetView,
+			encoder
+		);
+	}
+
+	// === TRANSPARENT VOXEL RENDER PASS ===
+	if (chunkRenderData.transparentDAICs.size() > 0) {
+		transparentVoxelPipeline.render(
+			chunkRenderData.transparentDAICs.size(),
+			transparentIndirectBuffer,
 			targetView,
 			encoder
 		);
@@ -250,22 +291,38 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 }
 
 bool WebGPURenderer::initSharedUniformBuffers() {
-	BufferDescriptor bufferDesc;
-	bufferDesc.size = sizeof(MyUniforms);
-	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	bufferDesc.mappedAtCreation = false;
-	Buffer uniformBuffer = bufferManager->createBuffer("uniform_buffer", bufferDesc);
+	// Full-frame uniforms for OPAQUE pass
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("uniform buffer opaque");
+		desc.size = sizeof(MyUniforms);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer ubo = bufferManager->createBuffer("uniform_buffer_opaque", desc);
+		if (!ubo) return false;
+	}
+	// Full-frame uniforms for TRANSPARENT pass
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("uniform buffer transparent");
+		desc.size = sizeof(MyUniforms);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer ubo = bufferManager->createBuffer("uniform_buffer_transparent", desc);
+		if (!ubo) return false;
+	}
 
-	BufferDescriptor atmosphereBufferDesc;
-	atmosphereBufferDesc.size = sizeof(Atmosphere);
-	atmosphereBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-	atmosphereBufferDesc.mappedAtCreation = false;
-	Buffer atmosphereBuffer = bufferManager->createBuffer("atmosphere_buffer", atmosphereBufferDesc);
-
-
-
-
-	return uniformBuffer != nullptr && atmosphereBuffer != nullptr;
+	// Atmosphere (unchanged)
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("atmosphere buffer");
+		desc.size = sizeof(Atmosphere);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer bufA = bufferManager->createBuffer("atmosphere_buffer", desc);
+		if (!bufA) return false;
+	}
+	return true;
 }
 
 bool WebGPURenderer::initTextures() {
@@ -333,6 +390,7 @@ bool WebGPURenderer::initBindGroups() {
 	terrainPipeline.createBindGroup();
 	aerialPerspectivePipeline.createBindGroup();
 	skyPipeline.createBindGroup();
+	transparentVoxelPipeline.createBindGroup();
 
 	return true;
 }
@@ -372,10 +430,10 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 }
 
 void WebGPURenderer::terminate() {
-	indirectBuffer.release();
+	opaqueIndirectBuffer.release();
+	transparentIndirectBuffer.release();
 	shadowIndirectBuffer.release();
 
-	textureManager->terminate();
 	textureManager->terminate();
 	pipelineManager->terminate();
 	bufferManager->terminate();

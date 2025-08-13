@@ -116,7 +116,7 @@ struct MyUniforms {
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
-    padding: f32,
+    transparent: u32,
     highlightedVoxelPos: vec3i,
     time: f32,
     cameraWorldPos: vec3f,
@@ -129,14 +129,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
-    meshSlot: u32,
-    lightSlot: u32,
-    meshSlot2: u32,
-    meshSlot3: u32,
-    front: u32,
-    back: u32,
-    top: u32,
-    bottom: u32,
+    meshSlots: array<u32, 8>,
 };
 
 struct Quad {
@@ -967,15 +960,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let dataIndex = in.instance_idx;
     let chunkData = chunkDataArray[dataIndex];
     
-    var storageSlot = chunkData.meshSlot;
+    var offset = uMyUniforms.transparent * 4u;
 
-    if (chunkData.lod == 1u) {
-        storageSlot = chunkData.lightSlot;
-    } else if (chunkData.lod == 2u) {
-        storageSlot = chunkData.meshSlot2;
-    } else if (chunkData.lod == 3u) {
-        storageSlot = chunkData.meshSlot3;
-    }
+    var storageSlot = chunkData.meshSlots[offset + chunkData.lod];
     
     // Bounds check for storage slot
     if (storageSlot >= bufferMetadata.slotCount) {

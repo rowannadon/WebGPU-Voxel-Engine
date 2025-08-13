@@ -14,7 +14,7 @@ struct MyUniforms {
     glm::mat4 lightProjectionMatrix;
 
     glm::vec3 lightDirection;
-    float padding3;
+    uint32_t transparent;
 
     glm::ivec3 highlightedVoxelPos;
     float time;

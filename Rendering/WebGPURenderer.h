@@ -20,6 +20,8 @@
 #include "Pipelines/SkyPipeline.h"
 #include "Pipelines/ShadowPipeline.h"
 #include "Pipelines/TransparentVoxelPipeline.h"
+
+#include "../ColumnDAICs.h"
 #include "../Atmosphere.h"
 #include "../Noise.h"
 #include "../Terrain.h"
@@ -47,7 +49,8 @@ private:
     // Add this for ImGUI support
     RenderPassEncoder currentCommandEncoder = nullptr;
 
-    Buffer indirectBuffer;
+    Buffer opaqueIndirectBuffer;
+    Buffer transparentIndirectBuffer;
     Buffer shadowIndirectBuffer;
 
 public:
@@ -81,7 +84,7 @@ public:
 
     std::pair<SurfaceTexture, TextureView> GetNextSurfaceViewData();
 
-    void renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAIC>, std::vector<DAIC>> chunkRenderData);
+    void renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderData);
 
     void terminate();
 };

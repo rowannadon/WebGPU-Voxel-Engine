@@ -287,7 +287,7 @@ void Application::MainLoop() {
     uniforms.lightDirection = sunDirection;
     uniforms.lightPosition = sunPosition;
 
-    buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
+    //buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
     buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
     buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
@@ -296,11 +296,11 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread (main thread only)
     processGPUUploads();
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj, buf);
+    auto& renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj, buf);
     
     renderImGUI();
     
-    if (!renderData.first.empty()) {
+    if (!renderData.transparentDAICs.empty() || !renderData.opaqueDAICs.empty()) {
         gpu.renderFrame(uniforms, renderData);
     }
 

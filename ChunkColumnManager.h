@@ -19,6 +19,7 @@
 #include "Rendering/BufferManager.h"
 #include "Rendering/PipelineManager.h"
 #include "Frustum.h"
+#include "ColumnDAICs.h"
 
 using glm::vec3;
 using glm::ivec3;
@@ -54,9 +55,14 @@ struct ChunkPriority {
 
 // Cached DAIC data for a chunk column
 struct CachedDAICData {
-    std::vector<DAIC> cameraDAICs;
-    std::vector<DAIC> shadowDAICs;
-    std::vector<ivec3> chunkPositions;
+    std::vector<DAIC>   opaqueDAICs;
+    std::vector<ivec3>  opaquePositions;
+
+    std::vector<DAIC>   transparentDAICs;
+    std::vector<ivec3>  transparentPositions;
+
+    std::vector<DAIC>   shadowDAICs;
+    std::vector<ivec3>  shadowPositions;
 
     // Cache metadata
     int lodLevel = -1;
@@ -206,7 +212,7 @@ public:
         DAICWithPosition(const DAIC& d, const vec3& pos) : daic(d), worldPosition(pos) {}
     };
 
-    std::pair<std::vector<DAIC>, std::vector<DAIC>> getChunkDAICs(
+    ColumnDAICs getChunkDAICs(
         vec3 cameraPos,
         glm::mat4x4 view,
         glm::mat4x4 proj,
@@ -223,14 +229,17 @@ public:
         shadowFrustum.extractPlanes(lightProj * lightView);
 
         // Pre-allocate vectors to avoid reallocation during rendering
-        static std::vector<DAICWithPosition> cameraDAICsWithPos;
+        static std::vector<DAICWithPosition> transparentDAICsWithPos;
+        static std::vector<DAICWithPosition> opaqueDAICsWithPos;
         static std::vector<DAIC> shadowDAICs;
         
-        cameraDAICsWithPos.clear();
+        transparentDAICsWithPos.clear();
+        opaqueDAICsWithPos.clear();
         shadowDAICs.clear();
         
         // Reserve generous capacity to avoid reallocations at high DAIC counts
-        if (cameraDAICsWithPos.capacity() < 16384) cameraDAICsWithPos.reserve(16384);
+        if (opaqueDAICsWithPos.capacity() < 16384) opaqueDAICsWithPos.reserve(16384);
+        if (transparentDAICsWithPos.capacity() < 8196) transparentDAICsWithPos.reserve(8196);
         if (shadowDAICs.capacity() < 16384) shadowDAICs.reserve(16384);
 
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
@@ -244,42 +253,15 @@ public:
 
         // Process chunks by spatial buckets for better cache locality
         processChunksBySpatialBuckets(columns, cameraPos, view, proj, lightView, lightProj,
-            cameraFrustum, shadowFrustum, cameraDAICsWithPos, shadowDAICs, buf);
+            cameraFrustum, shadowFrustum, opaqueDAICsWithPos, transparentDAICsWithPos, shadowDAICs, buf);
 
         // Clean old cache entries periodically
         if (currentFrame % 60 == 0) { // Every 60 frames
             cleanupCache();
         }
 
-        // Debug output every 30 frames to diagnose performance cliffs
-        /*if (currentFrame % 30 == 0) {
-            auto perfStats = getPerformanceStats();
-            size_t totalCacheEntries = daicCache.size();
-            size_t activeBuckets = 0;
-            size_t totalChunksInBuckets = 0;
-            
-            for (const auto& bucketPair : spatialBuckets) {
-                if (!bucketPair.second->chunkColumns.empty()) {
-                    activeBuckets++;
-                    totalChunksInBuckets += bucketPair.second->chunkColumns.size();
-                }
-            }
-
-            std::cout << "DAIC Debug - Frame: " << currentFrame 
-                << ", Cache entries: " << totalCacheEntries
-                << ", Cache hits: " << perfStats.cacheHits 
-                << ", Cache misses: " << perfStats.cacheMisses
-                << ", Hit rate: " << (perfStats.cacheHitRate * 100.0f) << "%"
-                << ", Active buckets: " << activeBuckets
-                << ", Chunks in buckets: " << totalChunksInBuckets
-                << ", Output DAICs: " << (cameraDAICs.size() + shadowDAICs.size())
-                << ", Cam capacity: " << cameraDAICs.capacity()
-                << ", Shadow capacity: " << shadowDAICs.capacity()
-                << std::endl;
-        }*/
-
         // Sort camera DAICs for back-to-front rendering (transparent rendering)
-        std::sort(cameraDAICsWithPos.begin(), cameraDAICsWithPos.end(),
+        std::sort(transparentDAICsWithPos.begin(), transparentDAICsWithPos.end(),
             [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
                 // Calculate chunk center positions
                 vec3 aCenterPos = a.worldPosition + vec3(16.0f, 16.0f, 16.0f);
@@ -292,16 +274,35 @@ public:
                 // Sort in descending order (furthest first for back-to-front rendering)
                 return aDistSq > bDistSq;
             });
+
+        std::sort(opaqueDAICsWithPos.begin(), opaqueDAICsWithPos.end(),
+            [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
+                // Calculate chunk center positions
+                vec3 aCenterPos = a.worldPosition + vec3(16.0f, 16.0f, 16.0f);
+                vec3 bCenterPos = b.worldPosition + vec3(16.0f, 16.0f, 16.0f);
+
+                // Calculate squared distances (avoiding sqrt for performance)
+                float aDistSq = glm::length2(aCenterPos - cameraPos);
+                float bDistSq = glm::length2(bCenterPos - cameraPos);
+
+                return aDistSq < bDistSq;
+            });
         
         // Extract sorted DAICs from the position-paired structure
-        std::vector<DAIC> sortedCameraDAICs;
-        sortedCameraDAICs.reserve(cameraDAICsWithPos.size());
+        std::vector<DAIC> sortedTransparentDAICS;
+        std::vector<DAIC> sortedOpaqueDAICs;
+        sortedTransparentDAICS.reserve(transparentDAICsWithPos.size());
+        sortedOpaqueDAICs.reserve(opaqueDAICsWithPos.size());
         
-        for (const auto& daicWithPos : cameraDAICsWithPos) {
-            sortedCameraDAICs.push_back(daicWithPos.daic);
+        for (const auto& daicWithPos : opaqueDAICsWithPos) {
+            sortedOpaqueDAICs.push_back(daicWithPos.daic);
         }
-        
-        return { std::move(sortedCameraDAICs), std::move(shadowDAICs) };
+
+        for (const auto& daicWithPos : transparentDAICsWithPos) {
+            sortedTransparentDAICS.push_back(daicWithPos.daic);
+        }
+
+        return { std::move(sortedOpaqueDAICs), std::move(sortedTransparentDAICS), std::move(shadowDAICs) };
     }
 
     void updateChunkDataBuffers(BufferManager* buf) {
@@ -421,7 +422,8 @@ public:
         glm::mat4x4 lightProj,
         const Frustum& cameraFrustum,
         const Frustum& shadowFrustum,
-        std::vector<DAICWithPosition>& cameraDAICs,
+        std::vector<DAICWithPosition>& opaqueDAICs,
+        std::vector<DAICWithPosition>& transparentDAICs,
         std::vector<DAIC>& shadowDAICs,
         BufferManager* buf) {
 
@@ -462,7 +464,7 @@ public:
 
                     processChunkColumn(columnIt->second, chunkPos, cameraPos, view, proj,
                         lightView, lightProj, cameraFrustum, shadowFrustum,
-                        cameraDAICs, shadowDAICs, buf);
+                        opaqueDAICs, transparentDAICs, shadowDAICs, buf);
                 }
             }
         }
@@ -478,117 +480,90 @@ public:
         glm::mat4x4 lightProj,
         const Frustum& cameraFrustum,
         const Frustum& shadowFrustum,
-        std::vector<DAICWithPosition>& cameraDAICs,
+        std::vector<DAICWithPosition>& opaqueDAICs,
+        std::vector<DAICWithPosition>& transparentDAICs,
         std::vector<DAIC>& shadowDAICs,
-        BufferManager* buf) {
-
+        BufferManager* buf)
+    {
         stats.chunksProcessed++;
 
-        // Check cache first - use pool to avoid allocations
+        // Lookup or create cache entry (pooling handled by caller code)
         std::unique_ptr<CachedDAICData>* cacheEntry = nullptr;
-        {
-            //std::lock_guard<std::mutex> lock(cacheMutex);
-            cacheEntry = &daicCache[chunkPos];
-            if (!*cacheEntry) {
-                // Try to reuse from pool first
-                bool usedPool = false;
-                {
-                    //std::lock_guard<std::mutex> poolLock(cachePoolMutex);
-                    if (!cachePool.empty()) {
-                        *cacheEntry = std::move(cachePool.back());
-                        cachePool.pop_back();
-                        usedPool = true;
-                    }
-                }
-
-                // If pool is empty, allocate new
-                if (!*cacheEntry) {
-                    *cacheEntry = std::make_unique<CachedDAICData>();
-                    static uint32_t newAllocations = 0;
-                    newAllocations++;
-                    if (newAllocations % 100 == 0) {
-                        std::cout << "Cache pool exhausted! New allocation #" << newAllocations << std::endl;
-                    }
-                }
-
-                // Initialize cache entry
-                (*cacheEntry)->isDirty = true;
-                (*cacheEntry)->frameGenerated = 0;
-                (*cacheEntry)->lodLevel = -1;
+        cacheEntry = &daicCache[chunkPos];
+        if (!*cacheEntry) {
+            // Try to reuse from pool first
+            if (!cachePool.empty()) {
+                *cacheEntry = std::move(cachePool.back());
+                cachePool.pop_back();
             }
+            else {
+                *cacheEntry = std::make_unique<CachedDAICData>();
+            }
+            (*cacheEntry)->isDirty = true;
+            (*cacheEntry)->lodLevel = -1;
+            (*cacheEntry)->frameGenerated = 0;
         }
 
         auto& cache = **cacheEntry;
 
-        // Define LOD distance thresholds
-        std::vector<float> lodDistances = { 18.0f, 36.0f, 72.0f, 1024.0f };
-        ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
+        // LOD selection
+        const std::vector<float> lodDistances = { 18.0f, 36.0f, 72.0f, 1024.0f };
+        const ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f),
+            glm::floor(cameraPos.y / 32.0f));
+        const int currentLodLevel = calculateLODLevel(
+            glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 
-        // Calculate current LOD level
-        int currentLodLevel = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
-
-        // Check if cache is valid with better logic - prioritize cache hits
+        // Cache validity
         bool cacheValid = false;
         if (!cache.isDirty && cache.lodLevel == currentLodLevel && cache.frameGenerated > 0) {
-            uint64_t frameAge = currentFrame - cache.frameGenerated;
+            const uint64_t frameAge = currentFrame - cache.frameGenerated;
             cacheValid = (frameAge < MAX_CACHE_AGE);
         }
 
-        if (cacheValid) {
+        if (!cacheValid) {
+            stats.cacheMisses++;
+            regenerateChunkCache(column, chunkPos, currentLodLevel, cameraPos,
+                view, proj, lightView, lightProj, cache, buf);
+        }
+        else {
             stats.cacheHits++;
+        }
 
-            // Early column-level frustum culling using bounds
-            bool columnInCameraFrustum =
-                cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
-            bool columnInShadowFrustum =
-                shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
+        // If nothing in cache, early out
+        const bool hasAny =
+            (!cache.opaquePositions.empty() && !cache.opaqueDAICs.empty()) ||
+            (!cache.transparentPositions.empty() && !cache.transparentDAICs.empty()) ||
+            (!cache.shadowPositions.empty() && !cache.shadowDAICs.empty());
+        if (!hasAny) return;
 
-            if (columnInCameraFrustum || columnInShadowFrustum) {
-                // Test each chunk individually against its respective frustum
-                for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
-                    const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
+        // Column-level frustum checks
+        const bool columnInCameraFrustum =
+            cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
+        const bool columnInShadowFrustum =
+            shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
 
-                    // Only add to camera DAICs if in camera frustum
-                    if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                        cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
-                    }
-
-                    // Only add to shadow DAICs if in shadow frustum
-                    // This should be independent of camera frustum test
-                    if (columnInShadowFrustum && shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                        shadowDAICs.push_back(cache.shadowDAICs[i]);
-                    }
+        if (columnInCameraFrustum) {
+            // Opaque (front-to-back sort happens later on the aggregate list)
+            for (size_t i = 0; i < cache.opaquePositions.size(); ++i) {
+                const vec3 pos = vec3(cache.opaquePositions[i]);
+                if (cameraFrustum.isCubeInside(pos, 32.0f)) {
+                    opaqueDAICs.emplace_back(cache.opaqueDAICs[i], pos);
+                }
+            }
+            // Transparent (back-to-front sort happens later on the aggregate list)
+            for (size_t i = 0; i < cache.transparentPositions.size(); ++i) {
+                const vec3 pos = vec3(cache.transparentPositions[i]);
+                if (cameraFrustum.isCubeInside(pos, 32.0f)) {
+                    transparentDAICs.emplace_back(cache.transparentDAICs[i], pos);
                 }
             }
         }
 
-        // Similar fix for the non-cached path (around line 680-700):
-        else {
-            stats.cacheMisses++;
-
-            // Generate new cache data
-            regenerateChunkCache(column, chunkPos, currentLodLevel, cameraPos, view, proj,
-                lightView, lightProj, cache, buf);
-
-            // Early column-level frustum culling using bounds  
-            bool columnInCameraFrustum =
-                cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
-            bool columnInShadowFrustum =
-                shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
-
-            if (columnInCameraFrustum || columnInShadowFrustum) {
-                // Use newly generated cache data
-                for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
-                    const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
-
-                    // Independent frustum tests for camera and shadow
-                    if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                        cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
-                    }
-
-                    if (columnInShadowFrustum && shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
-                        shadowDAICs.push_back(cache.shadowDAICs[i]);
-                    }
+        if (columnInShadowFrustum) {
+            for (size_t i = 0; i < cache.shadowPositions.size(); ++i) {
+                const vec3 pos = vec3(cache.shadowPositions[i]);
+                if (shadowFrustum.isCubeInside(pos, 32.0f)) {
+                    shadowDAICs.push_back(cache.shadowDAICs[i]);
                 }
             }
         }
@@ -604,60 +579,86 @@ public:
         glm::mat4x4 lightView,
         glm::mat4x4 lightProj,
         CachedDAICData& cache,
-        BufferManager* buf) {
-
-        // Update chunk's LOD level
+        BufferManager* buf)
+    {
+        // Update LOD choice and make sure GPU-side chunk data is up-to-date
         column->updateLODLevel(lodLevel);
         column->updateAllChunkDataBuffers(buf);
 
-        // Debug: Track expensive getDAICs calls
-        static uint32_t getDAICsCount = 0;
-        getDAICsCount++;
-        
-        const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& columnDAICs =
-            column->getDAICs(lodLevel, buf, cameraPos);
+        // Pull per-Z DAICs for both passes
+        const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& transparentColumnDAICs =
+            column->getDAICs(lodLevel, /*transparent=*/true, buf, cameraPos);
 
-        // Clear cache vectors
-        cache.cameraDAICs.clear();
+        const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>& opaqueColumnDAICs =
+            column->getDAICs(lodLevel, /*transparent=*/false, buf, cameraPos);
+
+        // Clear previous cache content
+        cache.transparentDAICs.clear();
+        cache.transparentPositions.clear();
+        cache.opaqueDAICs.clear();
+        cache.opaquePositions.clear();
         cache.shadowDAICs.clear();
-        cache.chunkPositions.clear();
+        cache.shadowPositions.clear();
 
-        // Populate cache using reference
-        for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            if (columnDAICs[i].has_value() && columnDAICs[i].value().second.vertexCount > 0) {
+        // Rebuild cache
+        for (int i = 0; i < COLUMN_HEIGHT; ++i) {
+            if (opaqueColumnDAICs[i].has_value() && opaqueColumnDAICs[i]->second.vertexCount > 0u) {
+                const ivec3 pos = opaqueColumnDAICs[i]->first;
+                const DAIC  d = opaqueColumnDAICs[i]->second;
 
-                ivec3 chunkWorldPos = columnDAICs[i].value().first;
-                DAIC daic = columnDAICs[i].value().second;
+                cache.opaquePositions.push_back(pos);
+                cache.opaqueDAICs.push_back(d);
 
-                cache.chunkPositions.push_back(chunkWorldPos);
-                cache.cameraDAICs.push_back(daic);
-                cache.shadowDAICs.push_back(daic); // Same DAIC for both for now
+                // Reuse opaque geometry for shadows (fine for now)
+                cache.shadowPositions.push_back(pos);
+                cache.shadowDAICs.push_back(d);
+            }
+
+            if (transparentColumnDAICs[i].has_value() && transparentColumnDAICs[i]->second.vertexCount > 0u) {
+                const ivec3 pos = transparentColumnDAICs[i]->first;   // <-- correct source
+                const DAIC  d = transparentColumnDAICs[i]->second;  // <-- correct source
+
+                cache.transparentPositions.push_back(pos);
+                cache.transparentDAICs.push_back(d);
             }
         }
 
-        // Update cache metadata - Mark cache as clean!
+        // Update cache metadata
         cache.lodLevel = lodLevel;
         cache.lastViewMatrix = view;
         cache.lastProjMatrix = proj;
         cache.lastLightViewMatrix = lightView;
         cache.lastLightProjMatrix = lightProj;
         cache.frameGenerated = currentFrame;
-        cache.isDirty = false; // Mark as clean after regeneration
+        cache.isDirty = false;
 
-        // Calculate column bounds for spatial optimization
-        if (!cache.chunkPositions.empty()) {
-            cache.columnBoundsMin = vec3(cache.chunkPositions[0]);
-            cache.columnBoundsMax = vec3(cache.chunkPositions[0]) + vec3(32.0f);
+        // Compute AABB across all kinds
+        bool inited = false;
+        auto initMinMax = [&](const ivec3& p) {
+            cache.columnBoundsMin = vec3(p);
+            cache.columnBoundsMax = vec3(p) + vec3(32.0f);
+            inited = true;
+            };
+        auto expand = [&](const ivec3& p) {
+            vec3 mn = vec3(p);
+            vec3 mx = mn + vec3(32.0f);
+            if (!inited) { initMinMax(p); }
+            cache.columnBoundsMin = glm::min(cache.columnBoundsMin, mn);
+            cache.columnBoundsMax = glm::max(cache.columnBoundsMax, mx);
+            };
 
-            for (const auto& pos : cache.chunkPositions) {
-                vec3 chunkMin = vec3(pos);
-                vec3 chunkMax = chunkMin + vec3(32.0f);
+        for (const auto& p : cache.opaquePositions)      expand(p);
+        for (const auto& p : cache.transparentPositions) expand(p);
+        for (const auto& p : cache.shadowPositions)      expand(p);
 
-                cache.columnBoundsMin = glm::min(cache.columnBoundsMin, chunkMin);
-                cache.columnBoundsMax = glm::max(cache.columnBoundsMax, chunkMax);
-            }
+        // If truly empty, set a degenerate box at the column base so frustum test is cheap
+        if (!inited) {
+            const ivec3 base = ivec3(chunkPos.x * 32, chunkPos.y * 32, 0);
+            cache.columnBoundsMin = vec3(base);
+            cache.columnBoundsMax = vec3(base);
         }
     }
+
 
     int calculateLODLevel(int zHeight, const ivec2& chunkPos, const ivec2& viewerPos,
         const std::vector<float>& lodDistances) const {
