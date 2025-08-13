@@ -1,3 +1,5 @@
+// ShadowPipeline.h
+
 #include "../Atmosphere.h"
 #include <GLFW/glfw3.h>
 #include "../Uniforms.h"
@@ -7,12 +9,14 @@ private:
 	BufferManager* buf;
 	TextureManager* tex;
 	PipelineManager* pip;
+	ModelManager* mod;
 
 public:
-	void init(BufferManager* b, TextureManager* t, PipelineManager* p) {
+	void init(BufferManager* b, TextureManager* t, PipelineManager* p, ModelManager* m) {
 		buf = b;
 		tex = t;
 		pip = p;
+		mod = m;
 	}
 
 	bool createResources() {
@@ -69,32 +73,54 @@ public:
 		config.useVertexBuffers = false;
 		config.vertexAttributes.clear();
 
-		// uniforms binding
-		std::vector<BindGroupLayoutEntry> globalUniforms(3, Default);
+		// Group 0: Global uniforms (matching voxel pipeline structure)
+		std::vector<BindGroupLayoutEntry> globalUniforms(5, Default);
+
+		// Binding 0: MyUniforms
 		globalUniforms[0].binding = 0;
 		globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 		globalUniforms[0].buffer.type = BufferBindingType::Uniform;
 		globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
 
-		// The block texture array binding and sampler
+		// Binding 1: Atmosphere (placeholder for compatibility)
 		globalUniforms[1].binding = 1;
-		globalUniforms[1].visibility = ShaderStage::Fragment;
-		globalUniforms[1].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[1].texture.viewDimension = TextureViewDimension::_2DArray;
+		globalUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+		globalUniforms[1].buffer.type = BufferBindingType::Uniform;
+		globalUniforms[1].buffer.minBindingSize = sizeof(Atmosphere);
 
+		// Binding 2: Material buffer
 		globalUniforms[2].binding = 2;
-		globalUniforms[2].visibility = ShaderStage::Fragment;
-		globalUniforms[2].sampler.type = SamplerBindingType::Filtering;
+		globalUniforms[2].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+		globalUniforms[2].buffer.type = BufferBindingType::Uniform;
+		globalUniforms[2].buffer.minBindingSize = sizeof(MaterialProperties) * 100;
 
+		// Binding 3: Block texture array
+		globalUniforms[3].binding = 3;
+		globalUniforms[3].visibility = ShaderStage::Fragment;
+		globalUniforms[3].texture.sampleType = TextureSampleType::Float;
+		globalUniforms[3].texture.viewDimension = TextureViewDimension::_2DArray;
+
+		// Binding 4: Block texture sampler
+		globalUniforms[4].binding = 4;
+		globalUniforms[4].visibility = ShaderStage::Fragment;
+		globalUniforms[4].sampler.type = SamplerBindingType::Filtering;
+
+		// Group 0: Global uniforms
 		config.bindGroupLayouts.push_back(
 			pip->createBindGroupLayout("shadow_global_uniforms", globalUniforms)
 		);
+
+		// Group 1: Model data (matching voxel pipeline)
 		config.bindGroupLayouts.push_back(
-			tex->getTexturePool("texture_pool_light")->getBindGroupLayout()
+			mod->getBindGroupLayout()
 		);
+
+		// Group 2: Chunk data pool
 		config.bindGroupLayouts.push_back(
 			buf->getBufferPool("chunkdata_pool")->getBindGroupLayout()
 		);
+
+		// Group 3: Storage buffer pool
 		config.bindGroupLayouts.push_back(
 			buf->getStorageBufferPool("storage_pool")->getBindGroupLayout()
 		);
@@ -105,21 +131,36 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> shadowBindings(3);
+		std::vector<BindGroupEntry> shadowBindings(5);
 
+		// Binding 0: MyUniforms
 		shadowBindings[0].binding = 0;
 		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer");
 		shadowBindings[0].offset = 0;
 		shadowBindings[0].size = sizeof(MyUniforms);
 
+		// Binding 1: Atmosphere (for compatibility)
 		shadowBindings[1].binding = 1;
-		shadowBindings[1].textureView = tex->getTextureView("block_array_view");
+		shadowBindings[1].buffer = buf->getBuffer("atmosphere_buffer");
+		shadowBindings[1].offset = 0;
+		shadowBindings[1].size = sizeof(Atmosphere);
 
+		// Binding 2: Material buffer
 		shadowBindings[2].binding = 2;
-		shadowBindings[2].sampler = tex->getSampler("block_array_sampler");
+		shadowBindings[2].buffer = buf->getBuffer("material_buffer");
+		shadowBindings[2].offset = 0;
+		shadowBindings[2].size = sizeof(MaterialProperties) * 100;
+
+		// Binding 3: Block texture array
+		shadowBindings[3].binding = 3;
+		shadowBindings[3].textureView = tex->getTextureView("block_array_view");
+
+		// Binding 4: Block texture sampler
+		shadowBindings[4].binding = 4;
+		shadowBindings[4].sampler = tex->getSampler("block_array_sampler");
 
 		BindGroup shadowBindGroup = pip->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
-	
+
 		return shadowBindGroup != nullptr;
 	}
 
@@ -144,8 +185,10 @@ public:
 
 		RenderPassEncoder shadowRenderPass = encoder.beginRenderPass(renderPassDesc);
 		shadowRenderPass.setPipeline(pip->getPipeline("shadow_pipeline"));
+
+		// Set bind groups matching the voxel pipeline order
 		shadowRenderPass.setBindGroup(0, pip->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
-		shadowRenderPass.setBindGroup(1, tex->getTexturePool("texture_pool_light")->getBindGroup(), 0, nullptr);
+		shadowRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);
 

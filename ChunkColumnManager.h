@@ -500,7 +500,7 @@ public:
                         usedPool = true;
                     }
                 }
-                
+
                 // If pool is empty, allocate new
                 if (!*cacheEntry) {
                     *cacheEntry = std::make_unique<CachedDAICData>();
@@ -510,7 +510,7 @@ public:
                         std::cout << "Cache pool exhausted! New allocation #" << newAllocations << std::endl;
                     }
                 }
-                
+
                 // Initialize cache entry
                 (*cacheEntry)->isDirty = true;
                 (*cacheEntry)->frameGenerated = 0;
@@ -542,51 +542,46 @@ public:
                 cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
             bool columnInShadowFrustum =
                 shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
-            
-            // Skip individual chunk tests if entire column is outside frustum
+
             if (columnInCameraFrustum || columnInShadowFrustum) {
-                // Use cached data - perform frustum culling on cached positions
+                // Test each chunk individually against its respective frustum
                 for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
                     const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
 
+                    // Only add to camera DAICs if in camera frustum
                     if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
                         cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
                     }
 
+                    // Only add to shadow DAICs if in shadow frustum
+                    // This should be independent of camera frustum test
                     if (columnInShadowFrustum && shadowFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
                         shadowDAICs.push_back(cache.shadowDAICs[i]);
                     }
                 }
             }
         }
+
+        // Similar fix for the non-cached path (around line 680-700):
         else {
             stats.cacheMisses++;
-
-            // Debug: Track expensive cache regenerations
-            /*static uint32_t regenerationCount = 0;
-            regenerationCount++;
-            if (regenerationCount % 100 == 0) {
-                std::cout << "Cache regeneration #" << regenerationCount 
-                    << " for chunk " << chunkPos.x << "," << chunkPos.y 
-                    << " LOD " << currentLodLevel << std::endl;
-            }*/
 
             // Generate new cache data
             regenerateChunkCache(column, chunkPos, currentLodLevel, cameraPos, view, proj,
                 lightView, lightProj, cache, buf);
 
             // Early column-level frustum culling using bounds  
-            bool columnInCameraFrustum = cameraFrustum.isCubeInside(cache.columnBoundsMin,
-                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
-            bool columnInShadowFrustum = shadowFrustum.isCubeInside(cache.columnBoundsMin,
-                glm::length(cache.columnBoundsMax - cache.columnBoundsMin));
+            bool columnInCameraFrustum =
+                cameraFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
+            bool columnInShadowFrustum =
+                shadowFrustum.isAABBInside(cache.columnBoundsMin, cache.columnBoundsMax);
 
-            // Skip individual chunk tests if entire column is outside frustum
             if (columnInCameraFrustum || columnInShadowFrustum) {
                 // Use newly generated cache data
                 for (size_t i = 0; i < cache.chunkPositions.size(); ++i) {
                     const vec3& chunkWorldPos = vec3(cache.chunkPositions[i]);
 
+                    // Independent frustum tests for camera and shadow
                     if (columnInCameraFrustum && cameraFrustum.isCubeInside(chunkWorldPos, 32.0f)) {
                         cameraDAICs.emplace_back(cache.cameraDAICs[i], chunkWorldPos);
                     }

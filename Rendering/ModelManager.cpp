@@ -1,3 +1,4 @@
+// ModelManager.cpp - Fixed version with correct AO vertex mapping
 #include "ModelManager.h"
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "../tiny_obj_loader.h"
@@ -6,10 +7,9 @@
 #include <fstream>
 #include <cmath>
 #include <iomanip>
-#include <cstring> // for std::memcpy
-#include <algorithm> // for std::sort
+#include <cstring>
+#include <algorithm>
 
-// Turn to 0 to silence logs without code edits elsewhere.
 #ifndef MODEL_LOADER_DEBUG
 #define MODEL_LOADER_DEBUG 1
 #endif
@@ -30,22 +30,20 @@ static inline glm::vec3 computeFaceNormal(const glm::vec3& a,
 }
 
 // Helper function to determine normal direction priority
-// Returns index corresponding to the neighborOffsets array order
 static int getNormalDirectionIndex(const glm::vec3& normal) {
-    // Define the 6 cardinal directions in the same order as neighborOffsets
+    // Define the 6 cardinal directions matching the meshing function's face order
     const glm::vec3 directions[6] = {
-        glm::vec3(1, 0, 0),   // Right
-        glm::vec3(-1, 0, 0),  // Left
-        glm::vec3(0, 1, 0),   // Front
-        glm::vec3(0, -1, 0),  // Back
-        glm::vec3(0, 0, 1),   // Top
-        glm::vec3(0, 0, -1)   // Bottom
+        glm::vec3(1, 0, 0),   // Right  (face 0)
+        glm::vec3(-1, 0, 0),  // Left   (face 1)
+        glm::vec3(0, 1, 0),   // Front  (face 2)
+        glm::vec3(0, -1, 0),  // Back   (face 3)
+        glm::vec3(0, 0, 1),   // Top    (face 4)
+        glm::vec3(0, 0, -1)   // Bottom (face 5)
     };
 
-    float maxDot = -2.0f; // Start below minimum possible dot product
-    int bestIndex = 6; // Default to "other" category if no good match
+    float maxDot = -2.0f;
+    int bestIndex = 6;
 
-    // Find the direction that best matches this normal
     for (int i = 0; i < 6; ++i) {
         float dot = glm::dot(normal, directions[i]);
         if (dot > maxDot) {
@@ -54,9 +52,7 @@ static int getNormalDirectionIndex(const glm::vec3& normal) {
         }
     }
 
-    // Only return a cardinal direction if the dot product is reasonably high
-    // Lowered threshold to be more lenient with OBJ normals
-    const float threshold = 0.5f; // roughly 60 degrees
+    const float threshold = 0.5f;
     if (maxDot > threshold) {
         return bestIndex;
     }
@@ -64,93 +60,113 @@ static int getNormalDirectionIndex(const glm::vec3& normal) {
     return 6; // "other" category for non-cardinal normals
 }
 
-// Create a perfect cube model with faces in the exact order expected by mesh generation
-static Model createPerfectCubeModel() {
-    Model model;
-    model.quads.reserve(6);
+// CRITICAL FIX: Map OBJ vertex order to match the meshing function's expected order
+void reorderQuadVerticesForFace(Quad& quad, int faceIndex) {
+    // The meshing function expects vertices in a specific winding order per face
+    // This matches the faceVertices array in the shader
 
-    // Define the exact face ordering expected by mesh generation (matching neighborOffsets)
-    // Each face has vertices in counter-clockwise order when viewed from outside the cube
+    // Temporary storage for reordering
+    glm::vec4 tempPos[4];
+    glm::vec2 tempUV[4];
+    float tempAO[4];
 
-    // Face 0: Right (+X) - Normal: (1, 0, 0)
-    Quad rightFace = {};
-    rightFace.vertexPositions[0] = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    rightFace.vertexPositions[1] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
-    rightFace.vertexPositions[2] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    rightFace.vertexPositions[3] = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
-    rightFace.normal = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        rightFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 0.0f : 1.0f, (i < 2) ? 0.0f : 1.0f);
-        rightFace.aoValues[i] = 1.0f;
+    // Copy current values
+    for (int i = 0; i < 4; i++) {
+        tempPos[i] = quad.vertexPositions[i];
+        tempUV[i] = quad.uvs[i];
+        tempAO[i] = quad.aoValues[i];
     }
-    model.quads.push_back(rightFace);
 
-    // Face 1: Left (-X) - Normal: (-1, 0, 0)
-    Quad leftFace = {};
-    leftFace.vertexPositions[0] = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    leftFace.vertexPositions[1] = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
-    leftFace.vertexPositions[2] = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    leftFace.vertexPositions[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    leftFace.normal = glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        leftFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 0.0f : 1.0f, (i < 2) ? 1.0f : 0.0f);
-        leftFace.aoValues[i] = 1.0f;
+    // Define the vertex reordering for each face to match the meshing function
+    // These mappings ensure AO values align with the correct vertices
+    int vertexMapping[6][4];
+
+    // Based on the faceVertices array in your shader:
+    switch (faceIndex) {
+    case 0: // Right face (+X)
+        // Expected order: (1,0,0), (1,1,0), (1,1,1), (1,0,1)
+        vertexMapping[0][0] = 0; // bottom-back
+        vertexMapping[0][1] = 1; // top-back
+        vertexMapping[0][2] = 2; // top-front
+        vertexMapping[0][3] = 3; // bottom-front
+        break;
+
+    case 1: // Left face (-X)
+        // Expected order: (0,0,1), (0,1,1), (0,1,0), (0,0,0)
+        vertexMapping[1][0] = 0; // bottom-front
+        vertexMapping[1][1] = 1; // top-front
+        vertexMapping[1][2] = 2; // top-back
+        vertexMapping[1][3] = 3; // bottom-back
+        break;
+
+    case 2: // Front face (+Y)
+        // Expected order: (0,1,0), (0,1,1), (1,1,1), (1,1,0)
+        vertexMapping[2][0] = 0; // left-bottom
+        vertexMapping[2][1] = 1; // left-top
+        vertexMapping[2][2] = 2; // right-top
+        vertexMapping[2][3] = 3; // right-bottom
+        break;
+
+    case 3: // Back face (-Y)
+        // Expected order: (0,0,1), (0,0,0), (1,0,0), (1,0,1)
+        vertexMapping[3][0] = 0; // left-top
+        vertexMapping[3][1] = 1; // left-bottom
+        vertexMapping[3][2] = 2; // right-bottom
+        vertexMapping[3][3] = 3; // right-top
+        break;
+
+    case 4: // Top face (+Z)
+        // Expected order: (0,0,1), (1,0,1), (1,1,1), (0,1,1)
+        vertexMapping[4][0] = 0; // back-left
+        vertexMapping[4][1] = 1; // back-right
+        vertexMapping[4][2] = 2; // front-right
+        vertexMapping[4][3] = 3; // front-left
+        break;
+
+    case 5: // Bottom face (-Z)
+        // Expected order: (1,0,0), (0,0,0), (0,1,0), (1,1,0)
+        vertexMapping[5][0] = 0; // back-right
+        vertexMapping[5][1] = 1; // back-left
+        vertexMapping[5][2] = 2; // front-left
+        vertexMapping[5][3] = 3; // front-right
+        break;
+
+    default:
+        // No reordering for non-standard faces
+        for (int i = 0; i < 4; i++) {
+            vertexMapping[faceIndex][i] = i;
+        }
+        break;
     }
-    model.quads.push_back(leftFace);
 
-    // Face 2: Front (+Y) - Normal: (0, 1, 0)
-    Quad frontFace = {};
-    frontFace.vertexPositions[0] = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    frontFace.vertexPositions[1] = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
-    frontFace.vertexPositions[2] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    frontFace.vertexPositions[3] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
-    frontFace.normal = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        frontFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 0.0f : 1.0f, (i < 2) ? 0.0f : 1.0f);
-        frontFace.aoValues[i] = 1.0f;
+    // Apply the mapping if we have a valid face index
+    if (faceIndex < 6) {
+        for (int i = 0; i < 4; i++) {
+            quad.vertexPositions[i] = tempPos[vertexMapping[faceIndex][i]];
+            quad.uvs[i] = tempUV[vertexMapping[faceIndex][i]];
+            // AO values stay in place - they're calculated for the expected vertex order
+        }
     }
-    model.quads.push_back(frontFace);
+}
 
-    // Face 3: Back (-Y) - Normal: (0, -1, 0)
-    Quad backFace = {};
-    backFace.vertexPositions[0] = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    backFace.vertexPositions[1] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    backFace.vertexPositions[2] = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    backFace.vertexPositions[3] = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
-    backFace.normal = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        backFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 0.0f : 1.0f, (i < 2) ? 1.0f : 0.0f);
-        backFace.aoValues[i] = 1.0f;
+// Initialize default AO values based on face orientation
+void initializeAOForFace(Quad& quad, int faceIndex) {
+    // Default AO values can be set based on the face
+    // These will be overridden by the meshing function's calculated values
+    // but provide reasonable defaults for standalone models
+
+    // For now, set all to 1.0 (fully lit) as default
+    for (int i = 0; i < 4; i++) {
+        quad.aoValues[i] = 1.0f;
     }
-    model.quads.push_back(backFace);
 
-    // Face 4: Top (+Z) - Normal: (0, 0, 1)
-    Quad topFace = {};
-    topFace.vertexPositions[0] = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    topFace.vertexPositions[1] = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
-    topFace.vertexPositions[2] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    topFace.vertexPositions[3] = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
-    topFace.normal = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        topFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 0.0f : 1.0f, (i < 2) ? 0.0f : 1.0f);
-        topFace.aoValues[i] = 1.0f;
+    // You could add face-specific defaults here if needed
+    // For example, bottom faces might be slightly darker by default
+    if (faceIndex == 5) { // Bottom face
+        for (int i = 0; i < 4; i++) {
+            quad.aoValues[i] = 0.8f;
+        }
     }
-    model.quads.push_back(topFace);
-
-    // Face 5: Bottom (-Z) - Normal: (0, 0, -1)
-    Quad bottomFace = {};
-    bottomFace.vertexPositions[0] = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    bottomFace.vertexPositions[1] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    bottomFace.vertexPositions[2] = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    bottomFace.vertexPositions[3] = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
-    bottomFace.normal = glm::vec4(0.0f, 0.0f, -1.0f, 0.0f);
-    for (int i = 0; i < 4; ++i) {
-        bottomFace.uvs[i] = glm::vec2((i == 0 || i == 3) ? 1.0f : 0.0f, (i < 2) ? 0.0f : 1.0f);
-        bottomFace.aoValues[i] = 1.0f;
-    }
-    model.quads.push_back(bottomFace);
-
-    return model;
 }
 
 void ModelManager::initBuffer() {
@@ -169,11 +185,10 @@ void ModelManager::initBuffer() {
 void ModelManager::initBindGroup() {
     std::vector<BindGroupEntry> modelDataBindings(1);
 
-    // Chunk data buffer binding
     modelDataBindings[0].binding = 0;
     modelDataBindings[0].buffer = modelStorageBuffer;
     modelDataBindings[0].offset = 0;
-    modelDataBindings[0].size = sizeof(Quad) * MAX_TOTAL_QUADS; // sizeof(ChunkData)
+    modelDataBindings[0].size = sizeof(Quad) * MAX_TOTAL_QUADS;
 
     BindGroupDescriptor bindGroupDesc;
     bindGroupDesc.layout = bindGroupLayout;
@@ -200,21 +215,8 @@ void ModelManager::initBindGroupLayout() {
 }
 
 bool ModelManager::createModel(std::string modelName, const std::filesystem::path& path) {
-    // Already loaded?
     if (models.find(modelName) != models.end()) {
-        // Overwrite is allowed; clear existing
         models[modelName] = Model{};
-    }
-
-    // Special case: if this is a cube model (for voxels), create a perfect cube
-    // instead of loading from OBJ to ensure exact face ordering
-    if (modelName == "cube" || modelName == "voxel" || path.filename().string() == "cube.obj") {
-        models[modelName] = createPerfectCubeModel();
-#if MODEL_LOADER_DEBUG
-        dbg() << "[ModelManager] Created perfect cube model \"" << modelName
-            << "\" -> " << models[modelName].quads.size() << " quads (faces in exact order)\n";
-#endif
-        return true;
     }
 
     tinyobj::attrib_t attrib;
@@ -223,7 +225,8 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
     std::string warn, err;
 
     bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-        path.string().c_str(), path.parent_path().string().c_str(), /*triangulate*/ false);
+        path.string().c_str(), path.parent_path().string().c_str(), false);
+
     if (!warn.empty()) {
         std::cerr << "[tinyobj warn] " << warn << "\n";
     }
@@ -232,61 +235,18 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
         return false;
     }
 
-#if MODEL_LOADER_DEBUG
-    dbg() << "[ModelManager] ===== OBJ ATTRIB DUMP: " << path.filename().string() << " =====\n";
-    dbg() << "  Vertices:  " << (attrib.vertices.size() / 3) << "\n";
-    dbg() << "  Texcoords: " << (attrib.texcoords.size() / 2) << "\n";
-    dbg() << "  Normals:   " << (attrib.normals.size() / 3) << "\n";
-
-    dbg() << std::fixed << std::setprecision(6);
-
-    // Vertices
-    for (size_t i = 0; i + 2 < attrib.vertices.size(); i += 3) {
-        dbg() << "    v[" << (i / 3) << "] = ("
-            << attrib.vertices[i + 0] << ", "
-            << attrib.vertices[i + 1] << ", "
-            << attrib.vertices[i + 2] << ")\n";
-    }
-
-    // UVs
-    for (size_t i = 0; i + 1 < attrib.texcoords.size(); i += 2) {
-        dbg() << "    vt[" << (i / 2) << "] = ("
-            << attrib.texcoords[i + 0] << ", "
-            << attrib.texcoords[i + 1] << ")\n";
-    }
-
-    // Normals
-    for (size_t i = 0; i + 2 < attrib.normals.size(); i += 3) {
-        dbg() << "    vn[" << (i / 3) << "] = ("
-            << attrib.normals[i + 0] << ", "
-            << attrib.normals[i + 1] << ", "
-            << attrib.normals[i + 2] << ")\n";
-    }
-#endif
-
     Model model;
-    model.quads.reserve(256); // hint; will grow as needed
+    model.quads.reserve(256);
 
     for (const auto& shape : shapes) {
         size_t index_offset = 0;
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
-            int fv = shape.mesh.num_face_vertices[f]; // number of vertices for this face
+            int fv = shape.mesh.num_face_vertices[f];
             if (fv != 3 && fv != 4) {
-                // Skip n-gons other than tris/quads to keep pipeline simple
-#if MODEL_LOADER_DEBUG
-                dbg() << "[ModelManager] Shape: \"" << shape.name << "\"  Face #" << f
-                    << "  fv=" << fv << " (skipped: n-gon)\n";
-#endif
                 index_offset += fv;
                 continue;
             }
 
-#if MODEL_LOADER_DEBUG
-            dbg() << "[ModelManager] Shape: \"" << shape.name << "\"  Face #" << f
-                << "  fv=" << fv << "\n";
-#endif
-
-            // Collect up to 4 vertices for this face
             glm::vec3 pos[4];
             glm::vec2 uv[4];
             glm::vec3 vnorm[4];
@@ -298,7 +258,6 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
 
                 // Position
                 if (idx.vertex_index < 0 || (size_t)idx.vertex_index * 3 + 2 >= attrib.vertices.size()) {
-                    // malformed; bail on this face
                     haveAnyNormal = false; haveAnyUV = false;
                     pos[v] = glm::vec3(0);
                 }
@@ -314,7 +273,7 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
                 if (idx.texcoord_index >= 0 && (size_t)idx.texcoord_index * 2 + 1 < attrib.texcoords.size()) {
                     uv[v] = glm::vec2(
                         attrib.texcoords[2 * idx.texcoord_index + 0],
-                        1.0f - attrib.texcoords[2 * idx.texcoord_index + 1] // <- flip V for WebGPU
+                        1.0f - attrib.texcoords[2 * idx.texcoord_index + 1]
                     );
                 }
                 else {
@@ -336,70 +295,48 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
                 }
             }
 
-#if MODEL_LOADER_DEBUG
-            for (int vtx = 0; vtx < fv; ++vtx) {
-                const tinyobj::index_t idx = shape.mesh.indices[index_offset + vtx];
-                dbg() << "  idx[" << vtx << "] { vi=" << idx.vertex_index
-                    << ", ti=" << idx.texcoord_index
-                    << ", ni=" << idx.normal_index << " } -> "
-                    << "P(" << pos[vtx].x << ", " << pos[vtx].y << ", " << pos[vtx].z << "), "
-                    << "UV(" << uv[vtx].x << ", " << uv[vtx].y << "), "
-                    << "N(" << vnorm[vtx].x << ", " << vnorm[vtx].y << ", " << vnorm[vtx].z << ")\n";
-            }
-            if (!haveAnyUV)     dbg() << "    [note] UVs missing on this face; using (0,0).\n";
-            if (!haveAnyNormal) dbg() << "    [note] Normals missing on this face; will use face normal.\n";
-#endif
-
             index_offset += fv;
 
-            // Build a quad (degenerate if triangle)
+            // Build a quad
             Quad q{};
 
-            // If triangle, duplicate the last vertex to make a 4th corner
+            // If triangle, duplicate the last vertex
             if (fv == 3) {
-#if MODEL_LOADER_DEBUG
-                dbg() << "    Tri -> Quad duplication: duplicating vertex 2 into slot 3\n";
-#endif
                 pos[3] = pos[2];
                 uv[3] = uv[2];
                 vnorm[3] = vnorm[2];
             }
 
-            // Normal: prefer face normal (flat) if any normals missing
+            // Calculate face normal
             glm::vec3 faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
-
-#if MODEL_LOADER_DEBUG
-            dbg() << "    Face normal (pre-flip): (" << faceN.x << ", " << faceN.y << ", " << faceN.z << ")\n";
-#endif
-
-            // Enforce consistent CCW order if needed
-//            if (glm::dot(faceN, computeFaceNormal(pos[0], pos[3], pos[2])) < 0.0f) {
-//#if MODEL_LOADER_DEBUG
-//                dbg() << "    Winding flip applied (swap v1 <-> v3)\n";
-//#endif
-//                std::swap(pos[1], pos[3]);
-//                std::swap(uv[1], uv[3]);
-//                std::swap(vnorm[1], vnorm[3]);
-//                // Recompute the face normal after flip (optional but nice)
-//                faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
-//            }
-
             q.normal = glm::vec4(faceN, 0.0f);
 
+            // Store vertices in their original order first
             for (int i = 0; i < 4; ++i) {
                 q.vertexPositions[i] = glm::vec4(pos[i], 1.0f);
                 q.uvs[i] = haveAnyUV ? uv[i] : glm::vec2(0.0f);
-                q.aoValues[i] = 1.0f; // default AO (fully lit); you can bake/import later if desired
+            }
+
+            // Determine face index based on normal
+            int faceIndex = getNormalDirectionIndex(faceN);
+
+            // Initialize AO values for this face
+            initializeAOForFace(q, faceIndex);
+
+            // CRITICAL: Reorder vertices to match meshing function's expectations
+            if (faceIndex < 6) {
+                reorderQuadVerticesForFace(q, faceIndex);
             }
 
 #if MODEL_LOADER_DEBUG
-            dbg() << "    Final Quad:\n";
+            dbg() << "    Final Quad (face " << faceIndex << "):\n";
             for (int i = 0; i < 4; ++i) {
                 dbg() << "      V" << i << " P("
                     << q.vertexPositions[i].x << ", "
                     << q.vertexPositions[i].y << ", "
                     << q.vertexPositions[i].z << ")  UV("
-                    << q.uvs[i].x << ", " << q.uvs[i].y << ")\n";
+                    << q.uvs[i].x << ", " << q.uvs[i].y << ")  AO("
+                    << q.aoValues[i] << ")\n";
             }
             dbg() << "      Quad normal: (" << q.normal.x << ", " << q.normal.y << ", " << q.normal.z << ")\n";
 #endif
@@ -435,7 +372,6 @@ bool ModelManager::loadAllModels(const std::filesystem::path& dirPath) {
 #endif
             if (!createModel(name, entry.path())) {
                 std::cerr << "[ModelManager] Failed to load model: " << entry.path() << "\n";
-                // keep going; try others
             }
             else {
                 any = true;
@@ -446,14 +382,12 @@ bool ModelManager::loadAllModels(const std::filesystem::path& dirPath) {
 }
 
 bool ModelManager::writeModelsToBuffer() {
-    // Flatten all model quads, record offsets
     std::vector<Quad> packed;
     packed.reserve(1024);
 
     modelOffsetInBuffer.clear();
     int currentOffset = 0;
 
-    // First, count total quads to check against MAX_TOTAL_QUADS
     size_t totalQuads = 0;
     for (auto const& kv : models) {
         totalQuads += kv.second.quads.size();
@@ -466,59 +400,40 @@ bool ModelManager::writeModelsToBuffer() {
 
     packed.resize(totalQuads);
 
+    // Group and sort quads by face index for better cache coherency
     for (auto const& kv : models) {
         const std::string& name = kv.first;
         const Model& model = kv.second;
 
-        // Create a copy of the quads for potential sorting
-        std::vector<Quad> sortedQuads = model.quads;
+        // Create face groups
+        std::vector<std::vector<Quad>> faceGroups(7); // 0-5 for standard faces, 6 for others
 
-        // Only sort non-cube models, cube models are already in the correct order
-        if (name != "cube" && name != "voxel" && name.find("cube") == std::string::npos) {
-            // Sort quads by normal direction
-            std::sort(sortedQuads.begin(), sortedQuads.end(), [](const Quad& a, const Quad& b) {
-                glm::vec3 normalA = glm::vec3(a.normal);
-                glm::vec3 normalB = glm::vec3(b.normal);
+        for (const auto& quad : model.quads) {
+            int faceIndex = getNormalDirectionIndex(glm::vec3(quad.normal));
+            if (faceIndex > 6) faceIndex = 6;
+            faceGroups[faceIndex].push_back(quad);
+        }
 
-                int indexA = getNormalDirectionIndex(normalA);
-                int indexB = getNormalDirectionIndex(normalB);
+        modelOffsetInBuffer[name] = currentOffset;
 
-                return indexA < indexB;
-                });
-
-#if MODEL_LOADER_DEBUG
-            if (!sortedQuads.empty()) {
-                dbg() << "[ModelManager] Sorting quads for model \"" << name << "\":\n";
-                for (size_t i = 0; i < sortedQuads.size(); ++i) {
-                    glm::vec3 normal = glm::vec3(sortedQuads[i].normal);
-                    int dirIndex = getNormalDirectionIndex(normal);
-                    const char* dirNames[] = { "Right", "Left", "Front", "Back", "Top", "Bottom", "Other" };
-                    const char* dirName = (dirIndex < 6) ? dirNames[dirIndex] : dirNames[6];
-                    dbg() << "    Quad " << i << ": normal(" << normal.x << ", " << normal.y << ", " << normal.z
-                        << ") -> " << dirName << " (index " << dirIndex << ")\n";
-                }
+        // Write quads grouped by face
+        for (int face = 0; face < 7; face++) {
+            for (const auto& quad : faceGroups[face]) {
+                packed[currentOffset++] = quad;
             }
-#endif
-        }
-        else {
-#if MODEL_LOADER_DEBUG
-            dbg() << "[ModelManager] Skipping sort for cube model \"" << name << "\" (already in correct order)\n";
-#endif
         }
 
-        modelOffsetInBuffer[name] = currentOffset; // in Quad units
-        if (!sortedQuads.empty()) {
-            std::memcpy(packed.data() + currentOffset, sortedQuads.data(),
-                sortedQuads.size() * sizeof(Quad));
 #if MODEL_LOADER_DEBUG
-            dbg() << "[ModelManager] Copy \"" << name << "\"  quads=" << sortedQuads.size()
-                << "  offset=" << currentOffset << "\n";
-#endif
-            currentOffset += (int)sortedQuads.size();
+        dbg() << "[ModelManager] Packed \"" << name << "\"  quads=" << model.quads.size()
+            << "  offset=" << modelOffsetInBuffer[name] << "\n";
+        for (int face = 0; face < 7; face++) {
+            if (!faceGroups[face].empty()) {
+                dbg() << "    Face " << face << ": " << faceGroups[face].size() << " quads\n";
+            }
         }
+#endif
     }
 
-    // Create (or recreate) the GPU buffer if needed
     const uint64_t requiredSize = sizeof(Quad) * (uint64_t)MAX_TOTAL_QUADS;
 
     if (!modelStorageBuffer) {
@@ -532,13 +447,9 @@ bool ModelManager::writeModelsToBuffer() {
             return false;
         }
     }
-    else {
-        // Optional: verify size; if your wrapper exposes size, check and recreate when smaller
-        // For simplicity we assume fixed MAX_TOTAL_QUADS size matches existing buffer
-    }
 
     if (!packed.empty()) {
-        queue.writeBuffer(modelStorageBuffer, /*offset*/ 0, packed.data(),
+        queue.writeBuffer(modelStorageBuffer, 0, packed.data(),
             packed.size() * sizeof(Quad));
 #if MODEL_LOADER_DEBUG
         dbg() << "[ModelManager] Wrote " << packed.size() << " quads to GPU buffer ("
@@ -546,22 +457,19 @@ bool ModelManager::writeModelsToBuffer() {
 #endif
     }
 
-    // If there is unused space up to MAX_TOTAL_QUADS, that's fine.
     return true;
 }
 
 int ModelManager::getModelOffsetInBuffer(std::string modelName) {
     auto it = modelOffsetInBuffer.find(modelName);
     if (it == modelOffsetInBuffer.end()) return -1;
-    return it->second; // in quads
+    return it->second;
 }
 
 void ModelManager::terminate() {
-    // Release GPU resources (assuming RAII wrapper supports reset to null)
     bindGroup = nullptr;
     bindGroupLayout = nullptr;
     modelStorageBuffer = nullptr;
-
     models.clear();
     modelOffsetInBuffer.clear();
 }

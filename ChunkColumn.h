@@ -1127,7 +1127,7 @@ public:
                                         material.materialType = BlockType::TallGrass; // grass
                                     }
                                     else if (blockHash % 8 == 1) {
-                                        material.materialType = BlockType::Fern; // grass
+                                        material.materialType = BlockType::TallGrass; // grass
                                     }
                                     else if (blockHash % 8 == 2) {
                                         material.materialType = BlockType::Grass0; // grass
@@ -1531,7 +1531,39 @@ public:
             return result;
             };
 
-        // Sample voxels in a LOD group - now uses cache
+        auto getMaterialFastSafe = [&](ivec3 pos) -> VoxelMaterial {
+            // First handle horizontal cross-chunk cases (X/Y out of bounds)
+            if (pos.x < 0 || pos.x >= CHUNK_SIZE || pos.y < 0 || pos.y >= CHUNK_SIZE) {
+                ivec3 neighborPos = pos;
+                int neighborIndex = -1;
+
+                if (pos.x >= CHUNK_SIZE) { neighborIndex = 0; neighborPos.x -= CHUNK_SIZE; }
+                else if (pos.x < 0) { neighborIndex = 1; neighborPos.x += CHUNK_SIZE; }
+                else if (pos.y >= CHUNK_SIZE) { neighborIndex = 2; neighborPos.y -= CHUNK_SIZE; }
+                else if (pos.y < 0) { neighborIndex = 3; neighborPos.y += CHUNK_SIZE; }
+
+                if (neighborIndex >= 0 && neighbors[neighborIndex] &&
+                    neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
+
+                    // map to neighbor chunk’s local Z using world-Z of this column
+                    int worldZ = pos.z + zPos * CHUNK_SIZE;              // 0..COLUMN_HEIGHT_BLOCKS-1
+                    if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return VoxelMaterial{ 0 };
+                    int targetZ = worldZ / CHUNK_SIZE;
+                    int localZ = worldZ % CHUNK_SIZE;
+
+                    return neighbors[neighborIndex]->getMaterialCompressed(targetZ,
+                        ivec3(neighborPos.x, neighborPos.y, localZ));
+                }
+                return VoxelMaterial{ 0 };
+            }
+
+            // X/Y in-bounds: vertical stays in the same column — ALWAYS use raw-friendly path
+            int worldZ = pos.z + zPos * CHUNK_SIZE;                        // allow z=-1 or 32 etc.
+            if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return VoxelMaterial{ 0 };
+            return getMaterialFast(ivec3(pos.x, pos.y, worldZ));
+            };
+
+        // Modified sampleLODGroup that uses cross-chunk aware material fetching
         auto sampleLODGroup = [&](ivec3 groupPos, int lodLevel, bool transparent) -> std::pair<bool, VoxelMaterial> {
             std::unordered_map<uint32_t, int> materialCounts;
             int solidVoxels = 0;
@@ -1548,7 +1580,8 @@ public:
 
                         if (isOccupied) {
                             solidVoxels++;
-                            VoxelMaterial mat = getMaterialFast(voxelPos + ivec3(0, 0, zPos * CHUNK_SIZE));
+                            // Use the cross-chunk aware material fetching here
+                            VoxelMaterial mat = getMaterialFastSafe(voxelPos);
                             materialCounts[mat.materialType]++;
                         }
                     }
@@ -1573,7 +1606,7 @@ public:
             }
 
             return { groupIsSolid, dominantMaterial };
-            };
+        };
 
         // Cache for LOD group sampling results
         std::unordered_map<std::tuple<ivec3, int, bool>, std::pair<bool, VoxelMaterial>, TupleHash, TupleEqual> lodGroupCache;
@@ -1781,8 +1814,8 @@ public:
             };
 
         auto packMaterialData = [](uint32_t material, std::array<uint32_t, 8> flags) -> uint32_t {
-                material &= 0xFFFF;
-                for (int i = 0; i < 4; i++) {
+                material &= 0xFFFFu;
+                for (int i = 0; i < flags.size(); i++) {
 					flags[i] &= 0x1;
 				}
 
@@ -1845,7 +1878,7 @@ public:
                                                 groupMaterial.materialType == BlockType::Grass3 ||
                                                 groupMaterial.materialType == BlockType::Grass4 ||
                                                 groupMaterial.materialType == BlockType::Grass5) {
-                                                faces = 2;
+                                                faces = 3;
                                                 if (!includeGrass) {
                                                     shouldAdd = false;
                                                 }
@@ -1870,18 +1903,19 @@ public:
                                                         }
 
 
-                                                        std::array<uint32_t, 8> neighborSolidFlags{ 0 };
-                                                        if (faces > 2) {
+                                                        std::array<uint32_t, 8> neighborSameMaterialFlags{ 0 };
+                                                        if (faces > 3) {
                                                             for (int i = 0; i < 8; i++) {
                                                                 ivec3 neighborOffset = faceNeighborOffsets[face][i];
                                                                 auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);
-                                                                neighborSolidFlags[i] = groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
+                                                                auto [frontNeighborIsSolid, frontNeighborMaterial] = sampleLODGroupCached(groupPos + neighborOffsets[face] + neighborOffset, lodLevel, transparent);
+                                                                neighborSameMaterialFlags[i] = (groupMaterial.materialType == frontNeighborMaterial.materialType) || groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
                                                             }
                                                         }
 
                                                         FaceAttributes currentFace;
                                                         currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
-                                                        currentFace.materialData = packMaterialData(groupMaterial.materialType, neighborSolidFlags);
+                                                        currentFace.materialData = packMaterialData(groupMaterial.materialType, neighborSameMaterialFlags);
                                                         faceData[meshSlot][zPos].push_back(currentFace);
                                                     }
                                                 }

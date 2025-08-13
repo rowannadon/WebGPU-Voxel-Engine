@@ -1,3 +1,5 @@
+// VoxelPipeline.h
+
 #include "../Atmosphere.h"
 #include <GLFW/glfw3.h>
 #include "../Uniforms.h"

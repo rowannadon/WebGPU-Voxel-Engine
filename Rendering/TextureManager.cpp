@@ -164,11 +164,21 @@ TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
     return CpuModelKind::Unknown;
 }
 
+TextureManager::TextureType TextureManager::parseTextureType(const std::string& s) {
+    if (s == "LARGE_TILE") return TextureType::LargeTile;
+    if (s == "CONNECTED")  return TextureType::Connected;
+    if (s == "RANDOM_VARIANT") return TextureType::RandomVariant;
+    if (s == "RANDOM_ROTATION") return TextureType::RandomRotation;
+    return TextureType::Unknown;
+}
+
 void TextureManager::fillMaterialProperties(MaterialProperties& dst, const MaterialJsonEntry& src, uint32_t modelOffset) {
     // Pack to your CPU-side structs (matching std140-ish alignment you enforced)
     dst.id = src.id;
-    dst.randomRotation = src.randomRotation;
+    dst.tileCount = src.tileCount;
     dst.modelOffset = modelOffset;
+    dst.randomOffset = src.randomOffset;
+    dst.windStrength = src.windStrength;
 
     dst.pbr.albedo = src.pbr.albedo;
     dst.pbr.metallic = src.pbr.metallic;
@@ -213,7 +223,11 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
         if (m.contains("name")) e.name = m["name"].get<std::string>();
         e.texture = m.at("texture").get<std::string>();
         e.model = m.at("model").get<std::string>();
-        e.randomRotation = m.value("randomRotation", false);
+        e.textureType = m.at("textureType").get<std::string>();
+        e.tileCount = m.at("tileCount").get<uint32_t>();
+
+        e.randomOffset = m.at("randomOffset").get<float>();
+        e.windStrength = m.at("windStrength").get<float>();
 
         // PBR block: JSON uses your C++ field names
         const auto& p = m.at("pbr");
@@ -247,12 +261,14 @@ void TextureManager::buildMaterialTables(const std::vector<MaterialJsonEntry>& e
 
     for (const auto& e : entries) {
         CpuModelKind mk = parseModel(e.model);
+        TextureType tt = parseTextureType(e.textureType);
         uint32_t modelOffset = modelOffsetResolver ? modelOffsetResolver(mk) : 0u;
 
         MaterialProperties mp{};
         fillMaterialProperties(mp, e, modelOffset);
 
         mp.modelId = static_cast<uint32_t>(mk);
+        mp.textureType = static_cast<uint32_t>(tt);
 
         materialMap[e.id] = mp;
         materialTable[e.id] = mp;

@@ -32,10 +32,14 @@ struct TextureArrayInfo {
 
 struct MaterialJsonEntry {
     uint32_t id = 0;
+    uint32_t tileCount = 8;
+    float randomOffset = 0.0f;
+    float windStrength = 0.0f;
     std::string name;       // optional, for readability
     std::string texture;    // filename .png
     std::string model;      // "VOXEL_MODEL" | "LEAF_MODEL" | "GRASS_MODEL"
-    bool randomRotation = false;
+    std::string textureType;
+
     PBRMaterialProperties pbr{}; // matches your C++ layout field names
 };
 
@@ -77,6 +81,14 @@ public:
         Unknown = 0xFFFFFFFF
     };
 
+    enum class TextureType : uint32_t {
+        LargeTile = 0,
+        Connected = 1,
+        RandomRotation = 2,
+        RandomVariant = 3,
+        Unknown = 0xFFFFFFFF
+    };
+
     // public
     void setModelOffsetResolver(std::function<uint32_t(std::string_view)> fn);
 
@@ -103,6 +115,7 @@ private:
         std::vector<TextureMapping>& outMappings,
         uint32_t& outMaxId);
     static CpuModelKind parseModel(const std::string& s);
+    static TextureType parseTextureType(const std::string& s);
     static void fillMaterialProperties(MaterialProperties& dst, const MaterialJsonEntry& src, uint32_t modelOffset);
     void buildMaterialTables(const std::vector<MaterialJsonEntry>& entries, uint32_t maxId,
         const std::function<uint32_t(CpuModelKind)>& modelOffsetResolver);

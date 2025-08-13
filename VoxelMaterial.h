@@ -46,10 +46,14 @@ static_assert(sizeof(PBRMaterialProperties) % 16 == 0);
 
 struct MaterialProperties {
     PBRMaterialProperties pbr;
-    bool randomRotation;
+    uint32_t textureType;
+    uint32_t tileCount;
     uint32_t modelOffset;
     uint32_t id;
     uint32_t modelId;
+    float randomOffset;
+    float windStrength;
+    uint32_t padding;
 };
 
 static_assert(sizeof(MaterialProperties) % 16 == 0);

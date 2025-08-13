@@ -68,7 +68,7 @@ bool WebGPURenderer::initialize() {
 	aerialPerspectivePipeline.init(buf, tex, pip);
 	multiScatteringPipeline.init(buf, tex, pip);
 	noisePipeline.init(buf, tex, pip);
-	shadowPipeline.init(buf, tex, pip);
+	shadowPipeline.init(buf, tex, pip, mod);
 	skyPipeline.init(buf, tex, pip);
 	skyViewPipeline.init(buf, tex, pip);
 	terrainPipeline.init(buf, tex, pip);
@@ -166,8 +166,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, std::pair<std::vector<DAI
 	// === SHADOW RENDER PASS ===
 	if (chunkRenderData.second.size() > 0) {
 		shadowPipeline.render(
-			chunkRenderData.first.size(),
-			indirectBuffer,
+			chunkRenderData.second.size(),
+			shadowIndirectBuffer,
 			encoder
 		);
 	}
@@ -303,7 +303,7 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
-	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model.obj");
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small.obj");
 	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
 	modelManager->writeModelsToBuffer();

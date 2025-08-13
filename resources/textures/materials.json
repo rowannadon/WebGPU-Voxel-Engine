@@ -5,7 +5,10 @@
       "name": "Dirt",
       "texture": "dirt.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -21,7 +24,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 1.2,
+        "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -30,9 +33,12 @@
     {
       "id": 1,
       "name": "Grass",
-      "texture": "ctm2.png",
+      "texture": "grass.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -48,7 +54,7 @@
           0.0
         ],
         "normal": 1.3,
-        "AO": 0.9,
+        "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -59,7 +65,10 @@
       "name": "Limestone",
       "texture": "limestone.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -86,7 +95,10 @@
       "name": "Glowstone",
       "texture": "glowstone.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -113,7 +125,10 @@
       "name": "Brick",
       "texture": "brick.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -140,7 +155,10 @@
       "name": "Slate",
       "texture": "ctm2.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": false,
+      "textureType": "CONNECTED",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -167,7 +185,10 @@
       "name": "Andesite",
       "texture": "andesite.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -194,7 +215,10 @@
       "name": "Gneiss",
       "texture": "gneiss.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -219,9 +243,12 @@
     {
       "id": 8,
       "name": "Oak Log",
-      "texture": "oak_log.png",
+      "texture": "oak_log_connected_2.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": false,
+      "textureType": "CONNECTED",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -248,7 +275,10 @@
       "name": "Leaves2",
       "texture": "leaves2.png",
       "model": "LEAF_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 2,
+      "randomOffset": 0.2,
+      "windStrength": 0.5,
       "pbr": {
         "albedo": [
           0.5,
@@ -275,7 +305,10 @@
       "name": "Better Grass Long",
       "texture": "better_grass_long.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.2,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -302,7 +335,10 @@
       "name": "Fern",
       "texture": "fern.png",
       "model": "FERN_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.0,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -329,7 +365,10 @@
       "name": "Better Grass 0",
       "texture": "better_grass_0.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -356,7 +395,10 @@
       "name": "Better Grass 1",
       "texture": "better_grass_1.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -383,7 +425,10 @@
       "name": "Better Grass 2",
       "texture": "better_grass_2.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -410,7 +455,10 @@
       "name": "Better Grass 3",
       "texture": "better_grass_3.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -437,7 +485,10 @@
       "name": "Better Grass 4",
       "texture": "better_grass_4.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -464,7 +515,10 @@
       "name": "Better Grass 5",
       "texture": "better_grass_5.png",
       "model": "GRASS_MODEL",
-      "randomRotation": false,
+      "textureType": "RANDOM_VARIANT",
+      "tileCount" : 4,
+      "randomOffset": 0.1,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -491,7 +545,10 @@
       "name": "Water",
       "texture": "water.png",
       "model": "VOXEL_MODEL",
-      "randomRotation": true,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount" : 8,
+      "randomOffset": 0.0,
+      "windStrength": 0.0,
       "pbr": {
         "albedo": [
           0.5,

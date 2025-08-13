@@ -168,26 +168,15 @@ struct UnpackedMaterialData {
     down_right: u32,
 }
 
-// Enhanced PBR Material Properties
-struct PBRMaterialProperties {
-    albedo: vec3f,              // Base color
-    metallic: f32,              // Metallic factor (0 = dielectric, 1 = metallic)
-    roughness: f32,             // Surface roughness (0 = mirror, 1 = completely rough)
-    specular: f32,              // Specular reflectance for dielectrics (usually 0.04)
-    emission: vec3f,            // Emissive color
-    normalStrength: f32,        // Normal map intensity
-    aoStrength: f32,            // Ambient occlusion strength
-    subsurface: f32,            // Subsurface scattering factor
-    clearcoat: f32,             // Clearcoat layer strength
-    clearcoatRoughness: f32,    // Clearcoat roughness
-    model: u32,
-    random_rotation: bool,
-}
-
 const VOXEL_MODEL = 0;
 const LEAF_MODEL = 1;
 const GRASS_MODEL = 2;
 const FERN_MODEL = 3;
+
+const LARGE_TILE = 0;
+const CONNECTED = 1;
+const RANDOM_ROTATION = 2;
+const RANDOM_VARIANT = 3;
 
 struct Atmosphere {
     rayleigh_scattering: vec3<f32>,
@@ -241,10 +230,14 @@ struct MaterialProperties {
     pbr            : PBRMaterialPropertiesUniform,
 
     // pack these four scalars as 16 bytes total
-    randomRotation : u32,  // 0/1 instead of bool
+    textureType : u32,
+    tileCount   : u32,
     modelOffset    : u32,
     id             : u32,
-    modelId          : u32   // padding
+    modelId          : u32,
+    randomOffset: f32,
+    windStrength: f32,
+    padding2: u32,
 };
 
 const NUM_TOTAL_SLOTS = 64000;
@@ -513,7 +506,7 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 64;
+    let samples = 36;
     
     for (var x = -3; x <= 2; x++) {
         for (var y = -3; y <= 2; y++) {
@@ -737,11 +730,14 @@ const ONE_INNER = 5;
 const TWO_INNER = 6;
 const THREE_INNER = 7;
 const ZERO_INNER = 8;
+const EDGE_BOTH_INNER = 10;
 const EDGE_ONE_INNER_ONE = 11;
 const EDGE_ONE_INNER_TWO = 12;
 const CORNER_ONE_INNER = 13;
 const TWO_INNER_DIAGONAL = 14;
 const FOUR_INNER = 15;
+
+
 const TEXTURE_SIZE = 64;
 const TILE_SIZE = 8;
 const NUM_TILES_PER_SIDE = TEXTURE_SIZE / TILE_SIZE;
@@ -751,11 +747,23 @@ fn get_offset(index: u32) -> vec2f {
     return vec2f(f32(index % 8) * UV_PER_TILE, f32(index / 8) * UV_PER_TILE);
 }
 
+fn rotate_uv(uv: vec2f, rot: u32) -> vec2f {
+    let c = uv - 0.5;
+    let r = rot & 3u;
+    let rotated = select(
+        select(
+            select(c, vec2f(c.y, -c.x), r == 1u),
+            vec2f(-c.x, -c.y), r == 2u
+        ),
+        vec2f(-c.y, c.x), r == 3u
+    );
+    return rotated + 0.5;
+}
 
 fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
     let four_neighborhood = m.left + m.right + m.up + m.down;
     let corners = m.up_left + m.up_right + m.down_left + m.down_right;
-    if (four_neighborhood == 4u) { //surrounded
+    if (four_neighborhood == 4u) {
         if (corners == 3u) {
             if (m.down_left == 0u) {
                 return rotate_uv(uv, 0) * 0.125 + get_offset(ONE_INNER);
@@ -812,6 +820,9 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
     }
     if (four_neighborhood == 3u) { //edge
         if (m.left == 0u) {
+            if (m.down_right == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
             if (m.down_right == 0u) {
                 return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
             }
@@ -821,6 +832,9 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE);
         }
         if (m.up == 0u) {
+            if (m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
             if (m.down_right == 0u) {
                 return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
             }
@@ -830,6 +844,9 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE);
         }
         if (m.right == 0u) {
+            if (m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
             if (m.down_left == 0u) {
                 return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
             }
@@ -839,6 +856,9 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE);
         }
         if (m.down == 0u) {
+            if (m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
             if (m.up_left == 0u) {
                 return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
             }
@@ -881,8 +901,63 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
         }
 
     }
+
+    if (four_neighborhood == 1u) { //corner or strip
+        if (m.left == 0u && m.up == 0u && m.right == 0u ) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(U);
+        }
+
+        if (m.up == 0u && m.right == 0u && m.down == 0u ) {
+            return rotate_uv(uv, 1) * 0.125 + get_offset(U);
+        }
+
+        if (m.right == 0u && m.down == 0u && m.left == 0u ) {
+            return rotate_uv(uv, 2) * 0.125 + get_offset(U);
+        }
+
+        if (m.down == 0u && m.left == 0u && m.up == 0u ) {
+            return rotate_uv(uv, 3) * 0.125 + get_offset(U);
+        }
+    }
+
+    if (four_neighborhood == 0u) { //corner or strip
+        return rotate_uv(uv, 0) * 0.125 + get_offset(SURROUNDED);
+    }
     
     return uv * 0.125 + get_offset(ZERO_INNER);
+}
+
+fn rotateX(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+    );
+    return m * v;
+}
+
+fn rotateY(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+    );
+    return m * v;
+}
+
+fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+    );
+    return m * v;
 }
 
 @vertex
@@ -931,13 +1006,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     out.idx = in.instance_idx;
     out.material_id = materialData.material_id;
-    if (materialData.up + materialData.down + materialData.left + materialData.right >= 3) {
-        out.is_surrounded = 1u;
-    } else {
-        out.is_surrounded = 0u;
-    }
 
-    let materialProps2 = material_buffer[materialData.material_id - 1];
+    let materialProps = material_buffer[materialData.material_id - 1];
     let data = unpack_data(faceData.data);
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -961,67 +1031,84 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
 
     var normal: vec3f;
-    //if (materialProps2.modelId != VOXEL_MODEL) {
-        normal = modelDataArray[materialProps2.modelOffset + data.normal_index].normal.xyz;
-    //} else {
-    //    normal = faceNormals[data.normal_index];
-    //}
+    if (materialProps.modelId != VOXEL_MODEL) {
+        normal = modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz;
+    } else {
+        normal = faceNormals[data.normal_index];
+    }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
     let hash = hash_voxel_position(world_voxel_pos + vec3i(i32(normal.x), i32(normal.y), i32(normal.z)));
-    let tile_x = hash & 7u;
-    let tile_y = (hash >> 4u) & 7u;
-    let tile_z = (hash >> 8u) & 7u;
-    let rotation = (hash >> 16u) & 7u;
-    out.tile_offset = vec2f(f32(tile_x) * 0.125, f32(tile_y) * 0.125);
-    out.tile_offset2 = vec2f(f32(tile_x / 2) * 0.25, f32(tile_y / 2) * 0.25);
-    out.tile_rotation = rotation;
+    let tile_x = hash & (materialProps.tileCount - 1u);
+    let tile_y = (hash >> (materialProps.tileCount * 2u)) & (materialProps.tileCount - 1u);
+    let tile_z = (hash >> (materialProps.tileCount * 3u)) & (materialProps.tileCount - 1u);
+    let tile_rotation = (hash >> (materialProps.tileCount * 4u)) & (materialProps.tileCount - 1u);
 
-    let tile_x_2 = hash & 7u;
-    let tile_y_2 = (hash >> 6u) & 7u;
-    let tile_z_2 = (hash >> 12u) & 7u;
+    let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
+
+    let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
+    var random_offset = vec3f(0.0);
+    if (materialProps.modelId == LEAF_MODEL) {
+        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset, f32(tile_y) * materialProps.randomOffset, f32(tile_z) * materialProps.randomOffset);
+    } else if (materialProps.modelId == GRASS_MODEL) {
+        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset, f32(tile_y) * materialProps.randomOffset, 0.0);
+
+    }
 
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     
-    if (materialProps2.modelId != VOXEL_MODEL) {
-        base_vertex = modelDataArray[materialProps2.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+    if (materialProps.modelId != VOXEL_MODEL) {
+        base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
         scaled_vertex_offset = base_vertex * lod_scale;
-    } else {
+
+        normal = rotateX(normal, f32(tile_x) * 0.1);
+        normal = rotateY(normal, f32(tile_y) * 0.1);
+        normal = rotateZ(normal, f32(tile_z) * 0.1);
+
+    } 
+    else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
         scaled_vertex_offset = base_vertex * lod_scale;
     }
     
     // Calculate initial position before wind
-    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
+    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
-    // Apply wind effects for grass and leaf models
+    //Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
-    if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == FERN_MODEL) {
+    if (materialProps.windStrength > 0.0) {
         let vertex_height = base_vertex.z;
         if (vertex_height > 0.1) {
             let wind_strength = vertex_height;
-            wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
+            wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
         }
-    } else if (materialProps2.modelId == LEAF_MODEL) {
-        let center_offset = length(base_vertex - vec3f(0.5));
-        let wind_strength = 0.3 + center_offset * 0.7;
-        wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.5);
     }
     
     position = base_position + wind_displacement;
     
-    var uv = modelDataArray[materialProps2.modelOffset + data.normal_index].uvs[vertexInFace];
-    if (materialProps2.modelId == VOXEL_MODEL) {
-        //uv = faceUVsIndependent[data.normal_index][vertexInFace];
+    var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
+    
+    if (materialProps.modelId == VOXEL_MODEL) {
+        uv = faceUVsIndependent[data.normal_index][vertexInFace];
+    }
+
+    uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+
+    if (materialProps.textureType == RANDOM_ROTATION) {        
+        uv = rotate_uv(uv, tile_rotation);
+        uv = uv * tile_uv_distance + tile_offset;
+    } else if (materialProps.textureType == CONNECTED) {
         uv = get_ct_offset(uv, materialData);
+    } else if (materialProps.textureType == RANDOM_VARIANT) {
+        uv = uv * tile_uv_distance + tile_offset;
     }
     
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
-    if (materialProps2.modelId == GRASS_MODEL) {
+    if (materialProps.modelId == GRASS_MODEL) {
         ao = aoLevelsGrass[data.normal_index][vertexInFace];
     }
     
@@ -1121,9 +1208,9 @@ fn calculate_pbr_lighting(
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
-            let subsurface_power = 3.0;  // Controls the falloff of the subsurface effect
+            let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.2;  // How much the light bends through the material
-            let subsurface_scale = 1.25;  // Overall intensity scale
+            let subsurface_scale = 0.5;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -1155,32 +1242,7 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
-fn rotate_uv(uv: vec2f, rotation: u32) -> vec2f {
-    // Center UV coordinates around (0.5, 0.5)
-    let centered_uv = uv - 0.5;
-    
-    var rotated_uv: vec2f;
-    switch (rotation) {
-        case 0u: { // 0 degrees
-            rotated_uv = centered_uv;
-        }
-        case 1u: { // 90 degrees clockwise
-            rotated_uv = vec2f(centered_uv.y, -centered_uv.x);
-        }
-        case 2u: { // 180 degrees
-            rotated_uv = vec2f(-centered_uv.x, -centered_uv.y);
-        }
-        case 3u: { // 270 degrees clockwise (90 counter-clockwise)
-            rotated_uv = vec2f(-centered_uv.y, centered_uv.x);
-        }
-        default: {
-            rotated_uv = centered_uv;
-        }
-    }
-    
-    // Move back to (0,1) range
-    return rotated_uv + 0.5;
-}
+
 
 struct Noise2D { v: f32, d: vec2f } // value and derivative
 
@@ -1281,22 +1343,26 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     // Get PBR material properties
-    let materialProps2 = material_buffer[material_id - 1];
+    let materialProps = material_buffer[material_id - 1];
 
-    if (materialProps2.modelId == VOXEL_MODEL && !in.frontFacing) {
-        //discard;
+    if (materialProps.modelId == VOXEL_MODEL && !in.frontFacing) {
+        discard;
     } 
 
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
+    if (!in.frontFacing) {
+        normal = -normal;
+    }
+
     var blendState = 1.0;
-    if (materialProps2.modelId != VOXEL_MODEL) {
-        let viewAlignment = max(dot(viewDir, normal), dot(viewDir, -normal));
+    if (materialProps.modelId != VOXEL_MODEL) {
+        let viewAlignment = dot(viewDir, normal);
         
         // Define blending ranges
-        var discardThreshold = 0.25;    // Hard discard at very sharp angles
-        var blendStartThreshold = 0.25;  // Start blending at this angle
-        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+        var discardThreshold = 0.3;    // Hard discard at very sharp angles
+        var blendStartThreshold = 0.3;  // Start blending at this angle
+        var blendEndThreshold = 0.75;    // Full opacity at this angle and beyond
         
         //Hard discard at very sharp angles
         if (viewAlignment < discardThreshold) {
@@ -1315,11 +1381,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
             }
             blendState = clamp(blendState, 0.0, 1.0);
         }
-
-        if (materialProps2.modelId == GRASS_MODEL) {
-            normal = vec3f(0.0, 0.0, 1.0);
-        }
-
     }
 
     var uv = in.uv;
@@ -1353,31 +1414,14 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         foam = water_foam_from_grad(p, t, slope);
     }
 
-    if (materialProps2.randomRotation == 1u) {
-        let rotated_uv = rotate_uv(in.uv, in.tile_rotation);
-        uv = rotated_uv;
-    }
-
-    // if (materialProps2.modelId == VOXEL_MODEL && chunkData.lod > 0u) {
-    //     uv = fract(uv * lod_scale);
-    // }
-
-    if (materialProps2.modelId == VOXEL_MODEL) {
-        uv = uv; // + in.tile_offset;
-    }
-    
-    if (materialProps2.modelId == GRASS_MODEL || materialProps2.modelId == LEAF_MODEL) {
-        uv = uv * 0.25 + in.tile_offset2;
-    }
-
     var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
 
-    if (material_id != 19u && textureColor.a < 0.9) {
+    if (textureColor.a < 0.9) {
         discard;
     }
 
     // Combine material albedo with texture
-    var albedo = materialProps2.pbr.albedo * textureColor.rgb;
+    var albedo = materialProps.pbr.albedo * textureColor.rgb;
 
     if (material_id == 19u) {
         let transmitted = textureColor.rgb * waterTint;
@@ -1399,16 +1443,16 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         viewDir,
         sunDirection,
         sunColor * boosted_sun_intensity,
-        materialProps2.pbr.metallic,
-        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps2.pbr.roughness * 1.5,
-        materialProps2.pbr.dielectric,
+        materialProps.pbr.metallic,
+        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.pbr.roughness * 1.5,
+        materialProps.pbr.dielectric,
         shadow_factor,
-        materialProps2.pbr.subsurface  // Pass subsurface parameter
+        materialProps.pbr.subsurface  // Pass subsurface parameter
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 2.0; // Increased from 0.15
-    let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); // Brighter colors
+    let ambient_strength = 2.0;
+    let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
     // Apply AO with fade parameters
@@ -1422,16 +1466,16 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let normalFadeStart = 75.0;
     let normalFadeEnd = 150.0;
     let normalFadeFactor = clamp((in.fog_distance - normalFadeStart) / (normalFadeEnd - normalFadeStart), 0.0, 1.0);
-    let baseAoStrength = materialProps2.pbr.AO;
+    let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
     
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted; // * ((f32(chunkData.lod) + 0.5) / 4.0);
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     
     // Add emission if present
-    finalColor += materialProps2.pbr.emission;
+    finalColor += materialProps.pbr.emission;
 
     if (material_id == 19u) {
         // Fresnel reflection of a cheap sky color
