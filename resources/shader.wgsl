@@ -1100,7 +1100,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         uv = rotate_uv(uv, tile_rotation);
         uv = uv * tile_uv_distance + tile_offset;
     } else if (materialProps.textureType == CONNECTED) {
-        uv = get_ct_offset(uv, materialData);
+        uv = get_ct_offset(uv, materialData) + vec2f(0.0, tile_offset.y);
     } else if (materialProps.textureType == RANDOM_VARIANT) {
         uv = uv * tile_uv_distance + tile_offset;
     }
