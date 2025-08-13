@@ -953,6 +953,48 @@ fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
     return m * v;
 }
 
+fn calculate_large_tile_uv(voxel_world_pos: vec3i, normal: vec3f, face_uv: vec2f) -> vec2f {
+    // Define the tile size in world units (8 voxels = 64 pixels at 8 pixels per voxel)
+    const LARGE_TILE_SIZE: f32 = 8.0;
+    
+    // Use the voxel's integer world position (not vertex position) to determine which tile
+    var projected_voxel_pos: vec2i;
+    
+    // Determine which world axes to use based on the face normal
+    let abs_normal = abs(normal);
+    
+    if (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) {
+        // X-face: use Y and Z coordinates
+        projected_voxel_pos = vec2i(voxel_world_pos.y, voxel_world_pos.z);
+    } else if (abs_normal.y > abs_normal.x && abs_normal.y > abs_normal.z) {
+        // Y-face: use X and Z coordinates
+        projected_voxel_pos = vec2i(voxel_world_pos.x, voxel_world_pos.z);
+    } else {
+        // Z-face: use X and Y coordinates
+        projected_voxel_pos = vec2i(voxel_world_pos.x, voxel_world_pos.y);
+    }
+    
+    // Calculate which tile this voxel belongs to
+    let tile_coords = vec2f(f32(projected_voxel_pos.x), f32(projected_voxel_pos.y)) / LARGE_TILE_SIZE;
+    let tile_indices = vec2i(i32(floor(tile_coords.x)), i32(floor(tile_coords.y)));
+    
+    // Calculate the position within the tile (0.0 to 1.0 range)
+    let pos_in_tile = vec2f(
+        f32(projected_voxel_pos.x - tile_indices.x * i32(LARGE_TILE_SIZE)),
+        f32(projected_voxel_pos.y - tile_indices.y * i32(LARGE_TILE_SIZE))
+    ) / LARGE_TILE_SIZE;
+    
+    // Now map the face UV (0-1) to the appropriate portion of the tile
+    // Each voxel should occupy 1/8th of the texture in each dimension
+    let voxel_uv_size = 1.0 / LARGE_TILE_SIZE;  // = 1/8 = 0.125
+    
+    // Calculate the final UV by combining tile position and face UV
+    let final_uv = pos_in_tile + (face_uv * voxel_uv_size);
+    
+    // Clamp to avoid any edge sampling issues
+    return clamp(final_uv, vec2f(0.001), vec2f(0.999));
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -1049,9 +1091,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
         scaled_vertex_offset = base_vertex * lod_scale;
 
-        normal = rotateX(normal, f32(tile_x) * 0.05);
-        normal = rotateY(normal, f32(tile_y) * 0.05);
-        normal = rotateZ(normal, f32(tile_z) * 0.05);
+        normal = rotateX(normal, f32(tile_x) * 0.1);
+        normal = rotateY(normal, f32(tile_y) * 0.1);
+        normal = rotateZ(normal, f32(tile_z) * 0.1);
 
     }
     else {
@@ -1089,6 +1131,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         uv = get_ct_offset(uv, materialData) + vec2f(0.0, tile_offset.y);
     } else if (materialProps.textureType == RANDOM_VARIANT) {
         uv = uv * tile_uv_distance + tile_offset;
+    } else if (materialProps.textureType == LARGE_TILE) {
+        uv = calculate_large_tile_uv(world_voxel_pos, normal, uv);
     }
     
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
@@ -1422,7 +1466,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 5.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 4.5; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,

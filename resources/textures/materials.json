@@ -5,7 +5,7 @@
       "name": "Dirt",
       "texture": "dirt.png",
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "tileCount": 8,
       "randomOffset": 0.0,
       "windStrength": 0.0,
@@ -24,7 +24,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 1.2,
+        "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -144,7 +144,7 @@
           0.0
         ],
         "normal": 1.2,
-        "AO": 1.1,
+        "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -273,7 +273,7 @@
     {
       "id": 9,
       "name": "Leaves2",
-      "texture": "aspen_leaves.png",
+      "texture": "leaves2.png",
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "tileCount": 4,
@@ -294,7 +294,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 0.0,
         "subsurface": 0.8,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -324,7 +324,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.7,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -354,7 +354,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.5,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -384,7 +384,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.35,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -414,7 +414,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.4,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -444,7 +444,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.6,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -474,7 +474,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.4,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -504,7 +504,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.55,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -534,7 +534,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.7,
+        "AO": 1.0,
         "subsurface": 0.45,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
