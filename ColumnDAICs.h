@@ -11,7 +11,8 @@ struct DAIC {
 struct ColumnDAICs {
     std::vector<DAIC> opaqueDAICs;
     std::vector<DAIC> transparentDAICs;
-    std::vector<DAIC> shadowDAICs;
+    std::vector<DAIC> opaqueShadowDAICs;
+    std::vector<DAIC> transparentShadowDAICs;
 };
 
 #endif

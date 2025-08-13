@@ -20,20 +20,20 @@ bool WebGPURenderer::initialize() {
 	struct SizeClassCfg { int faces; int baseCount; };
 
 	static const std::array<SizeClassCfg, 11> kBaseline = { {
-		{ 16,     9771 },
-		{ 32,     4234 },
-		{ 64,    12200 },
-		{ 128,    4579 },
-		{ 256,   13445 },
-		{ 512,    3094 },
-		{ 1024,  11748 },
-		{ 2048,   4250 },
-		{ 4096,   3404 },
-		{ 16384,  3760 },
-		{ 65536,    16 },
+		{ 16,     10807 },
+		{ 32,      5150 },
+		{ 64,     10848 },
+		{ 128,     7699 },
+		{ 256,     9467 },
+		{ 512,     5713 },
+		{ 1024,   10244 },
+		{ 2048,    5485 },
+		{ 4096,    2698 },
+		{ 16384,   2391 },
+		{ 65536,      16 }, 
 	} };
 
-	float capacityScale = 1.0f;
+	float capacityScale = 5.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());
@@ -58,8 +58,11 @@ bool WebGPURenderer::initialize() {
 	indirectBufferDesc.label = StringView("transparent indirect buffer");
 	transparentIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
 
-	indirectBufferDesc.label = StringView("shadow indirect buffer");
-	shadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	indirectBufferDesc.label = StringView("opaque shadow indirect buffer");
+	opaqueShadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+
+	indirectBufferDesc.label = StringView("transparent shadow indirect buffer");
+	transparentShadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
 
 	// initialize pipeline objects
 	BufferManager* buf = bufferManager.get();
@@ -167,12 +170,21 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		);
 	}
 	
-	if (chunkRenderData.shadowDAICs.size() > 0) {
+	if (chunkRenderData.transparentShadowDAICs.size() > 0) {
 		context->getQueue().writeBuffer(
-			shadowIndirectBuffer, 
+			transparentShadowIndirectBuffer,
 			0, 
-			chunkRenderData.shadowDAICs.data(), 
-			chunkRenderData.shadowDAICs.size() * sizeof(DAIC)
+			chunkRenderData.transparentShadowDAICs.data(),
+			chunkRenderData.transparentShadowDAICs.size() * sizeof(DAIC)
+		);
+	}
+
+	if (chunkRenderData.opaqueShadowDAICs.size() > 0) {
+		context->getQueue().writeBuffer(
+			opaqueShadowIndirectBuffer,
+			0,
+			chunkRenderData.opaqueShadowDAICs.data(),
+			chunkRenderData.opaqueShadowDAICs.size() * sizeof(DAIC)
 		);
 	}
 
@@ -195,11 +207,27 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	aerialPerspectivePipeline.render(encoder);
 
 	// === SHADOW RENDER PASS ===
-	if (chunkRenderData.shadowDAICs.size() > 0) {
+	// OPAQUE casters
+	if (!chunkRenderData.opaqueShadowDAICs.empty()) {
+		// First shadow pass clears depth
 		shadowPipeline.render(
-			chunkRenderData.shadowDAICs.size(),
-			shadowIndirectBuffer,
-			encoder
+			chunkRenderData.opaqueShadowDAICs.size(),
+			opaqueShadowIndirectBuffer,
+			encoder,
+			/*bindGroupName=*/"shadow_uniforms_group_opaque",
+			/*loadOp=*/LoadOp::Clear
+		);
+	}
+
+	// TRANSPARENT casters
+	if (!chunkRenderData.transparentShadowDAICs.empty()) {
+		// Second shadow pass loads & stores into the same depth
+		shadowPipeline.render(
+			chunkRenderData.transparentShadowDAICs.size(),
+			transparentShadowIndirectBuffer,
+			encoder,
+			/*bindGroupName=*/"shadow_uniforms_group_transparent",
+			/*loadOp=*/LoadOp::Load
 		);
 	}
 
@@ -360,9 +388,10 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
-	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model.obj");
-	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model.obj");
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small.obj");
+	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_7.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
+	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
 	modelManager->writeModelsToBuffer();
 
 	textureManager->setModelOffsetResolver([mod = modelManager.get()](std::string_view modelName) -> uint32_t {
@@ -432,7 +461,8 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 void WebGPURenderer::terminate() {
 	opaqueIndirectBuffer.release();
 	transparentIndirectBuffer.release();
-	shadowIndirectBuffer.release();
+	transparentShadowIndirectBuffer.release();
+	opaqueShadowIndirectBuffer.release();
 
 	textureManager->terminate();
 	pipelineManager->terminate();

@@ -1157,6 +1157,7 @@ public:
                                     }
 
                                     setMaterialFast(grassPos, material);
+                                    setVoxelWholeColumn(grassPos, false, false);
                                     setVoxelWholeColumn(grassPos, true, true);
                                 }
 
@@ -1876,7 +1877,7 @@ public:
                                             bool shouldAdd = true;
 
                                             if (groupMaterial.materialType == BlockType::Leaf) {
-                                                faces = 6;
+                                                faces = 7;
                                             }
 
                                             if (groupMaterial.materialType == BlockType::TallGrass ||

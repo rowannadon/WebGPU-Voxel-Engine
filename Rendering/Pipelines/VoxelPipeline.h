@@ -97,7 +97,7 @@ public:
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth32Float;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::None;
+		config.cullMode = CullMode::Back;
 		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
@@ -105,6 +105,7 @@ public:
 		config.useVertexBuffers = false;
 		config.vertexAttributes.clear();
 		config.useCustomBlending = false;
+		config.alphaToCoverageEnabled = true;
 
 		// uniforms binding
 		std::vector<BindGroupLayoutEntry> globalUniforms(12, Default);
@@ -245,7 +246,7 @@ public:
 		renderPassColorAttachment.resolveTarget = targetView;
 		renderPassColorAttachment.loadOp = LoadOp::Clear;
 		renderPassColorAttachment.storeOp = StoreOp::Store;
-		renderPassColorAttachment.clearValue = Color{ 0.5, 0.5, 0.6, 1.0 };
+		renderPassColorAttachment.clearValue = Color{ 1.0, 0.0, 1.0, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
 		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif

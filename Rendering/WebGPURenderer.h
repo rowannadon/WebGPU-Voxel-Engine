@@ -51,7 +51,8 @@ private:
 
     Buffer opaqueIndirectBuffer;
     Buffer transparentIndirectBuffer;
-    Buffer shadowIndirectBuffer;
+    Buffer transparentShadowIndirectBuffer;
+    Buffer opaqueShadowIndirectBuffer;
 
 public:
     bool initialize();

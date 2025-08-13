@@ -24,7 +24,7 @@
           0.0
         ],
         "normal": 1.0,
-        "AO": 1.0,
+        "AO": 1.2,
         "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
@@ -275,8 +275,8 @@
       "name": "Leaves2",
       "texture": "aspen_leaves.png",
       "model": "LEAF_MODEL",
-      "textureType": "RANDOM_VARIANT",
-      "tileCount": 2,
+      "textureType": "RANDOM_ROTATION",
+      "tileCount": 4,
       "randomOffset": 0.2,
       "windStrength": 0.5,
       "pbr": {

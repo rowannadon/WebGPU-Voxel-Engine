@@ -29,7 +29,7 @@ struct MyUniforms {
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
-    padding: f32,
+    transparent: u32,
     highlightedVoxelPos: vec3i,
     time: f32,
     cameraWorldPos: vec3f,
@@ -42,14 +42,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
-    meshSlot: u32,
-    lightSlot: u32,
-    meshSlot2: u32,
-    meshSlot3: u32,
-    front: u32,
-    back: u32,
-    top: u32,
-    bottom: u32,
+    meshSlots: array<u32, 8>,
 };
 
 struct FaceData {
@@ -423,30 +416,20 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
 
     let dataIndex = in.instance_idx;
     let chunkData = chunkDataArray[dataIndex];
-    
-    var storageSlot = chunkData.meshSlot;
 
-    if (chunkData.lod == 1u) {
-        storageSlot = chunkData.lightSlot;
-    } else if (chunkData.lod == 2u) {
-        storageSlot = chunkData.meshSlot2;
-    } else if (chunkData.lod == 3u) {
-        storageSlot = chunkData.meshSlot3;
-    }
-    
-    // Bounds check for storage slot
-    if (storageSlot >= bufferMetadata.slotCount) {
-        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+    let offset = uMyUniforms.transparent * 4u;
+    var storageSlot = chunkData.meshSlots[offset + chunkData.lod];
+
+    // Robust bounds checks
+    if (storageSlot == 0xFFFFFFFFu || storageSlot >= bufferMetadata.slotCount) {
+        out.position = vec4f(0.0, 0.0, 0.0, 0.0); // clip
         return out;
     }
-    
+
     let slotInfo = slotInfoArray[storageSlot];
-    
     let faceIndex = in.vertex_idx / 6u;
-    
-    // Bounds check
     if (faceIndex >= slotInfo.maxFaces) {
-        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
+        out.position = vec4f(0.0, 0.0, 0.0, 0.0);
         return out;
     }
     

@@ -159,12 +159,19 @@ public:
 		shadowBindings[4].binding = 4;
 		shadowBindings[4].sampler = tex->getSampler("block_array_sampler");
 
-		BindGroup shadowBindGroup = pip->createBindGroup("shadow_global_uniforms_group", "shadow_global_uniforms", shadowBindings);
+		BindGroup opaqueShadowBindGroup = pip->createBindGroup("shadow_uniforms_group_opaque", "shadow_global_uniforms", shadowBindings);
 
-		return shadowBindGroup != nullptr;
+		shadowBindings[0].binding = 0;
+		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer_transparent");
+		shadowBindings[0].offset = 0;
+		shadowBindings[0].size = sizeof(MyUniforms);
+
+		BindGroup transparentShadowBindGroup = pip->createBindGroup("shadow_uniforms_group_transparent", "shadow_global_uniforms", shadowBindings);
+
+		return transparentShadowBindGroup != nullptr && opaqueShadowBindGroup != nullptr;
 	}
 
-	void render(int numDraws, Buffer indirectBuffer, CommandEncoder encoder) {
+	void render(int numDraws, Buffer indirectBuffer, CommandEncoder encoder, std::string bindGroupName, LoadOp loadOp) {
 		RenderPassDescriptor renderPassDesc = {};
 
 		renderPassDesc.colorAttachmentCount = 0;
@@ -172,7 +179,7 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("shadow_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+		depthStencilAttachment.depthLoadOp = loadOp;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
@@ -187,7 +194,7 @@ public:
 		shadowRenderPass.setPipeline(pip->getPipeline("shadow_pipeline"));
 
 		// Set bind groups matching the voxel pipeline order
-		shadowRenderPass.setBindGroup(0, pip->getBindGroup("shadow_global_uniforms_group"), 0, nullptr);
+		shadowRenderPass.setBindGroup(0, pip->getBindGroup(bindGroupName), 0, nullptr);
 		shadowRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		shadowRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);

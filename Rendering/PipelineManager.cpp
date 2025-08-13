@@ -41,7 +41,7 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     // Multisample state
     pipelineDesc.multisample.count = config.sampleCount;
     pipelineDesc.multisample.mask = ~0u;
-    pipelineDesc.multisample.alphaToCoverageEnabled = false;
+    pipelineDesc.multisample.alphaToCoverageEnabled = config.alphaToCoverageEnabled;
 
     // Fragment state
     FragmentState fragmentState;
@@ -57,12 +57,12 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
     if (config.useColorTarget) {
         // Blend state
 
-        blendState.color.srcFactor = BlendFactor::SrcAlpha;
+        /*blendState.color.srcFactor = BlendFactor::SrcAlpha;
         blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
         blendState.color.operation = BlendOperation::Add;
         blendState.alpha.srcFactor = BlendFactor::Zero;
         blendState.alpha.dstFactor = BlendFactor::One;
-        blendState.alpha.operation = BlendOperation::Add;
+        blendState.alpha.operation = BlendOperation::Add;*/
 
         if (config.useCustomBlending) {
             blendState = config.blendState;

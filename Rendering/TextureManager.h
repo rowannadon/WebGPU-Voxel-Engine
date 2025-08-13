@@ -78,6 +78,7 @@ public:
         Leaf = 1,
         Grass = 2,
         Fern = 3,
+        Water = 4,
         Unknown = 0xFFFFFFFF
     };
 

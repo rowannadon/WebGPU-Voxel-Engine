@@ -27,6 +27,7 @@ struct PipelineConfig {
     bool useColorTarget = true;
     bool useCustomBlending = false;
     BlendState blendState;
+    bool alphaToCoverageEnabled = false;
 };
 
 struct ComputePipelineConfig {

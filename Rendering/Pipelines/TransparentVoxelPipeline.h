@@ -30,7 +30,7 @@ public:
 		config.depthFormat = TextureFormat::Depth32Float;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::None;  // IMPORTANT: Disable culling for transparency
-		config.depthWriteEnabled = false;  // CRITICAL: Disable depth writes
+		config.depthWriteEnabled = true;  // CRITICAL: Disable depth writes
 		config.depthCompare = CompareFunction::Less; // Still test depth for proper ordering
 		config.fragmentShaderName = "fs_main";
 		config.vertexShaderName = "vs_main";
@@ -123,7 +123,7 @@ public:
 		renderPassColorAttachment.resolveTarget = targetView;
 		renderPassColorAttachment.loadOp = LoadOp::Load;
 		renderPassColorAttachment.storeOp = StoreOp::Store;
-		renderPassColorAttachment.clearValue = Color{ 0.5, 0.5, 0.6, 1.0 };
+		renderPassColorAttachment.clearValue = Color{ 0.0, 1.0, 0.5, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
 		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif
@@ -134,9 +134,9 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Undefined;
-		depthStencilAttachment.depthStoreOp = StoreOp::Undefined;
-		depthStencilAttachment.depthReadOnly = true;
+		depthStencilAttachment.depthLoadOp = LoadOp::Load;
+		depthStencilAttachment.depthStoreOp = StoreOp::Store;
+		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
 		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
 		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;

@@ -1037,10 +1037,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
     var random_offset = vec3f(0.0);
     if (materialProps.modelId == LEAF_MODEL) {
-        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset, f32(tile_y) * materialProps.randomOffset, f32(tile_z) * materialProps.randomOffset);
+        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_y) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_z) * materialProps.randomOffset - (4 * materialProps.randomOffset));
     } else if (materialProps.modelId == GRASS_MODEL) {
-        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset, f32(tile_y) * materialProps.randomOffset, 0.0);
-
+        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_y) * materialProps.randomOffset - (2 * materialProps.randomOffset), 0.0);
     }
 
     var scaled_vertex_offset: vec3f;
@@ -1050,11 +1049,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
         scaled_vertex_offset = base_vertex * lod_scale;
 
-        normal = rotateX(normal, f32(tile_x) * 0.1);
-        normal = rotateY(normal, f32(tile_y) * 0.1);
-        normal = rotateZ(normal, f32(tile_z) * 0.1);
+        normal = rotateX(normal, f32(tile_x) * 0.05);
+        normal = rotateY(normal, f32(tile_y) * 0.05);
+        normal = rotateZ(normal, f32(tile_z) * 0.05);
 
-    } 
+    }
     else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
         scaled_vertex_offset = base_vertex * lod_scale;
@@ -1347,9 +1346,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         let viewAlignment = dot(viewDir, normal);
         
         // Define blending ranges
-        var discardThreshold = 0.3;    // Hard discard at very sharp angles
-        var blendStartThreshold = 0.3;  // Start blending at this angle
-        var blendEndThreshold = 0.75;    // Full opacity at this angle and beyond
+        var discardThreshold = 0.25;    // Hard discard at very sharp angles
+        var blendStartThreshold = 0.25;  // Start blending at this angle
+        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
         //Hard discard at very sharp angles
         if (viewAlignment < discardThreshold) {

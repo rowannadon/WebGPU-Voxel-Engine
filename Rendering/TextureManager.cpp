@@ -161,6 +161,7 @@ TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
     if (s == "LEAF_MODEL")  return CpuModelKind::Leaf;
     if (s == "GRASS_MODEL") return CpuModelKind::Grass;
     if (s == "FERN_MODEL") return CpuModelKind::Fern;
+    if (s == "WATER_MODEL") return CpuModelKind::Water;
     return CpuModelKind::Unknown;
 }
 
@@ -366,6 +367,7 @@ Texture TextureManager::loadTextureArray(const std::string& name, const std::str
             case CpuModelKind::Leaf:  return modelOffsetResolver_("LEAF_MODEL");
             case CpuModelKind::Grass: return modelOffsetResolver_("GRASS_MODEL");
             case CpuModelKind::Fern: return modelOffsetResolver_("FERN_MODEL");
+            case CpuModelKind::Water: return modelOffsetResolver_("WATER_MODEL");
             default: return 0u;
             }
         };
