@@ -953,46 +953,36 @@ fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
     return m * v;
 }
 
-fn calculate_large_tile_uv(voxel_world_pos: vec3i, normal: vec3f, face_uv: vec2f) -> vec2f {
-    // Define the tile size in world units (8 voxels = 64 pixels at 8 pixels per voxel)
-    const LARGE_TILE_SIZE: f32 = 8.0;
-    
-    // Use the voxel's integer world position (not vertex position) to determine which tile
-    var projected_voxel_pos: vec2i;
-    
-    // Determine which world axes to use based on the face normal
-    let abs_normal = abs(normal);
-    
-    if (abs_normal.x > abs_normal.y && abs_normal.x > abs_normal.z) {
-        // X-face: use Y and Z coordinates
-        projected_voxel_pos = vec2i(voxel_world_pos.y, voxel_world_pos.z);
-    } else if (abs_normal.y > abs_normal.x && abs_normal.y > abs_normal.z) {
-        // Y-face: use X and Z coordinates
-        projected_voxel_pos = vec2i(voxel_world_pos.x, voxel_world_pos.z);
-    } else {
-        // Z-face: use X and Y coordinates
-        projected_voxel_pos = vec2i(voxel_world_pos.x, voxel_world_pos.y);
+// 8×8 voxels per tile (64×64 tex), world-aligned, Z-up.
+// X faces:  (u,v) = ( +Y, +Z )
+// Y faces:  (u,v) = ( +X, +Z )
+// Z faces:  (u,v) = ( +X, +Y )
+fn calculate_large_tile_uv_world_unwrapped(
+    world_voxel_pos : vec3i,
+    base_vertex     : vec3f,   // 0..1 across the face
+    lod_scale       : f32,     // voxels per edge at this LOD
+    normal_index    : u32
+) -> vec2f {
+    var a: f32;
+    var b: f32;
+
+    switch (normal_index) {
+        case 0u, 1u: { // ±X -> (Y,Z)
+            a = f32(world_voxel_pos.y) + base_vertex.y * lod_scale;
+            b = f32(world_voxel_pos.z) + base_vertex.z * lod_scale;
+        }
+        case 2u, 3u: { // ±Y -> (X,Z)
+            a = f32(world_voxel_pos.x) + base_vertex.x * lod_scale;
+            b = f32(world_voxel_pos.z) + base_vertex.z * lod_scale;
+        }
+        default: {      // ±Z -> (X,Y)
+            a = f32(world_voxel_pos.x) + base_vertex.x * lod_scale;
+            b = f32(world_voxel_pos.y) + base_vertex.y * lod_scale;
+        }
     }
-    
-    // Calculate which tile this voxel belongs to
-    let tile_coords = vec2f(f32(projected_voxel_pos.x), f32(projected_voxel_pos.y)) / LARGE_TILE_SIZE;
-    let tile_indices = vec2i(i32(floor(tile_coords.x)), i32(floor(tile_coords.y)));
-    
-    // Calculate the position within the tile (0.0 to 1.0 range)
-    let pos_in_tile = vec2f(
-        f32(projected_voxel_pos.x - tile_indices.x * i32(LARGE_TILE_SIZE)),
-        f32(projected_voxel_pos.y - tile_indices.y * i32(LARGE_TILE_SIZE))
-    ) / LARGE_TILE_SIZE;
-    
-    // Now map the face UV (0-1) to the appropriate portion of the tile
-    // Each voxel should occupy 1/8th of the texture in each dimension
-    let voxel_uv_size = 1.0 / LARGE_TILE_SIZE;  // = 1/8 = 0.125
-    
-    // Calculate the final UV by combining tile position and face UV
-    let final_uv = pos_in_tile + (face_uv * voxel_uv_size);
-    
-    // Clamp to avoid any edge sampling issues
-    return clamp(final_uv, vec2f(0.001), vec2f(0.999));
+
+    // One UV unit per 8 world voxels. No fract here.
+    return vec2f(a, b) / f32(TILE_SIZE); // TILE_SIZE = 8
 }
 
 @vertex
@@ -1132,7 +1122,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     } else if (materialProps.textureType == RANDOM_VARIANT) {
         uv = uv * tile_uv_distance + tile_offset;
     } else if (materialProps.textureType == LARGE_TILE) {
-        uv = calculate_large_tile_uv(world_voxel_pos, normal, uv);
+        uv = calculate_large_tile_uv_world_unwrapped(world_voxel_pos, base_vertex, lod_scale, data.normal_index);
     }
     
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
@@ -1386,32 +1376,32 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     var blendState = 1.0;
-    if (materialProps.modelId != VOXEL_MODEL) {
-        let viewAlignment = dot(viewDir, normal);
+    // if (materialProps.modelId != VOXEL_MODEL) {
+    //     let viewAlignment = dot(viewDir, normal);
         
-        // Define blending ranges
-        var discardThreshold = 0.25;    // Hard discard at very sharp angles
-        var blendStartThreshold = 0.25;  // Start blending at this angle
-        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+    //     // Define blending ranges
+    //     var discardThreshold = 0.25;    // Hard discard at very sharp angles
+    //     var blendStartThreshold = 0.25;  // Start blending at this angle
+    //     var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
-        //Hard discard at very sharp angles
-        if (viewAlignment < discardThreshold) {
-            discard;
-        }
+    //     //Hard discard at very sharp angles
+    //     if (viewAlignment < discardThreshold) {
+    //         discard;
+    //     }
         
-        // Smooth alpha blending between discard and blend thresholds
-        if (viewAlignment < blendEndThreshold) {
-            if (viewAlignment < blendStartThreshold) {
-                // Linear blend from 0 to 1 between discard and blend start
-                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-            } else {
-                // Smooth transition from blend start to full opacity
-                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-                blendState = smoothstep(0.0, 1.0, blendFactor);
-            }
-            blendState = clamp(blendState, 0.0, 1.0);
-        }
-    }
+    //     // Smooth alpha blending between discard and blend thresholds
+    //     if (viewAlignment < blendEndThreshold) {
+    //         if (viewAlignment < blendStartThreshold) {
+    //             // Linear blend from 0 to 1 between discard and blend start
+    //             blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+    //         } else {
+    //             // Smooth transition from blend start to full opacity
+    //             let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+    //             blendState = smoothstep(0.0, 1.0, blendFactor);
+    //         }
+    //         blendState = clamp(blendState, 0.0, 1.0);
+    //     }
+    // }
 
     var uv = in.uv;
 

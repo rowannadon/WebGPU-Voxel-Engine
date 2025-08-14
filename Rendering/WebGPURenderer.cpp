@@ -354,7 +354,6 @@ bool WebGPURenderer::initSharedUniformBuffers() {
 }
 
 bool WebGPURenderer::initTextures() {
-
 	BufferDescriptor materialBufferDesc;
 	materialBufferDesc.size = sizeof(MaterialProperties) * 100;
 	materialBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
@@ -375,9 +374,9 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("lut_sampler", lutSamplerDesc);
 
 	SamplerDescriptor samplerDesc;
-	samplerDesc.addressModeU = AddressMode::ClampToEdge;
-	samplerDesc.addressModeV = AddressMode::ClampToEdge;
-	samplerDesc.addressModeW = AddressMode::ClampToEdge;
+	samplerDesc.addressModeU = AddressMode::Repeat;
+	samplerDesc.addressModeV = AddressMode::Repeat;
+	samplerDesc.addressModeW = AddressMode::Repeat;
 	samplerDesc.magFilter = FilterMode::Nearest;
 	samplerDesc.minFilter = FilterMode::Nearest;
 	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
@@ -388,7 +387,7 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
-	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small.obj");
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small_extended.obj");
 	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_7.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
 	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
