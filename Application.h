@@ -7,6 +7,7 @@
 #include "webgpu-utils.h"
 #include "ChunkColumnManager.h"
 #include "Rendering/WebGPURenderer.h"
+#include "Rendering/StructureManager.h"
 #include "Ray.h"
 
 //#include "magic_enum.hpp"
@@ -180,6 +181,7 @@ private:
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
+
     ivec3 lookingAtBlockPos = ivec3(0, 0, 0);
     bool shouldBreakBlock = false;
 
@@ -205,6 +207,8 @@ private:
     };
     std::queue<GPUUploadItem> pendingGPUUploads;
     std::mutex gpuUploadMutex;
+
+    std::shared_ptr<StructureManager> structureManager;
 
     MyUniforms uniforms; 
     Noise noise;

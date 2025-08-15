@@ -10,6 +10,7 @@
 #include <set>
 #include <memory>
 #include "TexturePool.h"
+#include <unordered_set>
 #include "../VoxelMaterial.h" // for PBRMaterialProperties / MaterialProperties
 // Add a single-header JSON reader (nlohmann). Place json.hpp in your include path.
 #include "../json.hpp" // nlohmann/json
@@ -18,8 +19,10 @@ using json = nlohmann::json;
 using namespace wgpu;
 
 struct TextureMapping {
-    uint32_t id;
-    std::string filename;
+    // A single flattened array entry: one file -> one array layer
+    uint32_t layer;          // array layer in the 2D array texture
+    std::string filename;    // image file
+    uint32_t materialId;     // which material this layer belongs to
 };
 
 struct TextureArrayInfo {
@@ -27,7 +30,7 @@ struct TextureArrayInfo {
     uint32_t height = 0;
     uint32_t layerCount = 0;
     uint32_t mipLevelCount = 0;
-    std::vector<TextureMapping> mappings; // ID to filename mappings
+    std::vector<TextureMapping> mappings; // flattened layer->file (+owner material)
 };
 
 struct MaterialJsonEntry {
@@ -36,9 +39,11 @@ struct MaterialJsonEntry {
     float randomOffset = 0.0f;
     float windStrength = 0.0f;
     std::string name;       // optional, for readability
-    std::string texture;    // filename .png
+    std::vector<std::string> textures;    // filename .png
     std::string model;      // "VOXEL_MODEL" | "LEAF_MODEL" | "GRASS_MODEL"
     std::string textureType;
+    std::string orientation;
+    std::vector<std::string> randomOffsetDirections;
 
     PBRMaterialProperties pbr{}; // matches your C++ layout field names
 };
@@ -90,6 +95,13 @@ public:
         Unknown = 0xFFFFFFFF
     };
 
+    enum class OrientationType : uint32_t {
+        None = 0,
+        SingleAxis = 1,
+        AllAxis = 2,
+        Unknown = 0xFFFFFFFF
+    };
+
     // public
     void setModelOffsetResolver(std::function<uint32_t(std::string_view)> fn);
 
@@ -106,19 +118,20 @@ private:
     uint32_t bit_width(uint32_t m);
     void writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
     void writeMipMapsArray(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, uint32_t arrayLayer, const unsigned char* pixelData);
-    std::vector<std::filesystem::path> scanPngFiles(const std::filesystem::path& directoryPath);
-    std::vector<TextureMapping> parseIdsFile(const std::filesystem::path& idsFilePath);
-    bool validateTextureMapping(const std::vector<TextureMapping>& mappings, const std::filesystem::path& directoryPath);
+    bool validateTextureMapping(const std::vector<TextureMapping>& flat, const std::filesystem::path& dir);
 
     // New JSON helpers
     bool loadMaterialsJson(const std::filesystem::path& jsonPath,
-        std::vector<MaterialJsonEntry>& out,
-        std::vector<TextureMapping>& outMappings,
-        uint32_t& outMaxId);
+        std::vector<MaterialJsonEntry>& outEntries,
+        uint32_t& outMaxMaterialId);
     static CpuModelKind parseModel(const std::string& s);
     static TextureType parseTextureType(const std::string& s);
+    static OrientationType parseOrientation(const std::string& s);
+    static uint32_t parseRandomOffsetDirections(const std::vector<std::string>& dirs);
     static void fillMaterialProperties(MaterialProperties& dst, const MaterialJsonEntry& src, uint32_t modelOffset);
-    void buildMaterialTables(const std::vector<MaterialJsonEntry>& entries, uint32_t maxId,
-        const std::function<uint32_t(CpuModelKind)>& modelOffsetResolver);
+    void buildMaterialTables(const std::vector<MaterialJsonEntry>& entries,
+        uint32_t maxId,
+        const std::function<uint32_t(std::string)>& modelOffsetResolver,
+        const std::unordered_map<uint32_t, std::vector<uint32_t>>& materialToLayers);
 };
 #endif

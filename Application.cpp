@@ -19,7 +19,11 @@ bool Application::Initialize() {
     tex = gpu.getTextureManager();
     window = gpu.getWindow();
 
-    chunkManager.init(tex, buf);
+    structureManager = std::make_shared<StructureManager>();
+
+    structureManager->loadStructure("tree", RESOURCE_DIR "/tree.vox", ivec3(5, 5, 2));
+
+    chunkManager.init(tex, buf, structureManager);
     registerMovementCallbacks();
 
     
@@ -300,9 +304,7 @@ void Application::MainLoop() {
     
     renderImGUI();
     
-    if (!renderData.transparentDAICs.empty() || !renderData.opaqueDAICs.empty()) {
-        gpu.renderFrame(uniforms, renderData);
-    }
+    gpu.renderFrame(uniforms, renderData);
 
     // Calculate frame time more accurately
     float frameEndTime = static_cast<float>(glfwGetTime());

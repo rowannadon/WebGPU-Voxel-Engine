@@ -80,7 +80,8 @@ struct VertexOutput {
     @location(12) tile_offset: vec2f,
     @location(13) tile_offset2: vec2f,
     @location(14) @interpolate(flat) tile_rotation: u32,
-    @location(15) @interpolate(flat) is_surrounded: u32,
+    @location(15) @interpolate(flat) face_index: u32,
+    @location(16) @interpolate(flat) facing_dir: u32,
 };
 
 struct FragmentInput {
@@ -101,7 +102,9 @@ struct FragmentInput {
     @location(12) tile_offset: vec2f,
     @location(13) tile_offset2: vec2f,
     @location(14) @interpolate(flat) tile_rotation: u32,
-    @location(15) @interpolate(flat) is_surrounded: u32,
+    @location(15) @interpolate(flat) face_index: u32,
+    @location(16) @interpolate(flat) facing_dir: u32,
+
 };
 
 struct MyUniforms {
@@ -151,6 +154,7 @@ struct UnpackedData {
 
 struct UnpackedMaterialData {
     material_id: u32,
+    facing_dir: u32,
     up: u32,
     down: u32,
     left: u32,
@@ -225,12 +229,20 @@ struct MaterialProperties {
     // pack these four scalars as 16 bytes total
     textureType : u32,
     tileCount   : u32,
-    modelOffset    : u32,
-    id             : u32,
-    modelId          : u32,
+    modelOffset : u32,
+    id          : u32,
+    modelId     : u32,
     randomOffset: f32,
     windStrength: f32,
-    padding2: u32,
+    randomOffsetDirections: u32,
+    orientation : u32,
+    textureId0: u32,
+    textureId1: u32,
+    textureId2: u32,
+    textureId3: u32,
+    textureId4: u32,
+    textureId5: u32,
+    padding0    : f32,
 };
 
 const NUM_TOTAL_SLOTS = 64000;
@@ -421,8 +433,11 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
 
 fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let packed_bits = bitcast<u32>(packed_data);
-    
-    let material_id = packed_bits & 0x1FFFFu;
+    let material_info = packed_bits & 0x1FFFFu;
+
+    let material_id = material_info >> 3u;
+    let facing_dir = material_info & 0x7u;
+
     let up = (packed_bits >> 17u) & 0x1u;
     let down = (packed_bits >> 18u) & 0x1u;
     let left = (packed_bits >> 19u) & 0x1u;
@@ -435,6 +450,7 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
 
     return UnpackedMaterialData(
         material_id,
+        facing_dir,
         up,
         down,
         left,
@@ -631,12 +647,12 @@ const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
 
 const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
     array<f32, 4>(
-        0.6, 1.0, 
-        1.0, 0.6
+        0.55, 0.55, 
+        1.0, 1.0
     ),
     array<f32, 4>(
-        1.0, 0.6, 
-        0.6, 1.0
+        0.55, 0.55, 
+        1.0, 1.0
     )
 );
 
@@ -985,6 +1001,45 @@ fn calculate_large_tile_uv_world_unwrapped(
     return vec2f(a, b) / f32(TILE_SIZE); // TILE_SIZE = 8
 }
 
+const DIRECTION_X = 0u;
+const DIRECTION_Y = 1u;
+const DIRECTION_Z = 2u;
+
+fn has_offset(randomOffsetMask: u32, direction: u32) -> f32 {
+    switch (direction) {
+        case DIRECTION_X: {
+            return f32(randomOffsetMask & 0x1);
+        }
+        case DIRECTION_Y: {
+            return f32((randomOffsetMask >> 1u) & 0x1);
+        }
+        case DIRECTION_Z: {
+            return f32((randomOffsetMask >> 2u) & 0x1);
+        }
+        default: {
+            return 0.0;
+        }
+    }
+}
+
+const FACING_PLUS_X = 0u;
+const FACING_MINUS_X = 1u;
+const FACING_PLUS_Y = 2u;
+const FACING_MINUS_Y = 3u;
+const FACING_PLUS_Z = 4u;
+const FACING_MINUS_Z = 5u;
+
+const ORIENT_NONE = 0u;
+const ORIENT_SINGLE = 1u;
+const ORIENT_ALL = 2u;
+
+fn get_material_for_face(facing: u32, normal_index: u32) -> f32 {
+    if (facing == normal_index) {
+        return 0.0;
+    }
+    return 1.0;
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -1028,6 +1083,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     let materialProps = material_buffer[materialData.material_id - 1];
     let data = unpack_data(faceData.data);
+
+    out.face_index = data.normal_index;
+    out.facing_dir = materialData.facing_dir;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
     
@@ -1065,14 +1123,19 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_rotation = (hash >> (materialProps.tileCount * 4u)) & (materialProps.tileCount - 1u);
 
     let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
-
     let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
-    var random_offset = vec3f(0.0);
-    if (materialProps.modelId == LEAF_MODEL) {
-        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_y) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_z) * materialProps.randomOffset - (4 * materialProps.randomOffset));
-    } else if (materialProps.modelId == GRASS_MODEL) {
-        random_offset = vec3f(f32(tile_x) * materialProps.randomOffset - (2 * materialProps.randomOffset), f32(tile_y) * materialProps.randomOffset - (2 * materialProps.randomOffset), 0.0);
-    }
+
+
+    let tile_x_2 = hash & 7u;
+    let tile_y_2 = (hash >> 8u) & 7u;
+    let tile_z_2 = (hash >> 16u) & 7u;
+
+    var random_offset = vec3f(
+        (f32(tile_x_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_X), 
+        (f32(tile_y_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Y), 
+        (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
+        );
+
 
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
@@ -1131,7 +1194,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     if (materialProps.modelId == GRASS_MODEL) {
         ao = aoLevelsGrass[data.normal_index][vertexInFace];
     }
-    
+
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
 
@@ -1349,6 +1412,71 @@ fn water_foam_from_grad(p_world_xy: vec2f, t: f32, grad_len: f32) -> f32 {
     return clamp(crest * breakup, 0.0, 1.0);
 }
 
+fn get_opposite_face(facing_dir: u32) -> u32 {
+    switch (facing_dir) {
+        case 0u: { return 1u; } // +X -> -X
+        case 1u: { return 0u; }
+        case 2u: { return 3u; }
+        case 3u: { return 2u; }
+        case 4u: { return 5u; }
+        case 5u: { return 4u; }
+        default: { return 0u; }
+    }
+}
+
+// --- Tone mapping controls (specialization constants) ---
+override USE_ACES_TONEMAP: bool = true;        // set false to bypass
+override TONE_EXPOSURE: f32 = 1.0;             // simple exposure multiplier
+override FRAMEBUFFER_IS_SRGB: bool = true;     // set false if your swapchain format is *not* SRGB\
+
+override ACES_SATURATION: f32 = 0.97;          // 1.00 = no change; try 0.95–0.98
+const ACES_WB: vec3f    = vec3f(0.95, 0.68, 1.00); // per-channel gain (slightly pull green)
+
+fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+fn apply_saturation(c: vec3f, s: f32) -> vec3f {
+    let g = vec3f(luma(c));
+    return mix(g, c, s);
+}
+
+fn linear_to_srgb(c_in: vec3f) -> vec3f {
+    // Clamp to avoid pow() on negatives
+    let c = max(c_in, vec3f(0.0));
+    let a = 0.055;
+    let thresh = vec3f(0.0031308);
+    let lo = 12.92 * c;
+    let hi = (1.0 + a) * pow(c, vec3f(1.0 / 2.4)) - a;
+    return mix(lo, hi, step(thresh, c));
+}
+
+// Stephen Hill "ACES fitted" (RRT+ODT) with input/output transforms
+fn aces_tonemap(color_in: vec3f) -> vec3f {
+    // Convert from sRGB/linear to ACEScg-ish working space
+    let ACESInputMat = mat3x3<f32>(
+        0.59719, 0.35458, 0.04823,
+        0.07600, 0.90834, 0.01566,
+        0.02840, 0.13383, 0.83777
+    );
+
+    // Back to sRGB/linear
+    let ACESOutputMat = mat3x3<f32>(
+         1.60475, -0.53108, -0.07367,
+        -0.10208,  1.10813, -0.00605,
+        -0.00327, -0.07276,  1.07602
+    );
+
+    var v = ACESInputMat * color_in;
+
+    // RRT + ODT fit
+    let a = v * (v + vec3f(0.0245786)) - vec3f(0.000090537);
+    let b = v * (vec3f(0.983729) * v + vec3f(0.4329510)) + vec3f(0.238081);
+    v = a / b;
+
+    v = ACESOutputMat * v;
+
+    // Clamp to display range
+    return clamp(v, vec3f(0.0), vec3f(1.0));
+}
+
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
@@ -1376,32 +1504,36 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     var blendState = 1.0;
-    // if (materialProps.modelId != VOXEL_MODEL) {
-    //     let viewAlignment = dot(viewDir, normal);
+    if (materialProps.modelId != VOXEL_MODEL) {
+        let viewAlignment = dot(viewDir, normal);
         
-    //     // Define blending ranges
-    //     var discardThreshold = 0.25;    // Hard discard at very sharp angles
-    //     var blendStartThreshold = 0.25;  // Start blending at this angle
-    //     var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+        // Define blending ranges
+        var discardThreshold = 0.25;    // Hard discard at very sharp angles
+        var blendStartThreshold = 0.25;  // Start blending at this angle
+        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
-    //     //Hard discard at very sharp angles
-    //     if (viewAlignment < discardThreshold) {
-    //         discard;
-    //     }
+        //Hard discard at very sharp angles
+        if (viewAlignment < discardThreshold) {
+            discard;
+        }
         
-    //     // Smooth alpha blending between discard and blend thresholds
-    //     if (viewAlignment < blendEndThreshold) {
-    //         if (viewAlignment < blendStartThreshold) {
-    //             // Linear blend from 0 to 1 between discard and blend start
-    //             blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-    //         } else {
-    //             // Smooth transition from blend start to full opacity
-    //             let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-    //             blendState = smoothstep(0.0, 1.0, blendFactor);
-    //         }
-    //         blendState = clamp(blendState, 0.0, 1.0);
-    //     }
-    // }
+        // Smooth alpha blending between discard and blend thresholds
+        if (viewAlignment < blendEndThreshold) {
+            if (viewAlignment < blendStartThreshold) {
+                // Linear blend from 0 to 1 between discard and blend start
+                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+            } else {
+                // Smooth transition from blend start to full opacity
+                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+                blendState = smoothstep(0.0, 1.0, blendFactor);
+            }
+            blendState = clamp(blendState, 0.0, 1.0);
+        }
+
+        if (materialProps.modelId == GRASS_MODEL) {
+            normal = vec3f(0.0, 0.0, 1.0);
+        }
+    }
 
     var uv = in.uv;
 
@@ -1434,7 +1566,16 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         foam = water_foam_from_grad(p, t, slope);
     }
 
-    var textureColor = textureSample(textureArray, textureSampler, uv, material_id - 1);
+    var layer : u32 = materialProps.textureId0;
+    if (materialProps.modelId == VOXEL_MODEL) {
+        if (materialProps.orientation == ORIENT_SINGLE) {
+            if (in.facing_dir == in.face_index || get_opposite_face(in.facing_dir) == in.face_index) {
+                layer = materialProps.textureId1;
+            } 
+        }
+    }
+
+    var textureColor = textureSample(textureArray, textureSampler, uv, layer);
 
     if (textureColor.a < 0.9) {
         discard;
@@ -1530,6 +1671,25 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         finalColor = clamp(mix(finalColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(10.0));
     }
 
-    //return vec4f(mix(vec3f(0.0, 1.0, 1.0), clamp(finalColor, vec3f(0.0), vec3f(10.0)), blendState), 1.0);
-    return vec4f(clamp(finalColor, vec3f(0.0), vec3f(10.0)), blendState);
+    // ---- HDR -> LDR: exposure, WB, saturation, ACES, output ----
+    var hdr = max(finalColor, vec3f(0.0)) * TONE_EXPOSURE;
+
+    // Gentle white-balance (pull green slightly)
+    hdr *= ACES_WB;
+
+    // Slight pre-tonemap desat to keep greens from dominating the shoulder
+    hdr = apply_saturation(hdr, ACES_SATURATION);
+
+    // ACES fitted (your existing aces_tonemap)
+    var ldr = hdr;
+    if (USE_ACES_TONEMAP) {
+        ldr = aces_tonemap(hdr);
+    }
+
+    // If your swapchain is *linear* (not -srgb), encode manually
+    if (!FRAMEBUFFER_IS_SRGB) {
+        ldr = linear_to_srgb(ldr);
+    }
+
+    return vec4f(mix(clamp(ldr, vec3f(0.0), vec3f(1.0)), finalColor, 0.55), blendState);
 }

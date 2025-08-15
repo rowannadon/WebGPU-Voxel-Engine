@@ -178,7 +178,7 @@ public:
         return map.find(id)->second;
     }
 
-    void writeToSlot(std::string id, std::vector<VoxelMaterial> materialData) {
+    void writeToSlot(std::string id, std::vector<PackedVoxelMaterial> materialData) {
         std::lock_guard<std::mutex> lock(dataMutex);
         int index = map.find(id)->second;
         ivec3 pos = get3DPos(index);
@@ -196,13 +196,13 @@ public:
         // Set up the source data layout
         TexelCopyBufferLayout source = {};
         source.offset = 0;
-        source.bytesPerRow = CHUNK_SIZE * sizeof(VoxelMaterial);
+        source.bytesPerRow = CHUNK_SIZE * sizeof(PackedVoxelMaterial);
         source.rowsPerImage = CHUNK_SIZE;
 
         queue.writeTexture(
             destination,
             materialData.data(),
-            materialData.size() * sizeof(VoxelMaterial),
+            materialData.size() * sizeof(PackedVoxelMaterial),
             source,
             { CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE });
     }

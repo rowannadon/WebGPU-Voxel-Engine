@@ -105,30 +105,11 @@ Texture TextureManager::loadTexture(const std::string name, const std::string te
     return texture;
 }
 
-// ---------- legacy ids.txt ----------
-std::vector<TextureMapping> TextureManager::parseIdsFile(const std::filesystem::path& idsFilePath) {
-    std::vector<TextureMapping> mappings;
-    std::ifstream file(idsFilePath);
-    if (!file.is_open()) return mappings;
-
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        std::istringstream iss(line);
-        uint32_t id;
-        std::string filename;
-        if (iss >> id >> filename) {
-            mappings.push_back({ id, filename + ".png" });
-        }
-    }
-    return mappings;
-}
-
-bool TextureManager::validateTextureMapping(const std::vector<TextureMapping>& mappings, const std::filesystem::path& directoryPath) {
-    std::set<uint32_t> used;
-    for (const auto& m : mappings) {
-        if (!used.insert(m.id).second) return false;
-        auto full = directoryPath / m.filename;
+bool TextureManager::validateTextureMapping(const std::vector<TextureMapping>& flat, const std::filesystem::path& dir) {
+    std::unordered_set<uint32_t> seenLayers;
+    for (const auto& m : flat) {
+        if (!seenLayers.insert(m.layer).second) return false; // no duplicate layer indices
+        auto full = dir / m.filename;
         if (!std::filesystem::exists(full)) return false;
         auto ext = full.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
@@ -165,12 +146,40 @@ TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
     return CpuModelKind::Unknown;
 }
 
+TextureManager::OrientationType TextureManager::parseOrientation(const std::string& s) {
+    if (s == "NONE") return OrientationType::None;
+    if (s == "SINGLE_AXIS")  return OrientationType::SingleAxis;
+    if (s == "ALL_AXIS") return OrientationType::AllAxis;
+    return OrientationType::Unknown;
+}
+
 TextureManager::TextureType TextureManager::parseTextureType(const std::string& s) {
     if (s == "LARGE_TILE") return TextureType::LargeTile;
     if (s == "CONNECTED")  return TextureType::Connected;
     if (s == "RANDOM_VARIANT") return TextureType::RandomVariant;
     if (s == "RANDOM_ROTATION") return TextureType::RandomRotation;
     return TextureType::Unknown;
+}
+
+uint32_t TextureManager::parseRandomOffsetDirections(const std::vector<std::string>& dirs) {
+    uint32_t mask = 0;
+
+    for (const auto& d : dirs) {
+        if (d == "X") {
+            mask |= (1u << 0);
+        }
+        else if (d == "Y") {
+            mask |= (1u << 1);
+        }
+        else if (d == "Z") {
+            mask |= (1u << 2);
+        }
+        else {
+            return 0xFFFFFFFFu;
+        }
+    }
+
+    return mask;
 }
 
 void TextureManager::fillMaterialProperties(MaterialProperties& dst, const MaterialJsonEntry& src, uint32_t modelOffset) {
@@ -195,16 +204,13 @@ void TextureManager::fillMaterialProperties(MaterialProperties& dst, const Mater
 }
 
 bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
-    std::vector<MaterialJsonEntry>& out,
-    std::vector<TextureMapping>& outMappings,
-    uint32_t& outMaxId)
+    std::vector<MaterialJsonEntry>& outEntries,
+    uint32_t& outMaxMaterialId)
 {
-    out.clear();
-    outMappings.clear();
-    outMaxId = 0;
+    outEntries.clear();
+    outMaxMaterialId = 0;
 
     if (!std::filesystem::exists(jsonPath)) return false;
-
     std::ifstream f(jsonPath);
     if (!f.is_open()) return false;
 
@@ -212,7 +218,6 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
     try { f >> root; }
     catch (...) { return false; }
 
-    // Accept either {"materials":[...] } or a bare array [...]
     const json* materials = nullptr;
     if (root.is_object() && root.contains("materials")) materials = &root["materials"];
     else if (root.is_array())                           materials = &root;
@@ -222,135 +227,212 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
         MaterialJsonEntry e{};
         e.id = m.at("id").get<uint32_t>();
         if (m.contains("name")) e.name = m["name"].get<std::string>();
-        e.texture = m.at("texture").get<std::string>();
         e.model = m.at("model").get<std::string>();
         e.textureType = m.at("textureType").get<std::string>();
         e.tileCount = m.at("tileCount").get<uint32_t>();
-
         e.randomOffset = m.at("randomOffset").get<float>();
         e.windStrength = m.at("windStrength").get<float>();
+        e.randomOffsetDirections = m.at("randomOffsetDirections").get<std::vector<std::string>>();
+        e.orientation = m.at("orientation").get<std::string>();
 
-        // PBR block: JSON uses your C++ field names
+        // read textures: accept "texture" (string or array) OR "textures" (array)
+        if (m.contains("textures")) {
+            e.textures = m["textures"].get<std::vector<std::string>>();
+        }
+        else if (m.contains("texture")) {
+            if (m["texture"].is_array())
+                e.textures = m["texture"].get<std::vector<std::string>>();
+            else
+                e.textures = { m["texture"].get<std::string>() };
+        }
+        else {
+            // schema requires at least one texture
+            return false;
+        }
+
+        // PBR block
         const auto& p = m.at("pbr");
         PBRMaterialProperties pbr{};
         pbr.albedo = to_vec3(p.at("albedo"));
         pbr.metallic = p.value("metallic", 0.0f);
         pbr.emission = to_vec3(p.value("emission", json::array({ 0.0,0.0,0.0 })));
         pbr.roughness = p.value("roughness", 1.0f);
-        pbr.dielectric = p.value("dielectric", 0.04f); // (specular in WGSL)
-        pbr.normal = p.value("normal", 1.0f);          // (normalStrength)
-        pbr.AO = p.value("AO", 1.0f);                  // (aoStrength)
+        pbr.dielectric = p.value("dielectric", 0.04f);
+        pbr.normal = p.value("normal", 1.0f);
+        pbr.AO = p.value("AO", 1.0f);
         pbr.subsurface = p.value("subsurface", 0.0f);
         pbr.clearcoat = p.value("clearcoat", 0.0f);
         pbr.clearcoatRoughness = p.value("clearcoatRoughness", 0.0f);
         e.pbr = pbr;
 
-        out.push_back(e);
-        outMappings.push_back(TextureMapping{ e.id, e.texture });
-        outMaxId = std::max(outMaxId, e.id);
+        outEntries.push_back(std::move(e));
+        outMaxMaterialId = std::max(outMaxMaterialId, outEntries.back().id);
     }
+
     return true;
 }
 
-void TextureManager::buildMaterialTables(const std::vector<MaterialJsonEntry>& entries,
+void TextureManager::buildMaterialTables(
+    const std::vector<MaterialJsonEntry>& entries,
     uint32_t maxId,
-    const std::function<uint32_t(CpuModelKind)>& modelOffsetResolver)
+    const std::function<uint32_t(std::string)>& modelOffsetResolver,
+    const std::unordered_map<uint32_t, std::vector<uint32_t>>& materialToLayers)
 {
     materialMap.clear();
     materialTable.clear();
-    materialTable.resize(maxId + 1); // dense: index == ID
+    materialTable.resize(maxId + 1);
 
     for (const auto& e : entries) {
         CpuModelKind mk = parseModel(e.model);
+        OrientationType ot = parseOrientation(e.orientation);
         TextureType tt = parseTextureType(e.textureType);
-        uint32_t modelOffset = modelOffsetResolver ? modelOffsetResolver(mk) : 0u;
+        uint32_t roDirs = parseRandomOffsetDirections(e.randomOffsetDirections);
+        uint32_t modelOffset = modelOffsetResolver ? modelOffsetResolver(e.model) : 0u;
 
         MaterialProperties mp{};
         fillMaterialProperties(mp, e, modelOffset);
 
         mp.modelId = static_cast<uint32_t>(mk);
         mp.textureType = static_cast<uint32_t>(tt);
+        mp.randomOffsetDirections = roDirs;
+        mp.orientation = static_cast<uint32_t>(ot);
+
+        // NEW: fill per-face texture IDs
+        auto it = materialToLayers.find(e.id);
+        std::vector<uint32_t> layers;
+        if (it != materialToLayers.end()) layers = it->second;
+
+        if (!layers.empty()) {
+            if (mk == CpuModelKind::Voxel) {
+                if (layers.size() >= 6) {
+                    // assume order is +X,-X,+Y,-Y,+Z,-Z
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[1]; // cap
+                    mp.textureId2 = layers[2];
+                    mp.textureId3 = layers[3];
+                    mp.textureId4 = layers[4];
+                    mp.textureId5 = layers[5];
+                }
+                else if (layers.size() == 2 && ot == OrientationType::SingleAxis) {
+                    // logs: [side, cap]
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[1]; // cap
+                    mp.textureId2 = layers[0];
+                    mp.textureId3 = layers[0];
+                    mp.textureId4 = layers[0];
+                    mp.textureId5 = layers[0];
+                }
+                else {
+                    // 1 or N<6 generic: use first for all faces
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[0]; // cap
+                    mp.textureId2 = layers[0];
+                    mp.textureId3 = layers[0];
+                    mp.textureId4 = layers[0];
+                    mp.textureId5 = layers[0];
+                }
+            }
+            else {
+                // non-voxel models: just first texture
+                mp.textureId0 = layers[0]; // side
+                mp.textureId1 = layers[0]; // cap
+                mp.textureId2 = layers[0];
+                mp.textureId3 = layers[0];
+                mp.textureId4 = layers[0];
+                mp.textureId5 = layers[0];
+            }
+        }
 
         materialMap[e.id] = mp;
         materialTable[e.id] = mp;
     }
 }
 
-Texture TextureManager::loadTextureArray(const std::string& name, const std::string& textureViewName, const std::filesystem::path& directoryPath) {
+Texture TextureManager::loadTextureArray(const std::string& name,
+    const std::string& textureViewName,
+    const std::filesystem::path& directoryPath) {
+
     const auto jsonPath = directoryPath / "materials.json";
     std::vector<MaterialJsonEntry> jsonEntries;
-    std::vector<TextureMapping> mappings;
-    uint32_t maxIdFromJson = 0;
+    uint32_t maxMaterialId = 0;
+    const bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, maxMaterialId);
+    if (!haveJson || jsonEntries.empty()) {
+        std::cerr << "error loading json\n";
+        return nullptr;
+    };
 
-    bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, mappings, maxIdFromJson);
+    // Build a flattened list of (layer <- file), plus map material->layers
+    std::vector<TextureMapping> flat;
+    flat.reserve(64);
 
-    // Validate textures exist
-    if (!validateTextureMapping(mappings, directoryPath)) return nullptr;
+    std::unordered_map<uint32_t, std::vector<uint32_t>> materialToLayers;
+    uint32_t nextLayer = 0;
 
-    // Sort by id for stable array layer order
-    std::sort(mappings.begin(), mappings.end(), [](const TextureMapping& a, const TextureMapping& b) {
-        return a.id < b.id;
-        });
+    for (const auto& e : jsonEntries) {
+        auto& v = materialToLayers[e.id];
+        for (const auto& file : e.textures) {
+            flat.push_back(TextureMapping{ nextLayer, file, e.id });
+            v.push_back(nextLayer);
+            ++nextLayer;
+        }
+    }
 
-    // Determine array size
-    uint32_t maxId = 0;
-    for (const auto& m : mappings) maxId = std::max(maxId, m.id);
-    uint32_t arraySize = maxId + 1;
+    if (!validateTextureMapping(flat, directoryPath)) {
+        std::cerr << "error validating texture mapping\n";
+        return nullptr;
+    };
 
     // Load first image for dimensions
-    std::filesystem::path firstImagePath = directoryPath / mappings[0].filename;
-    int width, height, channels;
-    unsigned char* firstPixelData = stbi_load(firstImagePath.string().c_str(), &width, &height, &channels, 4);
-    if (!firstPixelData) return nullptr;
+    int width = 0, height = 0, channels = 0;
+    {
+        auto first = directoryPath / flat.front().filename;
+        unsigned char* firstPixels = stbi_load(first.string().c_str(), &width, &height, &channels, 4);
+        if (!firstPixels) return nullptr;
+        stbi_image_free(firstPixels);
+    }
 
-    uint32_t mipLevelCount = bit_width(std::max(width, height));
+    uint32_t mipLevelCount = bit_width(std::max((uint32_t)width, (uint32_t)height));
 
+    // Create array texture sized to total image count
     TextureDescriptor td{};
     td.dimension = TextureDimension::_2D;
     td.format = TextureFormat::RGBA8Unorm;
     td.sampleCount = 1;
-    td.size = { (unsigned int)width, (unsigned int)height, arraySize };
+    td.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
     td.mipLevelCount = mipLevelCount;
     td.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
 
     Texture texture = createTexture(name, td);
 
-    // Store array meta
+    // Save array meta
     TextureArrayInfo info{};
-    info.width = width; info.height = height;
-    info.layerCount = arraySize; info.mipLevelCount = mipLevelCount;
-    info.mappings = mappings;
+    info.width = width;
+    info.height = height;
+    info.layerCount = (uint32_t)flat.size();
+    info.mipLevelCount = mipLevelCount;
+    info.mappings = flat;
     textureArrayInfos[name] = info;
 
     // Upload each layer
-    for (size_t k = 0; k < mappings.size(); ++k) {
-        const auto& map = mappings[k];
-        std::filesystem::path imagePath = directoryPath / map.filename;
-
-        unsigned char* pixelData = nullptr;
+    for (const auto& m : flat) {
+        auto path = directoryPath / m.filename;
         int w = 0, h = 0, ch = 0;
-        if (k == 0 && imagePath == firstImagePath) {
-            pixelData = firstPixelData; w = width; h = height;
-        }
-        else {
-            pixelData = stbi_load(imagePath.string().c_str(), &w, &h, &ch, 4);
-            if (!pixelData) continue;
-        }
+        unsigned char* pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
+        if (!pixels) continue; // skip invalid; could also fail hard
 
         if (w == width && h == height) {
             writeMipMapsArray(texture, { (unsigned int)width, (unsigned int)height, 1 },
-                mipLevelCount, map.id, pixelData);
+                mipLevelCount, m.layer, pixels);
         }
-        if (pixelData != firstPixelData) stbi_image_free(pixelData);
+        stbi_image_free(pixels);
     }
-    stbi_image_free(firstPixelData);
 
-    // Create view if requested
+    // Optional array view
     if (!textureViewName.empty()) {
         TextureViewDescriptor vd{};
         vd.aspect = TextureAspect::All;
         vd.baseArrayLayer = 0;
-        vd.arrayLayerCount = arraySize;
+        vd.arrayLayerCount = (unsigned int)flat.size();
         vd.baseMipLevel = 0;
         vd.mipLevelCount = mipLevelCount;
         vd.dimension = TextureViewDimension::_2DArray;
@@ -358,26 +440,12 @@ Texture TextureManager::loadTextureArray(const std::string& name, const std::str
         createTextureView(name, textureViewName, vd);
     }
 
-    // If JSON was supplied, build the material tables now.
-    if (haveJson) {
-        auto resolver = [this](CpuModelKind mk) -> uint32_t {
-            if (!modelOffsetResolver_) return 0u;
-            switch (mk) {
-            case CpuModelKind::Voxel: return modelOffsetResolver_("VOXEL_MODEL");
-            case CpuModelKind::Leaf:  return modelOffsetResolver_("LEAF_MODEL");
-            case CpuModelKind::Grass: return modelOffsetResolver_("GRASS_MODEL");
-            case CpuModelKind::Fern: return modelOffsetResolver_("FERN_MODEL");
-            case CpuModelKind::Water: return modelOffsetResolver_("WATER_MODEL");
-            default: return 0u;
-            }
-        };
-        buildMaterialTables(jsonEntries, std::max(maxIdFromJson, maxId), resolver);
-    }
+    // Build material tables (now that we know material->layers mapping)
+    buildMaterialTables(jsonEntries, maxMaterialId, modelOffsetResolver_, materialToLayers);
 
     return texture;
 }
 
-// ---------- mipmap writers (unchanged except kept your alpha-aware downsample) ----------
 void TextureManager::writeMipMaps(
     Texture texture,
     Extent3D textureSize,

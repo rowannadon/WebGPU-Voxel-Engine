@@ -20,6 +20,7 @@
 #include "Rendering/PipelineManager.h"
 #include "Frustum.h"
 #include "ColumnDAICs.h"
+#include "Rendering/StructureManager.h"
 
 using glm::vec3;
 using glm::ivec3;
@@ -91,6 +92,8 @@ private:
     std::unordered_map<ivec2, std::shared_ptr<ChunkColumn>, IVec2Hash, IVec2Equal> columns;
     mutable std::shared_mutex columnsMutex;
 
+    std::shared_ptr<StructureManager> structureManager;
+
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
     ivec2 playerChunkPos;
@@ -148,11 +151,12 @@ private:
 public:
     ChunkColumnManager() = default;
 
-    void init(TextureManager* t, BufferManager* b) {
+    void init(TextureManager* t, BufferManager* b, std::shared_ptr<StructureManager> sm) {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
 
         tex = t;
         buf = b;
+        structureManager = std::move(sm);
 
         columns.reserve(MAX_TOTAL_COLUMNS);
         
@@ -742,7 +746,7 @@ private:
                     delete chunk;
                     };
 
-                auto* newChunkRaw = new ChunkColumn(nextChunk.position);
+                auto* newChunkRaw = new ChunkColumn(nextChunk.position, structureManager);
                 auto newChunk = std::shared_ptr<ChunkColumn>(newChunkRaw, chunkDeleter);
 
                 columns[nextChunk.position] = newChunk;

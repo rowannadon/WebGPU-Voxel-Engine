@@ -30,6 +30,8 @@
 #include "RunLengthEncoder.h"
 #include "ColumnDAICs.h"
 
+#include "Rendering/StructureManager.h"
+
 using glm::ivec3;
 using glm::vec3;
 using glm::vec2;
@@ -109,6 +111,8 @@ private:
     ivec2 position;
     ivec2 id;
 
+    std::shared_ptr<StructureManager> structureManager;
+
     std::string resourceId;
 
     static constexpr int TRANSPARENT_OFFSET = 4;
@@ -182,7 +186,7 @@ private:
     int currentLODLevel;
 
 public:
-    ChunkColumn(const ivec2& i = ivec2(0)) : id(i) {
+    ChunkColumn(const ivec2& i = ivec2(0), std::shared_ptr<StructureManager> sm = nullptr) : id(i), structureManager(std::move(sm)) {
         position = id * CHUNK_SIZE;
         worldGen.initialize(1234);
 
@@ -742,11 +746,11 @@ public:
         materialDataDecoded = false; // Mark as encoded
     }
 
-    VoxelMaterial getMaterialFast(ivec3 pos) {
+    UnpackedVoxelMaterial getMaterialFast(ivec3 pos) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
-            return { 0 }; // Air material
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
         }
 
         if (!materialDataDecoded || !rawMaterialData) {
@@ -754,13 +758,17 @@ public:
             return getMaterialWholeColumnCompressed(pos);
         }
 
-        VoxelMaterial mat;
-        mat.materialType = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)];
-        return mat;
+        const uint16_t packedVal = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)];
+        PackedVoxelMaterial packed{ packedVal };
+        return unpackMaterialData(packed);
+    }
+
+    void setMaterialFast(ivec3 pos, BlockType type, FacingDirection facing = FacingDirection::PlusX) {
+        setMaterialFast(pos, UnpackedVoxelMaterial{ type, facing });
     }
 
     // Fast material setting during generation (uses raw data)
-    void setMaterialFast(ivec3 pos, const VoxelMaterial& material) {
+    void setMaterialFast(ivec3 pos, const UnpackedVoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
@@ -768,57 +776,78 @@ public:
         }
 
         if (!materialDataDecoded || !rawMaterialData) {
-            decodeAllMaterialData(); // Decode if needed
+            decodeAllMaterialData(); // allocate & populate if needed
         }
 
-        (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)] = material.materialType;
+        const PackedVoxelMaterial packed = packMaterialData(material);
+        (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, pos.z)] = packed.materialData;
     }
 
-    // Compressed access for runtime (when memory efficiency is needed)
-    VoxelMaterial getMaterialCompressed(int zPos, ivec3 pos) {
+    UnpackedVoxelMaterial getMaterialCompressed(int zPos, ivec3 pos) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= CHUNK_SIZE ||
             zPos < 0 || zPos >= COLUMN_HEIGHT) {
-            return { 0 }; // Air material
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
         }
 
-        // If we have decoded data, use it
+        // If we have decoded data, use it (avoids re-decode)
         if (materialDataDecoded && rawMaterialData) {
-            int globalZ = pos.z + (CHUNK_SIZE * zPos);
+            const int globalZ = pos.z + (CHUNK_SIZE * zPos);
             if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
-                VoxelMaterial mat;
-                mat.materialType = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, globalZ)];
-                return mat;
+                const uint16_t packedVal = (*rawMaterialData)[getMaterialIndex(pos.x, pos.y, globalZ)];
+                return unpackMaterialData(PackedVoxelMaterial{ packedVal });
             }
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
         }
 
-        // Otherwise use compressed access
+        // Otherwise decode the column on-the-fly
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
+        std::vector<uint16_t> column = RunLengthEncoder::decode(
+            encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
 
-        int globalZ = pos.z + (CHUNK_SIZE * zPos);
+        const int globalZ = pos.z + (CHUNK_SIZE * zPos);
         if (globalZ >= 0 && globalZ < COLUMN_HEIGHT_BLOCKS) {
-            VoxelMaterial mat;
-            mat.materialType = materialData[globalZ];
-            return mat;
+            return unpackMaterialData(PackedVoxelMaterial{ column[globalZ] });
         }
-        return { 0 }; // Air material
+        return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
     }
 
-    VoxelMaterial getMaterialWholeColumnCompressed(ivec3 pos) const {
+    // Whole-column (absolute Z) compressed getter; returns UNPACKED
+    UnpackedVoxelMaterial getMaterialWholeColumnCompressed(ivec3 pos) const {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
             pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
-            return { 0 }; // Air material
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
         }
 
         std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
+        std::vector<uint16_t> column = RunLengthEncoder::decode(
+            encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
 
-        VoxelMaterial mat;
-        mat.materialType = materialData[pos.z];
-        return mat;
+        return unpackMaterialData(PackedVoxelMaterial{ column[pos.z] });
+    }
+
+    void setMaterialWholeColumnCompressed(ivec3 pos, BlockType type, FacingDirection facing = FacingDirection::PlusX) {
+        setMaterialWholeColumnCompressed(pos, UnpackedVoxelMaterial{ type, facing });
+    }
+
+    // Whole-column (absolute Z) compressed setter; accepts UNPACKED
+    void setMaterialWholeColumnCompressed(ivec3 pos, const UnpackedVoxelMaterial& material) {
+        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
+            pos.y < 0 || pos.y >= CHUNK_SIZE ||
+            pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+        std::vector<uint16_t> column = RunLengthEncoder::decode(
+            encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
+
+        const PackedVoxelMaterial packed = packMaterialData(material);
+        column[pos.z] = packed.materialData;
+
+        encodedMaterialData[pos.x][pos.y] = RunLengthEncoder::encode(column);
     }
 
     inline uint32_t hash_ivec3(const glm::ivec3& v) {
@@ -838,20 +867,6 @@ public:
         hash ^= hash >> 16;
 
         return hash;
-    }
-
-    void setMaterialWholeColumnCompressed(ivec3 pos, const VoxelMaterial& material) {
-        if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
-            pos.y < 0 || pos.y >= CHUNK_SIZE ||
-            pos.z < 0 || pos.z >= COLUMN_HEIGHT_BLOCKS) {
-            return;
-        }
-
-        std::lock_guard<std::mutex> lock(materialDataMutex);
-        std::vector<uint16_t> materialData = RunLengthEncoder::decode(encodedMaterialData[pos.x][pos.y], COLUMN_HEIGHT_BLOCKS);
-
-        materialData[pos.z] = material.materialType;
-        encodedMaterialData[pos.x][pos.y] = RunLengthEncoder::encode(materialData);
     }
 
     // Methods to manage the encoding/decoding lifecycle
@@ -1041,7 +1056,8 @@ public:
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
                     int waterLevel = 150;
-                    VoxelMaterial material;
+                    UnpackedVoxelMaterial material;
+                    material.facing = FacingDirection::PlusX;
                     if (getVoxelWholeColumn(ivec3(x, y, z), false)) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
@@ -1130,7 +1146,8 @@ public:
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
-                                    VoxelMaterial material;
+                                    UnpackedVoxelMaterial material;
+                                    material.facing = FacingDirection::PlusX;
                                     if (blockHash % 8 == 0) {
                                         material.materialType = BlockType::TallGrass; // grass
                                     }
@@ -1164,7 +1181,8 @@ public:
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
-                                        VoxelMaterial material;
+                                        UnpackedVoxelMaterial material;
+                                        material.facing = FacingDirection::PlusX;
                                         material.materialType = BlockType::Grass; // grass
                                         setMaterialFast(layerPos, material);
                                     }
@@ -1174,7 +1192,8 @@ public:
                                 for (int layer = 2; layer < 5; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
-                                        VoxelMaterial material;
+                                        UnpackedVoxelMaterial material;
+                                        material.facing = FacingDirection::PlusX;
                                         material.materialType = BlockType::Dirt; // dirt
                                         setMaterialFast(layerPos, material);
                                     }
@@ -1185,7 +1204,8 @@ public:
                                 for (int layer = 0; layer < 3; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
-                                        VoxelMaterial material;
+                                        UnpackedVoxelMaterial material;
+                                        material.facing = FacingDirection::PlusX;
                                         material.materialType = BlockType::Dirt; // dirt
                                         setMaterialFast(layerPos, material);
                                     }
@@ -1205,12 +1225,67 @@ public:
         setState(ColumnState::TopsoilReady);
     }
 
+    inline bool isTransparentMaterial(BlockType t) {
+        switch (t) {
+        case BlockType::Water:
+        case BlockType::Leaf:
+        case BlockType::Fern:
+        case BlockType::TallGrass:
+        case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
+        case BlockType::Grass3: case BlockType::Grass4: case BlockType::Grass5:
+            return true;
+        default: return false;
+        }
+    }
+
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
-        VoxelMaterial trunkMaterial;
+        UnpackedVoxelMaterial trunkMaterial;
+        trunkMaterial.facing = FacingDirection::PlusZ;
         trunkMaterial.materialType = BlockType::Log;
 
-        VoxelMaterial leavesMaterial;
+        UnpackedVoxelMaterial leavesMaterial;
+        leavesMaterial.facing = FacingDirection::PlusX;
         leavesMaterial.materialType = BlockType::Leaf;
+
+        auto stampStructureAt = [&](const std::string& name, const ivec3& basePos) {
+            if (!structureManager) return;
+
+            uint32_t blockHash = hash_ivec3(ivec3(position.x, position.y, 0) + basePos);
+            StructureRotation rotation = StructureRotation::Degrees_0;
+            if (blockHash % 4 == 0) {
+                rotation = StructureRotation::Degrees_90;
+            }
+            else if (blockHash % 4 == 1) {
+                rotation = StructureRotation::Degrees_180;
+            }
+            else if (blockHash % 4 == 2) {
+                rotation = StructureRotation::Degrees_270;
+            }
+
+            Structure s = structureManager->getStructure(name, rotation);
+            if (s.empty()) { 
+                //std::cout << "No structure data to place";
+                return;
+            };
+
+            // We’re in a worker context—StructureManager is thread-safe for reads.
+            for (const LoadedVoxel& v : s.voxels) {
+                ivec3 p = basePos + v.offsetFromOrigin;
+
+                // Clip to this column’s 32x32x512 bounds
+                if (p.x < 0 || p.x >= CHUNK_SIZE ||
+                    p.y < 0 || p.y >= CHUNK_SIZE ||
+                    p.z < 0 || p.z >= COLUMN_HEIGHT_BLOCKS) continue;
+
+                // Mark occupancy + write material (solid vs transparent based on type, tweak as needed)
+                bool isTransparent = isTransparentMaterial(v.mappedMaterial);
+
+                setVoxelWholeColumn(p, !isTransparent, false);
+                setVoxelWholeColumn(p, isTransparent, true);
+                setMaterialFast(p, UnpackedVoxelMaterial{ v.mappedMaterial, FacingDirection::PlusZ });
+            }
+
+            };
 
         // A helper lambda to generate the shape of a single tree.
         // It takes a base position relative to the current chunk's origin and a pre-calculated height.
@@ -1353,10 +1428,11 @@ public:
             int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
             if (pair.first == 2) {
-                placeLargeTreeShape(localTreePos, treeHeight + 3);
+                // big tree? try a large structure, else fallback to procedural:
+                stampStructureAt("tree", localTreePos);
             }
             else {
-                placeTreeShape(localTreePos, treeHeight);
+                // small tree: either call stampStructureAt("oak_small", base) or keep your procedural version
             }
         }
 
@@ -1393,12 +1469,11 @@ public:
                     // ...transform its base position into THIS chunk's local coordinate system.
                     ivec3 transformedBasePos = neighborTreeLocalPos + ivec3(transformOffset.x, transformOffset.y, 0);
 
-                    // Generate the full tree shape. It will be automatically clipped to this chunk's bounds.
                     if (pair.first == 2) {
-                        placeLargeTreeShape(transformedBasePos, treeHeight + 3);
+                        stampStructureAt("tree", transformedBasePos);
                     }
                     else {
-                        placeTreeShape(transformedBasePos, treeHeight);
+                        // small tree: either call stampStructureAt("oak_small", base) or keep your procedural version
                     }
                 }
             }
@@ -1540,7 +1615,7 @@ public:
             return result;
             };
 
-        auto getMaterialFastSafe = [&](ivec3 pos) -> VoxelMaterial {
+        auto getMaterialFastSafe = [&](ivec3 pos) -> UnpackedVoxelMaterial {
             // First handle horizontal cross-chunk cases (X/Y out of bounds)
             if (pos.x < 0 || pos.x >= CHUNK_SIZE || pos.y < 0 || pos.y >= CHUNK_SIZE) {
                 ivec3 neighborPos = pos;
@@ -1556,71 +1631,116 @@ public:
 
                     // map to neighbor chunk’s local Z using world-Z of this column
                     int worldZ = pos.z + zPos * CHUNK_SIZE;              // 0..COLUMN_HEIGHT_BLOCKS-1
-                    if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return VoxelMaterial{ 0 };
+                    if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
                     int targetZ = worldZ / CHUNK_SIZE;
                     int localZ = worldZ % CHUNK_SIZE;
 
                     return neighbors[neighborIndex]->getMaterialCompressed(targetZ,
                         ivec3(neighborPos.x, neighborPos.y, localZ));
                 }
-                return VoxelMaterial{ 0 };
+                return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
             }
 
             // X/Y in-bounds: vertical stays in the same column — ALWAYS use raw-friendly path
             int worldZ = pos.z + zPos * CHUNK_SIZE;                        // allow z=-1 or 32 etc.
-            if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return VoxelMaterial{ 0 };
+            if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
             return getMaterialFast(ivec3(pos.x, pos.y, worldZ));
             };
 
-        // Modified sampleLODGroup that uses cross-chunk aware material fetching
-        auto sampleLODGroup = [&](ivec3 groupPos, int lodLevel, bool transparent) -> std::pair<bool, VoxelMaterial> {
-            std::unordered_map<uint32_t, int> materialCounts;
-            int solidVoxels = 0;
-            int totalVoxels = 0;
+        auto sampleLODGroup = [&](ivec3 groupPos, int lodLevel, bool transparent)
+            -> std::pair<bool, UnpackedVoxelMaterial>
+            {
+                struct MatKey { BlockType t; FacingDirection f; };
+                struct MatKeyHash {
+                    size_t operator()(const MatKey& k) const {
+                        return (static_cast<size_t>(k.t) << 3) ^ static_cast<size_t>(k.f);
+                    }
+                };
+                struct MatKeyEq {
+                    bool operator()(const MatKey& a, const MatKey& b) const {
+                        return a.t == b.t && a.f == b.f;
+                    }
+                };
 
-            for (int dx = 0; dx < lodLevel; ++dx) {
-                for (int dy = 0; dy < lodLevel; ++dy) {
-                    for (int dz = 0; dz < lodLevel; ++dz) {
-                        ivec3 voxelPos = groupPos + ivec3(dx, dy, dz);
-                        totalVoxels++;
+                // Count by type, and by (type,facing)
+                std::unordered_map<BlockType, int> typeCounts;
+                std::unordered_map<MatKey, int, MatKeyHash, MatKeyEq> tfCounts;
 
-                        auto [hasSolid, hasTransparent] = getVoxelCached(voxelPos);
-                        bool isOccupied = transparent ? hasTransparent : hasSolid;
+                int solidVoxels = 0;
+                int totalVoxels = 0;
 
-                        if (isOccupied) {
-                            solidVoxels++;
-                            // Use the cross-chunk aware material fetching here
-                            VoxelMaterial mat = getMaterialFastSafe(voxelPos);
-                            materialCounts[mat.materialType]++;
+                for (int dx = 0; dx < lodLevel; ++dx) {
+                    for (int dy = 0; dy < lodLevel; ++dy) {
+                        for (int dz = 0; dz < lodLevel; ++dz) {
+                            ivec3 voxelPos = groupPos + ivec3(dx, dy, dz);
+                            ++totalVoxels;
+
+                            auto [hasSolid, hasTransparent] = getVoxelCached(voxelPos);
+                            bool isOccupied = transparent ? hasTransparent : hasSolid;
+                            if (!isOccupied) continue;
+
+                            ++solidVoxels;
+                            UnpackedVoxelMaterial m = getMaterialFastSafe(voxelPos);
+                            ++typeCounts[m.materialType];
+                            ++tfCounts[MatKey{ m.materialType, m.facing }];
                         }
                     }
                 }
-            }
 
-            bool groupIsSolid = solidVoxels >= glm::max(1, totalVoxels / 4);
+                bool groupIsSolid = solidVoxels >= glm::max(1, totalVoxels / 4);
+                UnpackedVoxelMaterial dominant{};
+                dominant.materialType = BlockType::Air;
+                dominant.facing = FacingDirection::PlusX;
 
-            VoxelMaterial dominantMaterial = {};
-            if (groupIsSolid && !materialCounts.empty()) {
-                auto maxIt = std::max_element(materialCounts.begin(), materialCounts.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
-                dominantMaterial.materialType = maxIt->first;
-            }
+                if (groupIsSolid && !typeCounts.empty()) {
+                    // Pick dominant TYPE
+                    BlockType domType = BlockType::Air;
+                    int bestTypeCount = -1;
+                    for (const auto& kv : typeCounts) {
+                        if (kv.second > bestTypeCount) { bestTypeCount = kv.second; domType = kv.first; }
+                    }
+                    dominant.materialType = domType;
 
-            if (materialCounts[BlockType::Log] > 4 && totalVoxels <= 8) {
-                dominantMaterial.materialType = BlockType::Log;
-            }
+                    // Pick dominant FACING among voxels of that type
+                    FacingDirection domFacing = FacingDirection::PlusX;
+                    int bestTFCount = -1;
+                    for (const auto& kv : tfCounts) {
+                        if (kv.first.t == domType && kv.second > bestTFCount) {
+                            bestTFCount = kv.second;
+                            domFacing = kv.first.f;
+                        }
+                    }
+                    dominant.facing = domFacing;
+                }
 
-            if (materialCounts[BlockType::Grass] > totalVoxels / 8) {
-                dominantMaterial.materialType = BlockType::Grass;
-            }
+                // Preserve your special-cases, but keep facing too
+                // (Log: if you force type to Log, pick the majority facing among Log voxels)
+                if (typeCounts[BlockType::Log] > 4 && totalVoxels <= 8) {
+                    dominant.materialType = BlockType::Log;
+                    FacingDirection logFacing = FacingDirection::PlusX;
+                    int bestLogCount = -1;
+                    for (const auto& kv : tfCounts) {
+                        if (kv.first.t == BlockType::Log && kv.second > bestLogCount) {
+                            bestLogCount = kv.second;
+                            logFacing = kv.first.f;
+                        }
+                    }
+                    dominant.facing = logFacing;
+                }
 
-            return { groupIsSolid, dominantMaterial };
-        };
+                // (Grass override kept; facing is irrelevant for billboards, but we can keep the majority)
+                if (typeCounts[BlockType::Grass] > totalVoxels / 8) {
+                    dominant.materialType = BlockType::Grass;
+                    // keep whatever majority facing we already picked for that type
+                }
+
+                return { groupIsSolid, dominant };
+            };
 
         // Cache for LOD group sampling results
-        std::unordered_map<std::tuple<ivec3, int, bool>, std::pair<bool, VoxelMaterial>, TupleHash, TupleEqual> lodGroupCache;
+        std::unordered_map<std::tuple<ivec3, int, bool>, std::pair<bool, UnpackedVoxelMaterial>, TupleHash, TupleEqual> lodGroupCache;
 
-        auto sampleLODGroupCached = [&](ivec3 groupPos, int lodLevel, bool transparent) -> std::pair<bool, VoxelMaterial> {
+        auto sampleLODGroupCached = [&](ivec3 groupPos, int lodLevel, bool transparent) -> std::pair<bool, UnpackedVoxelMaterial> {
             auto key = std::make_tuple(groupPos, lodLevel, transparent);
             auto it = lodGroupCache.find(key);
             if (it != lodGroupCache.end()) {
@@ -1689,9 +1809,7 @@ public:
                 }
             }
             return 0; // air
-            };
-
-        // --- replace your existing shouldCullLODFace with this version -----------------
+        };
 
         auto shouldCullLODFace = [&](ivec3 groupPos,
             int faceIndex,
@@ -1822,20 +1940,15 @@ public:
                 return packed;
             };
 
-        auto packMaterialData = [](uint32_t material, std::array<uint32_t, 8> flags) -> uint32_t {
-                material &= 0xFFFFu;
-                for (int i = 0; i < flags.size(); i++) {
-					flags[i] &= 0x1;
-				}
+        auto packMaterialData32 = [](UnpackedVoxelMaterial material, std::array<uint32_t, 8> flags) -> uint32_t {
+            uint32_t packed16 = packMaterialData(material).materialData; // lower 16 bits = [id:13 | facing:3]
+            uint32_t out = packed16 & 0xFFFFu;
 
-                uint32_t packed = 0;
-                packed |= static_cast<uint32_t>(material);
-                for (int i = 0; i < flags.size(); i++) {
-                    packed |= static_cast<uint32_t>(flags.at(i)) << 17 + i;
-                }
-
-                return packed;
-            };
+            for (int i = 0; i < static_cast<int>(flags.size()); ++i) {
+                out |= (flags[i] & 0x1u) << (17 + i); // bit 16 unused, starts at 17 (as you had)
+            }
+            return out;
+        };
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
@@ -1924,7 +2037,7 @@ public:
 
                                                         FaceAttributes currentFace;
                                                         currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
-                                                        currentFace.materialData = packMaterialData(groupMaterial.materialType, neighborSameMaterialFlags);
+                                                        currentFace.materialData = packMaterialData32(groupMaterial, neighborSameMaterialFlags);
                                                         faceData[meshSlot][zPos].push_back(currentFace);
                                                     }
                                                 }
