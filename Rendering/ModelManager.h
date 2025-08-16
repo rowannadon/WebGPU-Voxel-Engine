@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <webgpu/webgpu.hpp>
 #include <vector>
+#include <shared_mutex>
 #include "../glm/glm.hpp"
 #include <filesystem>
 
@@ -35,6 +36,8 @@ private:
     Device device;
     Queue queue;
 
+    mutable std::shared_mutex modelMutex;
+
     const int MAX_TOTAL_QUADS = 10000;
 
 public:
@@ -53,6 +56,8 @@ public:
     bool writeModelsToBuffer();
 
     int getModelOffsetInBuffer(std::string modelName);
+
+    int getModelSizeInQuads(std::string modelName);
 
     void initBindGroupLayout();
 

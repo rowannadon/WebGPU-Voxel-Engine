@@ -553,8 +553,8 @@ fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     // Optional: Add alpha testing for leaf models if needed
     // Note: This can impact performance significantly
-    /*
-    if (in.model_id == LEAF_MODEL) {
+    
+    if (in.model_id == LEAF_MODEL || in.model_id == GRASS_MODEL) {
         var uv = in.uv;
         
         // Apply texture transformations based on material settings
@@ -575,7 +575,7 @@ fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
             discard;
         }
     }
-    */
+    
     
     // For shadow mapping, we only care about depth
     return vec4f(0.0, 0.0, 0.0, 1.0);

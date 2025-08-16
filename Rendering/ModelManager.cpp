@@ -466,6 +466,13 @@ int ModelManager::getModelOffsetInBuffer(std::string modelName) {
     return it->second;
 }
 
+int ModelManager::getModelSizeInQuads(std::string modelName) {
+    std::shared_lock<std::shared_mutex> lock(modelMutex);
+    auto it = models.find(modelName);
+    if (it == models.end()) return -1;
+    return it->second.quads.size();
+}
+
 void ModelManager::terminate() {
     bindGroup = nullptr;
     bindGroupLayout = nullptr;

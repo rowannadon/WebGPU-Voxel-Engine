@@ -92,7 +92,8 @@ private:
     std::unordered_map<ivec2, std::shared_ptr<ChunkColumn>, IVec2Hash, IVec2Equal> columns;
     mutable std::shared_mutex columnsMutex;
 
-    std::shared_ptr<StructureManager> structureManager;
+    StructureManager* structureManager;
+    ModelManager* modelManager;
 
     std::unique_ptr<ChunkWorkerSystem> workerSystem;
 
@@ -151,12 +152,13 @@ private:
 public:
     ChunkColumnManager() = default;
 
-    void init(TextureManager* t, BufferManager* b, std::shared_ptr<StructureManager> sm) {
+    void init(TextureManager* t, BufferManager* b, StructureManager * sm, ModelManager *m) {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
 
         tex = t;
         buf = b;
-        structureManager = std::move(sm);
+        modelManager = m;
+        structureManager = sm;
 
         columns.reserve(MAX_TOTAL_COLUMNS);
         
@@ -746,7 +748,7 @@ private:
                     delete chunk;
                     };
 
-                auto* newChunkRaw = new ChunkColumn(nextChunk.position, structureManager);
+                auto* newChunkRaw = new ChunkColumn(nextChunk.position, tex, structureManager, modelManager);
                 auto newChunk = std::shared_ptr<ChunkColumn>(newChunkRaw, chunkDeleter);
 
                 columns[nextChunk.position] = newChunk;

@@ -31,6 +31,7 @@
 #include "ColumnDAICs.h"
 
 #include "Rendering/StructureManager.h"
+#include "Rendering/ModelManager.h"
 
 using glm::ivec3;
 using glm::vec3;
@@ -111,7 +112,9 @@ private:
     ivec2 position;
     ivec2 id;
 
-    std::shared_ptr<StructureManager> structureManager;
+    StructureManager* structureManager;
+    TextureManager* tex;
+    ModelManager* modelManager;
 
     std::string resourceId;
 
@@ -183,10 +186,14 @@ private:
     int         lastLodLevelPerPass[2] = { -1, -1 };
     glm::vec3   lastCameraPosPerPass[2] = { glm::vec3(1e9f), glm::vec3(1e9f) };
 
-    int currentLODLevel;
+    int currentLODLevel = 0;
 
 public:
-    ChunkColumn(const ivec2& i = ivec2(0), std::shared_ptr<StructureManager> sm = nullptr) : id(i), structureManager(std::move(sm)) {
+    ChunkColumn(const ivec2& i = ivec2(0), 
+        TextureManager *tx = nullptr, 
+        StructureManager* sm = nullptr, 
+        ModelManager *mod = nullptr) : id(i), structureManager(sm), tex(tx), modelManager(mod) {
+
         position = id * CHUNK_SIZE;
         worldGen.initialize(1234);
 
@@ -1111,7 +1118,7 @@ public:
                             case 0:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 32 == 0) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
@@ -1123,7 +1130,7 @@ public:
                                         }
 
                                         int size = 1;
-                                        if (blockHash % 64 == 0) {
+                                        if (blockHash % 128 == 0) {
                                             size = 2;
                                         }
 
@@ -1428,11 +1435,10 @@ public:
             int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
             if (pair.first == 2) {
-                // big tree? try a large structure, else fallback to procedural:
                 stampStructureAt("tree", localTreePos);
             }
             else {
-                // small tree: either call stampStructureAt("oak_small", base) or keep your procedural version
+                stampStructureAt("tree2", localTreePos);
             }
         }
 
@@ -1473,7 +1479,7 @@ public:
                         stampStructureAt("tree", transformedBasePos);
                     }
                     else {
-                        // small tree: either call stampStructureAt("oak_small", base) or keep your procedural version
+                        stampStructureAt("tree2", transformedBasePos);
                     }
                 }
             }
@@ -1986,31 +1992,14 @@ public:
 
                                             auto [groupIsSolid, groupMaterial] = sampleLODGroupCached(groupPos, lodLevel, transparent);
 
-                                            int faces = 6;
                                             bool shouldAdd = true;
+                                            int faces = 6;
 
-                                            if (groupMaterial.materialType == BlockType::Leaf) {
-                                                faces = 7;
-                                            }
+                                            std::string model = tex->getModelKindForBlockType(groupMaterial.materialType);
+                                            faces = modelManager->getModelSizeInQuads(model);
 
-                                            if (groupMaterial.materialType == BlockType::TallGrass ||
-                                                groupMaterial.materialType == BlockType::Grass0 ||
-                                                groupMaterial.materialType == BlockType::Grass1 ||
-                                                groupMaterial.materialType == BlockType::Grass2 ||
-                                                groupMaterial.materialType == BlockType::Grass3 ||
-                                                groupMaterial.materialType == BlockType::Grass4 ||
-                                                groupMaterial.materialType == BlockType::Grass5) {
-                                                faces = 3;
-                                                if (!includeGrass) {
-                                                    shouldAdd = false;
-                                                }
-                                            }
-
-                                            if (groupMaterial.materialType == BlockType::Fern) {
-                                                faces = 12;
-                                                if (!includeGrass) {
-                                                    shouldAdd = false;
-                                                }
+                                            if ((model == "GRASS_MODEL" || model == "FERN_MODEL") && !includeGrass) {
+                                                shouldAdd = false;
                                             }
 
                                             if (shouldAdd && groupIsSolid) {
@@ -2031,7 +2020,7 @@ public:
                                                                 ivec3 neighborOffset = faceNeighborOffsets[face][i];
                                                                 auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);
                                                                 auto [frontNeighborIsSolid, frontNeighborMaterial] = sampleLODGroupCached(groupPos + neighborOffsets[face] + neighborOffset, lodLevel, transparent);
-                                                                neighborSameMaterialFlags[i] = (groupMaterial.materialType == frontNeighborMaterial.materialType) || groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
+                                                                neighborSameMaterialFlags[i] = (groupMaterial.materialType == frontNeighborMaterial.materialType && groupMaterial.materialType != neighborMaterial.materialType) || groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
                                                             }
                                                         }
 

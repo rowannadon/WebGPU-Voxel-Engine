@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <set>
 #include <memory>
+#include <shared_mutex>
 #include "TexturePool.h"
 #include <unordered_set>
 #include "../VoxelMaterial.h" // for PBRMaterialProperties / MaterialProperties
@@ -57,6 +58,8 @@ class TextureManager {
     // New: store materials for the most recent/active array load (or keyed by name if desired)
     std::vector<MaterialProperties> materialTable;                // dense table by ID (index == ID)
     std::unordered_map<uint32_t, MaterialProperties> materialMap; // direct lookup by ID
+
+    mutable std::shared_mutex textureMutex;
 
     Device device;
     Queue queue;
@@ -114,11 +117,15 @@ public:
     std::shared_ptr<TexturePool> createTexturePool(std::string name);
     std::shared_ptr<TexturePool> getTexturePool(std::string name);
     void terminate();
+
+    std::string getModelKindForBlockType(BlockType blockType);
+
 private:
     uint32_t bit_width(uint32_t m);
     void writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
     void writeMipMapsArray(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, uint32_t arrayLayer, const unsigned char* pixelData);
     bool validateTextureMapping(const std::vector<TextureMapping>& flat, const std::filesystem::path& dir);
+    std::string getModelString(const CpuModelKind model);
 
     // New JSON helpers
     bool loadMaterialsJson(const std::filesystem::path& jsonPath,

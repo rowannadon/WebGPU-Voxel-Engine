@@ -77,6 +77,7 @@ public:
 
     void recreateRenderingTextures();
 
+    ModelManager* getModelManager();
     PipelineManager* getPipelineManager();
     BufferManager* getBufferManager();
     TextureManager* getTextureManager();

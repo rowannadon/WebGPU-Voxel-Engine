@@ -162,6 +162,8 @@ private:
     PipelineManager *pip;
     TextureManager *tex;
     BufferManager *buf;
+    ModelManager* modelManager;
+
     GLFWwindow* window;
     int refreshRate = 60;
 

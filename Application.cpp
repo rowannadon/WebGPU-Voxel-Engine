@@ -17,13 +17,16 @@ bool Application::Initialize() {
     pip = gpu.getPipelineManager();
     buf = gpu.getBufferManager();
     tex = gpu.getTextureManager();
+    modelManager = gpu.getModelManager();
+
     window = gpu.getWindow();
 
     structureManager = std::make_shared<StructureManager>();
 
     structureManager->loadStructure("tree", RESOURCE_DIR "/tree.vox", ivec3(5, 5, 2));
+    structureManager->loadStructure("tree2", RESOURCE_DIR "/tree2.vox", ivec3(3, 4, 2));
 
-    chunkManager.init(tex, buf, structureManager);
+    chunkManager.init(tex, buf, structureManager.get(), modelManager);
     registerMovementCallbacks();
 
     

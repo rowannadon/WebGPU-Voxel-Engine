@@ -131,6 +131,10 @@ BufferManager* WebGPURenderer::getBufferManager() {
 	return bufferManager.get();
 }
 
+ModelManager* WebGPURenderer::getModelManager() {
+	return modelManager.get();
+}
+
 void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderData) {
 	auto [surfaceTexture, targetView] = GetNextSurfaceViewData();
 	if (!targetView) return;
