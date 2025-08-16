@@ -1438,7 +1438,7 @@ public:
                 stampStructureAt("tree", localTreePos);
             }
             else {
-                stampStructureAt("tree2", localTreePos);
+                stampStructureAt("tree3", localTreePos);
             }
         }
 
@@ -1479,7 +1479,7 @@ public:
                         stampStructureAt("tree", transformedBasePos);
                     }
                     else {
-                        stampStructureAt("tree2", transformedBasePos);
+                        stampStructureAt("tree3", transformedBasePos);
                     }
                 }
             }

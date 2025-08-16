@@ -35,17 +35,17 @@ struct ColorMapEntry {
 // A simple, deterministic palette -> BlockType mapping.
 // Tweak colors or add entries to fit your game's look.
 static const std::vector<ColorMapEntry> kBlockColorLUT = {
-    { {0.15f, 0.60f, 0.20f}, BlockType::Leaf       }, // leafy green
-    { {0.40f, 0.25f, 0.12f}, BlockType::Log        }, // trunk brown
-    { {0.55f, 0.38f, 0.25f}, BlockType::Log       }, // dirt
-    { {0.35f, 0.55f, 0.30f}, BlockType::Grass      }, // grass block top-ish
-    { {0.75f, 0.75f, 0.70f}, BlockType::Limestone  }, // light rock
-    { {0.60f, 0.62f, 0.65f}, BlockType::Andesite   }, // gray rock
-    { {0.32f, 0.33f, 0.36f}, BlockType::Slate      }, // dark slate
-    { {0.66f, 0.61f, 0.56f}, BlockType::Gneiss     }, // mixed rock
-    { {0.72f, 0.18f, 0.18f}, BlockType::Brick      }, // brick red
-    { {0.95f, 0.88f, 0.45f}, BlockType::Glowstone  }, // emissive yellow
-    { {0.20f, 0.40f, 0.90f}, BlockType::Water      }, // water-ish blue
+    { {46.0f/255.0f, 75.0f/255.0f, 32.0f/255.0f}, BlockType::Leaf       }, // leafy green
+    { {75.0f/255.0f, 54.0f/255.0f, 22.0f/255.0f}, BlockType::Log        }, // trunk brown
+    //{ {0.55f, 0.38f, 0.25f}, BlockType::Log       }, // dirt
+    //{ {0.35f, 0.55f, 0.30f}, BlockType::Grass      }, // grass block top-ish
+    //{ {0.75f, 0.75f, 0.70f}, BlockType::Limestone  }, // light rock
+    //{ {0.60f, 0.62f, 0.65f}, BlockType::Andesite   }, // gray rock
+    //{ {0.32f, 0.33f, 0.36f}, BlockType::Slate      }, // dark slate
+    //{ {0.66f, 0.61f, 0.56f}, BlockType::Gneiss     }, // mixed rock
+    // {0.72f, 0.18f, 0.18f}, BlockType::Brick      }, // brick red
+    //{ {0.95f, 0.88f, 0.45f}, BlockType::Glowstone  }, // emissive yellow
+    //{ {0.20f, 0.40f, 0.90f}, BlockType::Water      }, // water-ish blue
 };
 
 // Nearest-color in simple Euclidean sRGB space.

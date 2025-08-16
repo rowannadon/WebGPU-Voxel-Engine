@@ -25,6 +25,7 @@ bool Application::Initialize() {
 
     structureManager->loadStructure("tree", RESOURCE_DIR "/tree.vox", ivec3(5, 5, 2));
     structureManager->loadStructure("tree2", RESOURCE_DIR "/tree2.vox", ivec3(3, 4, 2));
+    structureManager->loadStructure("tree3", RESOURCE_DIR "/pine.vox", ivec3(10, 13, 5));
 
     chunkManager.init(tex, buf, structureManager.get(), modelManager);
     registerMovementCallbacks();
