@@ -208,11 +208,12 @@
       "id": 6,
       "name": "Andesite",
       "texture": [
-        "sandstone.png"
+        "sandstone.png",
+        "sandstone_top.png"
       ],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
-      "orientation": "NONE",
+      "orientation": "SINGLE_AXIS",
       "tileCount": 8,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
@@ -276,12 +277,11 @@
       "id": 8,
       "name": "Oak Log",
       "texture": [
-        "birch_log.png",
-        "birch_log_end.png"
+        "birch_log.png"
       ],
       "model": "VOXEL_MODEL",
       "textureType": "CONNECTED",
-      "orientation": "SINGLE_AXIS",
+      "orientation": "NONE",
       "tileCount": 4,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
@@ -316,8 +316,8 @@
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
-      "tileCount": 2,
-      "randomOffset": 0.1,
+      "tileCount": 4,
+      "randomOffset": 0.05,
       "randomOffsetDirections": [
         "X",
         "Y",
@@ -331,14 +331,14 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.5,
-        "dielectric": 0.06,
+        "roughness": 0.8,
+        "dielectric": 0.02,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
-        "normal": 1.0,
+        "normal": 2.0,
         "AO": 0.0,
         "subsurface": 0.8,
         "clearcoat": 0.0,
@@ -671,6 +671,40 @@
         "normal": 1.0,
         "AO": 0.2,
         "subsurface": 0.15,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 19,
+      "name": "Sand",
+      "texture": [
+        "sand.png"
+      ],
+      "model": "VOXEL_MODEL",
+      "textureType": "LARGE_TILE",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "albedo": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "metallic": 0.0,
+        "roughness": 0.75,
+        "dielectric": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.1,
+        "AO": 1.0,
+        "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }

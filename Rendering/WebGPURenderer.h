@@ -1,6 +1,7 @@
 #include <webgpu/webgpu.hpp>
 #include <GLFW/glfw3.h>
 #include <unordered_map>
+#include <future>
 #include "../glm/glm.hpp"
 #include "../glm/ext.hpp"
 #include "PipelineManager.h"
@@ -20,6 +21,7 @@
 #include "Pipelines/SkyPipeline.h"
 #include "Pipelines/ShadowPipeline.h"
 #include "Pipelines/TransparentVoxelPipeline.h"
+#include "Pipelines/AtmospherePipeline.h"
 
 #include "../ColumnDAICs.h"
 #include "../Atmosphere.h"
@@ -65,6 +67,7 @@ public:
     NoisePipeline noisePipeline;
     ShadowPipeline shadowPipeline;
     SkyPipeline skyPipeline;
+    AtmospherePipeline atmospherePipeline;
     SkyViewPipeline skyViewPipeline;
     TerrainPipeline terrainPipeline;
     TransmittancePipeline transmittancePipeline;

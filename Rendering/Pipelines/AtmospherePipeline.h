@@ -1,7 +1,7 @@
 #include "../Atmosphere.h"
 #include "../Uniforms.h"
 
-class SkyPipeline {
+class AtmospherePipeline {
 private:
 	BufferManager* buf;
 	TextureManager* tex;
@@ -15,116 +15,45 @@ public:
 	}
 
 	bool createResources() {
+		BufferDescriptor cloudsBufferDesc;
+		cloudsBufferDesc.size = sizeof(Clouds);
+		cloudsBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		cloudsBufferDesc.mappedAtCreation = false;
+		Buffer cloudBuffer = buf->createBuffer("cloud_buffer", cloudsBufferDesc);
 
-		return true;
+		return cloudBuffer != nullptr;
 	}
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/sky_shader.wgsl";
+		config.shaderPath = RESOURCE_DIR "/atmosphere_shader.wgsl";
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth32Float;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::None;  // No culling for sky
 		config.depthWriteEnabled = false;  // Don't write to depth buffer
 		config.depthCompare = CompareFunction::Always;  // Allow drawing at far plane
-		config.vertexShaderName = "sky_vs_main";
-		config.fragmentShaderName = "sky_fs_main";
+		config.vertexShaderName = "atmo_vs_main";
+		config.fragmentShaderName = "atmo_fs_main";
 		config.useVertexBuffers = false;  // Sky shader generates vertices procedurally
 		config.useColorTarget = true;
-		config.useCustomBlending = false;
+		config.useCustomBlending = true;
+
+		config.blendState.color.operation = BlendOperation::Add;
+		config.blendState.color.srcFactor = BlendFactor::SrcAlpha;      // Use fog's alpha
+		config.blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;  // Blend with existing terrain
+		config.blendState.alpha.operation = BlendOperation::Add;
+		config.blendState.alpha.srcFactor = BlendFactor::One;           // Preserve alpha
+		config.blendState.alpha.dstFactor = BlendFactor::OneMinusSrcAlpha;
 
 		// Clear vertex attributes since we don't need them
 		config.vertexAttributes.clear();
 
-		// atmosphere uniforms
-		std::vector<BindGroupLayoutEntry> skyUniforms(14, Default);
-		skyUniforms[0].binding = 0;
-		skyUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[0].buffer.type = BufferBindingType::Uniform;
-		skyUniforms[0].buffer.minBindingSize = sizeof(Atmosphere);
-
-		// clouds uniforms
-		skyUniforms[1].binding = 1;
-		skyUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[1].buffer.type = BufferBindingType::Uniform;
-		skyUniforms[1].buffer.minBindingSize = sizeof(Clouds);
-
-		// global uniforms
-		skyUniforms[2].binding = 2;
-		skyUniforms[2].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[2].buffer.type = BufferBindingType::Uniform;
-		skyUniforms[2].buffer.minBindingSize = sizeof(MyUniforms);
-
-		// lut sampler
-		skyUniforms[3].binding = 3;
-		skyUniforms[3].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[3].sampler.type = SamplerBindingType::Filtering;
-
-		// transmittance texture
-		skyUniforms[4].binding = 4;
-		skyUniforms[4].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[4].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[4].texture.viewDimension = TextureViewDimension::_2D;
-
-		// sky view texture
-		skyUniforms[5].binding = 5;
-		skyUniforms[5].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[5].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[5].texture.viewDimension = TextureViewDimension::_2D;
-
-		// aerial perspective texture
-		skyUniforms[6].binding = 6;
-		skyUniforms[6].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		skyUniforms[6].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[6].texture.viewDimension = TextureViewDimension::_3D;
-
-		// NEW: Depth texture for reading terrain depth
-		skyUniforms[7].binding = 7;
-		skyUniforms[7].visibility = ShaderStage::Fragment;
-		skyUniforms[7].texture.sampleType = TextureSampleType::Depth;
-		skyUniforms[7].texture.multisampled = true;
-		skyUniforms[7].texture.viewDimension = TextureViewDimension::_2D;
-
-		// NEW: Depth sampler
-		skyUniforms[8].binding = 8;
-		skyUniforms[8].visibility = ShaderStage::Fragment;
-		skyUniforms[8].sampler.type = SamplerBindingType::NonFiltering;
-
-		// texture sampler
-		skyUniforms[9].binding = 9;
-		skyUniforms[9].visibility = ShaderStage::Fragment;
-		skyUniforms[9].sampler.type = SamplerBindingType::Filtering;
-
-		// worley texture
-		skyUniforms[10].binding = 10;
-		skyUniforms[10].visibility = ShaderStage::Fragment;
-		skyUniforms[10].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
-
-		// noise 2d texture
-		skyUniforms[11].binding = 11;
-		skyUniforms[11].visibility = ShaderStage::Fragment;
-		skyUniforms[11].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[11].texture.viewDimension = TextureViewDimension::_2D;
-
-		// noise 3d texture
-		skyUniforms[12].binding = 12;
-		skyUniforms[12].visibility = ShaderStage::Fragment;
-		skyUniforms[12].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[12].texture.viewDimension = TextureViewDimension::_3D;
-
-		// noise 2d small texture
-		skyUniforms[13].binding = 13;
-		skyUniforms[13].visibility = ShaderStage::Fragment;
-		skyUniforms[13].texture.sampleType = TextureSampleType::Float;
-		skyUniforms[13].texture.viewDimension = TextureViewDimension::_2D;
-
 		config.bindGroupLayouts.push_back(
-			pip->createBindGroupLayout("sky_uniforms", skyUniforms)
+			pip->getBindGroupLayout("sky_uniforms")
 		);
 
-		RenderPipeline pipeline = pip->createRenderPipeline("sky_pipeline", config);
+		RenderPipeline pipeline = pip->createRenderPipeline("atmo_pipeline", config);
 
 		return pipeline != nullptr;
 	}
@@ -180,7 +109,7 @@ public:
 		skyBindings[13].binding = 13;
 		skyBindings[13].textureView = tex->getTextureView("cloud_noise_64_view");
 
-		BindGroup skyBindGroup = pip->createBindGroup("sky_uniforms_group", "sky_uniforms", skyBindings);
+		BindGroup skyBindGroup = pip->createBindGroup("atmo_uniforms_group", "sky_uniforms", skyBindings);
 
 		return skyBindGroup != nullptr;
 	}
@@ -215,8 +144,8 @@ public:
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder skyRenderPass = encoder.beginRenderPass(renderPassDesc);
-		skyRenderPass.setPipeline(pip->getPipeline("sky_pipeline"));
-		skyRenderPass.setBindGroup(0, pip->getBindGroup("sky_uniforms_group"), 0, nullptr);
+		skyRenderPass.setPipeline(pip->getPipeline("atmo_pipeline"));
+		skyRenderPass.setBindGroup(0, pip->getBindGroup("atmo_uniforms_group"), 0, nullptr);
 		skyRenderPass.draw(6, 1, 0, 0);  // Draw fullscreen quad
 
 		skyRenderPass.end();

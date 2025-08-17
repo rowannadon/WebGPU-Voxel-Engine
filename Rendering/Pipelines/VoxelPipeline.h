@@ -244,7 +244,7 @@ public:
 		RenderPassColorAttachment renderPassColorAttachment = {};
 		renderPassColorAttachment.view = tex->getTextureView("multisample_view");
 		renderPassColorAttachment.resolveTarget = targetView;
-		renderPassColorAttachment.loadOp = LoadOp::Clear;
+		renderPassColorAttachment.loadOp = LoadOp::Load;
 		renderPassColorAttachment.storeOp = StoreOp::Store;
 		renderPassColorAttachment.clearValue = Color{ 1.0, 0.0, 1.0, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU

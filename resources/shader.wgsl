@@ -515,10 +515,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 9;
+    let samples = 36;
     
-    for (var x = -1; x <= 1; x++) {
-        for (var y = -1; y <= 1; y++) {
+    for (var x = -3; x <= 2; x++) {
+        for (var y = -3; y <= 2; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);
@@ -1040,6 +1040,15 @@ fn get_material_for_face(facing: u32, normal_index: u32) -> f32 {
     return 1.0;
 }
 
+fn stable_world_voxel(chunk_origin: vec3i, voxel_pos: vec3f, lod_scale: f32) -> vec3i {
+    // Convert the coarse-voxel index back to base-grid coords
+    return chunk_origin + vec3i(
+        i32(voxel_pos.x * lod_scale),
+        i32(voxel_pos.y * lod_scale),
+        i32(voxel_pos.z * lod_scale)
+    );
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -1107,16 +1116,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
     }
 
-    var normal: vec3f;
-    if (materialProps.modelId != VOXEL_MODEL) {
-        normal = modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz;
-    } else {
-        normal = faceNormals[data.normal_index];
-    }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
-    let hash = hash_voxel_position(world_voxel_pos + vec3i(i32(normal.x), i32(normal.y), i32(normal.z)));
+    let stable_world_voxel_pos = stable_world_voxel(chunkData.worldPosition, voxel_pos, lod_scale);
+
+    let hash = hash_voxel_position(stable_world_voxel_pos);
     let tile_x = hash & (materialProps.tileCount - 1u);
     let tile_y = (hash >> (materialProps.tileCount * 2u)) & (materialProps.tileCount - 1u);
     let tile_z = (hash >> (materialProps.tileCount * 3u)) & (materialProps.tileCount - 1u);
@@ -1136,22 +1141,23 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
-
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
-    
+    var normal: vec3f;
+
     if (materialProps.modelId != VOXEL_MODEL) {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
         scaled_vertex_offset = base_vertex * lod_scale;
-
+        normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
         normal = rotateX(normal, f32(tile_x) * 0.1);
         normal = rotateY(normal, f32(tile_y) * 0.1);
         normal = rotateZ(normal, f32(tile_z) * 0.1);
-
+        normal = normalize(normal);
     }
     else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
         scaled_vertex_offset = base_vertex * lod_scale;
+        normal = faceNormals[data.normal_index];
     }
     
     // Calculate initial position before wind
@@ -1185,7 +1191,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     } else if (materialProps.textureType == RANDOM_VARIANT) {
         uv = uv * tile_uv_distance + tile_offset;
     } else if (materialProps.textureType == LARGE_TILE) {
-        uv = calculate_large_tile_uv_world_unwrapped(world_voxel_pos, base_vertex, lod_scale, data.normal_index);
+        uv = calculate_large_tile_uv_world_unwrapped(stable_world_voxel_pos, base_vertex, lod_scale, data.normal_index);
     }
     
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
@@ -1216,7 +1222,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
     
     out.position = uMyUniforms.infiniteProjectionMatrix * view_position;
-    out.normal = (uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz;
+    out.normal = normalize((uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz);
     out.uv = uv;
     out.world_position = world_position.xyz;
     out.ao = ao;
@@ -1245,10 +1251,12 @@ fn calculate_pbr_lighting(
     roughness: f32,
     specular: f32,
     shadow_factor: f32,
-    subsurface: f32
+    subsurface: f32,
+    leaf_wrap: f32
 ) -> vec3f {
     let n_dot_v = max(dot(normal, view_dir), 0.0);
-    let n_dot_l = max(dot(light_dir, normal), 0.0);
+    let raw = dot(light_dir, normal);
+    let n_dot_l = max((raw + leaf_wrap) / (1.0 + leaf_wrap), 0.0);
     
     var total_lighting = vec3f(0.0);
     
@@ -1425,7 +1433,7 @@ fn get_opposite_face(facing_dir: u32) -> u32 {
 }
 
 // --- Tone mapping controls (specialization constants) ---
-override USE_ACES_TONEMAP: bool = true;        // set false to bypass
+override USE_ACES_TONEMAP: bool = false;        // set false to bypass
 override TONE_EXPOSURE: f32 = 1.0;             // simple exposure multiplier
 override FRAMEBUFFER_IS_SRGB: bool = true;     // set false if your swapchain format is *not* SRGB\
 
@@ -1499,12 +1507,15 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     let viewDir = normalize(uMyUniforms.cameraWorldPos - in.world_position);
 
-    if (!in.frontFacing) {
+
+    if (materialProps.modelId == LEAF_MODEL) {
+        normal = select(normal, -normal, dot(normal, viewDir) < 0.0);
+    } else if (materialProps.modelId == GRASS_MODEL && !in.frontFacing) {
         normal = -normal;
     }
 
     var blendState = 1.0;
-    if (materialProps.modelId != VOXEL_MODEL) {
+    if (materialProps.modelId == GRASS_MODEL) {
         let viewAlignment = dot(viewDir, normal);
         
         // Define blending ranges
@@ -1530,9 +1541,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
             blendState = clamp(blendState, 0.0, 1.0);
         }
 
-        if (materialProps.modelId == GRASS_MODEL) {
-            normal = vec3f(0.0, 0.0, 1.0);
-        }
+        normal = vec3f(0.0, 0.0, 1.0);
     }
 
     var uv = in.uv;
@@ -1595,6 +1604,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0625)), 16.0);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
+
+    var leaf_wrap: f32 = 0.0;
+    if (materialProps.modelId == LEAF_MODEL) {
+        leaf_wrap = 0.15; // 0..0.35 is a good range
+    }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 4.5; // Boost sun intensity for PBR
@@ -1605,10 +1619,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.pbr.metallic,
-        ((textureColor.r + textureColor.g + textureColor.b) / 1.0) * materialProps.pbr.roughness * 1.5,
+        ((textureColor.r + textureColor.g + textureColor.b) / 3.0) * materialProps.pbr.roughness * 2.5,
         materialProps.pbr.dielectric,
         shadow_factor,
-        materialProps.pbr.subsurface  // Pass subsurface parameter
+        materialProps.pbr.subsurface,  // Pass subsurface parameter
+        leaf_wrap
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation

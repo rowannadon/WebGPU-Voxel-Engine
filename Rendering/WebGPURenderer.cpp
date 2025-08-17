@@ -75,6 +75,7 @@ bool WebGPURenderer::initialize() {
 	noisePipeline.init(buf, tex, pip);
 	shadowPipeline.init(buf, tex, pip, mod);
 	skyPipeline.init(buf, tex, pip);
+	atmospherePipeline.init(buf, tex, pip);
 	skyViewPipeline.init(buf, tex, pip);
 	terrainPipeline.init(buf, tex, pip);
 	transmittancePipeline.init(buf, tex, pip);
@@ -87,7 +88,7 @@ bool WebGPURenderer::initialize() {
 	transmittancePipeline.createResources();
 	multiScatteringPipeline.createResources();
 	skyViewPipeline.createResources();
-	skyPipeline.createResources();
+	atmospherePipeline.createResources();
 	aerialPerspectivePipeline.createResources();
 	voxelPipeline.createResources();
 	terrainPipeline.createResources();
@@ -102,6 +103,7 @@ bool WebGPURenderer::initialize() {
 	voxelPipeline.createPipeline();
 	shadowPipeline.createPipeline();
 	skyPipeline.createPipeline();
+	atmospherePipeline.createPipeline();
 	terrainPipeline.createPipeline();
 	transparentVoxelPipeline.createPipeline();
 
@@ -235,6 +237,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		);
 	}
 
+	skyPipeline.render(targetView, encoder);
+
 	// === OPAQUE VOXEL RENDER PASS ===
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		voxelPipeline.render(
@@ -255,8 +259,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		);
 	}
 
-	// === SKY RENDER PASS ===
-	skyPipeline.render(targetView, encoder);
+	// === ATMOSPHERE RENDER PASS ===
+	atmospherePipeline.render(targetView, encoder);
 
 	// GUI RENDER PASS
 	{
@@ -392,7 +396,7 @@ bool WebGPURenderer::initTextures() {
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
 	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small_2.obj");
-	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_7.obj");
+	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
 	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
 	modelManager->writeModelsToBuffer();
@@ -422,6 +426,7 @@ bool WebGPURenderer::initBindGroups() {
 	terrainPipeline.createBindGroup();
 	aerialPerspectivePipeline.createBindGroup();
 	skyPipeline.createBindGroup();
+	atmospherePipeline.createBindGroup();
 	transparentVoxelPipeline.createBindGroup();
 
 	return true;

@@ -257,33 +257,33 @@ public:
         );
 
         // Periodic cache cleanup
-        if (currentFrame % 60 == 0) cleanupCache();
+        if (currentFrame % 600 == 0) cleanupCache();
 
         // Sort camera lists (opaque: near far optional, transparent: far near required)
-        std::sort(transparentDAICsWithPos.begin(), transparentDAICsWithPos.end(),
-            [&cameraPos, &view](const DAICWithPosition& a, const DAICWithPosition& b) {
-                // Use far AABB distance along view dir (more stable than center distance)
-                const vec3 vdir = normalize(vec3(-view[2][0], -view[2][1], -view[2][2]));
-                auto farDepth = [&](const DAICWithPosition& d) {
-                    vec3 mn = d.worldPosition;
-                    vec3 mx = d.worldPosition + vec3(32.0f);
-                    float best = -1e30f;
-                    vec3 corners[8] = {
-                        {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mn.x,mx.y,mn.z},{mx.x,mx.y,mn.z},
-                        {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mn.x,mx.y,mx.z},{mx.x,mx.y,mx.z}
-                    };
-                    for (auto& c : corners) best = std::max(best, glm::dot(c - cameraPos, vdir));
-                    return best;
-                    };
-                return farDepth(a) < farDepth(b);
-            });
+        //std::sort(transparentDAICsWithPos.begin(), transparentDAICsWithPos.end(),
+        //    [&cameraPos, &view](const DAICWithPosition& a, const DAICWithPosition& b) {
+        //        // Use far AABB distance along view dir (more stable than center distance)
+        //        const vec3 vdir = normalize(vec3(-view[2][0], -view[2][1], -view[2][2]));
+        //        auto farDepth = [&](const DAICWithPosition& d) {
+        //            vec3 mn = d.worldPosition;
+        //            vec3 mx = d.worldPosition + vec3(32.0f);
+        //            float best = -1e30f;
+        //            vec3 corners[8] = {
+        //                {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mn.x,mx.y,mn.z},{mx.x,mx.y,mn.z},
+        //                {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mn.x,mx.y,mx.z},{mx.x,mx.y,mx.z}
+        //            };
+        //            for (auto& c : corners) best = std::max(best, glm::dot(c - cameraPos, vdir));
+        //            return best;
+        //            };
+        //        return farDepth(a) < farDepth(b);
+        //    });
 
-        std::sort(opaqueDAICsWithPos.begin(), opaqueDAICsWithPos.end(),
+        /*std::sort(opaqueDAICsWithPos.begin(), opaqueDAICsWithPos.end(),
             [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
                 vec3 ac = a.worldPosition + vec3(16.0f);
                 vec3 bc = b.worldPosition + vec3(16.0f);
                 return glm::length2(ac - cameraPos) < glm::length2(bc - cameraPos);
-            });
+            });*/
 
         // Flatten
         std::vector<DAIC> opaqueCamera, transparentCamera;
@@ -489,7 +489,7 @@ public:
         auto& cache = *cachePtr;
 
         // LOD selection
-        std::vector<float> lodDistances = { 8.0f, 16.0f, 32.0f, 64.0f };
+        std::vector<float> lodDistances = { 10.0f, 20.0f, 40.0f, 512.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
         int lod = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 

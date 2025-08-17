@@ -77,8 +77,8 @@ inline Clouds getDefaultClouds() {
 	Clouds clouds = {};
 	clouds.height = 8.5;
 	clouds.thickness = 50.0f;
-	clouds.density = 0.33f;
-	clouds.coverage = 0.15f;
+	clouds.density = 0.0f;
+	clouds.coverage = 0.0f;
 	clouds.absorption = 0.66f;
 	clouds.scattering = 0.66f;
 	clouds.powder_strength = 4.88f;
@@ -86,7 +86,7 @@ inline Clouds getDefaultClouds() {
 	clouds.phase_g1 = 0.19f;
 	clouds.phase_g2 = 0.63f;
 	clouds.phase_blend = 0.44f;
-	clouds.march_steps = 64;
+	clouds.march_steps = 1;
 	clouds.shadow_steps = 8;
 	clouds.light_steps = 8;
 	clouds.scale = 5.11f;

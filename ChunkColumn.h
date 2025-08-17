@@ -1062,13 +1062,13 @@ public:
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
-                    int waterLevel = 150;
+                    int waterLevel = 255;
                     UnpackedVoxelMaterial material;
-                    material.facing = FacingDirection::PlusX;
+                    material.facing = FacingDirection::PlusZ;
                     if (getVoxelWholeColumn(ivec3(x, y, z), false)) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
-                        
+
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = BlockType::Limestone;
                         }
@@ -1109,7 +1109,7 @@ public:
                         ivec3 positionAbove = ivec3(x, y, z + 1);
                         bool isAtSurface = !isVoxelSolid(positionAbove);
 
-                        if (isAtSurface && z > waterLevel) {
+                        if (isAtSurface && z > waterLevel + 2) {
                             // Calculate steepness by checking the 8 surrounding columns
                             int maxHeightDifference = calculateSteepness(x, y, z);
                             uint32_t blockHash = hash_ivec3(pos);
@@ -1118,7 +1118,7 @@ public:
                             case 0:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 256 == 0) {
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
@@ -1130,7 +1130,7 @@ public:
                                         }
 
                                         int size = 1;
-                                        if (blockHash % 128 == 0) {
+                                        if (blockHash % 512 == 0) {
                                             size = 2;
                                         }
 
@@ -1152,32 +1152,19 @@ public:
                                 // Top 2 layers: grass
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                if (grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     UnpackedVoxelMaterial material;
                                     material.facing = FacingDirection::PlusX;
-                                    if (blockHash % 8 == 0) {
+                                    if (blockHash % 4 != 0) {
                                         material.materialType = BlockType::TallGrass; // grass
                                     }
-                                    else if (blockHash % 8 == 1) {
-                                        material.materialType = BlockType::TallGrass; // grass
-                                    }
-                                    else if (blockHash % 8 == 2) {
-                                        material.materialType = BlockType::Grass0; // grass
-                                    }
-                                    else if (blockHash % 8 == 3) {
-                                        material.materialType = BlockType::Grass0; // grass
-                                    }
-                                    else if (blockHash % 8 == 4) {
-                                        material.materialType = BlockType::Grass1; // grass
-                                    }
-                                    else if (blockHash % 8 == 5) {
-                                        material.materialType = BlockType::Grass1; // grass
-                                    }
-                                    else if (blockHash % 8 == 6) {
-                                        material.materialType = BlockType::Grass1; // grass
-                                    }
-                                    else if (blockHash % 8 == 7) {
-                                        material.materialType = BlockType::TallGrass; // grass
+                                    else if (blockHash % 4 == 0) {
+                                        if (blockHash % 8 == 0) {
+                                            material.materialType = BlockType::Grass0; // grass
+                                        }
+                                        else {
+                                            material.materialType = BlockType::Grass1; // grass
+                                        }
                                     }
 
                                     setMaterialFast(grassPos, material);
@@ -1219,6 +1206,12 @@ public:
                                 }
                             }
                         }
+                        else if (isAtSurface && z > waterLevel - 2) {
+                            UnpackedVoxelMaterial material;
+                            material.facing = FacingDirection::PlusZ;
+                            material.materialType = BlockType::Sand;
+                            setMaterialFast(ivec3(x, y, z), material);
+                        }
                     }
                     else if (z < waterLevel) {
                         setVoxelWholeColumn(ivec3(x, y, z), true, true);
@@ -1235,12 +1228,12 @@ public:
     inline bool isTransparentMaterial(BlockType t) {
         switch (t) {
         case BlockType::Water:
-        case BlockType::Leaf:
-        case BlockType::Fern:
-        case BlockType::TallGrass:
-        case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
-        case BlockType::Grass3: case BlockType::Grass4: case BlockType::Grass5:
-            return true;
+        //case BlockType::Leaf:
+        //case BlockType::Fern:
+        //case BlockType::TallGrass:
+        //case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
+        //case BlockType::Grass3: case BlockType::Grass4: case BlockType::Grass5:
+        //    return true;
         default: return false;
         }
     }
@@ -1721,7 +1714,7 @@ public:
 
                 // Preserve your special-cases, but keep facing too
                 // (Log: if you force type to Log, pick the majority facing among Log voxels)
-                if (typeCounts[BlockType::Log] > 4 && totalVoxels <= 8) {
+                if (typeCounts[BlockType::Log] > 4) {
                     dominant.materialType = BlockType::Log;
                     FacingDirection logFacing = FacingDirection::PlusX;
                     int bestLogCount = -1;

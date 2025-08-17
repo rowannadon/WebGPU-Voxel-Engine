@@ -813,6 +813,10 @@ fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>
 
 	let color = sky_view.rgb + sun_luminance;
 
+    let l = dot(color, vec3f(0.2126, 0.7152, 0.0722));
+    let tc = color / (color + 1.0);
+    let baseColor = mix(color / (l + 1.0), tc, tc);
+
 	return vec4<f32>(color, sky_view.a);
 }
 
@@ -1008,7 +1012,7 @@ fn sample_depth_with_subpixel_fix(depth_texture: texture_depth_multisampled_2d, 
 }
 
 @vertex 
-fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
+fn atmo_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     var out: SkyVertexOutput;
     
     let vertices = array<vec2f, 6>(
@@ -1023,7 +1027,7 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
 }
 
 @fragment 
-fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
+fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let atmosphere = atmosphere_buffer;
     let config = config_buffer;
     let clouds = cloud_buffer;
@@ -1044,16 +1048,71 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let depth = sample_depth_with_subpixel_fix(depth_buffer, in.position.xy, config.screenSize);
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
-    // Get sky color
-    let sky_color = use_sky_view_lut(view_height, camera_pos_relative_to_planet, world_dir, sun_dir, atmosphere, config);
+    let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
     
-    // Render volumetric clouds with unified approach
-    let cloud_result = render_clouds_unified(camera_pos_relative_to_planet, world_dir, sun_dir, 
-                                           atmosphere, clouds, config.time, false);
+    // Apply aerial perspective for terrain
+    let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
+    
+    // Calculate height-based fog multiplier
+    // depth_buffer_world_pos is in km, convert back to feet for height calculation
+    let world_pos_feet = depth_buffer_world_pos / TO_KM_SCALE;
+    
+    // Get the height (Y coordinate in feet)
+    let terrain_height = world_pos_feet.z;
+    
+    // Define fog height parameters (in feet)
+    let fog_height_min = 300.0;      // Sea level - maximum fog
+    let fog_height_max = 475.0;
+    
+    // Calculate height-based fog multiplier (1.0 at sea level, 0.0 at fog_height_max)
+    let height_fog_factor = 1.0 - saturate((terrain_height - fog_height_min) / (fog_height_max - fog_height_min));
+    
+    // Squared for faster falloff at higher altitudes
+    let height_fog_multiplier = height_fog_factor * height_fog_factor;
+    
+    // Calculate distance-based fog
+    // Define distance fog parameters (in km)
+    let fog_distance_start = 32.0;   // Start of distance fog (10 km)
+    let fog_distance_end = 35.0;     // Full fog at this distance (50 km)
+    
+    // Calculate distance fog factor based on world space distance
+    let camera_to_terrain_distance = length(depth_buffer_world_pos - camera_pos_relative_to_planet);
+    let distance_fog_factor = saturate((camera_to_terrain_distance - fog_distance_start) / (fog_distance_end - fog_distance_start));
+    
+    // Optional: Apply a curve to distance fog for more control
+    let distance_fog_multiplier = distance_fog_factor * distance_fog_factor;
+    
+    // Combine height and distance fog factors
+    // Use max to ensure fog appears in either low areas OR at distance
+    let combined_fog_multiplier = 1.0 - max(1.0 - height_fog_multiplier, 1.0 - distance_fog_multiplier);
 
-    // No terrain - composite clouds with sky normally
-    let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
-    let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
+    // Alternative combination methods:
+    // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
+    // 2. Multiplicative blend: let combined_fog_multiplier = 1.0 - (1.0 - height_fog_multiplier) * (1.0 - distance_fog_multiplier);
+    
+    var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
+    
+    let w = sqrt(slice / AP_SLICE_COUNT);
+    
+    let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
+    
+    let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+    
+    // Apply combined fog multiplier to the final fog alpha
+    let final_fog_alpha = aerial_perspective.a * combined_fog_multiplier;
+        
+    // if (is_valid_depth(depth)) {
+    //     let debug_color = vec3<f32>(
+    //         saturate(camera_to_terrain_distance / 2.0),    // Red increases with distance
+    //         saturate(distance_fog_factor),          // Green shows distance fog factor
+    //         saturate(height_fog_multiplier)         // Blue shows height fog
+    //     );
+    //     return vec4f(debug_color, 1.0);
+    // }
 
-    return vec4<f32>(dithered, 1.0);
+    if (is_valid_depth(depth)) {
+        return vec4f(dithered_aerial_perspective, final_fog_alpha);
+    }
+
+    return vec4<f32>(0.0);
 }
