@@ -311,13 +311,13 @@
       "id": 9,
       "name": "Leaves",
       "texture": [
-        "aspen_leaves.png"
+        "leaves2.png"
       ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
-      "tileCount": 4,
-      "randomOffset": 0.2,
+      "tileCount": 2,
+      "randomOffset": 0.1,
       "randomOffsetDirections": [
         "X",
         "Y",

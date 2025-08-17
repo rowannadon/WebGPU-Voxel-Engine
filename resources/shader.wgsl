@@ -515,10 +515,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 36;
+    let samples = 9;
     
-    for (var x = -3; x <= 2; x++) {
-        for (var y = -3; y <= 2; y++) {
+    for (var x = -1; x <= 1; x++) {
+        for (var y = -1; y <= 1; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);

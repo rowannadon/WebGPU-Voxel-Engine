@@ -13,7 +13,7 @@ public:
 	FastNoise::SmartNode<> fnGenerator2d;
 	
 	uint32_t seed = 0;
-	float noiseScale = 0.006f;
+	float noiseScale = 0.004f;
 	float noiseScale2 = 0.05f;
 	float noiseScale3 = 0.00008;
     int CHUNK_SIZE = 32;
