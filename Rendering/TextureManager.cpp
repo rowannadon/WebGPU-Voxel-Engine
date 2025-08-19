@@ -259,6 +259,20 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
             return false;
         }
 
+        if (m.contains("normals")) {
+            e.normals = m["normals"].get<std::vector<std::string>>();
+        }
+        else if (m.contains("normal")) {
+            if (m["normal"].is_array())
+                e.normals = m["normal"].get<std::vector<std::string>>();
+            else
+                e.normals = { m["normal"].get<std::string>() };
+        }
+        else {
+            // schema requires at least one texture
+            e.normals = {};
+        }
+
         // PBR block
         const auto& p = m.at("pbr");
         PBRMaterialProperties pbr{};
@@ -279,6 +293,277 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
     }
 
     return true;
+}
+
+void TextureManager::buildMaterialTablesWithNormalMapping(
+    const std::vector<MaterialJsonEntry>& entries,
+    uint32_t maxId,
+    const std::function<uint32_t(std::string)>& modelOffsetResolver,
+    const std::unordered_map<uint32_t, std::vector<uint32_t>>& materialToLayers,
+    const std::unordered_map<uint32_t, uint32_t>& materialToNormalLayer)
+{
+    materialMap.clear();
+    materialTable.clear();
+    materialTable.resize(maxId + 1);
+
+    for (const auto& e : entries) {
+        CpuModelKind mk = parseModel(e.model);
+        OrientationType ot = parseOrientation(e.orientation);
+        TextureType tt = parseTextureType(e.textureType);
+        uint32_t roDirs = parseRandomOffsetDirections(e.randomOffsetDirections);
+        uint32_t modelOffset = modelOffsetResolver ? modelOffsetResolver(e.model) : 0u;
+
+        MaterialProperties mp{};
+        fillMaterialProperties(mp, e, modelOffset);
+
+        mp.modelId = static_cast<uint32_t>(mk);
+        mp.textureType = static_cast<uint32_t>(tt);
+        mp.randomOffsetDirections = roDirs;
+        mp.orientation = static_cast<uint32_t>(ot);
+
+        // Fill per-face texture IDs for albedo textures
+        auto it = materialToLayers.find(e.id);
+        std::vector<uint32_t> layers;
+        if (it != materialToLayers.end()) layers = it->second;
+
+        if (!layers.empty()) {
+            if (mk == CpuModelKind::Voxel) {
+                if (layers.size() >= 6) {
+                    // assume order is +X,-X,+Y,-Y,+Z,-Z
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[1]; // cap
+                    mp.textureId2 = layers[2];
+                    mp.textureId3 = layers[3];
+                    mp.textureId4 = layers[4];
+                    mp.textureId5 = layers[5];
+                }
+                else if (layers.size() == 2 && ot == OrientationType::SingleAxis) {
+                    // logs: [side, cap]
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[1]; // cap
+                    mp.textureId2 = layers[0];
+                    mp.textureId3 = layers[0];
+                    mp.textureId4 = layers[0];
+                    mp.textureId5 = layers[0];
+                }
+                else {
+                    // 1 or N<6 generic: use first for all faces
+                    mp.textureId0 = layers[0]; // side
+                    mp.textureId1 = layers[0]; // cap
+                    mp.textureId2 = layers[0];
+                    mp.textureId3 = layers[0];
+                    mp.textureId4 = layers[0];
+                    mp.textureId5 = layers[0];
+                }
+            }
+            else {
+                // non-voxel models: just first texture
+                mp.textureId0 = layers[0]; // side
+                mp.textureId1 = layers[0]; // cap
+                mp.textureId2 = layers[0];
+                mp.textureId3 = layers[0];
+                mp.textureId4 = layers[0];
+                mp.textureId5 = layers[0];
+            }
+        }
+
+        auto normalIt = materialToNormalLayer.find(e.id);
+        if (normalIt != materialToNormalLayer.end()) {
+            mp.normalTextureId = normalIt->second;
+        }
+
+        materialMap[e.id] = mp;
+        materialTable[e.id] = mp;
+    }
+}
+
+std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTextureArray(
+    const std::string& name,
+    const std::string& textureViewName,
+    const std::string& normalName,
+    const std::string& normalTextureViewName,
+    const std::filesystem::path& directoryPath) {
+
+    const auto jsonPath = directoryPath / "materials.json";
+    std::vector<MaterialJsonEntry> jsonEntries;
+    uint32_t maxMaterialId = 0;
+    const bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, maxMaterialId);
+    if (!haveJson || jsonEntries.empty()) {
+        std::cerr << "error loading json\n";
+        return { std::nullopt, std::nullopt };
+    }
+
+    // Build albedo texture array (same as before)
+    std::vector<TextureMapping> flat;
+    flat.reserve(64);
+    std::unordered_map<uint32_t, std::vector<uint32_t>> materialToLayers;
+    uint32_t nextLayer = 0;
+
+    for (const auto& e : jsonEntries) {
+        auto& v = materialToLayers[e.id];
+        for (int i = 0; i < e.textures.size(); i++) {
+            flat.push_back(TextureMapping{ nextLayer, e.textures[i], e.id });
+            v.push_back(nextLayer);
+            ++nextLayer;
+        }
+    }
+
+    if (!validateTextureMapping(flat, directoryPath)) {
+        std::cerr << "error validating texture mapping\n";
+        return { std::nullopt, std::nullopt };
+    }
+
+    // Load first image for dimensions
+    int width = 0, height = 0, channels = 0;
+    {
+        auto first = directoryPath / flat.front().filename;
+        unsigned char* firstPixels = stbi_load(first.string().c_str(), &width, &height, &channels, 4);
+        if (!firstPixels) return { std::nullopt, std::nullopt };
+        stbi_image_free(firstPixels);
+    }
+
+    uint32_t mipLevelCount = bit_width(std::max((uint32_t)width, (uint32_t)height));
+
+    // Create albedo array texture
+    TextureDescriptor td{};
+    td.dimension = TextureDimension::_2D;
+    td.format = TextureFormat::RGBA8Unorm;
+    td.sampleCount = 1;
+    td.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
+    td.mipLevelCount = mipLevelCount;
+    td.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+
+    Texture texture = createTexture(name, td);
+
+    // NEW APPROACH: Create normal texture array with same layer count as albedo array
+    // This ensures we have a 1:1 correspondence between albedo and normal layers
+    std::vector<TextureMapping> flatNormal;
+    std::unordered_map<uint32_t, std::string> materialIdToNormalTexture;
+
+    // First, collect which materials have normal textures
+    for (const auto& e : jsonEntries) {
+        if (!e.normals.empty()) {
+            materialIdToNormalTexture[e.id] = e.normals[0]; // Use first normal texture
+        }
+    }
+
+    // Create normal texture array with same structure as albedo array
+    flatNormal.reserve(flat.size());
+    for (const auto& albedoMapping : flat) {
+        TextureMapping normalMapping;
+        normalMapping.layer = albedoMapping.layer; // Same layer as corresponding albedo texture
+        normalMapping.materialId = albedoMapping.materialId;
+
+        // Check if this material has a normal texture
+        auto it = materialIdToNormalTexture.find(albedoMapping.materialId);
+        if (it != materialIdToNormalTexture.end()) {
+            normalMapping.filename = it->second; // Use the material's normal texture
+        }
+        else {
+            // Use a default flat normal texture name (we'll create this programmatically)
+            normalMapping.filename = "default_normal.png";
+        }
+
+        flatNormal.push_back(normalMapping);
+    }
+
+    // Create normal texture array with same layer count as albedo
+    TextureDescriptor ntd{};
+    ntd.dimension = TextureDimension::_2D;
+    ntd.format = TextureFormat::RGBA8Unorm;
+    ntd.sampleCount = 1;
+    ntd.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
+    ntd.mipLevelCount = mipLevelCount;
+    ntd.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+
+    Texture normalTexture = createTexture(normalName, ntd);
+
+    // Save array meta
+    TextureArrayInfo info{};
+    info.width = width;
+    info.height = height;
+    info.layerCount = (uint32_t)flat.size();
+    info.mipLevelCount = mipLevelCount;
+    info.mappings = flat;
+    textureArrayInfos[name] = info;
+
+    // Upload albedo textures
+    for (const auto& m : flat) {
+        auto path = directoryPath / m.filename;
+        int w = 0, h = 0, ch = 0;
+        unsigned char* pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
+        if (!pixels) continue;
+
+        if (w == width && h == height) {
+            writeMipMapsArray(texture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, m.layer, pixels);
+        }
+        stbi_image_free(pixels);
+    }
+
+    // Create default flat normal texture data (0.5, 0.5, 1.0, 1.0) in RGBA
+    std::vector<unsigned char> defaultNormalData(width * height * 4);
+    for (size_t i = 0; i < defaultNormalData.size(); i += 4) {
+        defaultNormalData[i + 0] = 128; // 0.5 in [0,255] range (X component)
+        defaultNormalData[i + 1] = 128; // 0.5 in [0,255] range (Y component)  
+        defaultNormalData[i + 2] = 255; // 1.0 in [0,255] range (Z component)
+        defaultNormalData[i + 3] = 255; // 1.0 alpha
+    }
+
+    // Upload normal textures
+    for (const auto& m : flatNormal) {
+        unsigned char* pixels = nullptr;
+        int w = 0, h = 0, ch = 0;
+
+        if (m.filename != "default_normal.png") {
+            // Try to load the actual normal texture file
+            auto path = directoryPath / m.filename;
+            pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
+        }
+
+        if (pixels && w == width && h == height) {
+            // Use the loaded normal texture
+            writeMipMapsArray(normalTexture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, m.layer, pixels);
+            stbi_image_free(pixels);
+        }
+        else {
+            // Use default flat normal texture
+            writeMipMapsArray(normalTexture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, m.layer, defaultNormalData.data());
+            if (pixels) stbi_image_free(pixels); // Clean up if we tried to load but dimensions were wrong
+        }
+    }
+
+    // Create texture views
+    if (!textureViewName.empty()) {
+        TextureViewDescriptor vd{};
+        vd.aspect = TextureAspect::All;
+        vd.baseArrayLayer = 0;
+        vd.arrayLayerCount = (unsigned int)flat.size();
+        vd.baseMipLevel = 0;
+        vd.mipLevelCount = mipLevelCount;
+        vd.dimension = TextureViewDimension::_2DArray;
+        vd.format = td.format;
+        createTextureView(name, textureViewName, vd);
+    }
+
+    if (!normalTextureViewName.empty()) {
+        TextureViewDescriptor vd{};
+        vd.aspect = TextureAspect::All;
+        vd.baseArrayLayer = 0;
+        vd.arrayLayerCount = (unsigned int)flat.size(); // Same count as albedo
+        vd.baseMipLevel = 0;
+        vd.mipLevelCount = mipLevelCount;
+        vd.dimension = TextureViewDimension::_2DArray;
+        vd.format = ntd.format;
+        createTextureView(normalName, normalTextureViewName, vd);
+    }
+
+    // Build material tables (no changes needed to buildMaterialTables function)
+    buildMaterialTables(jsonEntries, maxMaterialId, modelOffsetResolver_, materialToLayers);
+
+    return { texture, normalTexture };
 }
 
 void TextureManager::buildMaterialTables(
@@ -355,104 +640,6 @@ void TextureManager::buildMaterialTables(
         materialMap[e.id] = mp;
         materialTable[e.id] = mp;
     }
-}
-
-Texture TextureManager::loadTextureArray(const std::string& name,
-    const std::string& textureViewName,
-    const std::filesystem::path& directoryPath) {
-
-    const auto jsonPath = directoryPath / "materials.json";
-    std::vector<MaterialJsonEntry> jsonEntries;
-    uint32_t maxMaterialId = 0;
-    const bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, maxMaterialId);
-    if (!haveJson || jsonEntries.empty()) {
-        std::cerr << "error loading json\n";
-        return nullptr;
-    };
-
-    // Build a flattened list of (layer <- file), plus map material->layers
-    std::vector<TextureMapping> flat;
-    flat.reserve(64);
-
-    std::unordered_map<uint32_t, std::vector<uint32_t>> materialToLayers;
-    uint32_t nextLayer = 0;
-
-    for (const auto& e : jsonEntries) {
-        auto& v = materialToLayers[e.id];
-        for (const auto& file : e.textures) {
-            flat.push_back(TextureMapping{ nextLayer, file, e.id });
-            v.push_back(nextLayer);
-            ++nextLayer;
-        }
-    }
-
-    if (!validateTextureMapping(flat, directoryPath)) {
-        std::cerr << "error validating texture mapping\n";
-        return nullptr;
-    };
-
-    // Load first image for dimensions
-    int width = 0, height = 0, channels = 0;
-    {
-        auto first = directoryPath / flat.front().filename;
-        unsigned char* firstPixels = stbi_load(first.string().c_str(), &width, &height, &channels, 4);
-        if (!firstPixels) return nullptr;
-        stbi_image_free(firstPixels);
-    }
-
-    uint32_t mipLevelCount = bit_width(std::max((uint32_t)width, (uint32_t)height));
-
-    // Create array texture sized to total image count
-    TextureDescriptor td{};
-    td.dimension = TextureDimension::_2D;
-    td.format = TextureFormat::RGBA8Unorm;
-    td.sampleCount = 1;
-    td.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
-    td.mipLevelCount = mipLevelCount;
-    td.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
-
-    Texture texture = createTexture(name, td);
-
-    // Save array meta
-    TextureArrayInfo info{};
-    info.width = width;
-    info.height = height;
-    info.layerCount = (uint32_t)flat.size();
-    info.mipLevelCount = mipLevelCount;
-    info.mappings = flat;
-    textureArrayInfos[name] = info;
-
-    // Upload each layer
-    for (const auto& m : flat) {
-        auto path = directoryPath / m.filename;
-        int w = 0, h = 0, ch = 0;
-        unsigned char* pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
-        if (!pixels) continue; // skip invalid; could also fail hard
-
-        if (w == width && h == height) {
-            writeMipMapsArray(texture, { (unsigned int)width, (unsigned int)height, 1 },
-                mipLevelCount, m.layer, pixels);
-        }
-        stbi_image_free(pixels);
-    }
-
-    // Optional array view
-    if (!textureViewName.empty()) {
-        TextureViewDescriptor vd{};
-        vd.aspect = TextureAspect::All;
-        vd.baseArrayLayer = 0;
-        vd.arrayLayerCount = (unsigned int)flat.size();
-        vd.baseMipLevel = 0;
-        vd.mipLevelCount = mipLevelCount;
-        vd.dimension = TextureViewDimension::_2DArray;
-        vd.format = td.format;
-        createTextureView(name, textureViewName, vd);
-    }
-
-    // Build material tables (now that we know material->layers mapping)
-    buildMaterialTables(jsonEntries, maxMaterialId, modelOffsetResolver_, materialToLayers);
-
-    return texture;
 }
 
 void TextureManager::writeMipMaps(
@@ -603,9 +790,9 @@ void TextureManager::removeTextureView(const std::string& name) {
     auto it = textureViews.find(name);
     if (it != textureViews.end()) {
         it->second.release();
-        textureViews.erase(it);
     }
 }
+
 void TextureManager::removeTexture(const std::string& name) {
     auto it = textures.find(name);
     if (it != textures.end()) {

@@ -41,6 +41,7 @@ struct MaterialJsonEntry {
     float windStrength = 0.0f;
     std::string name;       // optional, for readability
     std::vector<std::string> textures;    // filename .png
+    std::vector<std::string> normals;    // filename .png
     std::string model;      // "VOXEL_MODEL" | "LEAF_MODEL" | "GRASS_MODEL"
     std::string textureType;
     std::string orientation;
@@ -69,8 +70,21 @@ public:
     TextureView createTextureView(const std::string& textureName, const std::string& viewName, const TextureViewDescriptor& config);
     Sampler createSampler(const std::string& samplerName, const SamplerDescriptor& config);
 
-    Texture loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path);
-    Texture loadTextureArray(const std::string& name, const std::string& textureViewName, const std::filesystem::path& directoryPath);
+    Texture loadTexture(const std::string name, const std::string textureViewName,
+        const std::filesystem::path& path);
+
+    void TextureManager::buildMaterialTablesWithNormalMapping(
+        const std::vector<MaterialJsonEntry>& entries,
+        uint32_t maxId,
+        const std::function<uint32_t(std::string)>& modelOffsetResolver,
+        const std::unordered_map<uint32_t, std::vector<uint32_t>>& materialToLayers,
+        const std::unordered_map<uint32_t, uint32_t>& materialToNormalLayer);
+
+    std::pair<std::optional<Texture>, std::optional<Texture>> loadTextureArray(const std::string& name,
+        const std::string& textureViewName,
+        const std::string& normalName,
+        const std::string& normalTextureViewName,
+        const std::filesystem::path& directoryPath);
 
     Texture getTexture(const std::string textureName);
     TextureView getTextureView(const std::string viewName);

@@ -23,14 +23,12 @@ bool Application::Initialize() {
 
     structureManager = std::make_shared<StructureManager>();
 
-    structureManager->loadStructure("tree", RESOURCE_DIR "/tree.vox", ivec3(5, 5, 2));
-    structureManager->loadStructure("tree2", RESOURCE_DIR "/tree2.vox", ivec3(3, 4, 2));
-    structureManager->loadStructure("tree3", RESOURCE_DIR "/pine.vox", ivec3(10, 13, 5));
+    structureManager->loadStructure("tree1", RESOURCE_DIR "/treegen1.vox", ivec3(18, 9, 3));
+    structureManager->loadStructure("tree2", RESOURCE_DIR "/treegen2.vox", ivec3(11, 8, 2));
+    structureManager->loadStructure("tree3", RESOURCE_DIR "/treegen3.vox", ivec3(17, 6, 2));
 
     chunkManager.init(tex, buf, structureManager.get(), modelManager);
     registerMovementCallbacks();
-
-    
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);

@@ -108,7 +108,7 @@ public:
 		config.alphaToCoverageEnabled = true;
 
 		// uniforms binding
-		std::vector<BindGroupLayoutEntry> globalUniforms(12, Default);
+		std::vector<BindGroupLayoutEntry> globalUniforms(13, Default);
 		globalUniforms[0].binding = 0;
 		globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 		globalUniforms[0].buffer.type = BufferBindingType::Uniform;
@@ -130,29 +130,30 @@ public:
 		globalUniforms[3].texture.sampleType = TextureSampleType::Float;
 		globalUniforms[3].texture.viewDimension = TextureViewDimension::_2DArray;
 
-		// The block texture sampler binding
+		// block normal texture array
 		globalUniforms[4].binding = 4;
 		globalUniforms[4].visibility = ShaderStage::Fragment;
-		globalUniforms[4].sampler.type = SamplerBindingType::Filtering;
+		globalUniforms[4].texture.sampleType = TextureSampleType::Float;
+		globalUniforms[4].texture.viewDimension = TextureViewDimension::_2DArray;
+
+		// The block texture sampler binding
+		globalUniforms[5].binding = 5;
+		globalUniforms[5].visibility = ShaderStage::Fragment;
+		globalUniforms[5].sampler.type = SamplerBindingType::Filtering;
 
 		// The shadow texture binding and sampler
-		globalUniforms[5].binding = 5;
-		globalUniforms[5].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-		globalUniforms[5].texture.sampleType = TextureSampleType::Depth;
-		globalUniforms[5].texture.viewDimension = TextureViewDimension::_2D;
-
 		globalUniforms[6].binding = 6;
 		globalUniforms[6].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-		globalUniforms[6].sampler.type = SamplerBindingType::Comparison;
+		globalUniforms[6].texture.sampleType = TextureSampleType::Depth;
+		globalUniforms[6].texture.viewDimension = TextureViewDimension::_2D;
 
 		globalUniforms[7].binding = 7;
-		globalUniforms[7].visibility = ShaderStage::Fragment;
-		globalUniforms[7].sampler.type = SamplerBindingType::Filtering;
+		globalUniforms[7].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
+		globalUniforms[7].sampler.type = SamplerBindingType::Comparison;
 
 		globalUniforms[8].binding = 8;
 		globalUniforms[8].visibility = ShaderStage::Fragment;
-		globalUniforms[8].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[8].texture.viewDimension = TextureViewDimension::_2D;
+		globalUniforms[8].sampler.type = SamplerBindingType::Filtering;
 
 		globalUniforms[9].binding = 9;
 		globalUniforms[9].visibility = ShaderStage::Fragment;
@@ -162,12 +163,17 @@ public:
 		globalUniforms[10].binding = 10;
 		globalUniforms[10].visibility = ShaderStage::Fragment;
 		globalUniforms[10].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[10].texture.viewDimension = TextureViewDimension::_3D;
+		globalUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
 
 		globalUniforms[11].binding = 11;
 		globalUniforms[11].visibility = ShaderStage::Fragment;
 		globalUniforms[11].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[11].texture.viewDimension = TextureViewDimension::_2D;
+		globalUniforms[11].texture.viewDimension = TextureViewDimension::_3D;
+
+		globalUniforms[12].binding = 12;
+		globalUniforms[12].visibility = ShaderStage::Fragment;
+		globalUniforms[12].texture.sampleType = TextureSampleType::Float;
+		globalUniforms[12].texture.viewDimension = TextureViewDimension::_2D;
 
 		config.bindGroupLayouts.push_back(
 			pip->createBindGroupLayout("global_uniforms", globalUniforms)
@@ -190,7 +196,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(12);
+		std::vector<BindGroupEntry> bindings(13);
 
 		bindings[0].binding = 0;
 		bindings[0].buffer = buf->getBuffer("uniform_buffer_opaque");
@@ -211,28 +217,31 @@ public:
 		bindings[3].textureView = tex->getTextureView("block_array_view");
 
 		bindings[4].binding = 4;
-		bindings[4].sampler = tex->getSampler("block_array_sampler");
+		bindings[4].textureView = tex->getTextureView("normal_array_view");
 
 		bindings[5].binding = 5;
-		bindings[5].textureView = tex->getTextureView("shadow_view");
+		bindings[5].sampler = tex->getSampler("block_array_sampler");
 
 		bindings[6].binding = 6;
-		bindings[6].sampler = tex->getSampler("shadow_sampler");
+		bindings[6].textureView = tex->getTextureView("shadow_view");
 
 		bindings[7].binding = 7;
-		bindings[7].sampler = tex->getSampler("lut_sampler");
+		bindings[7].sampler = tex->getSampler("shadow_sampler");
 
 		bindings[8].binding = 8;
-		bindings[8].textureView = tex->getTextureView("transmittance_view");
+		bindings[8].sampler = tex->getSampler("lut_sampler");
 
 		bindings[9].binding = 9;
-		bindings[9].textureView = tex->getTextureView("skyview_view");
+		bindings[9].textureView = tex->getTextureView("transmittance_view");
 
 		bindings[10].binding = 10;
-		bindings[10].textureView = tex->getTextureView("aerialperspective_view");
+		bindings[10].textureView = tex->getTextureView("skyview_view");
 
 		bindings[11].binding = 11;
-		bindings[11].textureView = tex->getTextureView("cloud_noise_64_view");
+		bindings[11].textureView = tex->getTextureView("aerialperspective_view");
+
+		bindings[12].binding = 12;
+		bindings[12].textureView = tex->getTextureView("cloud_noise_64_view");
 
 		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_opaque", "global_uniforms", bindings);
 

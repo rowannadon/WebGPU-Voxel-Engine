@@ -67,7 +67,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(12);
+		std::vector<BindGroupEntry> bindings(13);
 
 		bindings[0].binding = 0;
 		bindings[0].buffer = buf->getBuffer("uniform_buffer_transparent");
@@ -88,28 +88,31 @@ public:
 		bindings[3].textureView = tex->getTextureView("block_array_view");
 
 		bindings[4].binding = 4;
-		bindings[4].sampler = tex->getSampler("block_array_sampler");
+		bindings[4].textureView = tex->getTextureView("normal_array_view");
 
 		bindings[5].binding = 5;
-		bindings[5].textureView = tex->getTextureView("shadow_view");
+		bindings[5].sampler = tex->getSampler("block_array_sampler");
 
 		bindings[6].binding = 6;
-		bindings[6].sampler = tex->getSampler("shadow_sampler");
+		bindings[6].textureView = tex->getTextureView("shadow_view");
 
 		bindings[7].binding = 7;
-		bindings[7].sampler = tex->getSampler("lut_sampler");
+		bindings[7].sampler = tex->getSampler("shadow_sampler");
 
 		bindings[8].binding = 8;
-		bindings[8].textureView = tex->getTextureView("transmittance_view");
+		bindings[8].sampler = tex->getSampler("lut_sampler");
 
 		bindings[9].binding = 9;
-		bindings[9].textureView = tex->getTextureView("skyview_view");
+		bindings[9].textureView = tex->getTextureView("transmittance_view");
 
 		bindings[10].binding = 10;
-		bindings[10].textureView = tex->getTextureView("aerialperspective_view");
+		bindings[10].textureView = tex->getTextureView("skyview_view");
 
 		bindings[11].binding = 11;
-		bindings[11].textureView = tex->getTextureView("cloud_noise_64_view");
+		bindings[11].textureView = tex->getTextureView("aerialperspective_view");
+
+		bindings[12].binding = 12;
+		bindings[12].textureView = tex->getTextureView("cloud_noise_64_view");
 
 		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_transparent", "global_uniforms", bindings);
 

@@ -6,6 +6,7 @@
       "texture": [
         "dirt.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -40,6 +41,7 @@
       "texture": [
         "grass.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -74,6 +76,7 @@
       "texture": [
         "limestone.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -108,6 +111,7 @@
       "texture": [
         "glowstone.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -142,6 +146,7 @@
       "texture": [
         "brick.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -176,6 +181,7 @@
       "texture": [
         "ctm2.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "CONNECTED",
       "orientation": "NONE",
@@ -211,6 +217,7 @@
         "sandstone.png",
         "sandstone_top.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
@@ -245,6 +252,7 @@
       "texture": [
         "gneiss.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -279,6 +287,7 @@
       "texture": [
         "birch_log.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "CONNECTED",
       "orientation": "NONE",
@@ -313,11 +322,14 @@
       "texture": [
         "leaves2.png"
       ],
+      "normal": [
+        "LP_Normal.png"
+      ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
       "tileCount": 4,
-      "randomOffset": 0.05,
+      "randomOffset": 0.08,
       "randomOffsetDirections": [
         "X",
         "Y",
@@ -331,16 +343,16 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.8,
-        "dielectric": 0.02,
+        "roughness": 0.6,
+        "dielectric": 0.015,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
-        "normal": 2.0,
+        "normal": 1.0,
         "AO": 0.0,
-        "subsurface": 0.8,
+        "subsurface": 0.5,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -351,6 +363,7 @@
       "texture": [
         "better_grass_long.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -388,6 +401,7 @@
       "texture": [
         "fern.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -425,6 +439,7 @@
       "texture": [
         "better_grass_0.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -462,6 +477,7 @@
       "texture": [
         "better_grass_1.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -499,6 +515,7 @@
       "texture": [
         "better_grass_2.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -536,6 +553,7 @@
       "texture": [
         "better_grass_3.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -573,6 +591,7 @@
       "texture": [
         "better_grass_4.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -610,6 +629,7 @@
       "texture": [
         "better_grass_5.png"
       ],
+      "normal": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -647,6 +667,7 @@
       "texture": [
         "water.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -681,6 +702,7 @@
       "texture": [
         "sand.png"
       ],
+      "normal": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",

@@ -396,8 +396,8 @@ bool WebGPURenderer::initTextures() {
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
 	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small_2.obj");
-	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube.obj");
-	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
+	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube_large.obj");
+	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");	
 	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
 	modelManager->writeModelsToBuffer();
 
@@ -405,7 +405,7 @@ bool WebGPURenderer::initTextures() {
 		return mod->getModelOffsetInBuffer(std::string(modelName));
 		});
 
-	Texture blockTextureArray = textureManager->loadTextureArray("block_array", "block_array_view", RESOURCE_DIR "/textures/");
+	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", RESOURCE_DIR "/textures/");
 	
 	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 

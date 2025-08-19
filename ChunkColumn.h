@@ -1129,9 +1129,14 @@ public:
                                             closestDistance = glm::min(distance, closestDistance);
                                         }
 
-                                        int size = 1;
+                                        int size = 2;
+
                                         if (blockHash % 512 == 0) {
-                                            size = 2;
+                                            size = 3;
+                                        }
+
+                                        if (blockHash % 2048 == 0) {
+                                            size = 1;
                                         }
 
                                         if (closestDistance > 8) {
@@ -1428,10 +1433,13 @@ public:
             int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
             if (pair.first == 2) {
-                stampStructureAt("tree", localTreePos);
+                stampStructureAt("tree2", localTreePos);
+            }
+            else if (pair.first == 3) {
+                stampStructureAt("tree3", localTreePos);
             }
             else {
-                stampStructureAt("tree3", localTreePos);
+                stampStructureAt("tree", localTreePos);
             }
         }
 
@@ -1882,7 +1890,7 @@ public:
                 }
                 return true; // all neighbor checks matched the cull condition
             };
-
+         
         // AO calculation function
         auto calculateAmbientOcclusion = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel, bool transparent) -> uint32_t {
             ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0] * lodLevel;

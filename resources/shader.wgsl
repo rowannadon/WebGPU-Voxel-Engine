@@ -67,21 +67,22 @@ struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) normal: vec3f,
     @location(1) uv: vec2f,
-    @location(2) world_position: vec3f,
-    @location(3) fog_distance: f32,
-    @location(4) ao: f32,
-    @location(5) voxel_pos: vec3f,
-    @location(6) highlighted: f32,
-    @location(7) @interpolate(flat) idx: u32,
-    @location(8) chunk_edge_factor: f32,
-    @location(9) shadow_pos: vec4f,
-    @location(10) @interpolate(flat) material_id: u32,
-    @location(11) @interpolate(flat) lod_level: u32,
-    @location(12) tile_offset: vec2f,
-    @location(13) tile_offset2: vec2f,
-    @location(14) @interpolate(flat) tile_rotation: u32,
-    @location(15) @interpolate(flat) face_index: u32,
-    @location(16) @interpolate(flat) facing_dir: u32,
+    @location(2) uv_untransformed: vec2f,
+    @location(3) world_position: vec3f,
+    @location(4) fog_distance: f32,
+    @location(5) ao: f32,
+    @location(6) voxel_pos: vec3f,
+    @location(7) highlighted: f32,
+    @location(8) @interpolate(flat) idx: u32,
+    @location(9) chunk_edge_factor: f32,
+    @location(10) shadow_pos: vec4f,
+    @location(11) @interpolate(flat) material_id: u32,
+    @location(12) @interpolate(flat) lod_level: u32,
+    @location(13) tile_offset: vec2f,
+    @location(14) tile_offset2: vec2f,
+    @location(15) @interpolate(flat) tile_rotation: u32,
+    @location(16) @interpolate(flat) face_index: u32,
+    @location(17) @interpolate(flat) facing_dir: u32,
 };
 
 struct FragmentInput {
@@ -89,21 +90,22 @@ struct FragmentInput {
     @builtin(front_facing) frontFacing: bool,
     @location(0) normal: vec3f,
     @location(1) uv: vec2f,
-    @location(2) world_position: vec3f,
-    @location(3) fog_distance: f32,
-    @location(4) ao: f32,
-    @location(5) voxel_pos: vec3f,
-    @location(6) highlighted: f32,
-    @location(7) @interpolate(flat) idx: u32,
-    @location(8) chunk_edge_factor: f32,
-    @location(9) shadow_pos: vec4f,
-    @location(10) @interpolate(flat) material_id: u32,
-    @location(11) @interpolate(flat) lod_level: u32,
-    @location(12) tile_offset: vec2f,
-    @location(13) tile_offset2: vec2f,
-    @location(14) @interpolate(flat) tile_rotation: u32,
-    @location(15) @interpolate(flat) face_index: u32,
-    @location(16) @interpolate(flat) facing_dir: u32,
+    @location(2) uv_untransformed: vec2f,
+    @location(3) world_position: vec3f,
+    @location(4) fog_distance: f32,
+    @location(5) ao: f32,
+    @location(6) voxel_pos: vec3f,
+    @location(7) highlighted: f32,
+    @location(8) @interpolate(flat) idx: u32,
+    @location(9) chunk_edge_factor: f32,
+    @location(10) shadow_pos: vec4f,
+    @location(11) @interpolate(flat) material_id: u32,
+    @location(12) @interpolate(flat) lod_level: u32,
+    @location(13) tile_offset: vec2f,
+    @location(14) tile_offset2: vec2f,
+    @location(15) @interpolate(flat) tile_rotation: u32,
+    @location(16) @interpolate(flat) face_index: u32,
+    @location(17) @interpolate(flat) facing_dir: u32,
 
 };
 
@@ -242,7 +244,7 @@ struct MaterialProperties {
     textureId3: u32,
     textureId4: u32,
     textureId5: u32,
-    padding0    : f32,
+    normalTextureId    : u32,
 };
 
 const NUM_TOTAL_SLOTS = 64000;
@@ -263,15 +265,16 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere;
 @group(0) @binding(2) var<uniform> material_buffer: array<MaterialProperties, 100>;
 @group(0) @binding(3) var textureArray: texture_2d_array<f32>;
-@group(0) @binding(4) var textureSampler: sampler;
-@group(0) @binding(5) var shadowMap: texture_depth_2d;
-@group(0) @binding(6) var shadowSampler: sampler_comparison;
+@group(0) @binding(4) var normalTextureArray: texture_2d_array<f32>;
+@group(0) @binding(5) var textureSampler: sampler;
+@group(0) @binding(6) var shadowMap: texture_depth_2d;
+@group(0) @binding(7) var shadowSampler: sampler_comparison;
 
-@group(0) @binding(7) var lut_sampler: sampler;
-@group(0) @binding(8) var transmittance_lut: texture_2d<f32>;
-@group(0) @binding(9) var sky_view_lut: texture_2d<f32>;
-@group(0) @binding(10) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(11) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(8) var lut_sampler: sampler;
+@group(0) @binding(9) var transmittance_lut: texture_2d<f32>;
+@group(0) @binding(10) var sky_view_lut: texture_2d<f32>;
+@group(0) @binding(11) var aerial_perspective_lut: texture_3d<f32>;
+@group(0) @binding(12) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -510,15 +513,15 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.0008 * (1.0 - n_dot_l), 0.0008);
+    let bias = max(0.001 * (1.0 - n_dot_l), 0.001);
     let current_depth = proj_coords.z - bias;
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 36;
+    let samples = 64;
     
-    for (var x = -3; x <= 2; x++) {
-        for (var y = -3; y <= 2; y++) {
+    for (var x = -4; x <= 3; x++) {
+        for (var y = -4; y <= 3; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);
@@ -1176,6 +1179,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     position = base_position + wind_displacement;
     
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
+
+    out.uv_untransformed = uv;
     
     if (materialProps.modelId == VOXEL_MODEL) {
         uv = faceUVsIndependent[data.normal_index][vertexInFace];
@@ -1299,7 +1304,7 @@ fn calculate_pbr_lighting(
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
-            let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
+            let subsurface_power = 1.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.2;  // How much the light bends through the material
             let subsurface_scale = 0.5;  // Overall intensity scale
             
@@ -1485,6 +1490,105 @@ fn aces_tonemap(color_in: vec3f) -> vec3f {
     return clamp(v, vec3f(0.0), vec3f(1.0));
 }
 
+// Transform a normal using a normal texture (tangent space to world space)
+fn transformNormal(
+    normalTexture: texture_2d<f32>,
+    normalSampler: sampler,
+    uv: vec2<f32>,
+    worldNormal: vec3<f32>,
+    worldTangent: vec3<f32>,
+    worldBitangent: vec3<f32>
+) -> vec3<f32> {
+    // Sample the normal texture
+    let normalSample = textureSample(normalTexture, normalSampler, uv).xyz;
+    
+    // Convert from [0,1] range to [-1,1] range
+    let tangentSpaceNormal = normalSample * 2.0 - 1.0;
+    
+    // Create TBN (Tangent-Bitangent-Normal) matrix
+    let tbn = mat3x3<f32>(
+        normalize(worldTangent),
+        normalize(worldBitangent),
+        normalize(worldNormal)
+    );
+    
+    // Transform from tangent space to world space
+    let worldSpaceNormal = tbn * tangentSpaceNormal;
+    
+    return normalize(worldSpaceNormal);
+}
+
+// Alternative version that computes bitangent from normal and tangent
+fn transformNormalWithCrossProduct(
+    normalTexture: texture_2d<f32>,
+    normalSampler: sampler,
+    uv: vec2<f32>,
+    worldNormal: vec3<f32>,
+    worldTangent: vec4<f32> // w component contains handedness
+) -> vec3<f32> {
+    // Sample the normal texture
+    let normalSample = textureSample(normalTexture, normalSampler, uv).xyz;
+    
+    // Convert from [0,1] range to [-1,1] range
+    let tangentSpaceNormal = normalSample * 2.0 - 1.0;
+    
+    // Compute bitangent using cross product
+    let worldBitangent = cross(worldNormal, worldTangent.xyz) * worldTangent.w;
+    
+    // Create TBN matrix
+    let tbn = mat3x3<f32>(
+        normalize(worldTangent.xyz),
+        normalize(worldBitangent),
+        normalize(worldNormal)
+    );
+    
+    // Transform from tangent space to world space
+    let worldSpaceNormal = tbn * tangentSpaceNormal;
+    
+    return normalize(worldSpaceNormal);
+}
+
+// Screen-space derivative method (for use in fragment shader)
+fn transformNormalScreenSpace(
+    normalTexture: texture_2d_array<f32>,
+    normalSampler: sampler,
+    uv: vec2<f32>,
+    layer: u32,
+    worldPosition: vec3<f32>,
+    worldNormal: vec3<f32>
+) -> vec3<f32> {
+    // Sample the normal texture
+    let normalSample = textureSample(normalTextureArray, normalSampler, uv, layer).xyz;
+    // Convert normal map from [0,1] to [-1,1] range
+    let tangentSpaceNormal = normalSample * 2.0 - 1.0;
+    
+    // Calculate tangent and bitangent from world position derivatives
+    let dPdx = dpdx(worldPosition);
+    let dPdy = dpdy(worldPosition);
+    let dUVdx = dpdx(uv);
+    let dUVdy = dpdy(uv);
+    
+    // Calculate tangent and bitangent using screen-space derivatives
+    let det = dUVdx.x * dUVdy.y - dUVdy.x * dUVdx.y;
+    let invDet = 1.0 / (det + 1e-8); // Add small epsilon to avoid division by zero
+    
+    let tangent = (dPdx * dUVdy.y - dPdy * dUVdx.y) * invDet;
+    let bitangent = (dPdy * dUVdx.x - dPdx * dUVdy.x) * invDet;
+    
+    // Normalize and orthogonalize the TBN vectors
+    let N = normalize(worldNormal);
+    let T = normalize(tangent - dot(tangent, N) * N); // Gram-Schmidt orthogonalization
+    let B = normalize(bitangent - dot(bitangent, N) * N - dot(bitangent, T) * T);
+    
+    // Create TBN matrix for transforming from tangent space to world space
+    let tbn = mat3x3f(T, B, N);
+    
+    // Transform normal from tangent space to world space
+    let worldSpaceNormal = tbn * tangentSpaceNormal;
+    
+    return normalize(worldSpaceNormal);
+}
+
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
@@ -1586,6 +1690,17 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var textureColor = textureSample(textureArray, textureSampler, uv, layer);
 
+    var normalSample = textureSample(normalTextureArray, textureSampler, uv, layer);
+
+    normal = transformNormalScreenSpace(
+        normalTextureArray, 
+        textureSampler, 
+        uv, 
+        layer, 
+        in.world_position, 
+        normal
+    );
+
     if (textureColor.a < 0.9) {
         discard;
     }
@@ -1607,11 +1722,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var leaf_wrap: f32 = 0.0;
     if (materialProps.modelId == LEAF_MODEL) {
-        leaf_wrap = 0.15; // 0..0.35 is a good range
+        leaf_wrap = 0.25; // 0..0.35 is a good range
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 4.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 6.5; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
@@ -1627,7 +1742,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 2.0;
+    let ambient_strength = 1.25;
     let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
