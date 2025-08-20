@@ -219,9 +219,12 @@ void Application::MainLoop() {
     float TARGET_FPS = static_cast<float>(refreshRate);
     float TARGET_FRAME_TIME = 1.0f / TARGET_FPS;
 
-    float currentFrame = static_cast<float>(glfwGetTime());
-    deltaTime = currentFrame - lastFrame;
-    lastFrame = currentFrame;
+    // Get frame start time immediately
+    float frameStartTime = static_cast<float>(glfwGetTime());
+
+    // Calculate delta time
+    deltaTime = frameStartTime - lastFrame;
+    lastFrame = frameStartTime;
 
     // Poll events first to minimize input lag
     glfwPollEvents();
@@ -235,14 +238,11 @@ void Application::MainLoop() {
         processInput();
     }
 
-    // Early exit if frame budget is already exceeded
-    float frameStartTime = currentFrame;
-
     auto getChunkCallback = [this](ivec2 c) -> std::shared_ptr<ChunkColumn> {
         return chunkManager.getChunk(c);
         };
 
-    // TODO define getColumnCallback
+    // Raycast for block interaction
     RayIntersectionResult result;
     {
         std::lock_guard<std::mutex> lock(cameraMutex);
@@ -258,31 +258,20 @@ void Application::MainLoop() {
         placeBlockPos = ivec3(INT_MAX, INT_MAX, INT_MAX);
     }
 
-    // Only process block interactions if ImGUI doesn't want mouse input
-    /*if (!io.WantCaptureMouse) {
-        if (shouldBreakBlock) {
-            breakBlock();
-            shouldBreakBlock = false;
-        }
-
-        if (shouldPlaceBlock) {
-            placeBlock();
-            shouldPlaceBlock = false;
-        }
-    }*/
-
+    // Handle time uniforms
     if (imguiState.useManualTime) {
         uniforms.time = imguiState.manualTime;
     }
     else if (!imguiState.pauseTime) {
-        uniforms.time = currentFrame * imguiState.timeMultiplier;
+        uniforms.time = frameStartTime * imguiState.timeMultiplier;
     }
 
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
     uniforms.cameraWorldPos = camera.position;
 
-    glm::vec3 sceneCenter = camera.position; // Center shadow map around camera
-    float sceneRadius = getSceneRadius(); // Adjust based on your render distance
+    // Calculate lighting
+    glm::vec3 sceneCenter = camera.position;
+    float sceneRadius = getSceneRadius();
 
     auto [lightView, lightProj] = calculateLightMatrices(uniforms.time, sceneCenter, sceneRadius);
     uniforms.lightViewMatrix = lightView;
@@ -292,22 +281,23 @@ void Application::MainLoop() {
     uniforms.lightDirection = sunDirection;
     uniforms.lightPosition = sunPosition;
 
-    //buf->writeBuffer("uniform_buffer", 0, &uniforms, sizeof(MyUniforms));
+    // Update uniform buffers
     buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
     buf->writeBuffer("cloud_buffer", 0, &clouds, sizeof(Clouds));
     buf->writeBuffer("noise_buffer", 0, &noise, sizeof(Noise));
     buf->writeBuffer("terrain_buffer", 0, &terrain, sizeof(Terrain));
 
-    // Process GPU uploads from chunk thread (main thread only)
+    // Process GPU uploads from chunk thread
     processGPUUploads();
 
-    auto& renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix, uniforms.projectionMatrix, lightView, lightProj, buf);
-    
+    // Get render data and render
+    auto& renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix,
+        uniforms.projectionMatrix, lightView, lightProj, buf);
+
     renderImGUI();
-    
     gpu.renderFrame(uniforms, renderData);
 
-    // Calculate frame time more accurately
+    // Calculate frame time
     float frameEndTime = static_cast<float>(glfwGetTime());
     frameTime = frameEndTime - frameStartTime;
 
@@ -323,7 +313,7 @@ void Application::MainLoop() {
 
     // Debug output every second
     static float lastDebugTime = 0.0f;
-    if (currentFrame - lastDebugTime >= 1.0f) {
+    if (frameEndTime - lastDebugTime >= 1.0f) {
         chunkManager.printChunkStates();
         chunkManager.printWorkerStatistics();
 
@@ -340,28 +330,28 @@ void Application::MainLoop() {
         std::cout << "Frame Budget Utilization: " << frameBudgetUtilization << "%" << std::endl;
         std::cout << "=========================" << std::endl;
 
-        lastDebugTime = currentFrame;
+        lastDebugTime = frameEndTime;
     }
 
-    // Improved frame rate limiting with more precise timing
-    float timeAfterWork = static_cast<float>(glfwGetTime());
-    float workTime = timeAfterWork - frameStartTime;
+    // Improved frame rate limiting with precise timing
+    float remainingTime = TARGET_FRAME_TIME - frameTime;
 
-    if (workTime < TARGET_FRAME_TIME) {
-        float remainingTime = TARGET_FRAME_TIME - workTime;
+    if (remainingTime > 0.0f) {
+        // Use a smaller sleep buffer for better precision
+        const float SLEEP_BUFFER = 0.001f; // 1ms buffer
 
-        // Use high-precision sleep for better frame pacing
-        // Leave a small buffer to avoid oversleeping
-        const float SLEEP_BUFFER = 0.0005f; // 0.5ms buffer
-
+        // Only sleep if we have significant time remaining
         if (remainingTime > SLEEP_BUFFER) {
             float sleepTime = remainingTime - SLEEP_BUFFER;
-            std::this_thread::sleep_for(std::chrono::duration<float>(sleepTime));
+
+            // Use high-resolution sleep
+            auto sleepDuration = std::chrono::duration<float>(sleepTime);
+            std::this_thread::sleep_for(sleepDuration);
         }
 
-        // Spin-wait for the remaining time for maximum precision
-        while (static_cast<float>(glfwGetTime()) - frameStartTime < TARGET_FRAME_TIME) {
-            // Busy wait for precise timing
+        // Precise spin-wait for the remaining time
+        float targetEndTime = frameStartTime + TARGET_FRAME_TIME;
+        while (static_cast<float>(glfwGetTime()) < targetEndTime) {
             std::this_thread::yield();
         }
     }
