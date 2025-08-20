@@ -27,7 +27,7 @@ public:
 		PipelineConfig config;
 		config.shaderPath = RESOURCE_DIR "/shader.wgsl"; // Same shader as opaque
 		config.colorFormat = TextureFormat::BGRA8Unorm;
-		config.depthFormat = TextureFormat::Depth32Float;
+		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::None;  // IMPORTANT: Disable culling for transparency
 		config.depthWriteEnabled = true;  // CRITICAL: Disable depth writes

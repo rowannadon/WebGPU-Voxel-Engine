@@ -22,6 +22,7 @@
 #include "Pipelines/ShadowPipeline.h"
 #include "Pipelines/TransparentVoxelPipeline.h"
 #include "Pipelines/AtmospherePipeline.h"
+#include "Pipelines/DepthPrePass.h"
 
 #include "../ColumnDAICs.h"
 #include "../Atmosphere.h"

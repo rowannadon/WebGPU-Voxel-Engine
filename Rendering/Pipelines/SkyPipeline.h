@@ -23,7 +23,7 @@ public:
 		PipelineConfig config;
 		config.shaderPath = RESOURCE_DIR "/sky_shader.wgsl";
 		config.colorFormat = TextureFormat::BGRA8Unorm;
-		config.depthFormat = TextureFormat::Depth32Float;
+		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::None;  // No culling for sky
 		config.depthWriteEnabled = false;  // Don't write to depth buffer

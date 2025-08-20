@@ -13,7 +13,7 @@ private:
 	ModelManager* mod;
 
 public:
-	void init(BufferManager* b, TextureManager* t, PipelineManager* p, ModelManager *m, WebGPUContext *con) {
+	void init(BufferManager* b, TextureManager* t, PipelineManager* p, ModelManager* m, WebGPUContext* con) {
 		buf = b;
 		tex = t;
 		pip = p;
