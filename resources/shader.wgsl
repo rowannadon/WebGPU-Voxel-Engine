@@ -513,15 +513,15 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     }
     
     let n_dot_l = max(dot(normal, light_dir), 0.0);
-    let bias = max(0.001 * (1.0 - n_dot_l), 0.001);
+    let bias = max(0.002 * (1.0 - n_dot_l), 0.002);
     let current_depth = proj_coords.z - bias;
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 64;
+    let samples = 25;
     
-    for (var x = -4; x <= 3; x++) {
-        for (var y = -4; y <= 3; y++) {
+    for (var x = -2; x <= 2; x++) {
+        for (var y = -2; y <= 2; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);
@@ -1304,9 +1304,9 @@ fn calculate_pbr_lighting(
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
-            let subsurface_power = 1.0;  // Controls the falloff of the subsurface effect
+            let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.2;  // How much the light bends through the material
-            let subsurface_scale = 0.5;  // Overall intensity scale
+            let subsurface_scale = 0.30;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -1655,28 +1655,28 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var fresnelTerm: f32 = 0.0;
 
     if (material_id == 19u) {
-        let p = in.world_position.xy; // Z-up
-        let t = uMyUniforms.time;
+        // let p = in.world_position.xy; // Z-up
+        // let t = uMyUniforms.time;
 
-        // Noise-driven slope + normal
-        let grad = wave_gradient(p, t);
-        let wN = water_normal_from_grad(grad);
-        normal = normalize(mix(normal, wN, 0.85));
+        // // Noise-driven slope + normal
+        // let grad = wave_gradient(p, t);
+        // let wN = water_normal_from_grad(grad);
+        // normal = normalize(mix(normal, wN, 0.85));
 
-        // Distort existing texture with the noise slope
-        uv += grad * WATER_UV_DISTORTION;
+        // // Distort existing texture with the noise slope
+        // uv += grad * WATER_UV_DISTORTION;
 
-        // Fresnel-based transparency as before
-        let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
-        fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
+        // // Fresnel-based transparency as before
+        // let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
+        // fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
         blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
 
         // Depth-ish tint from choppiness
-        let slope = length(grad);
-        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
+        // let slope = length(grad);
+        // waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
 
-        // Foam from steep crests (uses the same procedural noise)
-        foam = water_foam_from_grad(p, t, slope);
+        // // Foam from steep crests (uses the same procedural noise)
+        // foam = water_foam_from_grad(p, t, slope);
     }
 
     var layer : u32 = materialProps.textureId0;
@@ -1690,6 +1690,10 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var textureColor = textureSample(textureArray, textureSampler, uv, layer);
 
+    if (textureColor.a < 0.9) {
+        discard;
+    }
+
     var normalSample = textureSample(normalTextureArray, textureSampler, uv, layer);
 
     normal = transformNormalScreenSpace(
@@ -1700,10 +1704,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         in.world_position, 
         normal
     );
-
-    if (textureColor.a < 0.9) {
-        discard;
-    }
 
     // Combine material albedo with texture
     var albedo = materialProps.pbr.albedo * textureColor.rgb;
@@ -1716,13 +1716,13 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
-    let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0625)), 16.0);
+    let sun_intensity = 1.0; //pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0625)), 16.0);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
 
     var leaf_wrap: f32 = 0.0;
     if (materialProps.modelId == LEAF_MODEL) {
-        leaf_wrap = 0.25; // 0..0.35 is a good range
+        leaf_wrap = 0.35; // 0..0.35 is a good range
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
@@ -1761,7 +1761,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
     let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
-    
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     

@@ -38,6 +38,12 @@ using glm::vec3;
 using glm::vec2;
 using glm::ivec2;
 
+struct ProbabilityConfig {
+    int value;
+    float probability;
+};
+
+
 struct IVec3Hash {
     std::size_t operator()(const ivec3& k) const {
         // Simple hash combination
@@ -231,6 +237,26 @@ public:
 
     std::vector<std::pair<int, ivec3>> getTreeData() {
         return treeData;
+    }
+
+    template<size_t N>
+    int sampleFromDistribution(uint32_t hash, const std::array<ProbabilityConfig, N>& config) {
+        // Convert hash to normalized float [0, 1)
+        // Use upper 24 bits for better distribution
+        float normalizedHash = static_cast<float>(hash >> 8) / static_cast<float>(1u << 24);
+
+        float cumulativeProbability = 0.0f;
+
+        for (const auto& entry : config) {
+            cumulativeProbability += entry.probability;
+            if (normalizedHash < cumulativeProbability) {
+                return entry.value;
+            }
+        }
+
+        // Fallback: return last value if probabilities don't sum to 1.0
+        // or due to floating point precision issues
+        return config.back().value;
     }
 
     const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>&
@@ -969,7 +995,7 @@ public:
         setState(ColumnState::TerrainReady);
     }
 
-    void generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+    void generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors = {}) {
         beginMaterialEditing();
         // Lambda to safely check voxels including cross-chunk positions
         auto isVoxelSolid = [this, &neighbors](ivec3 pos) -> bool {
@@ -1118,7 +1144,8 @@ public:
                             case 0:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 256 == 0) {
+
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 128 == 0) {
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
@@ -1129,19 +1156,19 @@ public:
                                             closestDistance = glm::min(distance, closestDistance);
                                         }
 
-                                        int size = 2;
+                                        static const std::array<ProbabilityConfig, 11> config = { {
+                                            { 1,     0.2f},
+                                            { 2,     0.2f},
+                                            { 3,     0.2f},
+                                            { 4,     0.2f},
+                                            { 5,     0.2f}
+                                        } };
 
-                                        if (blockHash % 512 == 0) {
-                                            size = 3;
-                                        }
+                                        int size = sampleFromDistribution(blockHash, config);
 
-                                        if (blockHash % 2048 == 0) {
-                                            size = 1;
-                                        }
-
-                                        if (closestDistance > 8) {
+                                        //if (closestDistance > 16) {
                                             treeData.push_back({ size, positionAbove });
-                                        }
+                                        //}
                                     }
                                 }
                                 break;
@@ -1158,23 +1185,27 @@ public:
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
-                                    UnpackedVoxelMaterial material;
-                                    material.facing = FacingDirection::PlusX;
-                                    if (blockHash % 4 != 0) {
-                                        material.materialType = BlockType::TallGrass; // grass
-                                    }
-                                    else if (blockHash % 4 == 0) {
-                                        if (blockHash % 8 == 0) {
-                                            material.materialType = BlockType::Grass0; // grass
-                                        }
-                                        else {
-                                            material.materialType = BlockType::Grass1; // grass
-                                        }
-                                    }
+                                    static const std::array<ProbabilityConfig, 11> config = { {
+                                            { 0,     0.6f},
+                                            { 1,     0.2f},
+                                            { 2,     0.2f},
+                                        } };
 
-                                    setMaterialFast(grassPos, material);
-                                    setVoxelWholeColumn(grassPos, false, false);
+                                    int index = sampleFromDistribution(blockHash, config);
+                                    
+                                    static const std::array<BlockType, 3> grassTypes = {
+                                        BlockType::TallGrass,
+                                        BlockType::Grass0,
+                                        BlockType::Grass1
+                                    };
+                                    
+                                    UnpackedVoxelMaterial m2;
+                                    m2.facing = FacingDirection::PlusX;
+                                    m2.materialType = grassTypes[index];
+
                                     setVoxelWholeColumn(grassPos, true, true);
+                                    setVoxelWholeColumn(grassPos, false, false);
+                                    setMaterialFast(grassPos, m2);
                                 }
 
                                 for (int layer = 0; layer < 2; layer++) {
@@ -1243,7 +1274,7 @@ public:
         }
     }
 
-    void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+    void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors = {}) {
         UnpackedVoxelMaterial trunkMaterial;
         trunkMaterial.facing = FacingDirection::PlusZ;
         trunkMaterial.materialType = BlockType::Log;
@@ -1269,7 +1300,7 @@ public:
 
             Structure s = structureManager->getStructure(name, rotation);
             if (s.empty()) { 
-                //std::cout << "No structure data to place";
+                std::cerr << "No structure data to place";
                 return;
             };
 
@@ -1289,166 +1320,26 @@ public:
                 setVoxelWholeColumn(p, isTransparent, true);
                 setMaterialFast(p, UnpackedVoxelMaterial{ v.mappedMaterial, FacingDirection::PlusZ });
             }
-
-            };
-
-        // A helper lambda to generate the shape of a single tree.
-        // It takes a base position relative to the current chunk's origin and a pre-calculated height.
-        // The setVoxel/setMaterial calls within will automatically clip the tree to the chunk's boundaries.
-        auto placeTreeShape = [&](const ivec3& basePos, int treeHeight) {
-            int leafHeight = 3;
-
-            // Generate leaves first so trunk can overwrite it (looks better)
-            // This uses the same shape as your original code.
-            for (int i = -2; i <= 2; i++) {
-                for (int j = -2; j <= 2; j++) {
-                    for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
-                    }
-                }
-            }
-
-            for (int i = -1; i <= 1; i++) {
-                for (int j = -1; j <= 1; j++) {
-                    for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
-                    }
-                }
-            }
-
-            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
-
-            // Generate trunk
-            for (int i = 0; i < treeHeight - 1; i++) {
-                setVoxelWholeColumn(basePos + ivec3(0, 0, i), false, true);
-                setVoxelWholeColumn(basePos + ivec3(0, 0, i), true, false);
-                setMaterialFast(basePos + ivec3(0, 0, i), trunkMaterial);
-            }
-            };
-
-        auto placeLargeTreeShape = [&](const ivec3& basePos, int treeHeight) {
-            int leafHeight = 4;
-
-            for (int i = -3; i <= 4; i++) {
-                for (int j = -3; j <= 4; j++) {
-                    for (int k = treeHeight - leafHeight; k <= treeHeight - 3; k++) {
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
-                    }
-                }
-            }
-
-            for (int i = -2; i <= 3; i++) {
-                for (int j = -2; j <= 3; j++) {
-                    for (int k = treeHeight - leafHeight; k <= treeHeight - 2; k++) {
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
-                    }
-                }
-            }
-
-            for (int i = -1; i <= 2; i++) {
-                for (int j = -1; j <= 2; j++) {
-                    for (int k = treeHeight - leafHeight; k <= treeHeight - 1; k++) {
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), false, false);
-                        setVoxelWholeColumn(basePos + ivec3(i, j, k), true, true);
-                        setMaterialFast(basePos + ivec3(i, j, k), leavesMaterial);
-                    }
-                }
-            }
-
-            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, 1, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, 1, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, -1, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, -1, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(1, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(1, 0, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(-1, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(-1, 0, treeHeight), leavesMaterial);
-
-            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), false, false);
-            setVoxelWholeColumn(basePos + ivec3(0, 0, treeHeight), true, true);
-            setMaterialFast(basePos + ivec3(0, 0, treeHeight), leavesMaterial);
-
-            // Generate trunk
-            for (int i = -1; i < treeHeight - 1; i++) {
-                setVoxelWholeColumn(basePos + ivec3(0, 0, i), false, true);
-                setVoxelWholeColumn(basePos + ivec3(0, 0, i), true, false);
-                setMaterialFast(basePos + ivec3(0, 0, i), trunkMaterial);
-            }
-            for (int i = -1; i < treeHeight - 1; i++) {
-                setVoxelWholeColumn(basePos + ivec3(1, 0, i), false, true);
-                setVoxelWholeColumn(basePos + ivec3(1, 0, i), true, false);
-                setMaterialFast(basePos + ivec3(1, 0, i), trunkMaterial);
-            }
-            for (int i = -1; i < treeHeight - 1; i++) {
-                setVoxelWholeColumn(basePos + ivec3(0, 1, i), false, true);
-                setVoxelWholeColumn(basePos + ivec3(0, 1, i), true, false);
-                setMaterialFast(basePos + ivec3(0, 1, i), trunkMaterial);
-            }
-            for (int i = -1; i < treeHeight - 1; i++) {
-                setVoxelWholeColumn(basePos + ivec3(1, 1, i), false, true);
-                setVoxelWholeColumn(basePos + ivec3(1, 1, i), true, false);
-                setMaterialFast(basePos + ivec3(1, 1, i), trunkMaterial);
-            }
-            };
+        };
 
         // 1. Generate trees that are rooted in THIS chunk.
         for (const auto pair : treeData) {
             ivec3 localTreePos = pair.second;
-            // Calculate a deterministic height based on the tree's absolute world position
-            // to ensure consistency across chunk boundaries.
-            ivec3 worldTreePos = ivec3(this->position.x, this->position.y, 0) + localTreePos;
-            int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8); // Range 4-6
 
-            if (pair.first == 2) {
-                stampStructureAt("tree2", localTreePos);
-            }
-            else if (pair.first == 3) {
-                stampStructureAt("tree3", localTreePos);
-            }
-            else {
-                stampStructureAt("tree", localTreePos);
-            }
+            std::string treeName = "tree" + std::to_string(pair.first);
+            stampStructureAt(treeName, localTreePos);
         }
 
         // 2. Generate parts of trees rooted in NEIGHBORING chunks.
-        const ivec3 neighborChunkOffsets[6] = {
-            ivec3(-CHUNK_SIZE, 0, 0),   // Right neighbor: to map its local to ours, we subtract {32,0,0}
-            ivec3(CHUNK_SIZE, 0, 0),    // Left neighbor: to map its local to ours, we add {32,0,0}
-            ivec3(0, -CHUNK_SIZE, 0),   // Front neighbor
-            ivec3(0, CHUNK_SIZE, 0),    // Back neighbor
+        const ivec3 neighborChunkOffsets[8] = {
+            ivec3(-CHUNK_SIZE, 0, 0),           // Right (0)
+            ivec3(CHUNK_SIZE, 0, 0),            // Left (1)
+            ivec3(0, -CHUNK_SIZE, 0),           // Front (2)
+            ivec3(0, CHUNK_SIZE, 0),            // Back (3)
+            ivec3(-CHUNK_SIZE, -CHUNK_SIZE, 0), // Right-Front (4)
+            ivec3(-CHUNK_SIZE, CHUNK_SIZE, 0),  // Right-Back (5)
+            ivec3(CHUNK_SIZE, -CHUNK_SIZE, 0),  // Left-Front (6)
+            ivec3(CHUNK_SIZE, CHUNK_SIZE, 0),   // Left-Back (7)
         };
 
         // NOTE: The offsets seem reversed but are correct for transforming a point from
@@ -1460,28 +1351,19 @@ public:
             ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0)
         };
 
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 8; ++i) {
             const auto& neighbor = neighbors[i];
             if (neighbor) {
                 const ivec2 neighborWorldOrigin = neighbor->getColumnPosition();
                 const ivec2 transformOffset = (neighborWorldOrigin - this->position);
 
-                // For each tree rooted in the neighbor...
                 for (const auto pair : neighbor->getTreeData()) {
                     ivec3 neighborTreeLocalPos = pair.second;
-                    // ...calculate its absolute world position to get a deterministic height.
-                    ivec3 worldTreePos = ivec3(neighborWorldOrigin.x, neighborWorldOrigin.y, 0) + neighborTreeLocalPos;
-                    int treeHeight = 4 + (std::abs(worldTreePos.x * 19 + worldTreePos.y * 23) % 8);
+                    ivec3 transformedBasePos = neighborTreeLocalPos +
+                        ivec3(transformOffset.x, transformOffset.y, 0);
 
-                    // ...transform its base position into THIS chunk's local coordinate system.
-                    ivec3 transformedBasePos = neighborTreeLocalPos + ivec3(transformOffset.x, transformOffset.y, 0);
-
-                    if (pair.first == 2) {
-                        stampStructureAt("tree", transformedBasePos);
-                    }
-                    else {
-                        stampStructureAt("tree3", transformedBasePos);
-                    }
+                    std::string treeName = "tree" + std::to_string(pair.first);
+                    stampStructureAt(treeName, transformedBasePos);
                 }
             }
         }
@@ -2056,8 +1938,11 @@ public:
         return true;
     }
 
-    bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors = {}) {
+    bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors8 = {}) {
         bool success = true;
+        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors = { nullptr };
+        std::copy(neighbors8.begin(), neighbors8.begin() + 4, neighbors.begin());
+
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             if (getChunkState(i) == ChunkState::NoMesh) {
                 int result = generateLODMeshes(i, neighbors);

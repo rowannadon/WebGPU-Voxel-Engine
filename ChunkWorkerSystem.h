@@ -37,7 +37,7 @@ private:
     Type type;
     std::shared_ptr<ChunkColumn> chunk;
     ivec2 position;
-    std::array<std::shared_ptr<ChunkColumn>, 4> neighbors;
+    std::array<std::shared_ptr<ChunkColumn>, 8> neighbors;
     int priority;
     int id;
     std::chrono::steady_clock::time_point creation_time;
@@ -56,7 +56,7 @@ public:
     }
 
     ChunkWorkItem(Type t, std::shared_ptr<ChunkColumn> c, ivec2 pos,
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighs, int prio = NORMAL)
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighs, int prio = NORMAL)
         : type(t), chunk(c), position(pos), neighbors(neighs), priority(prio),
         id(next_id++), creation_time(std::chrono::steady_clock::now()) {
     }
@@ -73,7 +73,7 @@ public:
     Type getType() const { return type; }
     std::shared_ptr<ChunkColumn> getChunk() const { return chunk; }
     ivec2 getPosition() const { return position; }
-    const std::array<std::shared_ptr<ChunkColumn>, 4>& getNeighbors() const { return neighbors; }
+    const std::array<std::shared_ptr<ChunkColumn>, 8>& getNeighbors() const { return neighbors; }
     int getPriority() const { return priority; }
     int getId() const { return id; }
 
@@ -238,7 +238,7 @@ public:
     }
 
     bool queueTopsoilGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -250,7 +250,7 @@ public:
     }
 
     bool queueTreeGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -262,7 +262,7 @@ public:
     }
 
     bool queueMeshGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
@@ -274,7 +274,7 @@ public:
     }
 
     bool queueMeshRegeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors) {
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {

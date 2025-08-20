@@ -260,30 +260,30 @@ public:
         if (currentFrame % 600 == 0) cleanupCache();
 
         // Sort camera lists (opaque: near far optional, transparent: far near required)
-        //std::sort(transparentDAICsWithPos.begin(), transparentDAICsWithPos.end(),
-        //    [&cameraPos, &view](const DAICWithPosition& a, const DAICWithPosition& b) {
-        //        // Use far AABB distance along view dir (more stable than center distance)
-        //        const vec3 vdir = normalize(vec3(-view[2][0], -view[2][1], -view[2][2]));
-        //        auto farDepth = [&](const DAICWithPosition& d) {
-        //            vec3 mn = d.worldPosition;
-        //            vec3 mx = d.worldPosition + vec3(32.0f);
-        //            float best = -1e30f;
-        //            vec3 corners[8] = {
-        //                {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mn.x,mx.y,mn.z},{mx.x,mx.y,mn.z},
-        //                {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mn.x,mx.y,mx.z},{mx.x,mx.y,mx.z}
-        //            };
-        //            for (auto& c : corners) best = std::max(best, glm::dot(c - cameraPos, vdir));
-        //            return best;
-        //            };
-        //        return farDepth(a) < farDepth(b);
-        //    });
+        std::sort(transparentDAICsWithPos.begin(), transparentDAICsWithPos.end(),
+            [&cameraPos, &view](const DAICWithPosition& a, const DAICWithPosition& b) {
+                // Use far AABB distance along view dir (more stable than center distance)
+                const vec3 vdir = normalize(vec3(-view[2][0], -view[2][1], -view[2][2]));
+                auto farDepth = [&](const DAICWithPosition& d) {
+                    vec3 mn = d.worldPosition;
+                    vec3 mx = d.worldPosition + vec3(32.0f);
+                    float best = -1e30f;
+                    vec3 corners[8] = {
+                        {mn.x,mn.y,mn.z},{mx.x,mn.y,mn.z},{mn.x,mx.y,mn.z},{mx.x,mx.y,mn.z},
+                        {mn.x,mn.y,mx.z},{mx.x,mn.y,mx.z},{mn.x,mx.y,mx.z},{mx.x,mx.y,mx.z}
+                    };
+                    for (auto& c : corners) best = std::max(best, glm::dot(c - cameraPos, vdir));
+                    return best;
+                    };
+                return farDepth(a) > farDepth(b);
+            });
 
-        /*std::sort(opaqueDAICsWithPos.begin(), opaqueDAICsWithPos.end(),
+        std::sort(opaqueDAICsWithPos.begin(), opaqueDAICsWithPos.end(),
             [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
                 vec3 ac = a.worldPosition + vec3(16.0f);
                 vec3 bc = b.worldPosition + vec3(16.0f);
                 return glm::length2(ac - cameraPos) < glm::length2(bc - cameraPos);
-            });*/
+            });
 
         // Flatten
         std::vector<DAIC> opaqueCamera, transparentCamera;
@@ -309,16 +309,21 @@ public:
         }
     }
 
-    std::array<std::shared_ptr<ChunkColumn>, 4> getNeighbors(const ivec2& chunkPos) {
-        std::array<std::shared_ptr<ChunkColumn>, 4> neighbors = {};
-        ivec2 neighborPositions[4] = {
-            chunkPos + ivec2(1, 0),   // Right
-            chunkPos + ivec2(-1, 0),  // Left
-            chunkPos + ivec2(0, 1),   // Front
-            chunkPos + ivec2(0, -1),  // Back
+    std::array<std::shared_ptr<ChunkColumn>, 8> getNeighbors(const ivec2& chunkPos) {
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors = {};
+        ivec2 neighborPositions[8] = {
+            chunkPos + ivec2(1, 0),    // Right (0)
+            chunkPos + ivec2(-1, 0),   // Left (1)
+            chunkPos + ivec2(0, 1),    // Front (2)
+            chunkPos + ivec2(0, -1),   // Back (3)
+            chunkPos + ivec2(1, 1),    // Right-Front (4)
+            chunkPos + ivec2(1, -1),   // Right-Back (5)
+            chunkPos + ivec2(-1, 1),   // Left-Front (6)
+            chunkPos + ivec2(-1, -1),  // Left-Back (7)
         };
 
-        for (int i = 0; i < 4; ++i) {
+        std::shared_lock<std::shared_mutex> lock(columnsMutex);
+        for (int i = 0; i < 8; ++i) {
             auto it = columns.find(neighborPositions[i]);
             if (it != columns.end()) {
                 neighbors[i] = it->second;
@@ -792,7 +797,7 @@ private:
                 auto neighbors = getNeighbors(chunkPos);
                 bool allNeighborsReady = true;
 
-                for (int i = 0; i < 4; ++i) {
+                for (int i = 0; i < 8; ++i) {
                     auto neighbor = neighbors[i];
                     if (!neighbor || neighbor->getState() < ColumnState::TopsoilReady) {
                         allNeighborsReady = false;

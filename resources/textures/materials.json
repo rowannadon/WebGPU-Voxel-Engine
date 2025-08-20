@@ -179,12 +179,13 @@
       "id": 5,
       "name": "Slate",
       "texture": [
-        "ctm2.png"
+        "sandstone.png",
+        "sandstone_top.png"
       ],
       "normal": [],
       "model": "VOXEL_MODEL",
-      "textureType": "CONNECTED",
-      "orientation": "NONE",
+      "textureType": "LARGE_TILE",
+      "orientation": "SINGLE_AXIS",
       "tileCount": 4,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
@@ -329,13 +330,13 @@
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
       "tileCount": 4,
-      "randomOffset": 0.08,
+      "randomOffset": 0.15,
       "randomOffsetDirections": [
         "X",
         "Y",
         "Z"
       ],
-      "windStrength": 0.5,
+      "windStrength": 1.0,
       "pbr": {
         "albedo": [
           0.5,
@@ -343,7 +344,7 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.6,
+        "roughness": 0.75,
         "dielectric": 0.015,
         "emission": [
           0.0,
@@ -352,7 +353,7 @@
         ],
         "normal": 1.0,
         "AO": 0.0,
-        "subsurface": 0.5,
+        "subsurface": 0.6,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }

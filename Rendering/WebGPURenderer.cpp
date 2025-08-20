@@ -30,10 +30,10 @@ bool WebGPURenderer::initialize() {
 		{ 2048,    5485 },
 		{ 4096,    2698 },
 		{ 16384,   2391 },
-		{ 65536,      16 }, 
+		{ 65536,      1000 }, 
 	} };
 
-	float capacityScale = 5.0f;
+	float capacityScale = 1.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());
@@ -226,16 +226,16 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	}
 
 	// TRANSPARENT casters
-	if (!chunkRenderData.transparentShadowDAICs.empty()) {
-		// Second shadow pass loads & stores into the same depth
-		shadowPipeline.render(
-			chunkRenderData.transparentShadowDAICs.size(),
-			transparentShadowIndirectBuffer,
-			encoder,
-			/*bindGroupName=*/"shadow_uniforms_group_transparent",
-			/*loadOp=*/LoadOp::Load
-		);
-	}
+	//if (!chunkRenderData.transparentShadowDAICs.empty()) {
+	//	// Second shadow pass loads & stores into the same depth
+	//	shadowPipeline.render(
+	//		chunkRenderData.transparentShadowDAICs.size(),
+	//		transparentShadowIndirectBuffer,
+	//		encoder,
+	//		/*bindGroupName=*/"shadow_uniforms_group_transparent",
+	//		/*loadOp=*/LoadOp::Load
+	//	);
+	//}
 
 	skyPipeline.render(targetView, encoder);
 

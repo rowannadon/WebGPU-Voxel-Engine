@@ -35,11 +35,11 @@ static_assert(sizeof(MyUniforms) % 16 == 0);
 inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCenter, float sceneRadius) {
     
     float sun_angle = time * 0.1f;
-    glm::vec3 sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.75f, cos(sun_angle)));
+    glm::vec3 sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.2f, cos(sun_angle)));
 
     if (cos(sun_angle) < 0.0f) {
         sun_angle = time * 0.1;
-        sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.75f, cos(sun_angle)));
+        sunDirection = glm::normalize(glm::vec3(sin(sun_angle), 0.2f, cos(sun_angle)));
     }
 
     glm::vec3 sunPosition = sceneCenter + sunDirection * sceneRadius * 4.0f;
@@ -48,7 +48,7 @@ inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCen
 }
 
 inline float getSceneRadius() {
-    return 300.0f;
+    return 600.0f;
 }
 
 // Helper function to calculate light matrices
