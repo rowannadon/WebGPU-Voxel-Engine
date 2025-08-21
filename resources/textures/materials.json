@@ -321,10 +321,10 @@
       "id": 9,
       "name": "Leaves",
       "texture": [
-        "leaves2.png"
+        "leaves3.png"
       ],
       "normal": [
-        "LP_Normal.png"
+        "leaves3_normal.png"
       ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
@@ -726,6 +726,82 @@
           0.0
         ],
         "normal": 1.1,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 20,
+      "name": "Spruce Leaves",
+      "texture": [
+        "spruce_leaves.png"
+      ],
+      "normal": [
+        "leaves3_normal.png"
+      ],
+      "model": "LEAF_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 4,
+      "randomOffset": 0.15,
+      "randomOffsetDirections": [
+        "X",
+        "Y",
+        "Z"
+      ],
+      "windStrength": 1.0,
+      "pbr": {
+        "albedo": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "metallic": 0.0,
+        "roughness": 0.75,
+        "dielectric": 0.015,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 0.0,
+        "subsurface": 0.2,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 21,
+      "name": "Spruce Log",
+      "texture": [
+        "oak_log.png"
+      ],
+      "normal": [],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_VARIANT",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "albedo": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "metallic": 0.0,
+        "roughness": 0.7,
+        "dielectric": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
         "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,

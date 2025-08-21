@@ -590,6 +590,60 @@ fn get_opposite_face(facing_dir: u32) -> u32 {
     }
 }
 
+fn rotateX(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+    );
+    return m * v;
+}
+
+fn rotateY(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+    );
+    return m * v;
+}
+
+fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+    );
+    return m * v;
+}
+
+fn apply_random_tilt(vertex_pos: vec3f, normal: vec3f, hash: u32) -> vec3f {
+    // Extract tilt angles from hash (use different bits than offset)
+    let tilt_x_bits = (hash >> 24u) & 0xFFu;
+    let tilt_y_bits = (hash >> 16u) & 0xFFu;
+    let tilt_z_bits = (hash >> 8u) & 0xFFu;
+    
+    // Convert to angles in range [-20, +20] degrees
+    let max_tilt_radians = radians(10.0);
+    let tilt_x = (f32(tilt_x_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_y = (f32(tilt_y_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_z = (f32(tilt_z_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    
+    // Apply rotations in sequence: X -> Y -> Z
+    var tilted_pos = vertex_pos;
+    tilted_pos = rotateX(tilted_pos, tilt_x);
+    tilted_pos = rotateY(tilted_pos, tilt_y);
+    tilted_pos = rotateZ(tilted_pos, tilt_z);
+    
+    return tilted_pos;
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -649,6 +703,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // Calculate tile offsets for random texture variations
     let tile_x = hash & (materialProps.tileCount - 1u);
     let tile_y = (hash >> (materialProps.tileCount * 2u)) & (materialProps.tileCount - 1u);
+    let tile_z = (hash >> (materialProps.tileCount * 3u)) & (materialProps.tileCount - 1u);
     let tile_rotation = (hash >> (materialProps.tileCount * 4u)) & (materialProps.tileCount - 1u);
     let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
     let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
@@ -664,9 +719,22 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     );
 
     var base_vertex: vec3f;
+    var normal: vec3f;
     
     if (materialProps.modelId != VOXEL_MODEL) {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+        normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+        normal = rotateX(normal, f32(tile_x) * 0.1);
+        normal = rotateY(normal, f32(tile_y) * 0.1);
+        normal = rotateZ(normal, f32(tile_z) * 0.1);
+        normal = normalize(normal);
+
+        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
+                // Apply random tilt to break coplanarity when all axes have offset
+                base_vertex = apply_random_tilt(base_vertex, normal, hash);
+        }
     } else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
     }

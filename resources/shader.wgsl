@@ -772,6 +772,27 @@ fn rotate_uv(uv: vec2f, rot: u32) -> vec2f {
     return rotated + 0.5;
 }
 
+fn apply_random_tilt(vertex_pos: vec3f, normal: vec3f, hash: u32) -> vec3f {
+    // Extract tilt angles from hash (use different bits than offset)
+    let tilt_x_bits = (hash >> 24u) & 0xFFu;
+    let tilt_y_bits = (hash >> 16u) & 0xFFu;
+    let tilt_z_bits = (hash >> 8u) & 0xFFu;
+    
+    // Convert to angles in range [-20, +20] degrees
+    let max_tilt_radians = radians(10.0);
+    let tilt_x = (f32(tilt_x_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_y = (f32(tilt_y_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_z = (f32(tilt_z_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    
+    // Apply rotations in sequence: X -> Y -> Z
+    var tilted_pos = vertex_pos;
+    tilted_pos = rotateX(tilted_pos, tilt_x);
+    tilted_pos = rotateY(tilted_pos, tilt_y);
+    tilted_pos = rotateZ(tilted_pos, tilt_z);
+    
+    return tilted_pos;
+}
+
 fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
     let four_neighborhood = m.left + m.right + m.up + m.down;
     let corners = m.up_left + m.up_right + m.down_left + m.down_right;
@@ -1144,31 +1165,36 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
-    if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
-        has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
-        has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
-            // TODO: Apply random tilt to break coplanarity
-    }
-
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     var normal: vec3f;
 
     if (materialProps.modelId != VOXEL_MODEL) {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
-        scaled_vertex_offset = base_vertex * lod_scale;
         normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
         normal = rotateX(normal, f32(tile_x) * 0.1);
         normal = rotateY(normal, f32(tile_y) * 0.1);
         normal = rotateZ(normal, f32(tile_z) * 0.1);
         normal = normalize(normal);
+
+        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
+                // Apply random tilt to break coplanarity when all axes have offset
+                base_vertex = apply_random_tilt(base_vertex, normal, hash);
+                
+                // Also apply tilt to the normal vector
+                normal = apply_random_tilt(normal, normal, hash);
+                normal = normalize(normal);
+        }
     }
     else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
-        scaled_vertex_offset = base_vertex * lod_scale;
         normal = faceNormals[data.normal_index];
     }
     
+    scaled_vertex_offset = base_vertex * lod_scale;
+
     // Calculate initial position before wind
     let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
@@ -1732,11 +1758,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var leaf_wrap: f32 = 0.0;
     if (materialProps.modelId == LEAF_MODEL) {
-        leaf_wrap = 0.35; // 0..0.35 is a good range
+        leaf_wrap = 0.0; // 0..0.35 is a good range
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 5.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 7.0; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
@@ -1752,7 +1778,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 1.25;
+    let ambient_strength = 0.75;
     let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
