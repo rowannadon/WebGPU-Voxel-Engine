@@ -30,10 +30,10 @@ bool WebGPURenderer::initialize() {
 		{ 2048,    5485 },
 		{ 4096,    2698 },
 		{ 16384,   2391 },
-		{ 65536,      1000 }, 
+		{ 65536,      1500 }, 
 	} };
 
-	float capacityScale = 1.0f;
+	float capacityScale = 3.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());
@@ -81,6 +81,7 @@ bool WebGPURenderer::initialize() {
 	transmittancePipeline.init(buf, tex, pip);
 	voxelPipeline.init(buf, tex, pip, mod, context.get());
 	transparentVoxelPipeline.init(buf, tex, pip, mod, context.get());
+	depthPrePassPipeline.init(buf, tex, pip, mod, context.get());
 
 	// create resources
 	initTextures();
@@ -93,6 +94,7 @@ bool WebGPURenderer::initialize() {
 	voxelPipeline.createResources();
 	terrainPipeline.createResources();
 	shadowPipeline.createResources();
+	depthPrePassPipeline.createResources();
 
 	// create pipelines
 	noisePipeline.createPipeline();
@@ -106,6 +108,7 @@ bool WebGPURenderer::initialize() {
 	atmospherePipeline.createPipeline();
 	terrainPipeline.createPipeline();
 	transparentVoxelPipeline.createPipeline();
+	depthPrePassPipeline.createPipeline();
 
 	initSharedUniformBuffers();
 	initBindGroups();
@@ -115,6 +118,7 @@ bool WebGPURenderer::initialize() {
 
 void WebGPURenderer::recreateRenderingTextures() {
 	voxelPipeline.createResources();
+	depthPrePassPipeline.createResources();
 }
 
 WebGPUContext* WebGPURenderer::getContext() {
@@ -241,6 +245,12 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 
 	// === OPAQUE VOXEL RENDER PASS ===
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
+		depthPrePassPipeline.render(
+			chunkRenderData.opaqueDAICs.size(),
+			opaqueIndirectBuffer,
+			targetView,
+			encoder);
+
 		voxelPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
 			opaqueIndirectBuffer,
@@ -428,6 +438,7 @@ bool WebGPURenderer::initBindGroups() {
 	skyPipeline.createBindGroup();
 	atmospherePipeline.createBindGroup();
 	transparentVoxelPipeline.createBindGroup();
+	depthPrePassPipeline.createBindGroup();
 
 	return true;
 }

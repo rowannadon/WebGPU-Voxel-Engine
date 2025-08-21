@@ -1,4 +1,5 @@
 // unified_cloud_shader.wgsl - Combined cloud density from shader 1 with lighting from shader 2
+// Enhanced with realistic sun rendering including bloom and rays
 //
 // COORDINATE SYSTEM:
 // - Terrain shader uses feet as base unit (1 unit = 1 foot)
@@ -145,7 +146,7 @@ const LIMB_DARKENING_ON_SUN = false;
 
 const SUN_ILLUMINANCE: vec3<f32> = vec3<f32>(1.0, 1.0, 1.0);
 const SUN_DISK_DIAMETER: f32 = 0.0235;
-const SUN_DISK_LUMINANCE_SCALE: f32 = 100.0; 
+const SUN_DISK_LUMINANCE_SCALE: f32 = 1000.0; 
 const MOON_ILLUMINANCE: vec3<f32> = vec3<f32>(0.05, 0.05, 0.05);
 const MOON_DISK_DIAMETER: f32 = 0.0235; 
 const MOON_DISK_LUMINANCE_SCALE: f32 = 0.5; 
@@ -153,6 +154,17 @@ const TO_KM_SCALE = 1.0/3280.0;
 
 // Cloud constants
 const SUN_POWER: vec3<f32> = vec3<f32>(1.0, 0.9, 0.6) * 750.0;
+
+// Sun rendering enhancement constants
+const SUN_BLOOM_SCALE: f32 = 2.5;  // How much larger the bloom is than the sun disk
+const SUN_BLOOM_INTENSITY: f32 = 0.015;  // Bloom brightness multiplier (increased)
+const SUN_CORONA_SCALE: f32 = 12.0;  // Scale of the outer corona glow
+const SUN_CORONA_INTENSITY: f32 = 0.035;  // Corona brightness (increased)
+const SUN_RAY_COUNT: f32 = 12.0;  // Number of sun rays
+const SUN_RAY_LENGTH: f32 = 0.35;  // Length of sun rays in radians
+const SUN_RAY_INTENSITY: f32 = 0.0025;  // Ray brightness (increased)
+const SUN_SPIKE_INTENSITY: f32 = 0.03;  // Camera lens spike intensity (increased)
+const SUN_SPIKE_LENGTH: f32 = 0.4;  // Length of lens spikes
 
 // Utility functions from shader 2
 fn d0(x: f32) -> f32 {
@@ -644,8 +656,126 @@ fn ray_sphere_intersect(origin: vec3<f32>, direction: vec3<f32>, radius: f32) ->
     }
 }
 
+// NEW: Enhanced sun disk rendering with bloom and rays
+fn enhanced_sun_disk_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, 
+                               sun_dir: vec3<f32>, apply_limb_darkening: bool, 
+                               pixel_pos: vec2<f32>, screen_size: vec2<f32>) -> vec3<f32> {
+    let light = get_atmosphere_light_with_dynamic_direction(sun_dir);
+    
+    let cos_view_sun = dot(world_dir, light.direction);
+    let angle_to_sun = acos(clamp(cos_view_sun, -1.0, 1.0));
+    let cos_disk_radius = cos(0.5 * light.disk_diameter);
+    
+    // Check if we're looking away from sun or if planet blocks it
+    if (cos_view_sun <= 0.0 || ray_intersects_sphere(world_pos, world_dir, vec3<f32>(), atmosphere.bottom_radius)) {
+        return vec3<f32>();
+    }
+    
+    // Get base transmittance
+    let height = length(world_pos);
+    let zenith = world_pos / height;
+    let cos_view_zenith = dot(world_dir, zenith);
+    let uv = transmittance_lut_params_to_uv(atmosphere, height, cos_view_zenith);
+    let transmittance_sun = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
+    
+    // Calculate base sun luminance - but scale it down significantly
+    let disk_solid_angle = tau * cos_disk_radius;
+    let l_outer_space = (light.illuminance / disk_solid_angle) * light.disk_luminance_scale * 0.1; // Scale down base luminance
+    
+    var sun_luminance = vec3<f32>(0.0);
+    
+    // 1. Core sun disk (brightest part) - but not too bright
+    if (cos_view_sun > cos_disk_radius) {
+        var core_intensity = 1.0;
+        if (apply_limb_darkening) {
+            let center_to_edge = 1.0 - ((2.0 * angle_to_sun) / light.disk_diameter);
+            core_intensity = dot(limb_darkening_factor(center_to_edge), vec3<f32>(0.333));
+        }
+        
+        // Gentler center boost
+        let disk_center_boost = smoothstep(cos_disk_radius, 1.0, cos_view_sun);
+        core_intensity *= (1.0 + disk_center_boost * 0.5); // Reduced from 2.0
+        
+        sun_luminance += transmittance_sun * l_outer_space * core_intensity;
+    }
+    
+    // 2. Inner bloom (bright glow around and overlapping sun)
+    let bloom_radius = light.disk_diameter * SUN_BLOOM_SCALE * 0.5;
+    let cos_bloom_radius = cos(bloom_radius);
+    if (cos_view_sun > cos_bloom_radius) {
+        // Bloom overlaps with disk for smooth transition
+        let bloom_factor = smoothstep(cos_bloom_radius, 1.0, cos_view_sun);
+        let bloom_intensity = pow(bloom_factor, 2.0) * SUN_BLOOM_INTENSITY;
+        // Don't add bloom if we're already in the core disk (to avoid double-adding)
+        if (cos_view_sun <= cos_disk_radius) {
+            sun_luminance += transmittance_sun * l_outer_space * bloom_intensity;
+        }
+    }
+    
+    // 3. Outer corona (larger, softer glow)
+    let corona_radius = light.disk_diameter * SUN_CORONA_SCALE * 0.5;
+    let cos_corona_radius = cos(corona_radius);
+    if (cos_view_sun > cos_corona_radius) {
+        // Corona overlaps with bloom for smooth transition
+        let corona_factor = smoothstep(cos_corona_radius, 1.0, cos_view_sun);
+        let corona_intensity = pow(corona_factor, 3.0) * SUN_CORONA_INTENSITY;
+        // Reduce corona intensity where bloom is strong to avoid over-brightening
+        let bloom_reduction = 1.0 - smoothstep(cos_bloom_radius, cos_disk_radius, cos_view_sun) * 0.5;
+        sun_luminance += transmittance_sun * l_outer_space * corona_intensity * bloom_reduction;
+    }
+    
+    // 4. Sun rays (radial streaks) - these should extend from the disk
+    if (cos_view_sun > cos(SUN_RAY_LENGTH)) {
+        // Convert world directions to screen space for better ray calculation
+        // This is approximate but works well enough for the effect
+        let view_angle = atan2(world_dir.y - sun_dir.y, world_dir.x - sun_dir.x);
+        
+        // Create ray pattern using sine waves with multiple frequencies for more interesting pattern
+        let ray_pattern1 = pow(abs(sin(view_angle * SUN_RAY_COUNT)), 8.0);
+        let ray_pattern2 = pow(abs(sin(view_angle * SUN_RAY_COUNT * 0.5)), 6.0);
+        let ray_pattern = max(ray_pattern1, ray_pattern2 * 0.5);
+        
+        // Rays fade out with distance from sun
+        let ray_distance_factor = smoothstep(cos(SUN_RAY_LENGTH), cos_disk_radius, cos_view_sun);
+        
+        // Add some variation to rays using time
+        let time_variation = sin(config_buffer.time * 0.3 + view_angle * 2.0) * 0.2 + 0.8;
+        
+        let ray_intensity = ray_pattern * pow(ray_distance_factor, 1.5) * SUN_RAY_INTENSITY * time_variation;
+        sun_luminance += transmittance_sun * l_outer_space * ray_intensity;
+    }
+    
+    // 5. Camera lens spikes (cross pattern)
+    if (cos_view_sun > cos(SUN_SPIKE_LENGTH)) {
+        // Calculate angle in screen space
+        let spike_angle = atan2(world_dir.y - sun_dir.y, world_dir.x - sun_dir.x);
+        
+        // Create cross pattern with sharper spikes
+        let spike_h = pow(abs(cos(spike_angle)), 32.0);
+        let spike_v = pow(abs(sin(spike_angle)), 32.0);
+        let spike_diagonal1 = pow(abs(cos(spike_angle - pi * 0.25)), 24.0);
+        let spike_diagonal2 = pow(abs(cos(spike_angle + pi * 0.25)), 24.0);
+        let spike_pattern = max(max(spike_h, spike_v), max(spike_diagonal1, spike_diagonal2) * 0.7);
+        
+        // Spikes fade with distance
+        let spike_distance_factor = smoothstep(cos(SUN_SPIKE_LENGTH), cos_disk_radius, cos_view_sun);
+        let spike_intensity = spike_pattern * pow(spike_distance_factor, 1.0) * SUN_SPIKE_INTENSITY;
+        
+        sun_luminance += transmittance_sun * l_outer_space * spike_intensity;
+    }
+    
+    // 6. Very subtle atmospheric scattering boost near sun
+    if (cos_view_sun > 0.96) {
+        let scatter_factor = smoothstep(0.96, 0.999, cos_view_sun);
+        let altitude_factor = smoothstep(-0.1, 0.3, sun_dir.z); // Stronger at low sun angles
+        let atmospheric_boost = pow(scatter_factor, 2.0) * altitude_factor * 0.02; // Slightly increased
+        sun_luminance += transmittance_sun * l_outer_space * atmospheric_boost;
+    }
+    
+    return sun_luminance;
+}
+
 // [Include all the remaining utility functions from both shaders - atmospheric LUT functions, tone mapping, etc.]
-// These remain unchanged from the original shaders
 
 fn get_atmosphere_moonlight_with_dynamic_direction(moon_dir: vec3<f32>) -> AtmosphereLight {
     var light: AtmosphereLight;
@@ -673,31 +803,12 @@ fn limb_darkening_factor(center_to_edge: f32) -> vec3<f32> {
 	return 1.0 - u * (1.0 - pow(vec3<f32>(mu), a));
 }
 
-fn sun_disk_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, sun_dir: vec3<f32>, apply_limb_darkening: bool) -> vec3<f32> {
-	let light = get_atmosphere_light_with_dynamic_direction(sun_dir);
-	
-	let cos_view_sun = dot(world_dir, light.direction);
-	let cos_disk_radius = cos(0.5 * light.disk_diameter);
-	
-	if cos_view_sun <= cos_disk_radius || ray_intersects_sphere(world_pos, world_dir, vec3<f32>(), atmosphere.bottom_radius) {
-		return vec3<f32>();
-	}
-
-	let disk_solid_angle = tau * cos_disk_radius;
-	let l_outer_space = (light.illuminance / disk_solid_angle) * light.disk_luminance_scale;
-
-	let height = length(world_pos);
-	let zenith = world_pos / height;
-	let cos_view_zenith = dot(world_dir, zenith);
-	let uv = transmittance_lut_params_to_uv(atmosphere, height, cos_view_zenith);
-	let transmittance_sun = textureSampleLevel(transmittance_lut, lut_sampler, uv, 0).rgb;
-
-	if apply_limb_darkening {
-		let center_to_edge = 1.0 - ((2.0 * acos(cos_view_sun)) / light.disk_diameter);
-		return transmittance_sun * l_outer_space * limb_darkening_factor(center_to_edge);
-	} else {
-		return transmittance_sun * l_outer_space;
-	}
+// Replace the old sun_disk_luminance with enhanced version
+fn sun_disk_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, 
+                      sun_dir: vec3<f32>, apply_limb_darkening: bool) -> vec3<f32> {
+    // Redirect to enhanced version - we'll get pixel position in the main function
+    return enhanced_sun_disk_luminance(world_pos, world_dir, atmosphere, sun_dir, 
+                                      apply_limb_darkening, vec2<f32>(0.0), vec2<f32>(1920.0, 1080.0));
 }
 
 fn transmittance_lut_params_to_uv(atmosphere: Atmosphere, view_height: f32, cos_view_zenith: f32) -> vec2<f32> {
@@ -718,15 +829,21 @@ fn transmittance_lut_params_to_uv(atmosphere: Atmosphere, view_height: f32, cos_
 	return vec2<f32>(x_mu, x_r);
 }
 
-fn get_sun_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, uniforms: MyUniforms) -> vec3<f32> {
+// Updated get_sun_luminance to use enhanced version
+fn get_sun_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atmosphere, 
+                     uniforms: MyUniforms, pixel_pos: vec2<f32>) -> vec3<f32> {
 	var sun_luminance = vec3<f32>();
 	if RENDER_SUN_DISK {
 		let sun = get_atmosphere_light_with_dynamic_direction(uniforms.lightDirection);
-		sun_luminance += sun_disk_luminance(world_pos, world_dir, atmosphere, sun.direction, LIMB_DARKENING_ON_SUN);
+		sun_luminance += enhanced_sun_disk_luminance(world_pos, world_dir, atmosphere, 
+		                                            sun.direction, LIMB_DARKENING_ON_SUN,
+		                                            pixel_pos, uniforms.screenSize);
 	}
 	if RENDER_MOON_DISK && USE_MOON {
 		let moon = get_atmosphere_light_with_dynamic_direction(-uniforms.lightDirection);
-		sun_luminance += sun_disk_luminance(world_pos, world_dir, atmosphere, moon.direction, LIMB_DARKENING_ON_MOON);
+		// Moon doesn't need the enhanced effects, keep it simple
+		sun_luminance += sun_disk_luminance(world_pos, world_dir, atmosphere, 
+		                                   moon.direction, LIMB_DARKENING_ON_MOON);
 	}
 	return sun_luminance;
 }
@@ -805,11 +922,14 @@ fn compute_sky_view_lut_uv(view_height: f32, world_pos: vec3<f32>, world_dir: ve
     }
 }
 
-fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>, sun_dir: vec3<f32>, atmosphere: Atmosphere, config: MyUniforms) -> vec4<f32> {
+// Updated use_sky_view_lut to pass pixel position
+fn use_sky_view_lut(view_height: f32, world_pos: vec3<f32>, world_dir: vec3<f32>, 
+                    sun_dir: vec3<f32>, atmosphere: Atmosphere, config: MyUniforms,
+                    pixel_pos: vec2<f32>) -> vec4<f32> {
 	let uv = compute_sky_view_lut_uv(view_height, world_pos, world_dir, sun_dir, atmosphere, config);
 	let sky_view = textureSampleLevel(sky_view_lut, lut_sampler, uv, 0);
 	
-	let sun_luminance = get_sun_luminance(world_pos, world_dir, atmosphere, config);
+	let sun_luminance = get_sun_luminance(world_pos, world_dir, atmosphere, config, pixel_pos);
 
 	let color = sky_view.rgb + sun_luminance;
 
@@ -1044,14 +1164,15 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let depth = sample_depth_with_subpixel_fix(depth_buffer, in.position.xy, config.screenSize);
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
-    // Get sky color
-    let sky_color = use_sky_view_lut(view_height, camera_pos_relative_to_planet, world_dir, sun_dir, atmosphere, config);
+    // Get sky color with enhanced sun rendering
+    let sky_color = use_sky_view_lut(view_height, camera_pos_relative_to_planet, world_dir, 
+                                     sun_dir, atmosphere, config, pixel_pos);
     
     // Render volumetric clouds with unified approach
     let cloud_result = render_clouds_unified(camera_pos_relative_to_planet, world_dir, sun_dir, 
                                            atmosphere, clouds, config.time, false);
 
-    // No terrain - composite clouds with sky normally
+    // Composite clouds with sky
     let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
 

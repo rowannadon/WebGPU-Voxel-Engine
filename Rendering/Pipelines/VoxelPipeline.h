@@ -48,47 +48,7 @@ public:
 		multiSampleTextureViewDesc.format = multiSampleTextureFormat;
 		TextureView multiSampleTextureView = tex->createTextureView("multisample_texture", "multisample_view", multiSampleTextureViewDesc);
 
-		TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
-		TextureDescriptor depthTextureDesc;
-		depthTextureDesc.dimension = TextureDimension::_2D;
-		depthTextureDesc.format = depthTextureFormat;
-		depthTextureDesc.mipLevelCount = 1;
-		depthTextureDesc.sampleCount = 4;
-		depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-		depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
-		depthTextureDesc.viewFormatCount = 0;
-		depthTextureDesc.viewFormats = nullptr;
-		Texture depthTexture = tex->createTexture("depth_texture", depthTextureDesc);
-
-		TextureViewDescriptor depthTextureViewDesc;
-		depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
-		depthTextureViewDesc.baseArrayLayer = 0;
-		depthTextureViewDesc.arrayLayerCount = 1;
-		depthTextureViewDesc.baseMipLevel = 0;
-		depthTextureViewDesc.mipLevelCount = 1;
-		depthTextureViewDesc.dimension = TextureViewDimension::_2D;
-		depthTextureViewDesc.format = depthTextureFormat;
-		TextureView depthTextureView = tex->createTextureView("depth_texture", "depth_view", depthTextureViewDesc);
-
-
-		TextureViewDescriptor depthSampleViewDesc = depthTextureViewDesc; // Copy settings
-		TextureView depthSampleView = tex->createTextureView("depth_texture", "depth_sample_view", depthSampleViewDesc);
-
-		// Create a sampler for depth texture reading
-		SamplerDescriptor depthSamplerDesc;
-		depthSamplerDesc.addressModeU = AddressMode::ClampToEdge;
-		depthSamplerDesc.addressModeV = AddressMode::ClampToEdge;
-		depthSamplerDesc.addressModeW = AddressMode::ClampToEdge;
-		depthSamplerDesc.magFilter = FilterMode::Nearest;
-		depthSamplerDesc.minFilter = FilterMode::Nearest;
-		depthSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
-		depthSamplerDesc.lodMinClamp = 0.0f;
-		depthSamplerDesc.lodMaxClamp = 1.0f;
-		depthSamplerDesc.compare = CompareFunction::Undefined;
-		depthSamplerDesc.maxAnisotropy = 1;
-		tex->createSampler("depth_sampler", depthSamplerDesc);
-
-		return multiSampleTextureView != nullptr && depthTextureView != nullptr;
+		return multiSampleTextureView != nullptr;
 	}
 
 	bool createPipeline() {
@@ -98,8 +58,8 @@ public:
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::Back;
-		config.depthWriteEnabled = true;
-		config.depthCompare = CompareFunction::Less;
+		config.depthWriteEnabled = false;
+		config.depthCompare = CompareFunction::Equal;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
 		config.vertexShaderName = "vs_main";  // Vertex shader entry point
 		config.useVertexBuffers = false;
@@ -266,7 +226,7 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+		depthStencilAttachment.depthLoadOp = LoadOp::Load;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;

@@ -74,6 +74,7 @@ public:
     TransmittancePipeline transmittancePipeline;
     VoxelPipeline voxelPipeline;
     TransparentVoxelPipeline transparentVoxelPipeline;
+    DepthPrePassPipeline depthPrePassPipeline;
 
     bool initTextures();
     bool initSharedUniformBuffers();

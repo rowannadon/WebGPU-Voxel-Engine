@@ -4,7 +4,7 @@
 #include <GLFW/glfw3.h>
 #include "../Uniforms.h"
 
-class VoxelPipeline {
+class DepthPrePassPipeline {
 private:
 	BufferManager* buf;
 	TextureManager* tex;
@@ -24,29 +24,6 @@ public:
 	bool createResources() {
 		int width, height;
 		glfwGetFramebufferSize(context->getWindow(), &width, &height);
-
-		TextureFormat multiSampleTextureFormat = context->getSurfaceFormat();
-
-		TextureDescriptor multiSampleTextureDesc;
-		multiSampleTextureDesc.dimension = TextureDimension::_2D;
-		multiSampleTextureDesc.format = multiSampleTextureFormat;
-		multiSampleTextureDesc.mipLevelCount = 1;
-		multiSampleTextureDesc.sampleCount = 4;
-		multiSampleTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-		multiSampleTextureDesc.usage = TextureUsage::RenderAttachment;
-		multiSampleTextureDesc.viewFormatCount = 0;
-		multiSampleTextureDesc.viewFormats = nullptr;
-		Texture multiSampleTexture = tex->createTexture("multisample_texture", multiSampleTextureDesc);
-
-		TextureViewDescriptor multiSampleTextureViewDesc;
-		multiSampleTextureViewDesc.aspect = TextureAspect::All;
-		multiSampleTextureViewDesc.baseArrayLayer = 0;
-		multiSampleTextureViewDesc.arrayLayerCount = 1;
-		multiSampleTextureViewDesc.baseMipLevel = 0;
-		multiSampleTextureViewDesc.mipLevelCount = 1;
-		multiSampleTextureViewDesc.dimension = TextureViewDimension::_2D;
-		multiSampleTextureViewDesc.format = multiSampleTextureFormat;
-		TextureView multiSampleTextureView = tex->createTextureView("multisample_texture", "multisample_view", multiSampleTextureViewDesc);
 
 		TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
 		TextureDescriptor depthTextureDesc;
@@ -88,13 +65,13 @@ public:
 		depthSamplerDesc.maxAnisotropy = 1;
 		tex->createSampler("depth_sampler", depthSamplerDesc);
 
-		return multiSampleTextureView != nullptr && depthTextureView != nullptr;
+		return depthTextureView != nullptr;
 	}
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/shader.wgsl";
-		config.colorFormat = TextureFormat::BGRA8Unorm;
+		config.shaderPath = RESOURCE_DIR "/depth_prepass_shader.wgsl";
+		config.colorFormat = TextureFormat::Undefined;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::Back;
@@ -102,81 +79,12 @@ public:
 		config.depthCompare = CompareFunction::Less;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
 		config.vertexShaderName = "vs_main";  // Vertex shader entry point
+		config.useColorTarget = false;
 		config.useVertexBuffers = false;
 		config.vertexAttributes.clear();
-		config.useCustomBlending = false;
-		config.alphaToCoverageEnabled = true;
-
-		// uniforms binding
-		std::vector<BindGroupLayoutEntry> globalUniforms(13, Default);
-		globalUniforms[0].binding = 0;
-		globalUniforms[0].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		globalUniforms[0].buffer.type = BufferBindingType::Uniform;
-		globalUniforms[0].buffer.minBindingSize = sizeof(MyUniforms);
-
-		globalUniforms[1].binding = 1;
-		globalUniforms[1].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		globalUniforms[1].buffer.type = BufferBindingType::Uniform;
-		globalUniforms[1].buffer.minBindingSize = sizeof(Atmosphere);
-
-		globalUniforms[2].binding = 2;
-		globalUniforms[2].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
-		globalUniforms[2].buffer.type = BufferBindingType::Uniform;
-		globalUniforms[2].buffer.minBindingSize = sizeof(MaterialProperties) * 100;
-
-		// The block texture array binding and sampler
-		globalUniforms[3].binding = 3;
-		globalUniforms[3].visibility = ShaderStage::Fragment;
-		globalUniforms[3].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[3].texture.viewDimension = TextureViewDimension::_2DArray;
-
-		// block normal texture array
-		globalUniforms[4].binding = 4;
-		globalUniforms[4].visibility = ShaderStage::Fragment;
-		globalUniforms[4].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[4].texture.viewDimension = TextureViewDimension::_2DArray;
-
-		// The block texture sampler binding
-		globalUniforms[5].binding = 5;
-		globalUniforms[5].visibility = ShaderStage::Fragment;
-		globalUniforms[5].sampler.type = SamplerBindingType::Filtering;
-
-		// The shadow texture binding and sampler
-		globalUniforms[6].binding = 6;
-		globalUniforms[6].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-		globalUniforms[6].texture.sampleType = TextureSampleType::Depth;
-		globalUniforms[6].texture.viewDimension = TextureViewDimension::_2D;
-
-		globalUniforms[7].binding = 7;
-		globalUniforms[7].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
-		globalUniforms[7].sampler.type = SamplerBindingType::Comparison;
-
-		globalUniforms[8].binding = 8;
-		globalUniforms[8].visibility = ShaderStage::Fragment;
-		globalUniforms[8].sampler.type = SamplerBindingType::Filtering;
-
-		globalUniforms[9].binding = 9;
-		globalUniforms[9].visibility = ShaderStage::Fragment;
-		globalUniforms[9].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[9].texture.viewDimension = TextureViewDimension::_2D;
-
-		globalUniforms[10].binding = 10;
-		globalUniforms[10].visibility = ShaderStage::Fragment;
-		globalUniforms[10].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[10].texture.viewDimension = TextureViewDimension::_2D;
-
-		globalUniforms[11].binding = 11;
-		globalUniforms[11].visibility = ShaderStage::Fragment;
-		globalUniforms[11].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[11].texture.viewDimension = TextureViewDimension::_3D;
-
-		globalUniforms[12].binding = 12;
-		globalUniforms[12].visibility = ShaderStage::Fragment;
-		globalUniforms[12].texture.sampleType = TextureSampleType::Float;
-		globalUniforms[12].texture.viewDimension = TextureViewDimension::_2D;
 
 		config.bindGroupLayouts.push_back(
-			pip->createBindGroupLayout("global_uniforms", globalUniforms)
+			pip->getBindGroupLayout("shadow_global_uniforms")
 		);
 		config.bindGroupLayouts.push_back(
 			mod->getBindGroupLayout()
@@ -190,78 +98,49 @@ public:
 			buf->getStorageBufferPool("storage_pool")->getBindGroupLayout()
 		);
 
-		RenderPipeline pipeline = pip->createRenderPipeline("voxel_pipeline", config);
+		RenderPipeline pipeline = pip->createRenderPipeline("depth_prepass_pipeline", config);
 
 		return pipeline != nullptr;
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(13);
+		std::vector<BindGroupEntry> bindings(5);
 
+		// Binding 0: MyUniforms
 		bindings[0].binding = 0;
 		bindings[0].buffer = buf->getBuffer("uniform_buffer_opaque");
 		bindings[0].offset = 0;
 		bindings[0].size = sizeof(MyUniforms);
 
+		// Binding 1: Atmosphere (for compatibility)
 		bindings[1].binding = 1;
 		bindings[1].buffer = buf->getBuffer("atmosphere_buffer");
 		bindings[1].offset = 0;
 		bindings[1].size = sizeof(Atmosphere);
 
+		// Binding 2: Material buffer
 		bindings[2].binding = 2;
 		bindings[2].buffer = buf->getBuffer("material_buffer");
 		bindings[2].offset = 0;
 		bindings[2].size = sizeof(MaterialProperties) * 100;
 
+		// Binding 3: Block texture array
 		bindings[3].binding = 3;
 		bindings[3].textureView = tex->getTextureView("block_array_view");
 
+		// Binding 4: Block texture sampler
 		bindings[4].binding = 4;
-		bindings[4].textureView = tex->getTextureView("normal_array_view");
+		bindings[4].sampler = tex->getSampler("block_array_sampler");
 
-		bindings[5].binding = 5;
-		bindings[5].sampler = tex->getSampler("block_array_sampler");
-
-		bindings[6].binding = 6;
-		bindings[6].textureView = tex->getTextureView("shadow_view");
-
-		bindings[7].binding = 7;
-		bindings[7].sampler = tex->getSampler("shadow_sampler");
-
-		bindings[8].binding = 8;
-		bindings[8].sampler = tex->getSampler("lut_sampler");
-
-		bindings[9].binding = 9;
-		bindings[9].textureView = tex->getTextureView("transmittance_view");
-
-		bindings[10].binding = 10;
-		bindings[10].textureView = tex->getTextureView("skyview_view");
-
-		bindings[11].binding = 11;
-		bindings[11].textureView = tex->getTextureView("aerialperspective_view");
-
-		bindings[12].binding = 12;
-		bindings[12].textureView = tex->getTextureView("cloud_noise_64_view");
-
-		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_opaque", "global_uniforms", bindings);
+		BindGroup bindGroup = pip->createBindGroup("global_uniforms_depth_prepass", "shadow_global_uniforms", bindings);
 
 		return bindGroup != nullptr;
 	}
 
 	void render(int numDraws, Buffer indirectBuffer, TextureView targetView, CommandEncoder encoder) {
 		RenderPassDescriptor renderPassDesc = {};
-		RenderPassColorAttachment renderPassColorAttachment = {};
-		renderPassColorAttachment.view = tex->getTextureView("multisample_view");
-		renderPassColorAttachment.resolveTarget = targetView;
-		renderPassColorAttachment.loadOp = LoadOp::Load;
-		renderPassColorAttachment.storeOp = StoreOp::Store;
-		renderPassColorAttachment.clearValue = Color{ 1.0, 0.0, 1.0, 1.0 };
-#ifndef WEBGPU_BACKEND_WGPU
-		renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-#endif
 
-		renderPassDesc.colorAttachmentCount = 1;
-		renderPassDesc.colorAttachments = &renderPassColorAttachment;
+		renderPassDesc.colorAttachmentCount = 0;
 
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
@@ -278,8 +157,8 @@ public:
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
-		voxelRenderPass.setPipeline(pip->getPipeline("voxel_pipeline"));
-		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group_opaque"), 0, nullptr);
+		voxelRenderPass.setPipeline(pip->getPipeline("depth_prepass_pipeline"));
+		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_depth_prepass"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);

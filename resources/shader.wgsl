@@ -1144,6 +1144,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
+    if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
+        has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
+        has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
+            // TODO: Apply random tilt to break coplanarity
+    }
+
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     var normal: vec3f;
@@ -1174,14 +1180,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             let wind_strength = vertex_height;
             wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
         }
+
+        normal = rotateX(normal, f32(wind_displacement.x) * 0.2);
+        normal = rotateY(normal, f32(wind_displacement.y) * 0.2);
+        normal = rotateZ(normal, f32(wind_displacement.z) * 0.2);
+        normal = normalize(normal);
     }
     
     position = base_position + wind_displacement;
     
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
 
-    out.uv_untransformed = uv;
-    
     if (materialProps.modelId == VOXEL_MODEL) {
         uv = faceUVsIndependent[data.normal_index][vertexInFace];
     }
@@ -1716,7 +1725,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
-    let sun_intensity = 1.0; //pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0625)), 16.0);
+    var x_value = asin(uMyUniforms.lightDirection.z);
+    let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0125)), 2.0);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
 
@@ -1726,7 +1736,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 6.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 5.5; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
@@ -1760,7 +1770,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-    let ao_adjusted = mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor);
+    let ao_adjusted = select(
+        mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor),
+        1.0,
+        materialProps.pbr.AO == 0.0
+    );
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     
