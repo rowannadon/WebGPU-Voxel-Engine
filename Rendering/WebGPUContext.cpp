@@ -65,7 +65,7 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
     adapterOpts.nextInChain = nullptr;
     adapterOpts.compatibleSurface = surface;
     adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
-    adapterOpts.backendType = WGPUBackendType_OpenGL;
+    adapterOpts.backendType = WGPUBackendType_Vulkan;
 
     RequestAdapterCallbackInfo callbackInfo = {};
     callbackInfo.nextInChain = nullptr;

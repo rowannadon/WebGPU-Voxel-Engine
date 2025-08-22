@@ -1084,7 +1084,7 @@ fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     // Combine height and distance fog factors
     // Use max to ensure fog appears in either low areas OR at distance
-    let combined_fog_multiplier = 1.0 - max(1.0 - height_fog_multiplier, 1.0 - distance_fog_multiplier);
+    let combined_fog_multiplier = max(height_fog_multiplier, distance_fog_multiplier);
 
     // Alternative combination methods:
     // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
