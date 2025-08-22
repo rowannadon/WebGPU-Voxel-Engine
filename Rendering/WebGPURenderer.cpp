@@ -399,7 +399,7 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.minFilter = FilterMode::Nearest;
 	samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
 	samplerDesc.lodMinClamp = 0.0f;
-	samplerDesc.lodMaxClamp = 8.0f;
+	samplerDesc.lodMaxClamp = 16.0f;
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("block_array_sampler", samplerDesc);

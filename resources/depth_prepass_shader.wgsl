@@ -21,17 +21,21 @@ struct FaceData {
 struct VertexOutput {
     @builtin(position) position: vec4f,
     @location(0) @interpolate(flat) material_id: u32,
-    @location(1) uv: vec2f,
-    @location(2) @interpolate(flat) facing_dir: u32,
-    @location(3) @interpolate(flat) face_index: u32,
+    @location(1) world_position: vec3f,
+    @location(2) normal: vec3f,
+    @location(3) uv: vec2f,
+    @location(4) @interpolate(flat) facing_dir: u32,
+    @location(5) @interpolate(flat) face_index: u32,
 };
 
 struct FragmentInput {
     @builtin(position) position: vec4f,
     @location(0) @interpolate(flat) material_id: u32,
-    @location(1) uv: vec2f,
-    @location(2) @interpolate(flat) facing_dir: u32,
-    @location(3) @interpolate(flat) face_index: u32,
+    @location(1) world_position: vec3f,
+    @location(2) normal: vec3f,
+    @location(3) uv: vec2f,
+    @location(4) @interpolate(flat) facing_dir: u32,
+    @location(5) @interpolate(flat) face_index: u32,
 };
 
 struct MyUniforms {
@@ -729,6 +733,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         normal = rotateZ(normal, f32(tile_z) * 0.1);
         normal = normalize(normal);
 
+        out.normal = normal;
+
         if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
             has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
             has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
@@ -756,6 +762,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let view_position = uMyUniforms.viewMatrix * world_position;
     
     out.position = uMyUniforms.infiniteProjectionMatrix * view_position;
+
+    out.world_position = world_position.xyz;
     
     // Calculate UV for alpha testing
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
@@ -791,7 +799,16 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     let materialProps = material_buffer[in.material_id - 1];
-    
+
+    // if (materialProps.modelId == GRASS_MODEL) {
+    //     let viewAlignment = dot(normalize(uMyUniforms.cameraWorldPos - in.world_position), in.normal);
+        
+    //     //Hard discard at very sharp angles
+    //     if (viewAlignment < 0.5) {
+    //         discard;
+    //     }
+    // }
+
     // Determine which texture layer to use
     var layer = materialProps.textureId0;
     if (materialProps.modelId == VOXEL_MODEL) {

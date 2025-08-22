@@ -65,6 +65,7 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
     adapterOpts.nextInChain = nullptr;
     adapterOpts.compatibleSurface = surface;
     adapterOpts.powerPreference = WGPUPowerPreference_HighPerformance;
+    adapterOpts.backendType = WGPUBackendType_OpenGL;
 
     RequestAdapterCallbackInfo callbackInfo = {};
     callbackInfo.nextInChain = nullptr;
@@ -101,7 +102,6 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
     deviceDesc.defaultQueue.nextInChain = nullptr;
     deviceDesc.defaultQueue.label = StringView("Main Queue");
     std::vector<FeatureName> requiredFeatures = {
-        FeatureName::TimestampQuery,
         FeatureName::IndirectFirstInstance,
         FeatureName::MultiDrawIndirect,
     };

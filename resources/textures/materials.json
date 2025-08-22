@@ -324,7 +324,7 @@
         "leaves3.png"
       ],
       "normal": [
-        "leaves3_normal.png"
+        "leaves2_normal.png"
       ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
@@ -739,7 +739,7 @@
         "spruce_leaves.png"
       ],
       "normal": [
-        "leaves3_normal.png"
+        "leaves3_normal_combined.png"
       ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
@@ -759,16 +759,16 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.75,
-        "dielectric": 0.015,
+        "roughness": 0.65,
+        "dielectric": 0.0025,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.0,
-        "subsurface": 0.2,
+        "AO": 0.85,
+        "subsurface": 0.05,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -794,8 +794,8 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.7,
-        "dielectric": 0.04,
+        "roughness": 0.9,
+        "dielectric": 0.0025,
         "emission": [
           0.0,
           0.0,

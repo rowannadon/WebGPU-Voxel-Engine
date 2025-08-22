@@ -157,13 +157,13 @@ const SUN_POWER: vec3<f32> = vec3<f32>(1.0, 0.9, 0.6) * 750.0;
 
 // Sun rendering enhancement constants
 const SUN_BLOOM_SCALE: f32 = 2.5;  // How much larger the bloom is than the sun disk
-const SUN_BLOOM_INTENSITY: f32 = 0.015;  // Bloom brightness multiplier (increased)
+const SUN_BLOOM_INTENSITY: f32 = 0.15;  // Bloom brightness multiplier (increased)
 const SUN_CORONA_SCALE: f32 = 12.0;  // Scale of the outer corona glow
 const SUN_CORONA_INTENSITY: f32 = 0.035;  // Corona brightness (increased)
 const SUN_RAY_COUNT: f32 = 12.0;  // Number of sun rays
-const SUN_RAY_LENGTH: f32 = 0.35;  // Length of sun rays in radians
-const SUN_RAY_INTENSITY: f32 = 0.0025;  // Ray brightness (increased)
-const SUN_SPIKE_INTENSITY: f32 = 0.03;  // Camera lens spike intensity (increased)
+const SUN_RAY_LENGTH: f32 = 0.45;  // Length of sun rays in radians
+const SUN_RAY_INTENSITY: f32 = 0.0015;  // Ray brightness (increased)
+const SUN_SPIKE_INTENSITY: f32 = 0.003;  // Camera lens spike intensity (increased)
 const SUN_SPIKE_LENGTH: f32 = 0.4;  // Length of lens spikes
 
 // Utility functions from shader 2

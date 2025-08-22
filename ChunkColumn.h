@@ -164,7 +164,13 @@ private:
 
     WorldGenerator worldGen;
 
-    std::vector<std::pair<int, ivec3>> treeData;
+    struct TreeDataPoint {
+        ivec3 basePos;
+        int index;
+        int radius;
+    };
+
+    std::vector<TreeDataPoint> treeData;
 
     ChunkMetaData meta[COLUMN_HEIGHT];
 
@@ -235,7 +241,7 @@ public:
     const ivec2& getColumnPosition() const { return position; }
     const ivec2& getColumnChunkPosition() const { return id; }
 
-    std::vector<std::pair<int, ivec3>> getTreeData() {
+    std::vector<TreeDataPoint> getTreeData() {
         return treeData;
     }
 
@@ -1085,6 +1091,8 @@ public:
             return maxHeightDifference;
             };
 
+        std::vector<TreeDataPoint> candidateTrees;
+
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
@@ -1145,16 +1153,9 @@ public:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
 
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 128 == 0) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
-
-                                        int closestDistance = INT_MAX;
-                                        for (auto pair : treeData) {
-                                            ivec3 pos = pair.second;
-                                            int distance = glm::abs(pos.x - positionAbove.x) + glm::abs(pos.y - positionAbove.y);
-                                            closestDistance = glm::min(distance, closestDistance);
-                                        }
 
                                         static const std::array<ProbabilityConfig, 11> config = { {
                                             { 1,     0.2f},
@@ -1166,9 +1167,7 @@ public:
 
                                         int size = sampleFromDistribution(blockHash, config);
 
-                                        //if (closestDistance > 16) {
-                                            treeData.push_back({ size, positionAbove });
-                                        //}
+                                        candidateTrees.push_back({ positionAbove, size, 0 });
                                     }
                                 }
                                 break;
@@ -1258,13 +1257,43 @@ public:
             }
         }
 
+        treeData = filterTreesWithPoissonDisk(candidateTrees, 24.0f);
+
         setState(ColumnState::TopsoilReady);
+    }
+
+    std::vector<TreeDataPoint> filterTreesWithPoissonDisk(
+        const std::vector<TreeDataPoint>& candidateTrees,
+        float minDistance = 16.0f) {
+
+        std::vector<TreeDataPoint> filteredTrees;
+
+        for (const auto& candidate : candidateTrees) {
+            bool tooClose = false;
+
+            // Check distance to all already placed trees
+            for (const auto& placed : filteredTrees) {
+                float dist = glm::length(vec2(candidate.basePos.x - placed.basePos.x,
+                    candidate.basePos.y - placed.basePos.y));
+                if (dist < minDistance) {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose) {
+                filteredTrees.push_back(candidate);
+            }
+        }
+
+        return filteredTrees;
     }
 
     inline bool isTransparentMaterial(BlockType t) {
         switch (t) {
         case BlockType::Water:
         //case BlockType::Leaf:
+        //case BlockType::SpruceLeaf:
         //case BlockType::Fern:
         //case BlockType::TallGrass:
         //case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
@@ -1313,7 +1342,7 @@ public:
                     p.y < 0 || p.y >= CHUNK_SIZE ||
                     p.z < 0 || p.z >= COLUMN_HEIGHT_BLOCKS) continue;
 
-                // Mark occupancy + write material (solid vs transparent based on type, tweak as needed)
+                // Mark occupancy + write material (solid vs transparent based on type
                 bool isTransparent = isTransparentMaterial(v.mappedMaterial);
 
                 setVoxelWholeColumn(p, !isTransparent, false);
@@ -1323,10 +1352,10 @@ public:
         };
 
         // 1. Generate trees that are rooted in THIS chunk.
-        for (const auto pair : treeData) {
-            ivec3 localTreePos = pair.second;
+        for (const auto tree : treeData) {
+            ivec3 localTreePos = tree.basePos;
 
-            std::string treeName = "tree" + std::to_string(pair.first);
+            std::string treeName = "tree" + std::to_string(tree.index);
             stampStructureAt(treeName, localTreePos);
         }
 
@@ -1357,12 +1386,12 @@ public:
                 const ivec2 neighborWorldOrigin = neighbor->getColumnPosition();
                 const ivec2 transformOffset = (neighborWorldOrigin - this->position);
 
-                for (const auto pair : neighbor->getTreeData()) {
-                    ivec3 neighborTreeLocalPos = pair.second;
+                for (const auto tree : neighbor->getTreeData()) {
+                    ivec3 neighborTreeLocalPos = tree.basePos;
                     ivec3 transformedBasePos = neighborTreeLocalPos +
                         ivec3(transformOffset.x, transformOffset.y, 0);
 
-                    std::string treeName = "tree" + std::to_string(pair.first);
+                    std::string treeName = "tree" + std::to_string(tree.index);
                     stampStructureAt(treeName, transformedBasePos);
                 }
             }
@@ -1473,7 +1502,7 @@ public:
                 neighborOffsets[4] + neighborOffsets[1], neighborOffsets[4] + neighborOffsets[0],
                 neighborOffsets[5] + neighborOffsets[1], neighborOffsets[5] + neighborOffsets[0],
             },
-			//Top
+            //Top
             {
                 neighborOffsets[2], neighborOffsets[3], neighborOffsets[0], neighborOffsets[1],
 
@@ -1488,6 +1517,7 @@ public:
                 neighborOffsets[3] + neighborOffsets[1], neighborOffsets[3] + neighborOffsets[0]
             },
         };
+
         // Cache for voxel data - only sample each voxel once
         std::unordered_map<ivec3, std::pair<bool, bool>, IVec3Hash, IVec3Equal> voxelCache; // pos -> {hasSolid, hasTransparent}
 
@@ -1518,7 +1548,7 @@ public:
                 if (neighborIndex >= 0 && neighbors[neighborIndex] &&
                     neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
 
-                    // map to neighbor chunk’s local Z using world-Z of this column
+                    // map to neighbor chunk's local Z using world-Z of this column
                     int worldZ = pos.z + zPos * CHUNK_SIZE;              // 0..COLUMN_HEIGHT_BLOCKS-1
                     if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
                     int targetZ = worldZ / CHUNK_SIZE;
@@ -1641,14 +1671,9 @@ public:
             return result;
             };
 
-        auto isEmptyLODGroup = [&](ivec3 groupPos, int lodLevel, bool transparent) -> bool {
-            auto [isSolid, material] = sampleLODGroupCached(groupPos, lodLevel, transparent);
-            return !isSolid || material.materialType == BlockType::Leaf;
-            };
-
         // Quick material helpers
         auto isLeaf = [](uint32_t t) -> bool {
-            return t == BlockType::Leaf;
+            return t == BlockType::Leaf || t == BlockType::SpruceLeaf;
             };
         auto isGrassBillboard = [](uint32_t t) -> bool {
             return t == BlockType::TallGrass ||
@@ -1698,7 +1723,7 @@ public:
                 }
             }
             return 0; // air
-        };
+            };
 
         auto shouldCullLODFace = [&](ivec3 groupPos,
             int faceIndex,
@@ -1706,7 +1731,7 @@ public:
             bool transparentPass,
             uint32_t currentMatType) -> bool
             {
-                // Rule 1: No culling for grass billboards and leaves
+                // Rule 1: No culling for grass billboards and leaves themselves
                 if (isLeaf(currentMatType) || isGrassBillboard(currentMatType)) {
                     return false;
                 }
@@ -1714,14 +1739,15 @@ public:
                 ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
 
                 auto cullTransparentIfSame = [&](ivec3 nPosSameChunk) -> bool {
-                    // neighbor LOD group (same chunk) � use cached sampling
+                    // neighbor LOD group (same chunk) — use cached sampling
                     auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/true);
                     return nOcc && (nMat.materialType == currentMatType);
                     };
 
-                auto cullSolidIfSolid = [&](ivec3 nPosSameChunk) -> bool {
-                    auto [nOcc, _] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/false);
-                    return nOcc; // "solid" pass occupancy means neighbor has solid -> cull
+                auto cullSolidIfSolidNonLeaf = [&](ivec3 nPosSameChunk) -> bool {
+                    auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/false);
+                    // Modified rule: only cull if neighbor is solid AND not a leaf
+                    return nOcc && !isLeaf(nMat.materialType);
                     };
 
                 bool neighborInSameChunk =
@@ -1735,8 +1761,8 @@ public:
                         return cullTransparentIfSame(neighborGroupPos);
                     }
                     else {
-                        // Rule 3: solid culls when neighbor is also solid
-                        return cullSolidIfSolid(neighborGroupPos);
+                        // Modified Rule 3: solid culls when neighbor is solid AND not a leaf
+                        return cullSolidIfSolidNonLeaf(neighborGroupPos);
                     }
                 }
 
@@ -1765,14 +1791,18 @@ public:
                             if (nMatType != currentMatType) return false;
                         }
                         else {
-                            // Solid pass: neighbor must be solid, otherwise don't cull
+                            // Modified for solid pass: neighbor must be solid AND not a leaf
                             if (!nHasSolid) return false;
+
+                            // Check if neighbor is a leaf - if so, don't cull
+                            uint32_t nMatType = getMaterialTypeSafe(zPos, neighborVoxelPos);
+                            if (isLeaf(nMatType)) return false;
                         }
                     }
                 }
                 return true; // all neighbor checks matched the cull condition
             };
-         
+
         // AO calculation function
         auto calculateAmbientOcclusion = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel, bool transparent) -> uint32_t {
             ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0] * lodLevel;
@@ -1837,7 +1867,7 @@ public:
                 out |= (flags[i] & 0x1u) << (17 + i); // bit 16 unused, starts at 17 (as you had)
             }
             return out;
-        };
+            };
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
@@ -1890,12 +1920,11 @@ public:
                                                     if (faces == 2 || // billboards (grass) always render
                                                         !shouldCullLODFace(groupPos, face, lodLevel, transparent,
                                                             groupMaterial.materialType)) {
-														
+
                                                         std::array<uint32_t, 4> aoValues{ 0 };
                                                         for (int vertex = 0; vertex < 4; ++vertex) {
                                                             aoValues[vertex] = calculateAmbientOcclusion(groupPos, face, vertex, lodLevel, transparent);
                                                         }
-
 
                                                         std::array<uint32_t, 8> neighborSameMaterialFlags{ 0 };
                                                         if (faces > 3) {

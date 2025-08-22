@@ -26,7 +26,7 @@ bool Application::Initialize() {
     structureManager->loadStructure("tree1", RESOURCE_DIR "/treegen1.vox", ivec3(13, 11, 3));
     structureManager->loadStructure("tree2", RESOURCE_DIR "/treegen2.vox", ivec3(11, 8, 3));
     structureManager->loadStructure("tree3", RESOURCE_DIR "/treegen3.vox", ivec3(12, 14, 3));
-    structureManager->loadStructure("tree4", RESOURCE_DIR "/treegen4.vox", ivec3(8, 9, 3));
+    structureManager->loadStructure("tree4", RESOURCE_DIR "/pine2.vox", ivec3(13, 13, 3));
     structureManager->loadStructure("tree5", RESOURCE_DIR "/pine.vox", ivec3(9, 13, 3));
 
     chunkManager.init(tex, buf, structureManager.get(), modelManager);

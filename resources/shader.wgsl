@@ -1341,7 +1341,7 @@ fn calculate_pbr_lighting(
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
             let subsurface_distortion = 0.2;  // How much the light bends through the material
-            let subsurface_scale = 0.30;  // Overall intensity scale
+            let subsurface_scale = 0.50;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
             let subsurface_light = light_dir + normal * subsurface_distortion;
@@ -1473,7 +1473,7 @@ fn get_opposite_face(facing_dir: u32) -> u32 {
 }
 
 // --- Tone mapping controls (specialization constants) ---
-override USE_ACES_TONEMAP: bool = false;        // set false to bypass
+override USE_ACES_TONEMAP: bool = true;        // set false to bypass
 override TONE_EXPOSURE: f32 = 1.0;             // simple exposure multiplier
 override FRAMEBUFFER_IS_SRGB: bool = true;     // set false if your swapchain format is *not* SRGB\
 
@@ -1680,7 +1680,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
             blendState = clamp(blendState, 0.0, 1.0);
         }
 
-        normal = vec3f(0.0, 0.0, 1.0);
+        if (materialProps.modelId == GRASS_MODEL) {
+            normal = vec3f(0.0, 0.0, 1.0);
+        }
     }
 
     var uv = in.uv;
@@ -1754,15 +1756,15 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var x_value = asin(uMyUniforms.lightDirection.z);
     let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0125)), 2.0);
     
-    let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
+    let shadow_factor = pow(calculate_shadow_factor(in.shadow_pos, normal, sunDirection), 4.0);
 
     var leaf_wrap: f32 = 0.0;
     if (materialProps.modelId == LEAF_MODEL) {
-        leaf_wrap = 0.0; // 0..0.35 is a good range
+        leaf_wrap = 0.2; // 0..0.35 is a good range
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 7.0; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 3.5; // Boost sun intensity for PBR
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
@@ -1778,7 +1780,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 0.75;
+    let ambient_strength = 1.5;
     let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
@@ -1860,5 +1862,5 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         ldr = linear_to_srgb(ldr);
     }
 
-    return vec4f(mix(clamp(ldr, vec3f(0.0), vec3f(1.0)), finalColor, 0.55), blendState);
+    return vec4f(mix(clamp(ldr, vec3f(0.0), vec3f(1.0)), finalColor, 0.75), blendState);
 }
