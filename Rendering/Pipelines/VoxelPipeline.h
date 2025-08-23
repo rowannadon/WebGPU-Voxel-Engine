@@ -65,7 +65,7 @@ public:
 		config.useVertexBuffers = false;
 		config.vertexAttributes.clear();
 		config.useCustomBlending = false;
-		config.alphaToCoverageEnabled = true;
+		config.alphaToCoverageEnabled = false;
 
 		// uniforms binding
 		std::vector<BindGroupLayoutEntry> globalUniforms(13, Default);

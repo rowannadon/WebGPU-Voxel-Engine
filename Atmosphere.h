@@ -121,7 +121,7 @@ inline Atmosphere getDefaultAtmosphere() {
 	atmosphere.absorption_density_1_linear_term = -0.0f / 15.0f;
 	atmosphere.absorption_extinction = vec3(0.00229072f, 0.00154036f, 0.0f);
 
-	atmosphere.sky_sun_lum = 5.0f;
+	atmosphere.sky_sun_lum = 7.5f;
 	atmosphere.ap_sun_lum = 10.0f;
 	atmosphere.ap_slice_scale = 0.05f;
 

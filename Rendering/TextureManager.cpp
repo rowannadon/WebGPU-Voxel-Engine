@@ -81,7 +81,7 @@ Texture TextureManager::loadTexture(const std::string name, const std::string te
 
     TextureDescriptor textureDesc{};
     textureDesc.dimension = TextureDimension::_2D;
-    textureDesc.format = TextureFormat::RGBA8Unorm;
+    textureDesc.format = TextureFormat::RGBA8UnormSrgb;
     textureDesc.sampleCount = 1;
     textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
     textureDesc.mipLevelCount = bit_width(std::max(textureDesc.size.width, textureDesc.size.height));
@@ -427,7 +427,7 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
     // Create albedo array texture
     TextureDescriptor td{};
     td.dimension = TextureDimension::_2D;
-    td.format = TextureFormat::RGBA8Unorm;
+    td.format = TextureFormat::RGBA8UnormSrgb;
     td.sampleCount = 1;
     td.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
     td.mipLevelCount = mipLevelCount;

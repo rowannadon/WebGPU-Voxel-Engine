@@ -800,15 +800,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     let materialProps = material_buffer[in.material_id - 1];
 
-    // if (materialProps.modelId == GRASS_MODEL) {
-    //     let viewAlignment = dot(normalize(uMyUniforms.cameraWorldPos - in.world_position), in.normal);
-        
-    //     //Hard discard at very sharp angles
-    //     if (viewAlignment < 0.5) {
-    //         discard;
-    //     }
-    // }
-
     // Determine which texture layer to use
     var layer = materialProps.textureId0;
     if (materialProps.modelId == VOXEL_MODEL) {

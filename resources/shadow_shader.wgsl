@@ -1,4 +1,4 @@
-// shadow_shader.wgsl - Updated to match new terrain shader structure
+// shadow_shader.wgsl - Updated to match depth pre-pass shader transformations
 
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
@@ -62,6 +62,7 @@ struct UnpackedData {
 
 struct UnpackedMaterialData {
     material_id: u32,
+    facing_dir: u32,
     up: u32,
     down: u32,
     left: u32,
@@ -80,35 +81,38 @@ struct Quad {
 }
 
 struct PBRMaterialPropertiesUniform {
-    // 16 bytes
-    albedo    : vec3f,
-    metallic  : f32,
-
-    // 16 bytes
-    emission  : vec3f,
-    roughness : f32,
-
-    // 16 bytes
+    albedo: vec3f,
+    metallic: f32,
+    emission: vec3f,
+    roughness: f32,
     dielectric: f32,
-    normal    : f32,
-    AO        : f32,
+    normal: f32,
+    AO: f32,
     subsurface: f32,
-
-    // 16 bytes
-    clearcoat           : f32,
-    clearcoatRoughness  : f32,
-    _pad0               : f32,
-    _pad1               : f32
+    clearcoat: f32,
+    clearcoatRoughness: f32,
+    _pad0: f32,
+    _pad1: f32,
 };
 
 struct MaterialProperties {
-    pbr            : PBRMaterialPropertiesUniform,
-
-    // pack these four scalars as 16 bytes total
-    textureType : u32,
-    modelOffset    : u32,
-    id             : u32,
-    modelId          : u32
+    pbr: PBRMaterialPropertiesUniform,
+    textureType: u32,
+    tileCount: u32,
+    modelOffset: u32,
+    id: u32,
+    modelId: u32,
+    randomOffset: f32,
+    windStrength: f32,
+    randomOffsetDirections: u32,
+    orientation: u32,
+    textureId0: u32,
+    textureId1: u32,
+    textureId2: u32,
+    textureId3: u32,
+    textureId4: u32,
+    textureId5: u32,
+    normalTextureId: u32,
 };
 
 // Buffer metadata
@@ -130,6 +134,7 @@ struct SlotInfo {
 const NUM_TOTAL_SLOTS = 64000;
 const NUM_TOTAL_QUADS = 10000;
 const CHUNK_SIZE: f32 = 32.0;
+const pi: f32 = radians(180.0);
 
 // Model types
 const VOXEL_MODEL = 0;
@@ -137,11 +142,49 @@ const LEAF_MODEL = 1;
 const GRASS_MODEL = 2;
 const FERN_MODEL = 3;
 
+// Texture types
+const LARGE_TILE = 0;
+const CONNECTED = 1;
+const RANDOM_ROTATION = 2;
+const RANDOM_VARIANT = 3;
+
+// Orientation types
+const ORIENT_NONE = 0u;
+const ORIENT_SINGLE = 1u;
+const ORIENT_ALL = 2u;
+
+// Direction constants
+const DIRECTION_X = 0u;
+const DIRECTION_Y = 1u;
+const DIRECTION_Z = 2u;
+
 // Wind effect constants
 const WIND_STRENGTH: f32 = 0.15;
 const WIND_FREQUENCY: f32 = 6.0;
 const WIND_SPEED: f32 = 4.0;
 const WIND_DIRECTION: vec2f = vec2f(1.0, 0.3);
+
+// Connected textures constants
+const EDGE = 0;
+const CORNER = 1;
+const STRIP = 2;
+const U = 3;
+const SURROUNDED = 4;
+const ONE_INNER = 5;
+const TWO_INNER = 6;
+const THREE_INNER = 7;
+const ZERO_INNER = 8;
+const EDGE_BOTH_INNER = 10;
+const EDGE_ONE_INNER_ONE = 11;
+const EDGE_ONE_INNER_TWO = 12;
+const CORNER_ONE_INNER = 13;
+const TWO_INNER_DIAGONAL = 14;
+const FOUR_INNER = 15;
+
+const TEXTURE_SIZE = 64;
+const TILE_SIZE = 8;
+const NUM_TILES_PER_SIDE = TEXTURE_SIZE / TILE_SIZE;
+const UV_PER_TILE = 1.0 / NUM_TILES_PER_SIDE;
 
 // Bindings matching terrain shader
 @group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
@@ -248,6 +291,74 @@ const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6
     )
 );
 
+// Helper functions
+fn rotateX(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+    );
+    return m * v;
+}
+
+fn rotateY(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+    );
+    return m * v;
+}
+
+fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+    );
+    return m * v;
+}
+
+fn apply_random_tilt(vertex_pos: vec3f, normal: vec3f, hash: u32) -> vec3f {
+    // Extract tilt angles from hash (use different bits than offset)
+    let tilt_x_bits = (hash >> 24u) & 0xFFu;
+    let tilt_y_bits = (hash >> 16u) & 0xFFu;
+    let tilt_z_bits = (hash >> 8u) & 0xFFu;
+    
+    // Convert to angles in range [-20, +20] degrees
+    let max_tilt_radians = radians(10.0);
+    let tilt_x = (f32(tilt_x_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_y = (f32(tilt_y_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_z = (f32(tilt_z_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    
+    // Apply rotations in sequence: X -> Y -> Z
+    var tilted_pos = vertex_pos;
+    tilted_pos = rotateX(tilted_pos, tilt_x);
+    tilted_pos = rotateY(tilted_pos, tilt_y);
+    tilted_pos = rotateZ(tilted_pos, tilt_z);
+    
+    return tilted_pos;
+}
+
+fn has_offset(randomOffsetMask: u32, direction: u32) -> f32 {
+    switch (direction) {
+        case DIRECTION_X: { return f32(randomOffsetMask & 0x1); }
+        case DIRECTION_Y: { return f32((randomOffsetMask >> 1u) & 0x1); }
+        case DIRECTION_Z: { return f32((randomOffsetMask >> 2u) & 0x1); }
+        default: { return 0.0; }
+    }
+}
+
+fn stable_world_voxel(chunk_origin: vec3i, voxel_pos: vec3f, lod_scale: f32) -> vec3i {
+    return chunk_origin + vec3i(i32(voxel_pos.x * lod_scale), i32(voxel_pos.y * lod_scale), i32(voxel_pos.z * lod_scale));
+}
+
 // Wind displacement function
 fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_strength_multiplier: f32) -> vec3f {
     let time = uMyUniforms.time * WIND_SPEED;
@@ -309,7 +420,10 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
 fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let material_id = packed_bits & 0x1FFFFu;
+    let material_info = packed_bits & 0x1FFFFu;
+    let material_id = material_info >> 3u;
+    let facing_dir = material_info & 0x7u;
+    
     let up = (packed_bits >> 17u) & 0x1u;
     let down = (packed_bits >> 18u) & 0x1u;
     let left = (packed_bits >> 19u) & 0x1u;
@@ -322,6 +436,7 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
 
     return UnpackedMaterialData(
         material_id,
+        facing_dir,
         up,
         down,
         left,
@@ -410,6 +525,202 @@ fn rotate_uv(uv: vec2f, rot: u32) -> vec2f {
     return rotated + 0.5;
 }
 
+fn get_offset(index: u32) -> vec2f {
+    return vec2f(f32(index % 8) * UV_PER_TILE, f32(index / 8) * UV_PER_TILE);
+}
+
+// Connected textures UV calculation
+fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
+    let four_neighborhood = m.left + m.right + m.up + m.down;
+    let corners = m.up_left + m.up_right + m.down_left + m.down_right;
+    
+    if (four_neighborhood == 4u) {
+        if (corners == 3u) {
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(ONE_INNER);
+            }
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(ONE_INNER);
+            }
+        }
+        if (corners == 2u) {
+            if (m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.up_right == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(TWO_INNER);
+            }
+            if (m.down_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(TWO_INNER_DIAGONAL);
+            }
+            if (m.up_left == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(TWO_INNER_DIAGONAL);
+            }
+        }
+        if (corners == 1u) {
+            if (m.down_left == 0u && m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.up_left == 0u && m.up_right == 0u && m.down_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.up_right == 0u && m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(THREE_INNER);
+            }
+            if (m.down_right == 0u && m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(THREE_INNER);
+            }
+        }
+        if (corners == 0u) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(FOUR_INNER);
+        }
+        return uv * 0.125 + get_offset(ZERO_INNER);
+    }
+    
+    if (four_neighborhood == 3u) {
+        if (m.left == 0u) {
+            if (m.down_right == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE);
+        }
+        if (m.up == 0u) {
+            if (m.down_right == 0u && m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE);
+        }
+        if (m.right == 0u) {
+            if (m.down_left == 0u && m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 2) * 0.125 + get_offset(EDGE);
+        }
+        if (m.down == 0u) {
+            if (m.up_left == 0u && m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_BOTH_INNER);
+            }
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_ONE_INNER_ONE);
+            }
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(EDGE_ONE_INNER_TWO);
+            }
+            return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE);
+        }
+    }
+    
+    if (four_neighborhood == 2u) {
+        if (m.left == 0u && m.right == 0u) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(STRIP);
+        }
+        if (m.up == 0u && m.down == 0u) {
+            return rotate_uv(uv, 1) * 0.125 + get_offset(STRIP);
+        }
+        if (m.left == 0u && m.up == 0u) {
+            if (m.down_right == 0u) {
+                return rotate_uv(uv, 0) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 0) * 0.125 + get_offset(CORNER);
+        }
+        if (m.up == 0u && m.right == 0u) {
+            if (m.down_left == 0u) {
+                return rotate_uv(uv, 1) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 1) * 0.125 + get_offset(CORNER);
+        }
+        if (m.right == 0u && m.down == 0u) {
+            if (m.up_left == 0u) {
+                return rotate_uv(uv, 2) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 2) * 0.125 + get_offset(CORNER);
+        }
+        if (m.down == 0u && m.left == 0u) {
+            if (m.up_right == 0u) {
+                return rotate_uv(uv, 3) * 0.125 + get_offset(CORNER_ONE_INNER);
+            }
+            return rotate_uv(uv, 3) * 0.125 + get_offset(CORNER);
+        }
+    }
+    
+    if (four_neighborhood == 1u) {
+        if (m.left == 0u && m.up == 0u && m.right == 0u) {
+            return rotate_uv(uv, 0) * 0.125 + get_offset(U);
+        }
+        if (m.up == 0u && m.right == 0u && m.down == 0u) {
+            return rotate_uv(uv, 1) * 0.125 + get_offset(U);
+        }
+        if (m.right == 0u && m.down == 0u && m.left == 0u) {
+            return rotate_uv(uv, 2) * 0.125 + get_offset(U);
+        }
+        if (m.down == 0u && m.left == 0u && m.up == 0u) {
+            return rotate_uv(uv, 3) * 0.125 + get_offset(U);
+        }
+    }
+    
+    if (four_neighborhood == 0u) {
+        return rotate_uv(uv, 0) * 0.125 + get_offset(SURROUNDED);
+    }
+    
+    return uv * 0.125 + get_offset(ZERO_INNER);
+}
+
+fn calculate_large_tile_uv_world_unwrapped(
+    world_voxel_pos : vec3i,
+    base_vertex     : vec3f,
+    lod_scale       : f32,
+    normal_index    : u32
+) -> vec2f {
+    var a: f32;
+    var b: f32;
+
+    switch (normal_index) {
+        case 0u, 1u: {
+            a = f32(world_voxel_pos.y) + base_vertex.y * lod_scale;
+            b = f32(world_voxel_pos.z) + base_vertex.z * lod_scale;
+        }
+        case 2u, 3u: {
+            a = f32(world_voxel_pos.x) + base_vertex.x * lod_scale;
+            b = f32(world_voxel_pos.z) + base_vertex.z * lod_scale;
+        }
+        default: {
+            a = f32(world_voxel_pos.x) + base_vertex.x * lod_scale;
+            b = f32(world_voxel_pos.y) + base_vertex.y * lod_scale;
+        }
+    }
+    return vec2f(a, b) / f32(TILE_SIZE);
+}
+
 @vertex
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -481,21 +792,46 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
         normal = faceNormals[data.normal_index];
     }
 
-    let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
-
-    let hash = hash_voxel_position(world_voxel_pos + vec3i(i32(normal.x), i32(normal.y), i32(normal.z)));
-    let tile_x = hash & 7u;
-    let tile_y = (hash >> 4u) & 7u;
-    let rotation = (hash >> 16u) & 7u;
-    out.tile_offset = vec2f(f32(tile_x) * 0.125, f32(tile_y) * 0.125);
+    let stable_world_voxel_pos = stable_world_voxel(chunkData.worldPosition, voxel_pos, lod_scale);
+    let hash = hash_voxel_position(stable_world_voxel_pos);
+    
+    // Calculate tile offsets for texture variations
+    let tile_x = hash & (materialProps.tileCount - 1u);
+    let tile_y = (hash >> (materialProps.tileCount * 2u)) & (materialProps.tileCount - 1u);
+    let tile_z = (hash >> (materialProps.tileCount * 3u)) & (materialProps.tileCount - 1u);
+    let tile_rotation = (hash >> (materialProps.tileCount * 4u)) & (materialProps.tileCount - 1u);
+    
+    let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
+    let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
+    
+    // Calculate random offsets
+    let tile_x_2 = hash & 7u;
+    let tile_y_2 = (hash >> 8u) & 7u;
+    let tile_z_2 = (hash >> 16u) & 7u;
+    
+    var random_offset = vec3f(
+        (f32(tile_x_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_X), 
+        (f32(tile_y_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Y), 
+        (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
+    );
+    
+    out.tile_offset = tile_offset;
     out.tile_offset2 = vec2f(f32(tile_x / 2) * 0.25, f32(tile_y / 2) * 0.25);
-    out.tile_rotation = rotation;
+    out.tile_rotation = tile_rotation;
 
     var scaled_vertex_offset: vec3f;
     var base_vertex: vec3f;
     
     if (materialProps.modelId != VOXEL_MODEL) {
         base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+        
+        // Apply random tilt if all offset directions are enabled
+        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
+            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
+            base_vertex = apply_random_tilt(base_vertex, normal, hash);
+        }
+        
         scaled_vertex_offset = base_vertex * lod_scale;
     } else {
         base_vertex = faceVertices[data.normal_index][vertexInFace];
@@ -503,31 +839,41 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     }
     
     // Calculate initial position before wind
-    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset;
+    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
-    // Apply wind effects for grass and leaf models
+    // Apply wind effects using material's wind strength
     var wind_displacement = vec3f(0.0);
-    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == FERN_MODEL) {
+    if (materialProps.windStrength > 0.0) {
         let vertex_height = base_vertex.z;
         if (vertex_height > 0.1) {
-            let wind_strength = vertex_height;
-            wind_displacement = calculate_wind_displacement(base_position, wind_strength, 1.0);
+            wind_displacement = calculate_wind_displacement(base_position, vertex_height, materialProps.windStrength);
         }
-    } else if (materialProps.modelId == LEAF_MODEL) {
-        let center_offset = length(base_vertex - vec3f(0.5));
-        let wind_strength = 0.3 + center_offset * 0.7;
-        wind_displacement = calculate_wind_displacement(base_position, wind_strength, 0.5);
     }
     
     position = base_position + wind_displacement;
     
+    // Calculate UV
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
     
     if (materialProps.modelId == VOXEL_MODEL) {
         uv = faceUVsIndependent[data.normal_index][vertexInFace];
     }
 
-    out.uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+    uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+    
+    // Apply texture type transformations
+    if (materialProps.textureType == RANDOM_ROTATION) {        
+        uv = rotate_uv(uv, tile_rotation);
+        uv = uv * tile_uv_distance + tile_offset;
+    } else if (materialProps.textureType == CONNECTED) {
+        uv = get_ct_offset(uv, materialData) + vec2f(0.0, tile_offset.y);
+    } else if (materialProps.textureType == RANDOM_VARIANT) {
+        uv = uv * tile_uv_distance + tile_offset;
+    } else if (materialProps.textureType == LARGE_TILE) {
+        uv = calculate_large_tile_uv_world_unwrapped(stable_world_voxel_pos, base_vertex, lod_scale, data.normal_index);
+    }
+    
+    out.uv = uv;
     
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
 
@@ -553,29 +899,16 @@ fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     // Optional: Add alpha testing for leaf models if needed
     // Note: This can impact performance significantly
-    
-    if (in.model_id == LEAF_MODEL || in.model_id == GRASS_MODEL) {
-        var uv = in.uv;
-        
-        // Apply texture transformations based on material settings
+    /*
+    if (in.model_id == LEAF_MODEL) {
         let materialProps = material_buffer[material_id - 1];
-        
-        if (materialProps.textureType == 2u) { // RANDOM_ROTATION
-            uv = rotate_uv(uv, in.tile_rotation);
-            uv = 0.125 * uv + in.tile_offset;
-        } else if (materialProps.textureType == 3u) { // RANDOM_VARIANTS
-            uv = 0.125 * uv + in.tile_offset;
-        } else if (in.model_id == LEAF_MODEL) {
-            uv = uv * 0.25 + in.tile_offset2;
-        }
-
-        let textureColor = textureSampleLevel(textureArray, textureSampler, uv, material_id - 1, 0);
+        let textureColor = textureSampleLevel(textureArray, textureSampler, in.uv, materialProps.textureId0, 0);
 
         if (textureColor.a < 0.9) {
             discard;
         }
     }
-    
+    */
     
     // For shadow mapping, we only care about depth
     return vec4f(0.0, 0.0, 0.0, 1.0);

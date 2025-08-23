@@ -22,7 +22,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.95,
-        "dielectric": 0.04,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -57,13 +57,13 @@
         ],
         "metallic": 0.0,
         "roughness": 0.85,
-        "dielectric": 0.04,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
-        "normal": 1.3,
+        "normal": 1.0,
         "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
@@ -127,7 +127,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.3,
-        "dielectric": 0.06,
+        "dielectric": 0.04,
         "emission": [
           3.5,
           2.8,
@@ -234,7 +234,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.75,
-        "dielectric": 0.04,
+        "dielectric": 0.01,
         "emission": [
           0.0,
           0.0,
@@ -344,8 +344,8 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.75,
-        "dielectric": 0.015,
+        "roughness": 0.45,
+        "dielectric": 0.01,
         "emission": [
           0.0,
           0.0,
@@ -383,7 +383,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -421,7 +421,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -459,7 +459,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -497,7 +497,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -535,7 +535,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -573,7 +573,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -611,7 +611,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -649,7 +649,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.06,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -684,7 +684,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.2,
-        "dielectric": 0.02,
+        "dielectric": 0.05,
         "emission": [
           0.0,
           0.0,
@@ -759,16 +759,16 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.65,
-        "dielectric": 0.0025,
+        "roughness": 0.45,
+        "dielectric": 0.003,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
         "normal": 1.0,
-        "AO": 0.85,
-        "subsurface": 0.05,
+        "AO": 0.0,
+        "subsurface": 0.3,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -795,7 +795,7 @@
         ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.0025,
+        "dielectric": 0.0015,
         "emission": [
           0.0,
           0.0,

@@ -1026,6 +1026,17 @@ fn atmo_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     return out;
 }
 
+fn linear_to_srgb(c_in: vec3f) -> vec3f {
+    // Clamp to avoid pow() on negatives
+    let c = max(c_in, vec3f(0.0));
+    let a = 0.055;
+    let thresh = vec3f(0.0031308);
+    let lo = 12.92 * c;
+    let hi = (1.0 + a) * pow(c, vec3f(1.0 / 2.4)) - a;
+    return mix(lo, hi, step(thresh, c));
+}
+
+
 @fragment 
 fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let atmosphere = atmosphere_buffer;
@@ -1111,8 +1122,8 @@ fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     // }
 
     if (is_valid_depth(depth)) {
-        return vec4f(dithered_aerial_perspective, final_fog_alpha);
+        return vec4f(linear_to_srgb(dithered_aerial_perspective), final_fog_alpha);
     }
 
-    return vec4<f32>(0.0);
+    return vec4f(0.5, 1.0, 1.0, 0.0);
 }

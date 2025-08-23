@@ -1142,6 +1142,17 @@ fn sky_vs_main(in: SkyVertexInput) -> SkyVertexOutput {
     return out;
 }
 
+fn linear_to_srgb(c_in: vec3f) -> vec3f {
+    // Clamp to avoid pow() on negatives
+    let c = max(c_in, vec3f(0.0));
+    let a = 0.055;
+    let thresh = vec3f(0.0031308);
+    let lo = 12.92 * c;
+    let hi = (1.0 + a) * pow(c, vec3f(1.0 / 2.4)) - a;
+    return mix(lo, hi, step(thresh, c));
+}
+
+
 @fragment 
 fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let atmosphere = atmosphere_buffer;
@@ -1176,5 +1187,7 @@ fn sky_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let final_color = cloud_result.rgb + sky_color.rgb * (1.0 - cloud_result.a);
     let dithered = applyDitherToPixelColor(final_color.rgb, pixel_pos);
 
-    return vec4<f32>(dithered, 1.0);
+    let srgb = linear_to_srgb(dithered);
+
+    return vec4<f32>(srgb, 1.0);
 }
