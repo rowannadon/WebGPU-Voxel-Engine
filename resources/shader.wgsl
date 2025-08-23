@@ -660,7 +660,7 @@ const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
 );
 
 const aoLevels = array<f32, 4>(
-    0.2, 0.3, 0.45, 0.65
+    0.15, 0.25, 0.35, 0.45
 );
 
 fn hash_voxel_position(pos: vec3i) -> u32 {
@@ -1690,29 +1690,30 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var foam: f32 = 0.0;
     var fresnelTerm: f32 = 0.0;
 
+    // is water
     if (material_id == 19u) {
-        // let p = in.world_position.xy; // Z-up
-        // let t = uMyUniforms.time;
+        let p = in.world_position.xy; // Z-up
+        let t = uMyUniforms.time;
 
-        // // Noise-driven slope + normal
-        // let grad = wave_gradient(p, t);
-        // let wN = water_normal_from_grad(grad);
-        // normal = normalize(mix(normal, wN, 0.85));
+        // Noise-driven slope + normal
+        let grad = wave_gradient(p, t);
+        let wN = water_normal_from_grad(grad);
+        normal = normalize(mix(normal, wN, 0.85));
 
-        // // Distort existing texture with the noise slope
-        // uv += grad * WATER_UV_DISTORTION;
+        // Distort existing texture with the noise slope
+        uv += grad * WATER_UV_DISTORTION;
 
         // // Fresnel-based transparency as before
-        // let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
-        // fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
+        let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
+        fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
         blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
 
-        // Depth-ish tint from choppiness
-        // let slope = length(grad);
-        // waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
+        //Depth-ish tint from choppiness
+        let slope = length(grad);
+        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
 
-        // // Foam from steep crests (uses the same procedural noise)
-        // foam = water_foam_from_grad(p, t, slope);
+        // Foam from steep crests (uses the same procedural noise)
+        foam = water_foam_from_grad(p, t, slope);
     }
 
     var layer : u32 = materialProps.textureId0;
@@ -1757,9 +1758,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
 
-    var leaf_wrap: f32 = 0.0;
+    var leaf_wrap: f32 = 0.2;
     if (materialProps.modelId == LEAF_MODEL) {
-        leaf_wrap = 0.2; // 0..0.35 is a good range
+        leaf_wrap = 0.35; // 0..0.35 is a good range
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity

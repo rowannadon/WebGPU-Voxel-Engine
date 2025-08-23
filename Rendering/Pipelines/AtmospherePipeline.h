@@ -37,12 +37,14 @@ public:
 		config.fragmentShaderName = "atmo_fs_main";
 		config.useVertexBuffers = false;  // Sky shader generates vertices procedurally
 		config.useColorTarget = true;
+
 		config.useCustomBlending = true;
 
 		config.blendState.color.operation = BlendOperation::Add;
 		config.blendState.color.srcFactor = BlendFactor::SrcAlpha;      // Use fog's alpha
 		config.blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;  // Blend with existing terrain
-		config.blendState.alpha.operation = BlendOperation::Add;
+		
+		 config.blendState.alpha.operation = BlendOperation::Add;
 		config.blendState.alpha.srcFactor = BlendFactor::One;           // Preserve alpha
 		config.blendState.alpha.dstFactor = BlendFactor::OneMinusSrcAlpha;
 
