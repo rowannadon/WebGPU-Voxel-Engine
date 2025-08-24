@@ -38,7 +38,7 @@
         "grass.png"
       ],
       "normal": [],
-      "roughness": ["test_roughness.png"],
+      "roughness": ["grass_r.png"],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",

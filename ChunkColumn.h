@@ -1183,7 +1183,7 @@ public:
                             if (material.materialType == BlockType::Grass) { // grass terrain
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                /*if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     static const std::array<ProbabilityConfig, 4> config = { {
                                             { 0,     0.04f},
                                             { 1,     0.33f},
@@ -1207,7 +1207,7 @@ public:
                                     setVoxelWholeColumn(grassPos, true, true);
                                     setVoxelWholeColumn(grassPos, false, false);
                                     setMaterialFast(grassPos, m2);
-                                }
+                                }*/
 
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
