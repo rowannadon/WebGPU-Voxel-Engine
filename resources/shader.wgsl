@@ -31,27 +31,65 @@ const WATER_TINT_SHALLOW: vec3f  = vec3f(0.12, 0.30, 0.38);
 const WATER_TINT_DEEP: vec3f     = vec3f(0.02, 0.06, 0.12);
 const WATER_SKY_COLOR: vec3f     = vec3f(0.55, 0.70, 0.95); // very cheap "reflection" color
 
-const WATER_WAVE_AMPLITUDE: f32  = 0.04;   // Height of wave function (for normals/foam only)
-const WATER_WAVE_LENGTH: f32     = 6.0;    // Larger = broader waves
-const WATER_WAVE_SPEED: f32      = 5.0;    // Wave animation speed
-const WATER_NORMAL_STRENGTH: f32 = 0.99;    // How hard the waves bend the normal
-const WATER_UV_DISTORTION: f32   = 0.05;   // Distort the *existing* water texture
+// Increase number of waves for more complexity
+const GERSTNER_NUM_WAVES: i32 = 8;
 
-const WATER_FLOW_DIR0: vec2f     = normalize(vec2f(0.8, 0.2));
-const WATER_FLOW_DIR1: vec2f     = normalize(vec2f(-0.35, 1.0));
-const WATER_FLOW_SPEED0: f32     = 0.03;
-const WATER_FLOW_SPEED1: f32     = -0.02;
+// Smaller amplitudes for smaller waves, with more variation
+const GERSTNER_WAVE_AMPLITUDE: array<f32, 8> = array<f32, 8>(
+    0.035,  // Primary wave - smaller
+    0.025,  // Secondary wave
+    0.018,  // Tertiary waves
+    0.012,
+    0.008,  // Detail waves
+    0.006,
+    0.004,  // Fine detail
+    0.003
+);
+
+// More varied wavelengths to avoid repetition
+const GERSTNER_WAVE_LENGTH: array<f32, 8> = array<f32, 8>(
+    5.5,    // Smaller primary wavelength
+    3.7,    // Non-harmonic intervals to reduce patterns
+    2.3,
+    1.6,
+    1.1,    // High frequency details
+    0.8,
+    0.6,
+    0.45
+);
+
+// Varied speeds using prime-like multipliers to avoid synchronization
+const GERSTNER_WAVE_SPEED: array<f32, 8> = array<f32, 8>(
+    2.3,    // Different speed ratios
+    1.9,
+    1.5,
+    1.2,
+    0.97,   // Some slower waves
+    0.83,
+    0.71,
+    0.61
+);
+
+// More diverse directions for natural look
+const GERSTNER_WAVE_DIRECTION: array<vec2f, 8> = array<vec2f, 8>(
+    vec2f(1.0, 0.2),      // Primary direction
+    vec2f(0.6, 0.8),      // 45-60 degree offset
+    vec2f(-0.4, 0.9),     // Counter direction
+    vec2f(0.9, -0.4),     // Perpendicular component
+    vec2f(-0.7, -0.7),    // Opposing waves
+    vec2f(0.3, 0.95),     // Various angles
+    vec2f(-0.8, 0.3),
+    vec2f(0.5, -0.85)
+);
+
+// Reduce steepness slightly for smoother blending
+const GERSTNER_STEEPNESS: f32 = 0.35;
+
+// Also adjust foam threshold since waves are smaller
+const WATER_FOAM_THRESHOLD: f32 = 0.4;  // Lower threshold for smaller waves
 
 const WATER_FOAM_COLOR: vec3f    = vec3f(0.95, 0.97, 1.0);
 const WATER_FOAM_INTENSITY: f32  = 0.35;
-const WATER_FOAM_THRESHOLD: f32  = 0.65;
-
-// --- Noise-based waves ---
-const WATER_NOISE_FREQ: f32          = 1.0 / 4.0; // base world scale of waves
-const WATER_DOMAIN_WARP_STRENGTH: f32= 1.4;        // breaks repetition
-const WATER_FBM_OCTAVES: i32         = 4;          // 3-5 is plenty
-const WATER_FBM_GAIN: f32            = 0.5;        // amplitude falloff per octave
-const WATER_FBM_LACUNARITY: f32      = 2.0;        // frequency multiplier per octave
 
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
@@ -1214,6 +1252,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     position = base_position + wind_displacement;
+
+    if (materialData.material_id == 19u) { // Water material
+        let gerstner = calculate_gerstner_waves(position.xy, uMyUniforms.time);
+        position += gerstner.position_offset;
+    }
     
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
 
@@ -1373,93 +1416,6 @@ fn reinhard(x: vec3f) -> vec3f {
   return x / (1.0 + x);
 }
 
-
-
-struct Noise2D { v: f32, d: vec2f } // value and derivative
-
-fn hash12(p: vec2f) -> f32 {
-    // tiny, fast, repeatable
-    let h = dot(p, vec2f(127.1, 311.7));
-    return fract(sin(h) * 43758.5453123);
-}
-
-fn value_noise2d_with_deriv(p: vec2f) -> Noise2D {
-    let i = floor(p);
-    let f = fract(p);
-
-    let a = hash12(i);
-    let b = hash12(i + vec2f(1.0, 0.0));
-    let c = hash12(i + vec2f(0.0, 1.0));
-    let d = hash12(i + vec2f(1.0, 1.0));
-
-    let u  = f * f * (3.0 - 2.0 * f);          // smoothstep
-    let du = 6.0 * f * (1.0 - f);              // derivative of smoothstep
-
-    let x1 = mix(a, b, u.x);
-    let x2 = mix(c, d, u.x);
-    let v  = mix(x1, x2, u.y);
-
-    let dv_dx = mix(b - a, d - c, u.y) * du.x;
-    let dv_dy = mix(c - a, d - b, u.x) * du.y;
-
-    return Noise2D(v, vec2f(dv_dx, dv_dy));
-}
-
-fn fbm2d_with_deriv(p0: vec2f) -> Noise2D {
-    var v   = 0.0;
-    var d   = vec2f(0.0);
-    var amp = 0.5;
-    var freq = 1.0;
-
-    // fixed loop for WGSL
-    for (var o = 0; o < 4; o++) {
-        let p = p0 * freq;
-        let n = value_noise2d_with_deriv(p);
-        v += amp * n.v;
-        d += amp * n.d * freq; // chain rule
-        amp *= WATER_FBM_GAIN;
-        freq *= WATER_FBM_LACUNARITY;
-    }
-    return Noise2D(v, d);
-}
-
-fn domain_warp(p: vec2f, t: f32) -> vec2f {
-    // two animated warps to kill any residual patterning
-    let w1 = value_noise2d_with_deriv(p * 0.75 + vec2f( 0.08*t,  0.02*t)).v;
-    let w2 = value_noise2d_with_deriv(p * 1.35 + vec2f(-0.03*t,  0.06*t)).v;
-    return p + (vec2f(w1, w2) - 0.5) * WATER_DOMAIN_WARP_STRENGTH;
-}
-
-fn wave_gradient(p_world_xy: vec2f, t: f32) -> vec2f {
-    // advection (flow)
-    var p = (p_world_xy
-            + WATER_FLOW_DIR0 * (t * WATER_FLOW_SPEED0)
-            + WATER_FLOW_DIR1 * (t * WATER_FLOW_SPEED1)) * WATER_NOISE_FREQ;
-
-    // warp, then FBM
-    p = domain_warp(p, t);
-    let n = fbm2d_with_deriv(p);
-
-    // scale to slope
-    return n.d * WATER_WAVE_AMPLITUDE * 1.5;
-}
-
-fn water_normal_from_grad(grad: vec2f) -> vec3f {
-    // Z-up surface
-    return normalize(vec3f(-grad.x * WATER_NORMAL_STRENGTH,
-                           -grad.y * WATER_NORMAL_STRENGTH,
-                            1.0));
-}
-
-fn water_foam_from_grad(p_world_xy: vec2f, t: f32, grad_len: f32) -> f32 {
-    // crest = steep + some high-freq breakup
-    let hf = value_noise2d_with_deriv((p_world_xy * WATER_NOISE_FREQ * 6.0)
-                                      + vec2f(0.2*t, -0.1*t)).v;
-    let crest = smoothstep(WATER_FOAM_THRESHOLD, WATER_FOAM_THRESHOLD + 0.5, grad_len);
-    let breakup = smoothstep(0.35, 0.8, hf);
-    return clamp(crest * breakup, 0.0, 1.0);
-}
-
 fn get_opposite_face(facing_dir: u32) -> u32 {
     switch (facing_dir) {
         case 0u: { return 1u; } // +X -> -X
@@ -1470,6 +1426,118 @@ fn get_opposite_face(facing_dir: u32) -> u32 {
         case 5u: { return 4u; }
         default: { return 0u; }
     }
+}
+
+// Gerstner wave calculation with position offset and normal
+struct GerstnerWaveResult {
+    position_offset: vec3f,
+    normal: vec3f,
+    foam_factor: f32
+}
+
+fn calculate_gerstner_wave_with_phase(
+    world_pos: vec2f,
+    time: f32,
+    amplitude: f32,
+    wavelength: f32,
+    speed: f32,
+    direction: vec2f,
+    phase_offset: f32  // New parameter
+) -> GerstnerWaveResult {
+    let k = 2.0 * pi / wavelength;
+    let w = sqrt(9.81 * k);
+    let dir = normalize(direction);
+    
+    // Add phase offset to break up synchronization
+    let phase = dot(dir, world_pos) * k - w * speed * time + phase_offset;
+    let steepness = GERSTNER_STEEPNESS;
+    let qa = steepness * amplitude;
+    
+    let sin_phase = sin(phase);
+    let cos_phase = cos(phase);
+    
+    let x_offset = qa * dir.x * cos_phase;
+    let y_offset = qa * dir.y * cos_phase;
+    let z_offset = amplitude * sin_phase;
+    
+    let wa = k * amplitude;
+    let qwa = steepness * wa;
+    
+    let normal_x = -dir.x * wa * cos_phase;
+    let normal_y = -dir.y * wa * cos_phase;
+    let normal_z = 1.0 - qwa * sin_phase;
+    
+    let foam = smoothstep(0.0, 1.0, abs(sin_phase) * amplitude * k * 2.0);
+    
+    return GerstnerWaveResult(
+        vec3f(x_offset, y_offset, z_offset),
+        vec3f(normal_x, normal_y, normal_z),
+        foam
+    );
+}
+
+// Phase offsets to desynchronize waves
+const GERSTNER_PHASE_OFFSET: array<f32, 8> = array<f32, 8>(
+    0.0,
+    1.57,   // PI/2
+    0.78,   // PI/4
+    2.35,   // 3PI/4
+    3.14,   // PI
+    0.39,   // PI/8
+    1.96,   // 5PI/8
+    2.74    // 7PI/8
+);
+
+// Updated calculate_gerstner_waves function
+fn calculate_gerstner_waves(world_pos: vec2f, time: f32) -> GerstnerWaveResult {
+    var result = GerstnerWaveResult(
+        vec3f(0.0),
+        vec3f(0.0, 0.0, 1.0),
+        0.0
+    );
+    
+    // Sum multiple Gerstner waves with phase offsets
+    for (var i = 0; i < GERSTNER_NUM_WAVES; i++) {
+        let wave = calculate_gerstner_wave_with_phase(
+            world_pos,
+            time,
+            GERSTNER_WAVE_AMPLITUDE[i],
+            GERSTNER_WAVE_LENGTH[i],
+            GERSTNER_WAVE_SPEED[i],
+            GERSTNER_WAVE_DIRECTION[i],
+            GERSTNER_PHASE_OFFSET[i]
+        );
+        
+        result.position_offset += wave.position_offset;
+        result.normal += wave.normal;
+        result.foam_factor += wave.foam_factor;
+    }
+    
+    result.normal = normalize(result.normal);
+    result.foam_factor = clamp(result.foam_factor / f32(GERSTNER_NUM_WAVES), 0.0, 1.0);
+    
+    return result;
+}
+
+// Simple detail noise for breaking up patterns (much simpler than before)
+fn simple_noise(p: vec2f) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    
+    // Simple hash function
+    let n00 = fract(sin(dot(i, vec2f(12.9898, 78.233))) * 43758.5453);
+    let n10 = fract(sin(dot(i + vec2f(1.0, 0.0), vec2f(12.9898, 78.233))) * 43758.5453);
+    let n01 = fract(sin(dot(i + vec2f(0.0, 1.0), vec2f(12.9898, 78.233))) * 43758.5453);
+    let n11 = fract(sin(dot(i + vec2f(1.0, 1.0), vec2f(12.9898, 78.233))) * 43758.5453);
+    
+    // Smooth interpolation
+    let u = f * f * (3.0 - 2.0 * f);
+    
+    return mix(
+        mix(n00, n10, u.x),
+        mix(n01, n11, u.x),
+        u.y
+    );
 }
 
 // --- Tone mapping controls (specialization constants) ---
@@ -1690,30 +1758,46 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var foam: f32 = 0.0;
     var fresnelTerm: f32 = 0.0;
 
-    // is water
     if (material_id == 19u) {
         let p = in.world_position.xy; // Z-up
         let t = uMyUniforms.time;
 
-        // Noise-driven slope + normal
-        let grad = wave_gradient(p, t);
-        let wN = water_normal_from_grad(grad);
-        normal = normalize(mix(normal, wN, 0.85));
-
-        // Distort existing texture with the noise slope
-        uv += grad * WATER_UV_DISTORTION;
-
-        // // Fresnel-based transparency as before
+        // Calculate Gerstner waves
+        let gerstner = calculate_gerstner_waves(p, t);
+        
+        // Apply Gerstner normal
+        normal = normalize(mix(normal, gerstner.normal, 0.9));
+        
+        // Add some high-frequency detail noise to break up patterns
+        let detail_scale = 8.0;
+        let detail1 = simple_noise(p * detail_scale + vec2f(t * 0.5, -t * 0.3));
+        let detail2 = simple_noise(p * detail_scale * 1.5 + vec2f(-t * 0.4, t * 0.6));
+        let detail_normal_offset = vec3f(
+            (detail1 - 0.5) * 0.1,
+            (detail2 - 0.5) * 0.1,
+            1.0
+        );
+        normal = normalize(normal + detail_normal_offset * 0.2);
+        
+        // UV distortion based on wave displacement
+        let uv_distortion = gerstner.position_offset.xy * 0.02;
+        uv += uv_distortion;
+        
+        // Fresnel-based transparency
         let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
         fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
         blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
-
-        //Depth-ish tint from choppiness
-        let slope = length(grad);
-        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, clamp(slope * 3.0, 0.0, 1.0));
-
-        // Foam from steep crests (uses the same procedural noise)
-        foam = water_foam_from_grad(p, t, slope);
+        
+        // Depth tint based on wave height
+        let wave_height = gerstner.position_offset.z;
+        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, 
+                        clamp(abs(wave_height) * 10.0, 0.0, 1.0));
+        
+        // Foam generation
+        // Combine Gerstner foam with detail noise for more organic look
+        let foam_noise = simple_noise(p * 4.0 + vec2f(t * 0.2, -t * 0.15));
+        foam = smoothstep(WATER_FOAM_THRESHOLD, WATER_FOAM_THRESHOLD + 0.3, 
+                         gerstner.foam_factor + foam_noise * 0.3);
     }
 
     var layer : u32 = materialProps.textureId0;
