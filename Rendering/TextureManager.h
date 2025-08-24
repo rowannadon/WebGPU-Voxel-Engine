@@ -101,6 +101,7 @@ public:
         Grass = 2,
         Fern = 3,
         Water = 4,
+        Bush = 5,
         Unknown = 0xFFFFFFFF
     };
 

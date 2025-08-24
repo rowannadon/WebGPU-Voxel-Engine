@@ -143,6 +143,7 @@ TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
     if (s == "GRASS_MODEL") return CpuModelKind::Grass;
     if (s == "FERN_MODEL") return CpuModelKind::Fern;
     if (s == "WATER_MODEL") return CpuModelKind::Water;
+    if (s == "BUSH_MODEL") return CpuModelKind::Bush;
     return CpuModelKind::Unknown;
 }
 
@@ -152,6 +153,7 @@ std::string TextureManager::getModelString(const CpuModelKind m) {
     if (m == CpuModelKind::Grass) return "GRASS_MODEL";
     if (m == CpuModelKind::Fern) return "FERN_MODEL";
     if (m == CpuModelKind::Water) return "WATER_MODEL";
+    if (m == CpuModelKind::Bush) return "BUSH_MODEL";
     return "";
 }
 
