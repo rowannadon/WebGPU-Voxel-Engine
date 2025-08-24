@@ -405,7 +405,7 @@ bool WebGPURenderer::initTextures() {
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
 	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
-	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_small_2.obj");
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_3_quad_offset_16x8.obj");
 	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube_2x.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");	
 	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");

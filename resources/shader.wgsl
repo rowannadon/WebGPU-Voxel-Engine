@@ -1307,7 +1307,7 @@ fn calculate_pbr_lighting(
         let v_dot_h = max(dot(view_dir, half_vec), 0.0);
         
         // Calculate F0 (base reflectivity)
-        let dielectric_f0 = vec3f(specular);
+        let dielectric_f0 = vec3f(0.04);
         let f0 = mix(dielectric_f0, albedo, metallic);
         
         // Cook-Torrance BRDF components
@@ -1680,7 +1680,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         }
 
         if (materialProps.modelId == GRASS_MODEL) {
-            normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
+            normal = normalize(normal + vec3f(0.0, 0.0, 3.0));
         }
     }
 
@@ -1743,7 +1743,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
 
     // Combine material albedo with texture
-    var albedo = materialProps.pbr.albedo * textureColor.rgb;
+    var albedo = textureColor.rgb;
 
     if (material_id == 19u) {
         let transmitted = textureColor.rgb * waterTint;

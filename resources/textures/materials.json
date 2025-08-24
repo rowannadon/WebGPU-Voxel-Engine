@@ -360,9 +360,9 @@
     },
     {
       "id": 10,
-      "name": "Better Grass Long",
+      "name": "Low Grass",
       "texture": [
-        "better_grass_long.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -382,8 +382,8 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.9,
-        "dielectric": 0.003,
+        "roughness": 0.6,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -391,7 +391,7 @@
         ],
         "normal": 1.0,
         "AO": 1.0,
-        "subsurface": 0.7,
+        "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -438,7 +438,7 @@
       "id": 12,
       "name": "Better Grass 0",
       "texture": [
-        "better_grass_0.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -458,8 +458,8 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.9,
-        "dielectric": 0.003,
+        "roughness": 0.6,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -467,7 +467,7 @@
         ],
         "normal": 1.0,
         "AO": 1.0,
-        "subsurface": 0.35,
+        "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -476,7 +476,7 @@
       "id": 13,
       "name": "Better Grass 1",
       "texture": [
-        "better_grass_1.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -496,8 +496,8 @@
           0.5
         ],
         "metallic": 0.0,
-        "roughness": 0.9,
-        "dielectric": 0.003,
+        "roughness": 0.6,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -505,7 +505,7 @@
         ],
         "normal": 1.0,
         "AO": 1.0,
-        "subsurface": 0.4,
+        "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -514,7 +514,7 @@
       "id": 14,
       "name": "Better Grass 2",
       "texture": [
-        "better_grass_2.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -552,7 +552,7 @@
       "id": 15,
       "name": "Better Grass 3",
       "texture": [
-        "better_grass_3.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -590,7 +590,7 @@
       "id": 16,
       "name": "Better Grass 4",
       "texture": [
-        "better_grass_4.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -628,7 +628,7 @@
       "id": 17,
       "name": "Better Grass 5",
       "texture": [
-        "better_grass_5.png"
+        "grass_low.png"
       ],
       "normal": [],
       "model": "GRASS_MODEL",
@@ -796,6 +796,41 @@
         "metallic": 0.0,
         "roughness": 0.9,
         "dielectric": 0.0015,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 22,
+      "name": "Loam",
+      "texture": [
+        "loam.png"
+      ],
+      "normal": [],
+      "model": "VOXEL_MODEL",
+      "textureType": "LARGE_TILE",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "albedo": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "dielectric": 0.0002,
         "emission": [
           0.0,
           0.0,
