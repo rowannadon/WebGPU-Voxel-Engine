@@ -81,38 +81,41 @@ struct Quad {
 }
 
 struct PBRMaterialPropertiesUniform {
-    albedo: vec3f,
-    metallic: f32,
-    emission: vec3f,
-    roughness: f32,
-    dielectric: f32,
-    normal: f32,
-    AO: f32,
+    emission  : vec3f,
+    metallic  : f32,
+    roughness : f32,
+    specular: f32,
+    normal    : f32,
+    AO        : f32,
     subsurface: f32,
-    clearcoat: f32,
-    clearcoatRoughness: f32,
-    _pad0: f32,
-    _pad1: f32,
+
+    // 16 bytes
+    clearcoat           : f32,
+    clearcoatRoughness  : f32,
+    _pad0               : f32,   // padding to 16B
 };
 
+// Matches C++ MaterialProperties (pbr + 16 bytes of scalars)
 struct MaterialProperties {
-    pbr: PBRMaterialPropertiesUniform,
-    textureType: u32,
-    tileCount: u32,
-    modelOffset: u32,
-    id: u32,
-    modelId: u32,
+    pbr            : PBRMaterialPropertiesUniform,
+
+    // pack these four scalars as 16 bytes total
+    textureType : u32,
+    tileCount   : u32,
+    modelOffset : u32,
+    id          : u32,
+    modelId     : u32,
     randomOffset: f32,
     windStrength: f32,
     randomOffsetDirections: u32,
-    orientation: u32,
+    orientation : u32,
     textureId0: u32,
     textureId1: u32,
     textureId2: u32,
     textureId3: u32,
     textureId4: u32,
     textureId5: u32,
-    normalTextureId: u32,
+    padding    : u32,
 };
 
 // Buffer metadata

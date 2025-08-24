@@ -141,6 +141,7 @@ TextureManager::CpuModelKind TextureManager::parseModel(const std::string& s) {
     if (s == "VOXEL_MODEL") return CpuModelKind::Voxel;
     if (s == "LEAF_MODEL")  return CpuModelKind::Leaf;
     if (s == "GRASS_MODEL") return CpuModelKind::Grass;
+    if (s == "TALLGRASS_MODEL") return CpuModelKind::TallGrass;
     if (s == "FERN_MODEL") return CpuModelKind::Fern;
     if (s == "WATER_MODEL") return CpuModelKind::Water;
     if (s == "BUSH_MODEL") return CpuModelKind::Bush;
@@ -151,6 +152,7 @@ std::string TextureManager::getModelString(const CpuModelKind m) {
     if (m == CpuModelKind::Voxel) return "VOXEL_MODEL";
     if (m == CpuModelKind::Leaf)  return "LEAF_MODEL";
     if (m == CpuModelKind::Grass) return "GRASS_MODEL";
+    if (m == CpuModelKind::TallGrass) return "TALLGRASS_MODEL";
     if (m == CpuModelKind::Fern) return "FERN_MODEL";
     if (m == CpuModelKind::Water) return "WATER_MODEL";
     if (m == CpuModelKind::Bush) return "BUSH_MODEL";
@@ -201,11 +203,10 @@ void TextureManager::fillMaterialProperties(MaterialProperties& dst, const Mater
     dst.randomOffset = src.randomOffset;
     dst.windStrength = src.windStrength;
 
-    dst.pbr.albedo = src.pbr.albedo;
     dst.pbr.metallic = src.pbr.metallic;
     dst.pbr.emission = src.pbr.emission;
     dst.pbr.roughness = src.pbr.roughness;
-    dst.pbr.dielectric = src.pbr.dielectric;
+    dst.pbr.specular = src.pbr.specular;
     dst.pbr.normal = src.pbr.normal;
     dst.pbr.AO = src.pbr.AO;
     dst.pbr.subsurface = src.pbr.subsurface;
@@ -288,11 +289,10 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
         // PBR block
         const auto& p = m.at("pbr");
         PBRMaterialProperties pbr{};
-        pbr.albedo = to_vec3(p.at("albedo"));
         pbr.metallic = p.value("metallic", 0.0f);
         pbr.emission = to_vec3(p.value("emission", json::array({ 0.0,0.0,0.0 })));
         pbr.roughness = p.value("roughness", 1.0f);
-        pbr.dielectric = p.value("dielectric", 0.04f);
+        pbr.specular = p.value("specular", 0.04f);
         pbr.normal = p.value("normal", 1.0f);
         pbr.AO = p.value("AO", 1.0f);
         pbr.subsurface = p.value("subsurface", 0.0f);

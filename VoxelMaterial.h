@@ -22,12 +22,16 @@ enum FacingDirection : uint16_t {
 // bits 15..3            bits 2..0
 
 struct PBRMaterialProperties {
-    vec3  albedo;              float metallic;
-    vec3  emission;            float roughness;
-    float dielectric;          float normal;
-    float AO;                  float subsurface;
-    float clearcoat;           float clearcoatRoughness;
-    float padding[2];
+    vec3  emission;
+    float metallic; 
+    float roughness;
+    float specular;          
+    float normal;
+    float AO;                  
+    float subsurface;
+    float clearcoat;           
+    float clearcoatRoughness;
+    float padding;
 };
 static_assert(sizeof(PBRMaterialProperties) % 16 == 0, "UBO alignment");
 

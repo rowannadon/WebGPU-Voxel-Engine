@@ -1153,6 +1153,7 @@ public:
                             case 1:
                                 material.materialType = BlockType::Grass; // grass
 
+
                                 if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
@@ -1180,15 +1181,14 @@ public:
 
                             // Apply materials to multiple layers
                             if (material.materialType == BlockType::Grass) { // grass terrain
-                                // Top 2 layers: grass
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     static const std::array<ProbabilityConfig, 4> config = { {
-                                            { 0,     0.2f},
-                                            { 1,     0.4f},
-                                            { 2,     0.4f},
-                                            { 3,     0.2f},
+                                            { 0,     0.04f},
+                                            { 1,     0.33f},
+                                            { 2,     0.33f},
+                                            { 3,     0.3f},
                                         } };
 
                                     int index = sampleFromDistribution(blockHash, config);
@@ -1214,7 +1214,13 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
-                                        material.materialType = BlockType::Grass; // grass
+
+                                        if (blockHash % 2 == 0) {
+                                            material.materialType = BlockType::Grass; // grass
+                                        }
+                                        else {
+                                            material.materialType = BlockType::Loam;
+                                        }
                                         setMaterialFast(layerPos, material);
                                     }
 

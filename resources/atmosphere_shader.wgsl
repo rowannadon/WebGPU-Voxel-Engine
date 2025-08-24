@@ -879,136 +879,76 @@ fn filmic(x: vec3<f32>) -> vec3<f32> {
   return pow(result, vec3(2.2));
 }
 
-fn get_multisampled_depth(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
-    // Get the number of samples (typically 4 or 8)
-    let num_samples = 4;
-    
-    var furthest_depth = textureLoad(depth_texture, pix, 0);
-    
-    // Check all samples at this pixel
-    for (var sample_idx = 1; sample_idx < num_samples; sample_idx++) {
-        let sample_depth = textureLoad(depth_texture, pix, sample_idx);
-        
-        // For reverse-Z, smaller values are further away
-        if (IS_REVERSE_Z) {
-            furthest_depth = min(furthest_depth, sample_depth);
-        } else {
-            furthest_depth = max(furthest_depth, sample_depth);
-        }
-    }
-    
-    return furthest_depth;
+struct DepthSample {
+    depth: f32,
+    coverage: f32,  // 0.0 = fully sky, 1.0 = fully terrain
+    is_terrain: bool,
 }
 
-fn sample_depth_with_edge_detection(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
-    // First, get the furthest depth from all samples at the current pixel
-    let center_depth = get_multisampled_depth(depth_texture, pix);
-    
-    // Check if we might be at an edge by comparing with neighbors
-    var is_edge = false;
-    var furthest_depth = center_depth;
-    
-    // Check 4-connected neighbors
-    let neighbor_offsets = array<vec2<i32>, 4>(
-        vec2<i32>(-1, 0),  // left
-        vec2<i32>(1, 0),   // right
-        vec2<i32>(0, -1),  // top
-        vec2<i32>(0, 1)    // bottom
-    );
-    
-    for (var i = 0; i < 4; i++) {
-        let neighbor_pos = pix + neighbor_offsets[i];
-        let neighbor_depth = get_multisampled_depth(depth_texture, neighbor_pos);
-        
-        // Check if there's a significant depth discontinuity
-        let depth_diff = abs(neighbor_depth - center_depth);
-        if (depth_diff > 0.01) {  // Adjust threshold as needed
-            is_edge = true;
-        }
-        
-        // Keep track of the furthest depth
-        if (IS_REVERSE_Z) {
-            furthest_depth = min(furthest_depth, neighbor_depth);
-        } else {
-            furthest_depth = max(furthest_depth, neighbor_depth);
-        }
-    }
-    
-    // If we're at an edge, return the furthest depth to favor sky
-    if (is_edge) {
-        return furthest_depth;
-    } else {
-        return center_depth;
-    }
-}
-
-fn get_multisampled_depth_with_coverage(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> f32 {
+fn get_multisampled_depth_with_coverage_fixed(depth_texture: texture_depth_multisampled_2d, pix: vec2<i32>) -> DepthSample {
     let num_samples = 4;
     
-    var furthest_depth = textureLoad(depth_texture, pix, 0);
-    var sky_sample_count = 0;
+    var result: DepthSample;
     var terrain_sample_count = 0;
+    var accumulated_depth = 0.0;
+    var valid_sample_count = 0;
     
-    // Check all samples and count sky vs terrain samples
+    // Check all samples
     for (var sample_idx = 0; sample_idx < num_samples; sample_idx++) {
         let sample_depth = textureLoad(depth_texture, pix, sample_idx);
         
-        if (!is_valid_depth(sample_depth)) {
-            sky_sample_count += 1;
-        } else {
+        if (is_valid_depth(sample_depth)) {
             terrain_sample_count += 1;
-        }
-        
-        // Track furthest depth
-        if (IS_REVERSE_Z) {
-            furthest_depth = min(furthest_depth, sample_depth);
-        } else {
-            furthest_depth = max(furthest_depth, sample_depth);
+            accumulated_depth += sample_depth;
+            valid_sample_count += 1;
         }
     }
     
-    // If ANY sample is sky, treat the whole pixel as sky
-    if (sky_sample_count > 0) {
-        return select(1.0, 0.0, IS_REVERSE_Z);
+    result.coverage = f32(terrain_sample_count) / f32(num_samples);
+    
+    // If we have any terrain samples, use their average
+    if (valid_sample_count > 0) {
+        result.depth = accumulated_depth / f32(valid_sample_count);
+        result.is_terrain = true;
+    } else {
+        // Fully sky pixel
+        result.depth = select(1.0, 0.0, IS_REVERSE_Z);
+        result.is_terrain = false;
     }
     
-    return furthest_depth;
+    return result;
 }
 
-fn sample_depth_with_subpixel_fix(depth_texture: texture_depth_multisampled_2d, frag_coord: vec2<f32>, screen_size: vec2<f32>) -> f32 {
-    // Get the exact pixel coordinate
+fn sample_depth_with_edge_fix(depth_texture: texture_depth_multisampled_2d, frag_coord: vec2<f32>) -> DepthSample {
     let pix = vec2<i32>(floor(frag_coord));
+    var result = get_multisampled_depth_with_coverage_fixed(depth_texture, pix);
     
-    // Check if we're near a pixel boundary (within 0.1 of edge)
-    let fract_coord = fract(frag_coord);
-    let near_edge = (fract_coord.x < 0.1 || fract_coord.x > 0.9 || 
-                     fract_coord.y < 0.1 || fract_coord.y > 0.9);
-    
-    if (near_edge) {
-        // Sample in a cross pattern to catch edges
-        var furthest_depth = get_multisampled_depth_with_coverage(depth_texture, pix);
-        
+    // For partially covered pixels (edges), check neighbors to ensure we don't 
+    // create artifacts
+    if (result.coverage > 0.0 && result.coverage < 1.0) {
+        // This is an edge pixel - be more conservative
         let offsets = array<vec2<i32>, 4>(
             vec2<i32>(-1, 0), vec2<i32>(1, 0),
             vec2<i32>(0, -1), vec2<i32>(0, 1)
         );
         
+        var neighbor_terrain_count = 0;
         for (var i = 0; i < 4; i++) {
-            let neighbor_pix = pix + offsets[i];
-            let neighbor_depth = get_multisampled_depth_with_coverage(depth_texture, neighbor_pix);
-            
-            if (IS_REVERSE_Z) {
-                furthest_depth = min(furthest_depth, neighbor_depth);
-            } else {
-                furthest_depth = max(furthest_depth, neighbor_depth);
+            let neighbor = get_multisampled_depth_with_coverage_fixed(depth_texture, pix + offsets[i]);
+            if (neighbor.is_terrain) {
+                neighbor_terrain_count += 1;
             }
         }
         
-        return furthest_depth;
-    } else {
-        // Not near edge, just get depth with coverage check
-        return get_multisampled_depth_with_coverage(depth_texture, pix);
+        // If most neighbors are sky, treat this as sky to avoid the black edge
+        if (neighbor_terrain_count < 2) {
+            result.is_terrain = false;
+            result.depth = select(1.0, 0.0, IS_REVERSE_Z);
+            result.coverage = 0.0;
+        }
     }
+    
+    return result;
 }
 
 @vertex 
@@ -1056,7 +996,8 @@ fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     
     let sun_dir = normalize(config.lightDirection);
     let view_height = length(camera_pos_relative_to_planet);
-    let depth = sample_depth_with_subpixel_fix(depth_buffer, in.position.xy, config.screenSize);
+    let depth_sample = sample_depth_with_edge_fix(depth_buffer, in.position.xy);
+    let depth = depth_sample.depth;
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
     let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);

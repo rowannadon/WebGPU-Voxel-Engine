@@ -7,7 +7,7 @@
         "dirt.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["dirt.png"],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -16,14 +16,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.65,
-        "dielectric": 0.0002,
+        "specular": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -52,14 +47,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.95,
-          0.2,
-          0.2
-        ],
         "metallic": 0.0,
         "roughness": 0.95,
-        "dielectric": 0.02,
+        "specular": 0.02,
         "emission": [
           0.0,
           0.0,
@@ -88,14 +78,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.6,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -124,14 +109,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.3,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           3.5,
           2.8,
@@ -160,14 +140,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.8,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -197,14 +172,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.4,
-        "dielectric": 0.05,
+        "specular": 0.05,
         "emission": [
           0.0,
           0.0,
@@ -234,14 +204,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.75,
-        "dielectric": 0.01,
+        "specular": 0.01,
         "emission": [
           0.0,
           0.0,
@@ -270,14 +235,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.65,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -306,14 +266,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.7,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -348,14 +303,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.45,
-        "dielectric": 0.01,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -370,13 +320,13 @@
     },
     {
       "id": 10,
-      "name": "Low Grass",
+      "name": "Tall Grass",
       "texture": [
-        "grass_low.png"
+        "better_grass_long.png"
       ],
       "normal": [],
       "roughness": [],
-      "model": "GRASS_MODEL",
+      "model": "TALLGRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 4,
@@ -387,14 +337,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.6,
-        "dielectric": 0.0002,
+        "specular": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -415,7 +360,7 @@
       ],
       "normal": [],
       "roughness": [],
-      "model": "GRASS_MODEL",
+      "model": "FERN_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 4,
@@ -426,14 +371,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.003,
+        "specular": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -448,13 +388,13 @@
     },
     {
       "id": 12,
-      "name": "Grass Low",
+      "name": "Grass0",
       "texture": [
-        "grass_low.png"
+        "better_grass_0.png"
       ],
       "normal": [],
       "roughness": [],
-      "model": "GRASS_MODEL",
+      "model": "TALLGRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 4,
@@ -465,14 +405,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.6,
-        "dielectric": 0.0002,
+        "specular": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -487,13 +422,13 @@
     },
     {
       "id": 13,
-      "name": "Better Grass 1",
+      "name": "Grass1",
       "texture": [
-        "grass_low.png"
+        "better_grass_1.png"
       ],
       "normal": [],
       "roughness": [],
-      "model": "GRASS_MODEL",
+      "model": "TALLGRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 4,
@@ -504,14 +439,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.6,
-        "dielectric": 0.0002,
+        "specular": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -543,14 +473,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.003,
+        "specular": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -582,14 +507,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.003,
+        "specular": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -621,14 +541,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.003,
+        "specular": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -660,14 +575,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.003,
+        "specular": 0.003,
         "emission": [
           0.0,
           0.0,
@@ -696,14 +606,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.2,
-        "dielectric": 0.05,
+        "specular": 0.05,
         "emission": [
           0.0,
           0.0,
@@ -723,7 +628,7 @@
         "sand.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["sand.png"],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -732,20 +637,15 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.75,
-        "dielectric": 0.04,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
           0.0
         ],
-        "normal": 1.1,
+        "normal": 1.0,
         "AO": 1.0,
         "subsurface": 0.0,
         "clearcoat": 0.0,
@@ -774,14 +674,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.45,
-        "dielectric": 0.003,
+        "specular": 0.04,
         "emission": [
           0.0,
           0.0,
@@ -810,14 +705,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.9,
-        "dielectric": 0.0015,
+        "specular": 0.0015,
         "emission": [
           0.0,
           0.0,
@@ -837,7 +727,7 @@
         "loam.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["loam.png"],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -846,14 +736,9 @@
       "randomOffsetDirections": [],
       "windStrength": 0.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
-        "roughness": 0.6,
-        "dielectric": 0.0002,
+        "roughness": 0.85,
+        "specular": 0.0002,
         "emission": [
           0.0,
           0.0,
@@ -884,14 +769,9 @@
       ],
       "windStrength": 1.0,
       "pbr": {
-        "albedo": [
-          0.5,
-          0.5,
-          0.5
-        ],
         "metallic": 0.0,
         "roughness": 0.45,
-        "dielectric": 0.01,
+        "specular": 0.01,
         "emission": [
           0.0,
           0.0,

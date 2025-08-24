@@ -106,9 +106,10 @@ public:
         Voxel = 0,
         Leaf = 1,
         Grass = 2,
-        Fern = 3,
-        Water = 4,
-        Bush = 5,
+        TallGrass = 3,
+        Fern = 4,
+        Water = 5,
+        Bush = 6,
         Unknown = 0xFFFFFFFF
     };
 

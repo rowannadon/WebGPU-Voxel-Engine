@@ -208,9 +208,10 @@ struct UnpackedMaterialData {
 const VOXEL_MODEL = 0;
 const LEAF_MODEL = 1;
 const GRASS_MODEL = 2;
-const FERN_MODEL = 3;
-const WATER_MODEL = 4;
-const BUSH_MODEL = 5;
+const TALLGRASS_MODEL = 3;
+const FERN_MODEL = 4;
+const WATER_MODEL = 5;
+const BUSH_MODEL = 6;
 
 const LARGE_TILE = 0;
 const CONNECTED = 1;
@@ -243,16 +244,10 @@ struct Atmosphere {
 }
 
 struct PBRMaterialPropertiesUniform {
-    // 16 bytes
-    albedo    : vec3f,
-    metallic  : f32,
-
-    // 16 bytes
     emission  : vec3f,
+    metallic  : f32,
     roughness : f32,
-
-    // 16 bytes
-    dielectric: f32,
+    specular: f32,
     normal    : f32,
     AO        : f32,
     subsurface: f32,
@@ -261,7 +256,6 @@ struct PBRMaterialPropertiesUniform {
     clearcoat           : f32,
     clearcoatRoughness  : f32,
     _pad0               : f32,   // padding to 16B
-    _pad1               : f32
 };
 
 // Matches C++ MaterialProperties (pbr + 16 bytes of scalars)
@@ -1283,9 +1277,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
     
     var ao = aoLevels[data.ao[vertexInFace]];
-    if (materialProps.modelId == GRASS_MODEL) {
-        ao = aoLevelsGrass[data.normal_index][vertexInFace];
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+        if (base_vertex.z <= 0) {
+            ao = 0.35;
+        } else {
+            ao = 1.0;
+        }
     }
+
+    
 
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
@@ -1337,7 +1337,8 @@ fn calculate_pbr_lighting(
     specular: f32,
     shadow_factor: f32,
     subsurface: f32,
-    leaf_wrap: f32
+    leaf_wrap: f32,
+    specular_intensity: f32,
 ) -> vec3f {
     let n_dot_v = max(dot(normal, view_dir), 0.0);
     let raw = dot(light_dir, normal);
@@ -1361,7 +1362,7 @@ fn calculate_pbr_lighting(
         
         let numerator = d * g * f;
         let denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
-        let specular_color = numerator / denominator;
+        let specular_color = numerator / denominator * specular_intensity;
         
         let ks = f;
         let kd = (vec3f(1.0) - ks) * (1.0 - metallic);
@@ -1714,12 +1715,15 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     if (materialProps.modelId == LEAF_MODEL) {
         normal = select(normal, -normal, dot(normal, viewDir) < 0.0);
-    } else if ((materialProps.modelId == GRASS_MODEL || materialProps.modelId == BUSH_MODEL ) && !in.frontFacing) {
+    } else if ((materialProps.modelId == GRASS_MODEL || 
+        materialProps.modelId == TALLGRASS_MODEL || 
+        materialProps.modelId == BUSH_MODEL ) && !in.frontFacing) 
+    {
         normal = -normal;
     }
 
     var blendState = 1.0;
-    if (materialProps.modelId == GRASS_MODEL) {
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
         let viewAlignment = dot(viewDir, normal);
         
         // Define blending ranges
@@ -1746,9 +1750,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         }
     }
 
-    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
-            normal = normalize(normal + vec3f(0.0, 0.0, 1.0));
-        }
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
+        normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
+    }
 
     var uv = in.uv;
 
@@ -1848,7 +1852,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 5.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 3.5; // Boost sun intensity for PBR
+    let specular_intensity = 0.25;
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
@@ -1856,11 +1861,12 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.pbr.metallic, 
-        materialProps.pbr.roughness * roughnessSample,
-        materialProps.pbr.dielectric,
+        materialProps.pbr.roughness * (1.0 - roughnessSample),
+        materialProps.pbr.specular,
         shadow_factor,
         materialProps.pbr.subsurface * (textureColor.g + 0.1),  // Pass subsurface parameter
-        leaf_wrap
+        leaf_wrap,
+        specular_intensity
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
@@ -1925,6 +1931,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         let highlightColor = vec3f(avgColor * highlight);
         finalColor = clamp(mix(finalColor, highlightColor, highlight_intensity), vec3f(0.0), vec3f(10.0));
     }
+
+    //finalColor = filmic(finalColor * TONE_EXPOSURE);
 
     finalColor = linear_to_srgb(finalColor);
 
