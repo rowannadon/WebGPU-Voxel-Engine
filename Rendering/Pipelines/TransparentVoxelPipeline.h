@@ -67,52 +67,70 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(13);
+		std::vector<BindGroupEntry> bindings(14);
 
-		bindings[0].binding = 0;
-		bindings[0].buffer = buf->getBuffer("uniform_buffer_transparent");
-		bindings[0].offset = 0;
-		bindings[0].size = sizeof(MyUniforms);
+		int i = 0;
 
-		bindings[1].binding = 1;
-		bindings[1].buffer = buf->getBuffer("atmosphere_buffer");
-		bindings[1].offset = 0;
-		bindings[1].size = sizeof(Atmosphere);
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("uniform_buffer_transparent");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(MyUniforms);
+		i++;
 
-		bindings[2].binding = 2;
-		bindings[2].buffer = buf->getBuffer("material_buffer");
-		bindings[2].offset = 0;
-		bindings[2].size = sizeof(MaterialProperties) * 100;
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("atmosphere_buffer");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(Atmosphere);
+		i++;
 
-		bindings[3].binding = 3;
-		bindings[3].textureView = tex->getTextureView("block_array_view");
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("material_buffer");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(MaterialProperties) * 100;
+		i++;
 
-		bindings[4].binding = 4;
-		bindings[4].textureView = tex->getTextureView("normal_array_view");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("block_array_view");
+		i++;
 
-		bindings[5].binding = 5;
-		bindings[5].sampler = tex->getSampler("block_array_sampler");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("normal_array_view");
+		i++;
 
-		bindings[6].binding = 6;
-		bindings[6].textureView = tex->getTextureView("shadow_view");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("roughness_array_view");
+		i++;
 
-		bindings[7].binding = 7;
-		bindings[7].sampler = tex->getSampler("shadow_sampler");
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("block_array_sampler");
+		i++;
 
-		bindings[8].binding = 8;
-		bindings[8].sampler = tex->getSampler("lut_sampler");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("shadow_view");
+		i++;
 
-		bindings[9].binding = 9;
-		bindings[9].textureView = tex->getTextureView("transmittance_view");
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("shadow_sampler");
+		i++;
 
-		bindings[10].binding = 10;
-		bindings[10].textureView = tex->getTextureView("skyview_view");
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("lut_sampler");
+		i++;
 
-		bindings[11].binding = 11;
-		bindings[11].textureView = tex->getTextureView("aerialperspective_view");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("transmittance_view");
+		i++;
 
-		bindings[12].binding = 12;
-		bindings[12].textureView = tex->getTextureView("cloud_noise_64_view");
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("skyview_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("aerialperspective_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("cloud_noise_64_view");
 
 		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_transparent", "global_uniforms", bindings);
 

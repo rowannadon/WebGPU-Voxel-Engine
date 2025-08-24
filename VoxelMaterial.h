@@ -48,7 +48,7 @@ struct MaterialProperties {
     uint32_t textureId3;
     uint32_t textureId4;
     uint32_t textureId5;
-    uint32_t normalTextureId;
+    uint32_t padding;
 };
 static_assert(sizeof(MaterialProperties) % 16 == 0, "UBO alignment");
 

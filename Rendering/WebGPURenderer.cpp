@@ -415,7 +415,7 @@ bool WebGPURenderer::initTextures() {
 		return mod->getModelOffsetInBuffer(std::string(modelName));
 		});
 
-	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", RESOURCE_DIR "/textures/");
+	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", "roughness_array", "roughness_array_view", RESOURCE_DIR "/textures/");
 	
 	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
 

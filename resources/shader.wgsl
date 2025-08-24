@@ -282,7 +282,7 @@ struct MaterialProperties {
     textureId3: u32,
     textureId4: u32,
     textureId5: u32,
-    normalTextureId    : u32,
+    padding    : u32,
 };
 
 const NUM_TOTAL_SLOTS = 64000;
@@ -304,15 +304,16 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(2) var<uniform> material_buffer: array<MaterialProperties, 100>;
 @group(0) @binding(3) var textureArray: texture_2d_array<f32>;
 @group(0) @binding(4) var normalTextureArray: texture_2d_array<f32>;
-@group(0) @binding(5) var textureSampler: sampler;
-@group(0) @binding(6) var shadowMap: texture_depth_2d;
-@group(0) @binding(7) var shadowSampler: sampler_comparison;
+@group(0) @binding(5) var roughnessTextureArray: texture_2d_array<f32>;
+@group(0) @binding(6) var textureSampler: sampler;
+@group(0) @binding(7) var shadowMap: texture_depth_2d;
+@group(0) @binding(8) var shadowSampler: sampler_comparison;
 
-@group(0) @binding(8) var lut_sampler: sampler;
-@group(0) @binding(9) var transmittance_lut: texture_2d<f32>;
-@group(0) @binding(10) var sky_view_lut: texture_2d<f32>;
-@group(0) @binding(11) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(12) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(9) var lut_sampler: sampler;
+@group(0) @binding(10) var transmittance_lut: texture_2d<f32>;
+@group(0) @binding(11) var sky_view_lut: texture_2d<f32>;
+@group(0) @binding(12) var aerial_perspective_lut: texture_3d<f32>;
+@group(0) @binding(13) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -1323,7 +1324,6 @@ fn softClamp(x: f32, a: f32, b: f32) -> f32 {
     return smoothstep(0., 1., (2./3.)*(x - a)/(b - a) + (1./6.))*(b - a) + a;
 }
 
-// PBR lighting calculation with energy compensation
 fn calculate_pbr_lighting(
     albedo: vec3f,
     normal: vec3f,
@@ -1343,14 +1343,13 @@ fn calculate_pbr_lighting(
     
     var total_lighting = vec3f(0.0);
     
-    // Standard front-lit PBR calculation
     if (n_dot_l > 0.0) {
         let half_vec = normalize(view_dir + light_dir);
         let n_dot_h = max(dot(normal, half_vec), 0.0);
         let v_dot_h = max(dot(view_dir, half_vec), 0.0);
         
-        // Calculate F0 (base reflectivity)
-        let dielectric_f0 = vec3f(0.04);
+        // Use standard 0.04 for dielectrics, scale by specular parameter
+        let dielectric_f0 = vec3f(0.04 * specular);
         let f0 = mix(dielectric_f0, albedo, metallic);
         
         // Cook-Torrance BRDF components
@@ -1358,20 +1357,17 @@ fn calculate_pbr_lighting(
         let g = geometry_smith(n_dot_v, n_dot_l, roughness);
         let f = fresnel_schlick(v_dot_h, f0);
         
-        // Calculate the specular component
         let numerator = d * g * f;
         let denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
         let specular_color = numerator / denominator;
         
-        // Calculate the diffuse component with energy compensation
         let ks = f;
         let kd = (vec3f(1.0) - ks) * (1.0 - metallic);
         let diffuse_color = kd * albedo / pi;
         
-        // Combine diffuse and specular with energy boost for visibility
+        // Remove the 2.0 multiplier
         let brdf = diffuse_color + specular_color;
         
-        // Apply front lighting
         total_lighting += brdf * light_color * n_dot_l * shadow_factor;
     }
     
@@ -1748,7 +1744,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         }
 
         if (materialProps.modelId == GRASS_MODEL) {
-            normal = normalize(normal + vec3f(0.0, 0.0, 3.0));
+            normal = normalize(normal + vec3f(0.0, 0.0, 1.0));
         }
     }
 
@@ -1817,6 +1813,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var normalSample = textureSample(normalTextureArray, textureSampler, uv, layer);
 
+    let roughnessSample = textureSample(roughnessTextureArray, textureSampler, uv, layer).r;
+
     normal = transformNormalScreenSpace(
         normalTextureArray, 
         textureSampler, 
@@ -1856,7 +1854,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.pbr.metallic, 
-        materialProps.pbr.roughness,
+        materialProps.pbr.roughness * roughnessSample,
         materialProps.pbr.dielectric,
         shadow_factor,
         materialProps.pbr.subsurface * (textureColor.g + 0.1),  // Pass subsurface parameter

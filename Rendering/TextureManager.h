@@ -10,6 +10,8 @@
 #include <set>
 #include <memory>
 #include <shared_mutex>
+#include <tuple>
+#include <optional>
 #include "TexturePool.h"
 #include <unordered_set>
 #include "../VoxelMaterial.h" // for PBRMaterialProperties / MaterialProperties
@@ -40,8 +42,9 @@ struct MaterialJsonEntry {
     float randomOffset = 0.0f;
     float windStrength = 0.0f;
     std::string name;       // optional, for readability
-    std::vector<std::string> textures;    // filename .png
-    std::vector<std::string> normals;    // filename .png
+    std::vector<std::string> textures;           // albedo texture filenames .png
+    std::vector<std::string> normals;            // normal texture filenames .png
+    std::vector<std::string> roughnessTextures;  // roughness texture filenames .png (NEW)
     std::string model;      // "VOXEL_MODEL" | "LEAF_MODEL" | "GRASS_MODEL"
     std::string textureType;
     std::string orientation;
@@ -73,17 +76,21 @@ public:
     Texture loadTexture(const std::string name, const std::string textureViewName,
         const std::filesystem::path& path);
 
-    void TextureManager::buildMaterialTablesWithNormalMapping(
+    void buildMaterialTablesWithNormalMapping(
         const std::vector<MaterialJsonEntry>& entries,
         uint32_t maxId,
         const std::function<uint32_t(std::string)>& modelOffsetResolver,
         const std::unordered_map<uint32_t, std::vector<uint32_t>>& materialToLayers,
         const std::unordered_map<uint32_t, uint32_t>& materialToNormalLayer);
 
-    std::pair<std::optional<Texture>, std::optional<Texture>> loadTextureArray(const std::string& name,
+    // MODIFIED: Changed return type to include roughness texture
+    std::tuple<std::optional<Texture>, std::optional<Texture>, std::optional<Texture>> loadTextureArray(
+        const std::string& name,
         const std::string& textureViewName,
         const std::string& normalName,
         const std::string& normalTextureViewName,
+        const std::string& roughnessName,           // NEW parameter
+        const std::string& roughnessTextureViewName, // NEW parameter
         const std::filesystem::path& directoryPath);
 
     Texture getTexture(const std::string textureName);

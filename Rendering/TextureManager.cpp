@@ -259,6 +259,7 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
             return false;
         }
 
+        // Read normal textures
         if (m.contains("normals")) {
             e.normals = m["normals"].get<std::vector<std::string>>();
         }
@@ -269,8 +270,17 @@ bool TextureManager::loadMaterialsJson(const std::filesystem::path& jsonPath,
                 e.normals = { m["normal"].get<std::string>() };
         }
         else {
-            // schema requires at least one texture
             e.normals = {};
+        }
+
+        if (m.contains("roughness")) {
+            if (m["roughness"].is_array())
+                e.roughnessTextures = m["roughness"].get<std::vector<std::string>>();
+            else
+                e.roughnessTextures = { m["roughnesse"].get<std::string>() };
+        }
+        else {
+            e.roughnessTextures = {};
         }
 
         // PBR block
@@ -367,21 +377,18 @@ void TextureManager::buildMaterialTablesWithNormalMapping(
             }
         }
 
-        auto normalIt = materialToNormalLayer.find(e.id);
-        if (normalIt != materialToNormalLayer.end()) {
-            mp.normalTextureId = normalIt->second;
-        }
-
         materialMap[e.id] = mp;
         materialTable[e.id] = mp;
     }
 }
 
-std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTextureArray(
+std::tuple<std::optional<Texture>, std::optional<Texture>, std::optional<Texture>> TextureManager::loadTextureArray(
     const std::string& name,
     const std::string& textureViewName,
     const std::string& normalName,
     const std::string& normalTextureViewName,
+    const std::string& roughnessName,
+    const std::string& roughnessTextureViewName,
     const std::filesystem::path& directoryPath) {
 
     const auto jsonPath = directoryPath / "materials.json";
@@ -390,10 +397,10 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
     const bool haveJson = loadMaterialsJson(jsonPath, jsonEntries, maxMaterialId);
     if (!haveJson || jsonEntries.empty()) {
         std::cerr << "error loading json\n";
-        return { std::nullopt, std::nullopt };
+        return { std::nullopt, std::nullopt, std::nullopt };
     }
 
-    // Build albedo texture array (same as before)
+    // Build albedo texture array
     std::vector<TextureMapping> flat;
     flat.reserve(64);
     std::unordered_map<uint32_t, std::vector<uint32_t>> materialToLayers;
@@ -410,7 +417,7 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
 
     if (!validateTextureMapping(flat, directoryPath)) {
         std::cerr << "error validating texture mapping\n";
-        return { std::nullopt, std::nullopt };
+        return { std::nullopt, std::nullopt, std::nullopt };
     }
 
     // Load first image for dimensions
@@ -418,7 +425,7 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
     {
         auto first = directoryPath / flat.front().filename;
         unsigned char* firstPixels = stbi_load(first.string().c_str(), &width, &height, &channels, 4);
-        if (!firstPixels) return { std::nullopt, std::nullopt };
+        if (!firstPixels) return { std::nullopt, std::nullopt, std::nullopt };
         stbi_image_free(firstPixels);
     }
 
@@ -435,12 +442,11 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
 
     Texture texture = createTexture(name, td);
 
-    // NEW APPROACH: Create normal texture array with same layer count as albedo array
-    // This ensures we have a 1:1 correspondence between albedo and normal layers
+    // Create normal texture array with same layer count as albedo array
     std::vector<TextureMapping> flatNormal;
     std::unordered_map<uint32_t, std::string> materialIdToNormalTexture;
 
-    // First, collect which materials have normal textures
+    // Collect which materials have normal textures
     for (const auto& e : jsonEntries) {
         if (!e.normals.empty()) {
             materialIdToNormalTexture[e.id] = e.normals[0]; // Use first normal texture
@@ -454,20 +460,18 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
         normalMapping.layer = albedoMapping.layer; // Same layer as corresponding albedo texture
         normalMapping.materialId = albedoMapping.materialId;
 
-        // Check if this material has a normal texture
         auto it = materialIdToNormalTexture.find(albedoMapping.materialId);
         if (it != materialIdToNormalTexture.end()) {
-            normalMapping.filename = it->second; // Use the material's normal texture
+            normalMapping.filename = it->second;
         }
         else {
-            // Use a default flat normal texture name (we'll create this programmatically)
             normalMapping.filename = "default_normal.png";
         }
 
         flatNormal.push_back(normalMapping);
     }
 
-    // Create normal texture array with same layer count as albedo
+    // Create normal texture array
     TextureDescriptor ntd{};
     ntd.dimension = TextureDimension::_2D;
     ntd.format = TextureFormat::RGBA8Unorm;
@@ -477,6 +481,46 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
     ntd.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
 
     Texture normalTexture = createTexture(normalName, ntd);
+
+    // Create roughness texture array with same layer count as albedo array (NEW)
+    std::vector<TextureMapping> flatRoughness;
+    std::unordered_map<uint32_t, std::string> materialIdToRoughnessTexture;
+
+    // Collect which materials have roughness textures
+    for (const auto& e : jsonEntries) {
+        if (!e.roughnessTextures.empty()) {
+            materialIdToRoughnessTexture[e.id] = e.roughnessTextures[0]; // Use first roughness texture
+        }
+    }
+
+    // Create roughness texture array with same structure as albedo array
+    flatRoughness.reserve(flat.size());
+    for (const auto& albedoMapping : flat) {
+        TextureMapping roughnessMapping;
+        roughnessMapping.layer = albedoMapping.layer; // Same layer as corresponding albedo texture
+        roughnessMapping.materialId = albedoMapping.materialId;
+
+        auto it = materialIdToRoughnessTexture.find(albedoMapping.materialId);
+        if (it != materialIdToRoughnessTexture.end()) {
+            roughnessMapping.filename = it->second;
+        }
+        else {
+            roughnessMapping.filename = "default_roughness.png";
+        }
+
+        flatRoughness.push_back(roughnessMapping);
+    }
+
+    // Create roughness texture array
+    TextureDescriptor rtd{};
+    rtd.dimension = TextureDimension::_2D;
+    rtd.format = TextureFormat::RGBA8Unorm;
+    rtd.sampleCount = 1;
+    rtd.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
+    rtd.mipLevelCount = mipLevelCount;
+    rtd.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+
+    Texture roughnessTexture = createTexture(roughnessName, rtd);
 
     // Save array meta
     TextureArrayInfo info{};
@@ -516,22 +560,51 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
         int w = 0, h = 0, ch = 0;
 
         if (m.filename != "default_normal.png") {
-            // Try to load the actual normal texture file
             auto path = directoryPath / m.filename;
             pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
         }
 
         if (pixels && w == width && h == height) {
-            // Use the loaded normal texture
             writeMipMapsArray(normalTexture, { (unsigned int)width, (unsigned int)height, 1 },
                 mipLevelCount, m.layer, pixels);
             stbi_image_free(pixels);
         }
         else {
-            // Use default flat normal texture
             writeMipMapsArray(normalTexture, { (unsigned int)width, (unsigned int)height, 1 },
                 mipLevelCount, m.layer, defaultNormalData.data());
-            if (pixels) stbi_image_free(pixels); // Clean up if we tried to load but dimensions were wrong
+            if (pixels) stbi_image_free(pixels);
+        }
+    }
+
+    // Create default roughness texture data (NEW)
+    // Using the default roughness value from PBR properties (1.0)
+    std::vector<unsigned char> defaultRoughnessData(width * height * 4);
+    for (size_t i = 0; i < defaultRoughnessData.size(); i += 4) {
+        defaultRoughnessData[i + 0] = 255; // 1.0 in [0,255] range (roughness)
+        defaultRoughnessData[i + 1] = 255; // 1.0 (unused, but fill for consistency)
+        defaultRoughnessData[i + 2] = 255; // 1.0 (unused, but fill for consistency)
+        defaultRoughnessData[i + 3] = 255; // 1.0 alpha
+    }
+
+    // Upload roughness textures (NEW)
+    for (const auto& m : flatRoughness) {
+        unsigned char* pixels = nullptr;
+        int w = 0, h = 0, ch = 0;
+
+        if (m.filename != "default_roughness.png") {
+            auto path = directoryPath / m.filename;
+            pixels = stbi_load(path.string().c_str(), &w, &h, &ch, 4);
+        }
+
+        if (pixels && w == width && h == height) {
+            writeMipMapsArray(roughnessTexture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, m.layer, pixels);
+            stbi_image_free(pixels);
+        }
+        else {
+            writeMipMapsArray(roughnessTexture, { (unsigned int)width, (unsigned int)height, 1 },
+                mipLevelCount, m.layer, defaultRoughnessData.data());
+            if (pixels) stbi_image_free(pixels);
         }
     }
 
@@ -552,7 +625,7 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
         TextureViewDescriptor vd{};
         vd.aspect = TextureAspect::All;
         vd.baseArrayLayer = 0;
-        vd.arrayLayerCount = (unsigned int)flat.size(); // Same count as albedo
+        vd.arrayLayerCount = (unsigned int)flat.size();
         vd.baseMipLevel = 0;
         vd.mipLevelCount = mipLevelCount;
         vd.dimension = TextureViewDimension::_2DArray;
@@ -560,10 +633,22 @@ std::pair<std::optional<Texture>, std::optional<Texture>> TextureManager::loadTe
         createTextureView(normalName, normalTextureViewName, vd);
     }
 
-    // Build material tables (no changes needed to buildMaterialTables function)
+    if (!roughnessTextureViewName.empty()) {
+        TextureViewDescriptor vd{};
+        vd.aspect = TextureAspect::All;
+        vd.baseArrayLayer = 0;
+        vd.arrayLayerCount = (unsigned int)flat.size();
+        vd.baseMipLevel = 0;
+        vd.mipLevelCount = mipLevelCount;
+        vd.dimension = TextureViewDimension::_2DArray;
+        vd.format = rtd.format;
+        createTextureView(roughnessName, roughnessTextureViewName, vd);
+    }
+
+    // Build material tables
     buildMaterialTables(jsonEntries, maxMaterialId, modelOffsetResolver_, materialToLayers);
 
-    return { texture, normalTexture };
+    return { texture, normalTexture, roughnessTexture };
 }
 
 void TextureManager::buildMaterialTables(
@@ -591,7 +676,7 @@ void TextureManager::buildMaterialTables(
         mp.randomOffsetDirections = roDirs;
         mp.orientation = static_cast<uint32_t>(ot);
 
-        // NEW: fill per-face texture IDs
+        // Fill per-face texture IDs
         auto it = materialToLayers.find(e.id);
         std::vector<uint32_t> layers;
         if (it != materialToLayers.end()) layers = it->second;

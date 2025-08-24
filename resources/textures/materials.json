@@ -7,6 +7,7 @@
         "dirt.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -42,6 +43,7 @@
         "grass.png"
       ],
       "normal": [],
+      "roughness": ["test_roughness.png"],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -51,13 +53,13 @@
       "windStrength": 0.0,
       "pbr": {
         "albedo": [
-          0.5,
-          0.5,
-          0.5
+          0.95,
+          0.2,
+          0.2
         ],
         "metallic": 0.0,
-        "roughness": 0.6,
-        "dielectric": 0.0002,
+        "roughness": 0.95,
+        "dielectric": 0.02,
         "emission": [
           0.0,
           0.0,
@@ -77,6 +79,7 @@
         "limestone.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -112,6 +115,7 @@
         "glowstone.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -147,6 +151,7 @@
         "brick.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -183,6 +188,7 @@
         "sandstone_top.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
@@ -219,6 +225,7 @@
         "sandstone_top.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
@@ -254,6 +261,7 @@
         "gneiss.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -289,6 +297,7 @@
         "birch_log.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "CONNECTED",
       "orientation": "NONE",
@@ -326,6 +335,7 @@
       "normal": [
         "leaves2_normal.png"
       ],
+      "roughness": [],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -365,6 +375,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -403,6 +414,7 @@
         "fern.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -441,6 +453,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -479,6 +492,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -517,6 +531,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -555,6 +570,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -593,6 +609,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -631,6 +648,7 @@
         "grass_low.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "GRASS_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -669,6 +687,7 @@
         "water.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -704,6 +723,7 @@
         "sand.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -741,6 +761,7 @@
       "normal": [
         "leaves3_normal_combined.png"
       ],
+      "roughness": [],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -780,6 +801,7 @@
         "oak_log.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -815,6 +837,7 @@
         "loam.png"
       ],
       "normal": [],
+      "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
