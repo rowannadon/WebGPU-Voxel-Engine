@@ -209,6 +209,8 @@ const VOXEL_MODEL = 0;
 const LEAF_MODEL = 1;
 const GRASS_MODEL = 2;
 const FERN_MODEL = 3;
+const WATER_MODEL = 4;
+const BUSH_MODEL = 5;
 
 const LARGE_TILE = 0;
 const CONNECTED = 1;
@@ -1712,7 +1714,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     if (materialProps.modelId == LEAF_MODEL) {
         normal = select(normal, -normal, dot(normal, viewDir) < 0.0);
-    } else if (materialProps.modelId == GRASS_MODEL && !in.frontFacing) {
+    } else if ((materialProps.modelId == GRASS_MODEL || materialProps.modelId == BUSH_MODEL ) && !in.frontFacing) {
         normal = -normal;
     }
 
@@ -1742,11 +1744,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
             }
             blendState = clamp(blendState, 0.0, 1.0);
         }
+    }
 
-        if (materialProps.modelId == GRASS_MODEL) {
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
             normal = normalize(normal + vec3f(0.0, 0.0, 1.0));
         }
-    }
 
     var uv = in.uv;
 

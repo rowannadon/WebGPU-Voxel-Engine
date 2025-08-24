@@ -1184,18 +1184,20 @@ public:
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
-                                    static const std::array<ProbabilityConfig, 11> config = { {
-                                            { 0,     0.6f},
-                                            { 1,     0.2f},
-                                            { 2,     0.2f},
+                                    static const std::array<ProbabilityConfig, 4> config = { {
+                                            { 0,     0.2f},
+                                            { 1,     0.4f},
+                                            { 2,     0.4f},
+                                            { 3,     0.2f},
                                         } };
 
                                     int index = sampleFromDistribution(blockHash, config);
                                     
-                                    static const std::array<BlockType, 3> grassTypes = {
-                                        BlockType::TallGrass,
+                                    static const std::array<BlockType, 4> grassTypes = {
+                                        BlockType::Bush,
                                         BlockType::Grass0,
-                                        BlockType::Grass1
+                                        BlockType::Grass1,
+                                        BlockType::TallGrass
                                     };
                                     
                                     UnpackedVoxelMaterial m2;
