@@ -49,7 +49,7 @@
       "pbr": {
         "metallic": 0.0,
         "roughness": 0.95,
-        "specular": 0.02,
+        "specular": 0.005,
         "emission": [
           0.0,
           0.0,
@@ -288,9 +288,9 @@
         "leaves3.png"
       ],
       "normal": [
-        "leaves2_normal.png"
+        "leaves3_normal.png"
       ],
-      "roughness": [],
+      "roughness": ["leaves3_r.png"],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -304,8 +304,8 @@
       "windStrength": 1.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.45,
-        "specular": 0.04,
+        "roughness": 0.4,
+        "specular": 0.1,
         "emission": [
           0.0,
           0.0,
@@ -338,8 +338,8 @@
       "windStrength": 1.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.6,
-        "specular": 0.0002,
+        "roughness": 0.8,
+        "specular": 0.005,
         "emission": [
           0.0,
           0.0,
@@ -406,8 +406,8 @@
       "windStrength": 1.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.6,
-        "specular": 0.0002,
+        "roughness": 0.8,
+        "specular": 0.005,
         "emission": [
           0.0,
           0.0,
@@ -440,8 +440,8 @@
       "windStrength": 1.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.6,
-        "specular": 0.0002,
+        "roughness": 0.8,
+        "specular": 0.005,
         "emission": [
           0.0,
           0.0,
@@ -676,7 +676,7 @@
       "pbr": {
         "metallic": 0.0,
         "roughness": 0.45,
-        "specular": 0.04,
+        "specular": 0.08,
         "emission": [
           0.0,
           0.0,
@@ -755,9 +755,9 @@
       "id": 23,
       "name": "Bush",
       "texture": [
-        "leaves3.png"
+        "red_berry_bush.png"
       ],
-      "normal": [],
+      "normal": ["leaves3_normal.png"],
       "model": "BUSH_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
@@ -780,6 +780,37 @@
         "normal": 1.0,
         "AO": 0.0,
         "subsurface": 0.6,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 24,
+      "name": "Granite",
+      "texture": [
+        "granite.png"
+      ],
+      "normal": [],
+      "roughness": [],
+      "model": "VOXEL_MODEL",
+      "textureType": "LARGE_TILE",
+      "orientation": "NONE",
+      "tileCount": 1,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }

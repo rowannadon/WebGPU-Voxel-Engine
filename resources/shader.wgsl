@@ -1329,6 +1329,7 @@ fn softClamp(x: f32, a: f32, b: f32) -> f32 {
 fn calculate_pbr_lighting(
     albedo: vec3f,
     normal: vec3f,
+    unbent_normal: vec3f,
     view_dir: vec3f,
     light_dir: vec3f,
     light_color: vec3f,
@@ -1377,7 +1378,7 @@ fn calculate_pbr_lighting(
     //Add subsurface scattering for back-lit surfaces
     if (subsurface > 0.0) {
         // Calculate back-lighting (light coming from behind the surface)
-        let back_n_dot_l = max(dot(-normal, light_dir), 0.0);
+        let back_n_dot_l = max(dot(-unbent_normal, light_dir), 0.0);
         
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
@@ -1386,7 +1387,7 @@ fn calculate_pbr_lighting(
             let subsurface_scale = 1.0;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
-            let subsurface_light = light_dir + normal * subsurface_distortion;
+            let subsurface_light = light_dir + unbent_normal * subsurface_distortion;
             let v_dot_subsurface = pow(clamp(dot(view_dir, -subsurface_light), 0.0, 1.0), subsurface_power) * subsurface_scale;
             
             // Subsurface color - typically warmer and more saturated than albedo
@@ -1690,6 +1691,14 @@ fn transformNormalScreenSpace(
     return normalize(worldSpaceNormal);
 }
 
+fn smooth_scale(base: f32, param: f32) -> f32 {
+    return select(
+        param * 2.0 * base,                    // param < 0.5: scale from 0.0 to base
+        base + (param - 0.5) * 2.0 * (1.0 - base),  // param >= 0.5: scale from base to 1.0
+        param >= 0.5
+    );
+}
+
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
@@ -1749,7 +1758,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
             blendState = clamp(blendState, 0.0, 1.0);
         }
     }
-
+    let unbent_normal = normal;
     if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
         normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
     }
@@ -1853,18 +1862,19 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 3.5; // Boost sun intensity for PBR
-    let specular_intensity = 0.25;
+    let specular_intensity = 1.0;
     let direct_lighting = calculate_pbr_lighting(
         albedo,
         normal,
+        unbent_normal,
         viewDir,
         sunDirection,
         sunColor * boosted_sun_intensity,
         materialProps.pbr.metallic, 
-        materialProps.pbr.roughness * (1.0 - roughnessSample),
+        clamp(materialProps.pbr.roughness + (0.25 * ((roughnessSample - 0.5)*2)), 0.0, 1.0),
         materialProps.pbr.specular,
         shadow_factor,
-        materialProps.pbr.subsurface * (textureColor.g + 0.1),  // Pass subsurface parameter
+        clamp(materialProps.pbr.subsurface * (1.0 - roughnessSample), 0.0, 1.0),  // Pass subsurface parameter
         leaf_wrap,
         specular_intensity
     );

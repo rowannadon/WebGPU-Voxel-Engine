@@ -516,7 +516,7 @@ std::tuple<std::optional<Texture>, std::optional<Texture>, std::optional<Texture
     // Create roughness texture array
     TextureDescriptor rtd{};
     rtd.dimension = TextureDimension::_2D;
-    rtd.format = TextureFormat::RGBA8Unorm;
+    rtd.format = TextureFormat::RGBA8UnormSrgb;
     rtd.sampleCount = 1;
     rtd.size = { (unsigned int)width, (unsigned int)height, (unsigned int)flat.size() };
     rtd.mipLevelCount = mipLevelCount;
@@ -582,9 +582,9 @@ std::tuple<std::optional<Texture>, std::optional<Texture>, std::optional<Texture
     // Using the default roughness value from PBR properties (1.0)
     std::vector<unsigned char> defaultRoughnessData(width * height * 4);
     for (size_t i = 0; i < defaultRoughnessData.size(); i += 4) {
-        defaultRoughnessData[i + 0] = 255; // 1.0 in [0,255] range (roughness)
-        defaultRoughnessData[i + 1] = 255; // 1.0 (unused, but fill for consistency)
-        defaultRoughnessData[i + 2] = 255; // 1.0 (unused, but fill for consistency)
+        defaultRoughnessData[i + 0] = 128; // 1.0 in [0,255] range (roughness)
+        defaultRoughnessData[i + 1] = 128; // 1.0 (unused, but fill for consistency)
+        defaultRoughnessData[i + 2] = 128; // 1.0 (unused, but fill for consistency)
         defaultRoughnessData[i + 3] = 255; // 1.0 alpha
     }
 

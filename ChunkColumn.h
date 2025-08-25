@@ -1104,31 +1104,31 @@ public:
                         float noiseValue = worldGen.sample3D2(pos);
 
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = BlockType::Limestone;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > -0.6 && noiseValue < -0.4) {
-                            material.materialType = BlockType::Andesite;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
                             material.materialType = BlockType::Slate;
                         }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
-                            material.materialType = BlockType::Andesite;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > 0 && noiseValue < 0.2) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > 0.2 && noiseValue < 0.4) {
-                            material.materialType = BlockType::Limestone;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > 0.4 && noiseValue < 0.6) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > 0.6 && noiseValue < 0.8) {
-                            material.materialType = BlockType::Andesite;
+                            material.materialType = BlockType::Granite;
                         }
                         else if (noiseValue > 0.8 && noiseValue < 1) {
                             material.materialType = BlockType::Slate;
@@ -1183,7 +1183,7 @@ public:
                             if (material.materialType == BlockType::Grass) { // grass terrain
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                /*if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
                                     static const std::array<ProbabilityConfig, 4> config = { {
                                             { 0,     0.04f},
                                             { 1,     0.33f},
@@ -1207,7 +1207,7 @@ public:
                                     setVoxelWholeColumn(grassPos, true, true);
                                     setVoxelWholeColumn(grassPos, false, false);
                                     setMaterialFast(grassPos, m2);
-                                }*/
+                                }
 
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
@@ -1215,12 +1215,8 @@ public:
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        if (blockHash % 2 == 0) {
-                                            material.materialType = BlockType::Grass; // grass
-                                        }
-                                        else {
-                                            material.materialType = BlockType::Loam;
-                                        }
+                                        material.materialType = BlockType::Grass; // grass
+                                        
                                         setMaterialFast(layerPos, material);
                                     }
 
