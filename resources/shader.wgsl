@@ -553,10 +553,10 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     let texel_size = 1.0 / 4096.0;
     var shadow = 0.0;
-    let samples = 25;
+    let samples = 64;
     
-    for (var x = -2; x <= 2; x++) {
-        for (var y = -2; y <= 2; y++) {
+    for (var x = -3; x <= 4; x++) {
+        for (var y = -3; y <= 4; y++) {
             let offset = vec2f(f32(x), f32(y)) * texel_size;
             let sample_coords = shadow_coords + offset;
             shadow += textureSampleCompareLevel(shadowMap, shadowSampler, sample_coords, current_depth);
@@ -565,134 +565,6 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     
     return shadow / f32(samples);
 }
-
-const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
-    vec3<f32>(1.0, 0.0, 0.0),
-    vec3<f32>(-1.0, 0.0, 0.0),
-    vec3<f32>(0.0, 1.0, 0.0),
-    vec3<f32>(0.0, -1.0, 0.0),
-    vec3<f32>(0.0, 0.0, 1.0),
-    vec3<f32>(0.0, 0.0, -1.0)
-);
-
-const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
-    array<vec2<f32>, 4>( // +X
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // -X
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>( // +Y (flipped horizontally)
-        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>( // -Y (flipped horizontally from the rotated version)
-        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // +Z
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // -Z (rotated 180°)
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-);
-
-const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-    )
-);
-
-const faceVerticesLeaf: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-        vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 0.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(-0.414, -0.414, -0.414), vec3<f32>(-0.414, -0.414, 1.414), 
-        vec3<f32>(1.414, 1.414, 1.414), vec3<f32>(1.414, 1.414, -0.414)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(-0.414, 1.414, 1.414), vec3<f32>(-0.414, 1.414, -0.414), 
-        vec3<f32>(1.414, -0.414, -0.414), vec3<f32>(1.414, -0.414, 1.414)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 1.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-    )
-);
-
-const faceNormalsLeaf: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
-    vec3<f32>(1.0, 0.0, 1.0),
-    vec3<f32>(-1.0, 0.0, 1.0),
-    vec3<f32>(1.0, -1.0, 0.0),
-    vec3<f32>(1.0, 1.0, 0.0),
-    vec3<f32>(-1.0, 0.0, 1.0),
-    vec3<f32>(1.0, 0.0, 1.0),
-);
-
-const faceVerticesGrass: array<array<vec3<f32>, 4>, 2> = array<array<vec3<f32>, 4>, 2>(
-    array<vec3<f32>, 4>(
-        vec3<f32>(-0.207, -0.207, 0.0), vec3<f32>(-0.207, -0.207, 1.585), 
-        vec3<f32>(1.207, 1.207, 1.585), vec3<f32>(1.207, 1.207, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(-0.207, 1.207, 1.585), vec3<f32>(-0.207, 1.207, 0.0), 
-        vec3<f32>(1.207, -0.207, 0.0), vec3<f32>(1.207, -0.207, 1.585)
-    )
-);
-
-const faceNormalsGrass: array<vec3<f32>, 2> = array<vec3<f32>, 2>(
-    vec3<f32>(1.0, -1.0, 0.0),
-    vec3<f32>(1.0, 1.0, 0.0),
-);
-
-
-
-const aoLevelsGrass: array<array<f32, 4>, 2> = array<array<f32, 4>, 2>(
-    array<f32, 4>(
-        0.45, 0.45, 
-        1.0, 1.0
-    ),
-    array<f32, 4>(
-        0.45, 0.45, 
-        1.0, 1.0
-    )
-);
 
 const aoLevels = array<f32, 4>(
     0.15, 0.25, 0.35, 0.45
@@ -1175,7 +1047,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
     }
 
-
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
 
     let stable_world_voxel_pos = stable_world_voxel(chunkData.worldPosition, voxel_pos, lod_scale);
@@ -1189,7 +1060,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
     let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
 
-
     let tile_x_2 = hash & 7u;
     let tile_y_2 = (hash >> 8u) & 7u;
     let tile_z_2 = (hash >> 16u) & 7u;
@@ -1200,35 +1070,26 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
-    var scaled_vertex_offset: vec3f;
-    var base_vertex: vec3f;
-    var normal: vec3f;
+    var base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+    var normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
 
-    if (materialProps.modelId != VOXEL_MODEL) {
-        base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
-        normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+    if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
         normal = rotateX(normal, f32(tile_x) * 0.1);
         normal = rotateY(normal, f32(tile_y) * 0.1);
         normal = rotateZ(normal, f32(tile_z) * 0.1);
         normal = normalize(normal);
 
-        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
-                // Apply random tilt to break coplanarity when all axes have offset
-                base_vertex = apply_random_tilt(base_vertex, normal, hash);
-                
-                // Also apply tilt to the normal vector
-                normal = apply_random_tilt(normal, normal, hash);
-                normal = normalize(normal);
+        if (materialProps.modelId == LEAF_MODEL) {
+            // Apply random tilt to break coplanarity when all axes have offset
+            base_vertex = apply_random_tilt(base_vertex, normal, hash);
+            
+            // Also apply tilt to the normal vector
+            normal = apply_random_tilt(normal, normal, hash);
+            normal = normalize(normal);
         }
     }
-    else {
-        base_vertex = faceVertices[data.normal_index][vertexInFace];
-        normal = faceNormals[data.normal_index];
-    }
     
-    scaled_vertex_offset = base_vertex * lod_scale;
+    let scaled_vertex_offset = base_vertex * lod_scale;
 
     // Calculate initial position before wind
     let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
@@ -1250,16 +1111,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     position = base_position + wind_displacement;
 
-    if (materialData.material_id == 19u) { // Water material
+    if (materialData.material_id == 20u) { // Water material
         let gerstner = calculate_gerstner_waves(position.xy, uMyUniforms.time);
         position += gerstner.position_offset;
     }
     
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
-
-    if (materialProps.modelId == VOXEL_MODEL) {
-        uv = faceUVsIndependent[data.normal_index][vertexInFace];
-    }
 
     uv = clamp(uv, vec2f(0.01), vec2f(0.99));
 
@@ -1769,7 +1626,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var foam: f32 = 0.0;
     var fresnelTerm: f32 = 0.0;
 
-    if (material_id == 19u) {
+    if (material_id == 20u) {
         let p = in.world_position.xy; // Z-up
         let t = uMyUniforms.time;
 
@@ -1842,7 +1699,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     // Combine material albedo with texture
     var albedo = textureColor.rgb;
 
-    if (material_id == 19u) {
+    if (material_id == 20u || material_id == 19u) {
         let transmitted = textureColor.rgb * waterTint;
         let simpleSkyReflect = WATER_SKY_COLOR; // cheap env reflection approximation
         albedo = mix(transmitted, simpleSkyReflect, 0.15);
@@ -1909,7 +1766,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     // Add emission if present
     finalColor += materialProps.pbr.emission;
 
-    if (material_id == 19u) {
+    if (material_id == 20u || material_id == 19u) {
         // Fresnel reflection of a cheap sky color
         let reflectionColor = WATER_SKY_COLOR * (0.5 + 0.5 * pow(max(dot(normalize(normal), normalize(-sunDirection)), 0.0), 8.0));
         finalColor = mix(finalColor * waterTint, reflectionColor, fresnelTerm);
@@ -1929,10 +1786,10 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         let width = 1.0/16.0;
         let highlight = 4.0;
         
-        let left_edge = smoothstep(0.0, width, in.uv.x);
-        let right_edge = smoothstep(0.0, width, 1.0 - in.uv.x);
-        let top_edge = smoothstep(0.0, width, in.uv.y);
-        let bottom_edge = smoothstep(0.0, width, 1.0 - in.uv.y);
+        let left_edge = smoothstep(0.0, width, uv.x);
+        let right_edge = smoothstep(0.0, width, 1.0 - uv.x);
+        let top_edge = smoothstep(0.0, width, uv.y);
+        let bottom_edge = smoothstep(0.0, width, 1.0 - uv.y);
         
         let edge_factor = min(min(left_edge, right_edge), min(top_edge, bottom_edge));
         let highlight_intensity = 1.0 - edge_factor;

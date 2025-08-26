@@ -725,27 +725,23 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
     );
 
-    var base_vertex: vec3f;
-    var normal: vec3f;
-    
-    if (materialProps.modelId != VOXEL_MODEL) {
-        base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
-        normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+    var base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+    var normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+
+    if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
         normal = rotateX(normal, f32(tile_x) * 0.1);
         normal = rotateY(normal, f32(tile_y) * 0.1);
         normal = rotateZ(normal, f32(tile_z) * 0.1);
         normal = normalize(normal);
 
-        out.normal = normal;
-
-        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
-                // Apply random tilt to break coplanarity when all axes have offset
-                base_vertex = apply_random_tilt(base_vertex, normal, hash);
+        if (materialProps.modelId == LEAF_MODEL) {
+            // Apply random tilt to break coplanarity when all axes have offset
+            base_vertex = apply_random_tilt(base_vertex, normal, hash);
+            
+            // Also apply tilt to the normal vector
+            normal = apply_random_tilt(normal, normal, hash);
+            normal = normalize(normal);
         }
-    } else {
-        base_vertex = faceVertices[data.normal_index][vertexInFace];
     }
     
     let scaled_vertex_offset = base_vertex * lod_scale;
@@ -770,10 +766,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     // Calculate UV for alpha testing
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
-    
-    if (materialProps.modelId == VOXEL_MODEL) {
-        uv = faceUVsIndependent[data.normal_index][vertexInFace];
-    }
     
     uv = clamp(uv, vec2f(0.01), vec2f(0.99));
     
