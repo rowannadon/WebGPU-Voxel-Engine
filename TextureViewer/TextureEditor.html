@@ -1,0 +1,2226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Art Editor with Texture Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            height: 100vh;
+            display: flex;
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 320px;
+            min-width: 280px;
+            max-width: 500px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-right: 1px solid #3a3a3a;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            position: relative;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .resize-handle {
+            position: absolute;
+            right: -3px;
+            top: 0;
+            bottom: 0;
+            width: 6px;
+            background: transparent;
+            cursor: col-resize;
+            z-index: 10;
+        }
+
+        .resize-handle:hover {
+            background: #4a4a4a;
+        }
+
+        .resize-handle.dragging {
+            background: #5a5a5a;
+        }
+
+        h1 {
+            font-size: 1.8em;
+            font-weight: 300;
+            letter-spacing: 1px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #3a3a3a;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            background: #1a1a1a;
+            min-width: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            padding-bottom: 30px;
+        }
+        
+        .editor-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            padding-bottom: 30px;
+            gap: 15px;
+        }
+        
+        .variations-container {
+            display: grid;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            max-height: calc(100% - 50px);
+            max-width: 100%;
+            height: 100%;
+            width: 100%;
+        }
+        
+        .variation-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .variation-canvas-container {
+            background: #2a2a2a;
+            border-radius: 6px;
+            padding: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .variation-controls {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            display: flex;
+            gap: 4px;
+            background: rgba(42, 42, 42, 0.95);
+            padding: 4px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 5;
+        }
+        
+        .variation-wrapper:hover .variation-controls {
+            opacity: 1;
+        }
+        
+        .variation-control-btn {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            background: #3a3a3a;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            color: #aaa;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .variation-control-btn:hover {
+            background: #4a4a4a;
+            color: #fff;
+        }
+        
+        .variation-control-btn.remove:hover {
+            background: #6a3030;
+            border-color: #8a4040;
+        }
+        
+        .add-variation-btn {
+            width: 60px;
+            height: 60px;
+            background: #2a2a2a;
+            border: 2px dashed #4a4a4a;
+            border-radius: 8px;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .add-variation-btn:hover {
+            background: #3a3a3a;
+            border-color: #5a5a5a;
+            color: #aaa;
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            padding-right: 5px;
+        }
+
+        .sidebar-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-track {
+            background: #1a1a1a;
+            border-radius: 4px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-thumb {
+            background: #4a4a4a;
+            border-radius: 4px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-thumb:hover {
+            background: #5a5a5a;
+        }
+
+        .control-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #1a1a1a;
+            flex-shrink: 0;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: #2a2a2a;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s ease;
+        }
+
+        .section-header:hover {
+            background: #333;
+        }
+
+        .section-title {
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #aaa;
+            margin: 0;
+        }
+
+        .section-arrow {
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid #888;
+        }
+
+        .section-header.expanded .section-arrow {
+            transform: rotate(180deg);
+        }
+
+        .section-content {
+            max-height: 0;
+            overflow: hidden;
+            padding: 0 15px;
+        }
+
+        .section-content.expanded {
+            max-height: none;
+            padding: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .control-row:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            font-size: 0.85em;
+            color: #aaa;
+            min-width: 80px;
+        }
+
+        input[type="number"] {
+            padding: 6px 10px;
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            width: 80px;
+            font-size: 14px;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #5a5a5a;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #3a3a3a;
+            color: #e0e0e0;
+            border: 1px solid #4a4a4a;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        button:hover {
+            background: #4a4a4a;
+        }
+
+        button:active {
+            background: #2a2a2a;
+        }
+
+        button:disabled {
+            background: #2a2a2a;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .canvas-container {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .canvas-label {
+            font-size: 14px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .canvas-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 12px;
+            color: #666;
+            background: rgba(42, 42, 42, 0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            z-index: 10;
+        }
+
+        .texture-info {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 12px;
+            color: #666;
+            background: rgba(42, 42, 42, 0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            z-index: 10;
+        }
+
+        .history-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 11px;
+            color: #888;
+            background: rgba(42, 42, 42, 0.9);
+            padding: 4px 8px;
+            border-radius: 4px;
+            z-index: 10;
+            font-family: monospace;
+        }
+
+        canvas {
+            display: block;
+            border: 2px solid #3a3a3a;
+            cursor: none;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            background: white;
+            position: relative;
+        }
+
+        #textureCanvas {
+            cursor: none;
+        }
+        
+        .cursor-box {
+            position: fixed;
+            pointer-events: none;
+            border: 2px solid rgba(0, 0, 0, 0.8);
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
+            z-index: 9999;
+            display: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        /* Custom color picker styles */
+        .color-picker-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .color-display {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            border: 1px solid #3a3a3a;
+        }
+
+        .color-preview {
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            border: 1px solid #4a4a4a;
+        }
+
+        .color-hex {
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        .color-grid {
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            position: relative;
+            cursor: crosshair;
+        }
+
+        .hue-slider {
+            width: 100%;
+            height: 20px;
+            background: linear-gradient(to right, 
+                hsl(0, 100%, 50%), 
+                hsl(60, 100%, 50%), 
+                hsl(120, 100%, 50%), 
+                hsl(180, 100%, 50%), 
+                hsl(240, 100%, 50%), 
+                hsl(300, 100%, 50%), 
+                hsl(360, 100%, 50%));
+            border-radius: 4px;
+            position: relative;
+            cursor: pointer;
+            border: 1px solid #3a3a3a;
+        }
+
+        .hue-thumb {
+            position: absolute;
+            width: 10px;
+            height: 28px;
+            background: #fff;
+            border: 2px solid #3a3a3a;
+            border-radius: 2px;
+            top: -4px;
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+
+        .color-pointer {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            box-shadow: 0 0 0 1px #000;
+        }
+
+        .rgb-inputs {
+            display: flex;
+            gap: 10px;
+        }
+
+        .rgb-group {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .rgb-group label {
+            font-size: 11px;
+            text-align: center;
+            min-width: auto;
+        }
+
+        .rgb-group input {
+            width: 100%;
+            text-align: center;
+            padding: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="resize-handle" id="resizeHandle"></div>
+        <h1>Pixel Art Editor</h1>
+        
+        <div class="sidebar-content">
+            <div class="control-section">
+                <div class="section-header expanded" data-section="canvas">
+                    <div class="section-title">Canvas Settings</div>
+                    <div class="section-arrow"></div>
+                </div>
+                <div class="section-content expanded" id="canvasSection">
+                    <div class="control-row">
+                        <label>Width:</label>
+                        <input type="number" id="width" min="8" max="128" value="32">
+                    </div>
+                    <div class="control-row">
+                        <label>Height:</label>
+                        <input type="number" id="height" min="8" max="128" value="32">
+                    </div>
+                    <button id="createCanvas">Update Canvas Size</button>
+                    <button id="clearCanvas">Clear All</button>
+                    <div class="button-group">
+                        <button id="undoButton" disabled>Undo</button>
+                        <button id="redoButton" disabled>Redo</button>
+                    </div>
+                    <button id="exportVariations">Export All Variations</button>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-header expanded" data-section="texture">
+                    <div class="section-title">Texture Preview</div>
+                    <div class="section-arrow"></div>
+                </div>
+                <div class="section-content expanded" id="textureSection">
+                    <div class="control-row">
+                        <label>Tiles X:</label>
+                        <input type="number" id="tilesX" min="1" max="16" value="8">
+                    </div>
+                    <div class="control-row">
+                        <label>Tiles Y:</label>
+                        <input type="number" id="tilesY" min="1" max="16" value="8">
+                    </div>
+                    <div class="control-row">
+                        <label>Random Rotation:</label>
+                        <input type="checkbox" id="randomRotation">
+                    </div>
+                    <div class="control-row">
+                        <label>Edit Preview:</label>
+                        <input type="checkbox" id="editPreview">
+                    </div>
+                    <button id="exportTexture">Export Texture</button>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-header expanded" data-section="grid">
+                    <div class="section-title">Grid Settings</div>
+                    <div class="section-arrow"></div>
+                </div>
+                <div class="section-content expanded" id="gridSection">
+                    <div class="control-row">
+                        <label>Show Grid:</label>
+                        <input type="checkbox" id="showGrid" checked>
+                    </div>
+                    <div class="control-row">
+                        <label>Spacing X:</label>
+                        <input type="number" id="gridSpacingX" min="1" max="32" value="1">
+                    </div>
+                    <div class="control-row">
+                        <label>Spacing Y:</label>
+                        <input type="number" id="gridSpacingY" min="1" max="32" value="1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-header expanded" data-section="color">
+                    <div class="section-title">Color Picker</div>
+                    <div class="section-arrow"></div>
+                </div>
+                <div class="section-content expanded" id="colorSection">
+                    <div class="color-picker-container">
+                        <div class="color-display">
+                            <div class="color-preview" id="colorPreview"></div>
+                            <div class="color-hex" id="colorHex">#000000</div>
+                        </div>
+                        <div class="color-grid" id="colorGrid">
+                            <div class="color-pointer" id="colorPointer"></div>
+                        </div>
+                        <div class="hue-slider" id="hueSlider">
+                            <div class="hue-thumb" id="hueThumb"></div>
+                        </div>
+                        <div class="rgb-inputs">
+                            <div class="rgb-group">
+                                <label>R</label>
+                                <input type="number" id="rgbR" min="0" max="255" value="0">
+                            </div>
+                            <div class="rgb-group">
+                                <label>G</label>
+                                <input type="number" id="rgbG" min="0" max="255" value="0">
+                            </div>
+                            <div class="rgb-group">
+                                <label>B</label>
+                                <input type="number" id="rgbB" min="0" max="255" value="0">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content" id="mainContent">
+        <div class="editor-wrapper">
+            <div class="variations-container" id="variationsContainer">
+                <!-- Canvas containers will be dynamically added here -->
+            </div>
+            <button class="add-variation-btn" id="addVariationBtn" title="Add new variation">+</button>
+        </div>
+        
+        <div class="canvas-wrapper">
+            <div class="canvas-container">
+                <div class="canvas-label">Texture Preview</div>
+                <canvas id="textureCanvas"></canvas>
+            </div>
+        </div>
+        
+        <div class="canvas-info" id="canvasInfo">32x32 • Scale: 1x • Alt+Click to pick color</div>
+        <div class="texture-info" id="textureInfo">8x8 tiles • 256x256px • Scale: 1x</div>
+        <div class="history-info" id="historyInfo">Ctrl+Z: Undo • Ctrl+Y/Shift+Z: Redo</div>
+    </div>
+
+    <div class="cursor-box" id="cursorBox"></div>
+    <input type="file" id="hiddenFileInput" accept="image/*">
+
+    <script>
+        class HistoryManager {
+            constructor(maxStates = 25) {
+                this.maxStates = maxStates;
+                this.states = [];
+                this.currentIndex = -1;
+                this.undoButton = document.getElementById('undoButton');
+                this.redoButton = document.getElementById('redoButton');
+            }
+            
+            saveState(pixelDataArray, variations, gridWidth, gridHeight) {
+                // Deep clone the pixel data
+                const stateCopy = {
+                    pixelData: pixelDataArray.map(variation => 
+                        variation ? variation.map(row => [...row]) : null
+                    ),
+                    variations: variations,
+                    gridWidth: gridWidth,
+                    gridHeight: gridHeight,
+                    timestamp: Date.now()
+                };
+                
+                // Remove any states after the current index (lose redo history on new action)
+                if (this.currentIndex < this.states.length - 1) {
+                    this.states = this.states.slice(0, this.currentIndex + 1);
+                }
+                
+                // Add new state
+                this.states.push(stateCopy);
+                
+                // Limit history size
+                if (this.states.length > this.maxStates) {
+                    this.states.shift();
+                } else {
+                    this.currentIndex++;
+                }
+                
+                this.updateButtons();
+            }
+            
+            undo() {
+                if (this.canUndo()) {
+                    this.currentIndex--;
+                    this.updateButtons();
+                    return this.getCurrentState();
+                }
+                return null;
+            }
+            
+            redo() {
+                if (this.canRedo()) {
+                    this.currentIndex++;
+                    this.updateButtons();
+                    return this.getCurrentState();
+                }
+                return null;
+            }
+            
+            getCurrentState() {
+                if (this.currentIndex >= 0 && this.currentIndex < this.states.length) {
+                    const state = this.states[this.currentIndex];
+                    // Deep clone to prevent modifications
+                    return {
+                        pixelData: state.pixelData.map(variation => 
+                            variation ? variation.map(row => [...row]) : null
+                        ),
+                        variations: state.variations,
+                        gridWidth: state.gridWidth,
+                        gridHeight: state.gridHeight
+                    };
+                }
+                return null;
+            }
+            
+            canUndo() {
+                return this.currentIndex > 0;
+            }
+            
+            canRedo() {
+                return this.currentIndex < this.states.length - 1;
+            }
+            
+            updateButtons() {
+                this.undoButton.disabled = !this.canUndo();
+                this.redoButton.disabled = !this.canRedo();
+                
+                // Update history info
+                const historyInfo = document.getElementById('historyInfo');
+                const stateCount = this.states.length;
+                const currentPos = this.currentIndex + 1;
+                historyInfo.textContent = `History: ${currentPos}/${stateCount} • Ctrl+Z: Undo • Ctrl+Y/Shift+Z: Redo`;
+            }
+            
+            clear() {
+                this.states = [];
+                this.currentIndex = -1;
+                this.updateButtons();
+            }
+        }
+
+        class CollapsibleSections {
+            constructor() {
+                this.setupSections();
+            }
+            
+            setupSections() {
+                const headers = document.querySelectorAll('.section-header');
+                
+                headers.forEach(header => {
+                    header.addEventListener('click', () => {
+                        const sectionName = header.dataset.section;
+                        const content = document.getElementById(sectionName + 'Section');
+                        
+                        header.classList.toggle('expanded');
+                        content.classList.toggle('expanded');
+                    });
+                });
+            }
+        }
+
+        class ResizablePanel {
+            constructor() {
+                this.sidebar = document.getElementById('sidebar');
+                this.resizeHandle = document.getElementById('resizeHandle');
+                this.isDragging = false;
+                
+                this.setupEventListeners();
+            }
+            
+            setupEventListeners() {
+                this.resizeHandle.addEventListener('mousedown', (e) => {
+                    this.isDragging = true;
+                    this.resizeHandle.classList.add('dragging');
+                    document.body.style.cursor = 'col-resize';
+                    e.preventDefault();
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (!this.isDragging) return;
+                    
+                    const newWidth = e.clientX;
+                    if (newWidth >= 280 && newWidth <= 500) {
+                        this.sidebar.style.width = newWidth + 'px';
+                        window.dispatchEvent(new Event('resize'));
+                    }
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.resizeHandle.classList.remove('dragging');
+                        document.body.style.cursor = '';
+                    }
+                });
+            }
+        }
+
+        class ColorPicker {
+            constructor(onColorChange) {
+                this.hue = 0;
+                this.saturation = 0;
+                this.value = 0;
+                this.rgb = { r: 0, g: 0, b: 0 };
+                this.onColorChange = onColorChange;
+                
+                this.colorGrid = document.getElementById('colorGrid');
+                this.colorPointer = document.getElementById('colorPointer');
+                this.hueSlider = document.getElementById('hueSlider');
+                this.hueThumb = document.getElementById('hueThumb');
+                this.colorPreview = document.getElementById('colorPreview');
+                this.colorHex = document.getElementById('colorHex');
+                this.rgbR = document.getElementById('rgbR');
+                this.rgbG = document.getElementById('rgbG');
+                this.rgbB = document.getElementById('rgbB');
+                
+                this.setupEventListeners();
+                this.updateGridBackground();
+                this.updateColor();
+            }
+            
+            setupEventListeners() {
+                let isDraggingGrid = false;
+                let isDraggingHue = false;
+                
+                this.colorGrid.addEventListener('mousedown', (e) => {
+                    isDraggingGrid = true;
+                    this.handleGridClick(e);
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (isDraggingGrid) {
+                        this.handleGridClick(e);
+                    }
+                    if (isDraggingHue) {
+                        this.handleHueClick(e);
+                    }
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    isDraggingGrid = false;
+                    isDraggingHue = false;
+                });
+                
+                this.hueSlider.addEventListener('mousedown', (e) => {
+                    isDraggingHue = true;
+                    this.handleHueClick(e);
+                });
+                
+                this.rgbR.addEventListener('input', () => this.updateFromRGB());
+                this.rgbG.addEventListener('input', () => this.updateFromRGB());
+                this.rgbB.addEventListener('input', () => this.updateFromRGB());
+            }
+            
+            handleGridClick(e) {
+                const rect = this.colorGrid.getBoundingClientRect();
+                const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+                
+                this.saturation = x * 100;
+                this.value = (1 - y) * 100;
+                
+                this.updateColor();
+                this.updatePointerPosition();
+            }
+            
+            handleHueClick(e) {
+                const rect = this.hueSlider.getBoundingClientRect();
+                const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                
+                this.hue = x * 360;
+                
+                this.updateColor();
+                this.updateHueThumbPosition();
+                this.updateGridBackground();
+            }
+            
+            setColorFromRGB(r, g, b) {
+                this.rgb = { r, g, b };
+                this.rgbR.value = r;
+                this.rgbG.value = g;
+                this.rgbB.value = b;
+                
+                const hsv = this.rgbToHsv(r, g, b);
+                this.hue = hsv.h;
+                this.saturation = hsv.s;
+                this.value = hsv.v;
+                
+                this.updateColorDisplay();
+                this.updatePointerPosition();
+                this.updateHueThumbPosition();
+                this.updateGridBackground();
+                
+                if (this.onColorChange) {
+                    this.onColorChange(this.getHexColor());
+                }
+            }
+            
+            updateFromRGB() {
+                this.rgb = {
+                    r: parseInt(this.rgbR.value) || 0,
+                    g: parseInt(this.rgbG.value) || 0,
+                    b: parseInt(this.rgbB.value) || 0
+                };
+                
+                const hsv = this.rgbToHsv(this.rgb.r, this.rgb.g, this.rgb.b);
+                this.hue = hsv.h;
+                this.saturation = hsv.s;
+                this.value = hsv.v;
+                
+                this.updateColorDisplay();
+                this.updatePointerPosition();
+                this.updateHueThumbPosition();
+                this.updateGridBackground();
+                
+                if (this.onColorChange) {
+                    this.onColorChange(this.getHexColor());
+                }
+            }
+            
+            updateColor() {
+                this.rgb = this.hsvToRgb(this.hue, this.saturation, this.value);
+                
+                this.rgbR.value = this.rgb.r;
+                this.rgbG.value = this.rgb.g;
+                this.rgbB.value = this.rgb.b;
+                
+                this.updateColorDisplay();
+                
+                if (this.onColorChange) {
+                    this.onColorChange(this.getHexColor());
+                }
+            }
+            
+            updateColorDisplay() {
+                const hex = this.getHexColor();
+                this.colorPreview.style.backgroundColor = hex;
+                this.colorHex.textContent = hex.toUpperCase();
+            }
+            
+            updatePointerPosition() {
+                const x = this.saturation;
+                const y = 100 - this.value;
+                this.colorPointer.style.left = `${x}%`;
+                this.colorPointer.style.top = `${y}%`;
+            }
+            
+            updateHueThumbPosition() {
+                const x = (this.hue / 360) * 100;
+                this.hueThumb.style.left = `${x}%`;
+            }
+            
+            updateGridBackground() {
+                const hue = this.hue;
+                this.colorGrid.style.background = `
+                    linear-gradient(to bottom, 
+                        rgba(0, 0, 0, 0) 0%, 
+                        rgba(0, 0, 0, 1) 100%),
+                    linear-gradient(to right, 
+                        rgba(255, 255, 255, 1) 0%, 
+                        rgba(255, 255, 255, 0) 100%),
+                    hsl(${hue}, 100%, 50%)
+                `;
+            }
+            
+            getHexColor() {
+                return '#' + [this.rgb.r, this.rgb.g, this.rgb.b]
+                    .map(x => x.toString(16).padStart(2, '0'))
+                    .join('');
+            }
+            
+            hsvToRgb(h, s, v) {
+                h = h / 360;
+                s = s / 100;
+                v = v / 100;
+                
+                let r, g, b;
+                
+                const i = Math.floor(h * 6);
+                const f = h * 6 - i;
+                const p = v * (1 - s);
+                const q = v * (1 - f * s);
+                const t = v * (1 - (1 - f) * s);
+                
+                switch (i % 6) {
+                    case 0: r = v; g = t; b = p; break;
+                    case 1: r = q; g = v; b = p; break;
+                    case 2: r = p; g = v; b = t; break;
+                    case 3: r = p; g = q; b = v; break;
+                    case 4: r = t; g = p; b = v; break;
+                    case 5: r = v; g = p; b = q; break;
+                }
+                
+                return {
+                    r: Math.round(r * 255),
+                    g: Math.round(g * 255),
+                    b: Math.round(b * 255)
+                };
+            }
+            
+            rgbToHsv(r, g, b) {
+                r /= 255;
+                g /= 255;
+                b /= 255;
+                
+                const max = Math.max(r, g, b);
+                const min = Math.min(r, g, b);
+                const diff = max - min;
+                
+                let h = 0;
+                let s = max === 0 ? 0 : diff / max;
+                let v = max;
+                
+                if (max !== min) {
+                    switch (max) {
+                        case r: h = ((g - b) / diff + (g < b ? 6 : 0)) / 6; break;
+                        case g: h = ((b - r) / diff + 2) / 6; break;
+                        case b: h = ((r - g) / diff + 4) / 6; break;
+                    }
+                }
+                
+                return {
+                    h: h * 360,
+                    s: s * 100,
+                    v: v * 100
+                };
+            }
+        }
+
+        class PixelArtEditor {
+            constructor() {
+                this.isDrawing = false;
+                this.currentColor = '#000000';
+                this.pixelDataArray = [];
+                this.canvasArray = [];
+                this.ctxArray = [];
+                this.activeVariation = 0;
+                this.variations = 1;
+                this.showGrid = true;
+                this.gridSpacingX = 1;
+                this.gridSpacingY = 1;
+                this.pixelSize = 1;
+                this.scale = 1;
+                this.tilesX = 8;
+                this.tilesY = 8;
+                this.texturePixelSize = 1;
+                this.textureScale = 1;
+                this.randomRotation = false;
+                this.editPreview = false;
+                this.tileRotations = [];
+                this.tileVariations = [];
+                this.isDrawingOnTexture = false;
+                this.strokeStarted = false;
+                this.lastPixel = null;
+                this.lastTexturePixel = null;
+                this.pendingUploadIndex = -1;
+                
+                this.historyManager = new HistoryManager(25);
+                
+                this.cursorBox = document.getElementById('cursorBox');
+                this.textureCanvas = document.getElementById('textureCanvas');
+                this.textureCtx = this.textureCanvas.getContext('2d');
+                this.mainContent = document.getElementById('mainContent');
+                this.variationsContainer = document.getElementById('variationsContainer');
+                this.canvasInfo = document.getElementById('canvasInfo');
+                this.textureInfo = document.getElementById('textureInfo');
+                
+                this.widthInput = document.getElementById('width');
+                this.heightInput = document.getElementById('height');
+                this.createButton = document.getElementById('createCanvas');
+                this.clearButton = document.getElementById('clearCanvas');
+                this.showGridCheckbox = document.getElementById('showGrid');
+                this.gridSpacingXInput = document.getElementById('gridSpacingX');
+                this.gridSpacingYInput = document.getElementById('gridSpacingY');
+                this.tilesXInput = document.getElementById('tilesX');
+                this.tilesYInput = document.getElementById('tilesY');
+                this.randomRotationCheckbox = document.getElementById('randomRotation');
+                this.editPreviewCheckbox = document.getElementById('editPreview');
+                this.undoButton = document.getElementById('undoButton');
+                this.redoButton = document.getElementById('redoButton');
+                this.exportVariationsButton = document.getElementById('exportVariations');
+                this.exportTextureButton = document.getElementById('exportTexture');
+                this.addVariationBtn = document.getElementById('addVariationBtn');
+                this.hiddenFileInput = document.getElementById('hiddenFileInput');
+                
+                this.init();
+            }
+            
+            init() {
+                this.collapsibleSections = new CollapsibleSections();
+                this.resizablePanel = new ResizablePanel();
+                
+                this.colorPicker = new ColorPicker((color) => {
+                    this.currentColor = color;
+                });
+                
+                this.createCanvas();
+                this.setupEventListeners();
+                this.setupGlobalCursorHandling();
+            }
+            
+            setupGlobalCursorHandling() {
+                // Global mouse move for cursor box
+                document.addEventListener('mousemove', (e) => {
+                    // Check if mouse is over any canvas
+                    let overCanvas = false;
+                    let pixelSize = 0;
+                    
+                    // Check editor canvases
+                    for (let canvas of this.canvasArray) {
+                        if (canvas.matches(':hover')) {
+                            overCanvas = true;
+                            pixelSize = this.pixelSize;
+                            break;
+                        }
+                    }
+                    
+                    // Check texture canvas
+                    if (!overCanvas && this.textureCanvas.matches(':hover') && this.editPreview) {
+                        overCanvas = true;
+                        pixelSize = this.texturePixelSize;
+                    }
+                    
+                    if (overCanvas && !e.altKey) {
+                        // Show and position cursor box
+                        this.cursorBox.style.display = 'block';
+                        this.cursorBox.style.width = pixelSize + 'px';
+                        this.cursorBox.style.height = pixelSize + 'px';
+                        
+                        // Snap to pixel grid
+                        const rect = e.target.getBoundingClientRect();
+                        const x = Math.floor((e.clientX - rect.left) / pixelSize) * pixelSize + rect.left;
+                        const y = Math.floor((e.clientY - rect.top) / pixelSize) * pixelSize + rect.top;
+                        
+                        this.cursorBox.style.left = x + 'px';
+                        this.cursorBox.style.top = y + 'px';
+                    } else {
+                        this.cursorBox.style.display = 'none';
+                    }
+                });
+                
+                // Hide cursor when leaving the window
+                document.addEventListener('mouseleave', () => {
+                    this.cursorBox.style.display = 'none';
+                });
+            }
+            
+            // Bresenham's line algorithm for pixel-perfect lines
+            drawLine(x0, y0, x1, y1, callback) {
+                const dx = Math.abs(x1 - x0);
+                const dy = Math.abs(y1 - y0);
+                const sx = x0 < x1 ? 1 : -1;
+                const sy = y0 < y1 ? 1 : -1;
+                let err = dx - dy;
+                
+                while (true) {
+                    callback(x0, y0);
+                    
+                    if (x0 === x1 && y0 === y1) break;
+                    
+                    const e2 = 2 * err;
+                    if (e2 > -dy) {
+                        err -= dy;
+                        x0 += sx;
+                    }
+                    if (e2 < dx) {
+                        err += dx;
+                        y0 += sy;
+                    }
+                }
+            }
+            
+            addNewVariation() {
+                if (this.variations >= 8) {
+                    alert('Maximum 8 variations allowed');
+                    return;
+                }
+                
+                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                
+                this.variations++;
+                const index = this.variations - 1;
+                
+                // Add new pixel data
+                this.pixelDataArray[index] = Array(this.gridHeight).fill(null).map(() => 
+                    Array(this.gridWidth).fill('#FFFFFF')
+                );
+                
+                // Create new canvas element
+                this.createVariationCanvas(index);
+                
+                // Regenerate tile data to include new variation
+                this.generateTileData();
+                this.resizeCanvas();
+            }
+            
+            createVariationCanvas(index) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'variation-wrapper';
+                wrapper.id = `variation-wrapper-${index}`;
+                
+                const container = document.createElement('div');
+                container.className = 'variation-canvas-container';
+                
+                const canvas = document.createElement('canvas');
+                canvas.id = `pixelCanvas${index}`;
+                
+                // Create controls
+                const controls = document.createElement('div');
+                controls.className = 'variation-controls';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'variation-control-btn remove';
+                removeBtn.innerHTML = '−';
+                removeBtn.title = 'Remove variation';
+                removeBtn.onclick = () => this.removeVariation(index);
+                
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'variation-control-btn';
+                downloadBtn.innerHTML = '↓';
+                downloadBtn.title = 'Download variation';
+                downloadBtn.onclick = () => this.exportVariation(index);
+                
+                const uploadBtn = document.createElement('button');
+                uploadBtn.className = 'variation-control-btn';
+                uploadBtn.innerHTML = '↑';
+                uploadBtn.title = 'Upload texture';
+                uploadBtn.onclick = () => this.triggerUpload(index);
+                
+                controls.appendChild(removeBtn);
+                controls.appendChild(downloadBtn);
+                controls.appendChild(uploadBtn);
+                
+                container.appendChild(canvas);
+                wrapper.appendChild(container);
+                wrapper.appendChild(controls);
+                
+                this.variationsContainer.appendChild(wrapper);
+                
+                this.canvasArray[index] = canvas;
+                this.ctxArray[index] = canvas.getContext('2d');
+                
+                this.setupCanvasEventListeners(canvas, index);
+            }
+            
+            removeVariation(index) {
+                if (this.variations <= 1) {
+                    alert('Cannot remove the last variation');
+                    return;
+                }
+                
+                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                
+                // Remove the wrapper element
+                const wrapper = document.getElementById(`variation-wrapper-${index}`);
+                if (wrapper) {
+                    wrapper.remove();
+                }
+                
+                // Remove from arrays
+                this.pixelDataArray.splice(index, 1);
+                this.canvasArray.splice(index, 1);
+                this.ctxArray.splice(index, 1);
+                
+                this.variations--;
+                
+                // Re-index remaining variations and re-attach event listeners
+                for (let i = 0; i < this.variations; i++) {
+                    const wrapper = this.variationsContainer.children[i];
+                    wrapper.id = `variation-wrapper-${i}`;
+                    const canvas = wrapper.querySelector('canvas');
+                    canvas.id = `pixelCanvas${i}`;
+                    
+                    // Update canvas and context references
+                    this.canvasArray[i] = canvas;
+                    this.ctxArray[i] = canvas.getContext('2d');
+                    
+                    // Remove old event listeners by cloning the canvas
+                    const newCanvas = canvas.cloneNode(true);
+                    canvas.parentNode.replaceChild(newCanvas, canvas);
+                    
+                    // Update the reference and re-attach event listeners
+                    this.canvasArray[i] = newCanvas;
+                    this.ctxArray[i] = newCanvas.getContext('2d');
+                    this.setupCanvasEventListeners(newCanvas, i);
+                    
+                    // Update button handlers
+                    const buttons = wrapper.querySelectorAll('.variation-control-btn');
+                    buttons[0].onclick = () => this.removeVariation(i);
+                    buttons[1].onclick = () => this.exportVariation(i);
+                    buttons[2].onclick = () => this.triggerUpload(i);
+                }
+                
+                // Regenerate tile data
+                this.generateTileData();
+                this.resizeCanvas();
+            }
+            
+            triggerUpload(index) {
+                this.pendingUploadIndex = index;
+                this.hiddenFileInput.click();
+            }
+            
+            handleImageUpload(event) {
+                const file = event.target.files[0];
+                if (!file || this.pendingUploadIndex === -1) return;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.processUploadedImage(img, this.pendingUploadIndex);
+                        this.pendingUploadIndex = -1;
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+                
+                // Reset file input
+                event.target.value = '';
+            }
+            
+            processUploadedImage(img, variationIndex) {
+                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                
+                // Create temporary canvas for processing
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Set canvas to target size
+                tempCanvas.width = this.gridWidth;
+                tempCanvas.height = this.gridHeight;
+                
+                // Draw scaled image
+                tempCtx.imageSmoothingEnabled = false;
+                tempCtx.drawImage(img, 0, 0, this.gridWidth, this.gridHeight);
+                
+                // Extract pixel data
+                const imageData = tempCtx.getImageData(0, 0, this.gridWidth, this.gridHeight);
+                const pixels = imageData.data;
+                
+                // Update pixel data array
+                for (let y = 0; y < this.gridHeight; y++) {
+                    for (let x = 0; x < this.gridWidth; x++) {
+                        const i = (y * this.gridWidth + x) * 4;
+                        const r = pixels[i];
+                        const g = pixels[i + 1];
+                        const b = pixels[i + 2];
+                        const a = pixels[i + 3];
+                        
+                        if (a > 127) { // If pixel is mostly opaque
+                            const hex = '#' + 
+                                r.toString(16).padStart(2, '0') + 
+                                g.toString(16).padStart(2, '0') + 
+                                b.toString(16).padStart(2, '0');
+                            this.pixelDataArray[variationIndex][y][x] = hex.toUpperCase();
+                        } else {
+                            this.pixelDataArray[variationIndex][y][x] = '#FFFFFF';
+                        }
+                    }
+                }
+                
+                // Redraw
+                this.redraw(variationIndex);
+                this.updateTexturePreview();
+            }
+            
+            setupEventListeners() {
+                this.createButton.addEventListener('click', () => {
+                    const newWidth = parseInt(this.widthInput.value);
+                    const newHeight = parseInt(this.heightInput.value);
+                    
+                    if (newWidth !== this.gridWidth || newHeight !== this.gridHeight) {
+                        if (confirm('Changing canvas size will clear all variations. Continue?')) {
+                            this.pixelDataArray = [];
+                            this.historyManager.clear();
+                            this.createCanvas();
+                        }
+                    }
+                });
+                
+                this.clearButton.addEventListener('click', () => {
+                    this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                    this.clearAllCanvas();
+                });
+                
+                this.undoButton.addEventListener('click', () => this.performUndo());
+                this.redoButton.addEventListener('click', () => this.performRedo());
+                this.exportVariationsButton.addEventListener('click', () => this.exportAllVariations());
+                this.exportTextureButton.addEventListener('click', () => this.exportTexture());
+                this.addVariationBtn.addEventListener('click', () => this.addNewVariation());
+                
+                this.hiddenFileInput.addEventListener('change', (e) => this.handleImageUpload(e));
+                
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    // Prevent undo/redo when typing in input fields
+                    if (e.target.tagName === 'INPUT') return;
+                    
+                    if (e.ctrlKey || e.metaKey) {
+                        if (e.key === 'z' && !e.shiftKey) {
+                            e.preventDefault();
+                            this.performUndo();
+                        } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+                            e.preventDefault();
+                            this.performRedo();
+                        }
+                    }
+                    
+                    if (e.key === 'Alt') {
+                        this.cursorBox.style.display = 'none';
+                        this.canvasArray.forEach(canvas => {
+                            if (canvas.matches(':hover')) {
+                                canvas.style.cursor = 'crosshair';
+                            }
+                        });
+                        if (this.editPreview && this.textureCanvas.matches(':hover')) {
+                            this.textureCanvas.style.cursor = 'crosshair';
+                        }
+                    }
+                });
+                
+                document.addEventListener('keyup', (e) => {
+                    if (e.key === 'Alt') {
+                        this.canvasArray.forEach(canvas => {
+                            canvas.style.cursor = 'none';
+                        });
+                        if (this.editPreview) {
+                            this.textureCanvas.style.cursor = 'none';
+                        } else {
+                            this.textureCanvas.style.cursor = 'default';
+                        }
+                    }
+                });
+                
+                this.showGridCheckbox.addEventListener('change', (e) => {
+                    this.showGrid = e.target.checked;
+                    this.redrawAll();
+                });
+                
+                this.gridSpacingXInput.addEventListener('input', (e) => {
+                    this.gridSpacingX = parseInt(e.target.value) || 1;
+                    this.redrawAll();
+                });
+                
+                this.gridSpacingYInput.addEventListener('input', (e) => {
+                    this.gridSpacingY = parseInt(e.target.value) || 1;
+                    this.redrawAll();
+                });
+                
+                this.tilesXInput.addEventListener('input', (e) => {
+                    this.tilesX = parseInt(e.target.value) || 1;
+                    this.generateTileData();
+                    this.resizeCanvas();
+                });
+                
+                this.tilesYInput.addEventListener('input', (e) => {
+                    this.tilesY = parseInt(e.target.value) || 1;
+                    this.generateTileData();
+                    this.resizeCanvas();
+                });
+                
+                this.randomRotationCheckbox.addEventListener('change', (e) => {
+                    this.randomRotation = e.target.checked;
+                    this.generateTileData();
+                    this.updateTexturePreview();
+                });
+                
+                this.editPreviewCheckbox.addEventListener('change', (e) => {
+                    this.editPreview = e.target.checked;
+                    this.updateCursorStyles();
+                    this.updateTextureInfo();
+                });
+                
+                // Texture canvas event listeners
+                this.textureCanvas.addEventListener('mousedown', (e) => {
+                    if (this.editPreview) {
+                        if (e.altKey) {
+                            this.pickColorFromTexture(e);
+                        } else {
+                            this.strokeStarted = false;
+                            this.lastTexturePixel = null;
+                            this.isDrawingOnTexture = true;
+                            this.paintTexturePixel(e);
+                        }
+                    }
+                });
+                
+                this.textureCanvas.addEventListener('mousemove', (e) => {
+                    if (this.editPreview) {
+                        if (e.altKey) {
+                            this.textureCanvas.style.cursor = 'crosshair';
+                            this.cursorBox.style.display = 'none';
+                        } else {
+                            this.textureCanvas.style.cursor = 'none';
+                            if (this.isDrawingOnTexture) {
+                                this.paintTexturePixel(e);
+                            }
+                        }
+                    }
+                });
+                
+                this.textureCanvas.addEventListener('mouseup', () => {
+                    this.isDrawingOnTexture = false;
+                    this.strokeStarted = false;
+                    this.lastTexturePixel = null;
+                });
+                
+                this.textureCanvas.addEventListener('mouseleave', () => {
+                    this.isDrawingOnTexture = false;
+                    this.strokeStarted = false;
+                    this.lastTexturePixel = null;
+                    if (this.editPreview) {
+                        this.textureCanvas.style.cursor = 'none';
+                    } else {
+                        this.textureCanvas.style.cursor = 'default';
+                    }
+                });
+                
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+            
+            exportAllVariations() {
+                for (let i = 0; i < this.variations; i++) {
+                    this.exportVariation(i);
+                }
+            }
+            
+            exportVariation(variationIndex) {
+                const pixelData = this.pixelDataArray[variationIndex];
+                if (!pixelData) return;
+                
+                // Create a temporary canvas at actual pixel size
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = this.gridWidth;
+                tempCanvas.height = this.gridHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Fill with white background
+                tempCtx.fillStyle = '#FFFFFF';
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Draw pixels
+                for (let y = 0; y < this.gridHeight; y++) {
+                    for (let x = 0; x < this.gridWidth; x++) {
+                        if (pixelData[y] && pixelData[y][x] !== '#FFFFFF') {
+                            tempCtx.fillStyle = pixelData[y][x];
+                            tempCtx.fillRect(x, y, 1, 1);
+                        }
+                    }
+                }
+                
+                // Convert to blob and download
+                tempCanvas.toBlob((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `pixel-art-variation-${variationIndex + 1}-${this.gridWidth}x${this.gridHeight}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            }
+            
+            exportTexture() {
+                // Create a temporary canvas at actual pixel size
+                const textureWidth = this.gridWidth * this.tilesX;
+                const textureHeight = this.gridHeight * this.tilesY;
+                
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = textureWidth;
+                tempCanvas.height = textureHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Fill with white background
+                tempCtx.fillStyle = '#FFFFFF';
+                tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Draw tiles
+                for (let tileY = 0; tileY < this.tilesY; tileY++) {
+                    for (let tileX = 0; tileX < this.tilesX; tileX++) {
+                        const rotation = this.tileRotations[tileY] ? this.tileRotations[tileY][tileX] : 0;
+                        const variation = this.tileVariations[tileY] ? this.tileVariations[tileY][tileX] : 0;
+                        const pixelData = this.pixelDataArray[variation] || this.pixelDataArray[0];
+                        
+                        // Draw each pixel of the tile
+                        for (let srcY = 0; srcY < this.gridHeight; srcY++) {
+                            for (let srcX = 0; srcX < this.gridWidth; srcX++) {
+                                if (pixelData && pixelData[srcY] && pixelData[srcY][srcX] !== '#FFFFFF') {
+                                    // Apply rotation to determine destination position
+                                    const rotated = this.rotatePixelCoordinates(srcX, srcY, rotation, this.gridWidth, this.gridHeight);
+                                    
+                                    // Calculate final position in texture
+                                    const destX = tileX * this.gridWidth + rotated.x;
+                                    const destY = tileY * this.gridHeight + rotated.y;
+                                    
+                                    // Draw the pixel
+                                    tempCtx.fillStyle = pixelData[srcY][srcX];
+                                    tempCtx.fillRect(destX, destY, 1, 1);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Convert to blob and download
+                tempCanvas.toBlob((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    const rotationText = this.randomRotation ? '-rotated' : '';
+                    const variationText = this.variations > 1 ? `-${this.variations}var` : '';
+                    a.download = `texture-${this.tilesX}x${this.tilesY}-tiles-${textureWidth}x${textureHeight}px${rotationText}${variationText}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            }
+            
+            performUndo() {
+                const state = this.historyManager.undo();
+                if (state) {
+                    this.loadState(state);
+                }
+            }
+            
+            performRedo() {
+                const state = this.historyManager.redo();
+                if (state) {
+                    this.loadState(state);
+                }
+            }
+            
+            loadState(state) {
+                // Only load if dimensions match current canvas
+                if (state.gridWidth === this.gridWidth && 
+                    state.gridHeight === this.gridHeight) {
+                    
+                    // Update variations count if different
+                    if (state.variations !== this.variations) {
+                        // Clear current variations
+                        this.variationsContainer.innerHTML = '';
+                        this.canvasArray = [];
+                        this.ctxArray = [];
+                        
+                        this.variations = state.variations;
+                        
+                        // Recreate variation canvases
+                        for (let i = 0; i < this.variations; i++) {
+                            this.createVariationCanvas(i);
+                        }
+                    }
+                    
+                    // Deep copy the state to avoid reference issues
+                    this.pixelDataArray = state.pixelData.map(variation => 
+                        variation ? variation.map(row => [...row]) : null
+                    );
+                    
+                    // Redraw everything
+                    this.generateTileData();
+                    this.resizeCanvas();
+                }
+            }
+            
+            updateCursorStyles() {
+                if (this.editPreview) {
+                    this.textureCanvas.style.cursor = 'crosshair';
+                } else {
+                    this.textureCanvas.style.cursor = 'default';
+                }
+            }
+            
+            paintTexturePixel(e) {
+                const rect = this.textureCanvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / this.texturePixelSize);
+                const y = Math.floor((e.clientY - rect.top) / this.texturePixelSize);
+                
+                const tileX = Math.floor(x / this.gridWidth);
+                const tileY = Math.floor(y / this.gridHeight);
+                
+                if (tileX >= 0 && tileX < this.tilesX && tileY >= 0 && tileY < this.tilesY) {
+                    const pixelX = x % this.gridWidth;
+                    const pixelY = y % this.gridHeight;
+                    
+                    const variation = this.tileVariations[tileY] ? this.tileVariations[tileY][tileX] : 0;
+                    const rotation = this.tileRotations[tileY] ? this.tileRotations[tileY][tileX] : 0;
+                    
+                    const unrotated = this.unrotatePixelCoordinates(pixelX, pixelY, rotation, this.gridWidth, this.gridHeight);
+                    
+                    if (unrotated.x >= 0 && unrotated.x < this.gridWidth && 
+                        unrotated.y >= 0 && unrotated.y < this.gridHeight) {
+                        
+                        const pixelData = this.pixelDataArray[variation];
+                        if (pixelData) {
+                            // Save state before first pixel in stroke
+                            if (!this.strokeStarted) {
+                                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                                this.strokeStarted = true;
+                            }
+                            
+                            pixelData[unrotated.y][unrotated.x] = this.currentColor;
+                            
+                            this.redraw(variation);
+                            this.updateTexturePreview();
+                        }
+                    }
+                }
+            }
+            
+            pickColorFromTexture(e) {
+                const rect = this.textureCanvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / this.texturePixelSize);
+                const y = Math.floor((e.clientY - rect.top) / this.texturePixelSize);
+                
+                const tileX = Math.floor(x / this.gridWidth);
+                const tileY = Math.floor(y / this.gridHeight);
+                
+                if (tileX >= 0 && tileX < this.tilesX && tileY >= 0 && tileY < this.tilesY) {
+                    const pixelX = x % this.gridWidth;
+                    const pixelY = y % this.gridHeight;
+                    
+                    const variation = this.tileVariations[tileY] ? this.tileVariations[tileY][tileX] : 0;
+                    const rotation = this.tileRotations[tileY] ? this.tileRotations[tileY][tileX] : 0;
+                    
+                    const unrotated = this.unrotatePixelCoordinates(pixelX, pixelY, rotation, this.gridWidth, this.gridHeight);
+                    
+                    if (unrotated.x >= 0 && unrotated.x < this.gridWidth && 
+                        unrotated.y >= 0 && unrotated.y < this.gridHeight) {
+                        
+                        const pixelData = this.pixelDataArray[variation];
+                        if (pixelData) {
+                            const pickedColor = pixelData[unrotated.y][unrotated.x];
+                            this.currentColor = pickedColor;
+                            
+                            const r = parseInt(pickedColor.substr(1, 2), 16);
+                            const g = parseInt(pickedColor.substr(3, 2), 16);
+                            const b = parseInt(pickedColor.substr(5, 2), 16);
+                            
+                            this.colorPicker.setColorFromRGB(r, g, b);
+                        }
+                    }
+                }
+            }
+            
+            unrotatePixelCoordinates(x, y, rotation, width, height) {
+                const centerX = width / 2;
+                const centerY = height / 2;
+                
+                let tx = x - centerX + 0.5;
+                let ty = y - centerY + 0.5;
+                
+                let newX, newY;
+                switch (rotation) {
+                    case 90:
+                        newX = ty;
+                        newY = -tx;
+                        break;
+                    case 180:
+                        newX = -tx;
+                        newY = -ty;
+                        break;
+                    case 270:
+                        newX = -ty;
+                        newY = tx;
+                        break;
+                    default:
+                        newX = tx;
+                        newY = ty;
+                        break;
+                }
+                
+                newX = Math.floor(newX + centerX - 0.5);
+                newY = Math.floor(newY + centerY - 0.5);
+                
+                return { x: newX, y: newY };
+            }
+            
+            setupCanvasEventListeners(canvas, variationIndex) {
+                canvas.addEventListener('mousedown', (e) => {
+                    this.activeVariation = variationIndex;
+                    if (e.altKey) {
+                        this.pickColor(e, variationIndex);
+                    } else {
+                        this.strokeStarted = false;
+                        this.lastPixel = null;
+                        this.isDrawing = true;
+                        this.paintPixel(e, variationIndex);
+                    }
+                });
+                
+                canvas.addEventListener('mousemove', (e) => {
+                    if (e.altKey) {
+                        canvas.style.cursor = 'crosshair';
+                        this.cursorBox.style.display = 'none';
+                    } else {
+                        canvas.style.cursor = 'none';
+                        if (this.isDrawing && this.activeVariation === variationIndex) {
+                            this.paintPixel(e, variationIndex);
+                        }
+                    }
+                });
+                
+                canvas.addEventListener('mouseup', () => {
+                    if (this.activeVariation === variationIndex) {
+                        this.isDrawing = false;
+                        this.strokeStarted = false;
+                        this.lastPixel = null;
+                    }
+                });
+                
+                canvas.addEventListener('mouseleave', () => {
+                    if (this.activeVariation === variationIndex) {
+                        this.isDrawing = false;
+                        this.strokeStarted = false;
+                        this.lastPixel = null;
+                    }
+                    canvas.style.cursor = 'none';
+                });
+            }
+            
+            generateTileData() {
+                this.tileRotations = [];
+                for (let y = 0; y < this.tilesY; y++) {
+                    this.tileRotations[y] = [];
+                    for (let x = 0; x < this.tilesX; x++) {
+                        if (this.randomRotation) {
+                            const rotations = [0, 90, 180, 270];
+                            this.tileRotations[y][x] = rotations[Math.floor(Math.random() * 4)];
+                        } else {
+                            this.tileRotations[y][x] = 0;
+                        }
+                    }
+                }
+                
+                this.tileVariations = [];
+                for (let y = 0; y < this.tilesY; y++) {
+                    this.tileVariations[y] = [];
+                    for (let x = 0; x < this.tilesX; x++) {
+                        this.tileVariations[y][x] = Math.floor(Math.random() * this.variations);
+                    }
+                }
+            }
+            
+            createCanvas() {
+                this.gridWidth = parseInt(this.widthInput.value);
+                this.gridHeight = parseInt(this.heightInput.value);
+                
+                this.variationsContainer.innerHTML = '';
+                this.canvasArray = [];
+                this.ctxArray = [];
+                
+                // If we don't have pixel data, initialize it
+                if (this.pixelDataArray.length === 0) {
+                    this.variations = 1;
+                    this.pixelDataArray = [
+                        Array(this.gridHeight).fill(null).map(() => 
+                            Array(this.gridWidth).fill('#FFFFFF')
+                        )
+                    ];
+                }
+                
+                // Create canvases for existing variations
+                for (let i = 0; i < this.variations; i++) {
+                    this.createVariationCanvas(i);
+                }
+                
+                // Save initial state to history
+                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                
+                this.generateTileData();
+                this.resizeCanvas();
+            }
+            
+            getLayoutGrid() {
+                switch (this.variations) {
+                    case 1: return [1, 1];
+                    case 2: return [1, 2];
+                    case 3: return [1, 3];
+                    case 4: return [1, 4];
+                    case 5:
+                    case 6: return [2, 3];
+                    case 7:
+                    case 8: return [2, 4];
+                    default: return [1, 1];
+                }
+            }
+            
+            resizeCanvas() {
+                const container = this.mainContent.getBoundingClientRect();
+                const padding = 40;
+                const bottomSpace = 80; // Increased to account for add button
+                
+                const editorWidth = (container.width - padding) / 2;
+                const maxHeight = container.height - padding - bottomSpace;
+                
+                const [cols, rows] = this.getLayoutGrid();
+                
+                this.variationsContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+                this.variationsContainer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+                
+                const gap = 10;
+                const containerPadding = 16;
+                
+                const availableWidth = editorWidth - (cols - 1) * gap;
+                const availableHeight = maxHeight - (rows - 1) * gap;
+                
+                const canvasMaxWidth = (availableWidth / cols) - containerPadding;
+                const canvasMaxHeight = (availableHeight / rows) - containerPadding;
+                
+                const scaleX = canvasMaxWidth / this.gridWidth;
+                const scaleY = canvasMaxHeight / this.gridHeight;
+                const variationPixelSize = Math.floor(Math.min(scaleX, scaleY));
+                
+                this.pixelSize = Math.max(2, variationPixelSize);
+                
+                for (let i = 0; i < this.variations; i++) {
+                    this.canvasArray[i].width = this.gridWidth * this.pixelSize;
+                    this.canvasArray[i].height = this.gridHeight * this.pixelSize;
+                }
+                
+                const textureGridWidth = this.gridWidth * this.tilesX;
+                const textureGridHeight = this.gridHeight * this.tilesY;
+                const textureWidth = editorWidth;
+                const textureScaleX = textureWidth / textureGridWidth;
+                const textureScaleY = maxHeight / textureGridHeight;
+                this.texturePixelSize = Math.floor(Math.min(textureScaleX, textureScaleY));
+                this.texturePixelSize = Math.max(1, this.texturePixelSize);
+                
+                this.textureCanvas.width = textureGridWidth * this.texturePixelSize;
+                this.textureCanvas.height = textureGridHeight * this.texturePixelSize;
+                
+                this.scale = this.pixelSize;
+                this.textureScale = this.texturePixelSize;
+                
+                this.updateCanvasInfo();
+                this.updateTextureInfo();
+                this.redrawAll();
+                this.updateTexturePreview();
+            }
+            
+            updateCanvasInfo() {
+                const variationText = this.variations > 1 ? ` • ${this.variations} variations` : '';
+                this.canvasInfo.textContent = `${this.gridWidth}x${this.gridHeight} • Scale: ${this.scale}x${variationText} • Alt+Click to pick color`;
+            }
+            
+            updateTextureInfo() {
+                const totalWidth = this.gridWidth * this.tilesX;
+                const totalHeight = this.gridHeight * this.tilesY;
+                const rotationText = this.randomRotation ? ' • Rotated' : '';
+                const variationText = this.variations > 1 ? ` • ${this.variations} variations` : '';
+                const editText = this.editPreview ? ' • EDITING' : '';
+                this.textureInfo.textContent = `${this.tilesX}x${this.tilesY} tiles • ${totalWidth}x${totalHeight}px • Scale: ${this.textureScale}x${rotationText}${variationText}${editText}`;
+            }
+            
+            clearAllCanvas() {
+                for (let i = 0; i < this.variations; i++) {
+                    this.pixelDataArray[i] = Array(this.gridHeight).fill(null).map(() => 
+                        Array(this.gridWidth).fill('#FFFFFF')
+                    );
+                }
+                this.redrawAll();
+                this.updateTexturePreview();
+            }
+            
+            redrawAll() {
+                for (let i = 0; i < this.variations; i++) {
+                    this.redraw(i);
+                }
+            }
+            
+            redraw(variationIndex) {
+                const ctx = this.ctxArray[variationIndex];
+                const canvas = this.canvasArray[variationIndex];
+                const pixelData = this.pixelDataArray[variationIndex];
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                for (let y = 0; y < this.gridHeight; y++) {
+                    for (let x = 0; x < this.gridWidth; x++) {
+                        if (pixelData[y] && pixelData[y][x] !== '#FFFFFF') {
+                            ctx.fillStyle = pixelData[y][x];
+                            ctx.fillRect(
+                                x * this.pixelSize,
+                                y * this.pixelSize,
+                                this.pixelSize,
+                                this.pixelSize
+                            );
+                        }
+                    }
+                }
+                
+                if (this.showGrid) {
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                    ctx.lineWidth = 1;
+                    
+                    for (let i = 0; i <= this.gridWidth; i += this.gridSpacingX) {
+                        ctx.beginPath();
+                        ctx.moveTo(i * this.pixelSize, 0);
+                        ctx.lineTo(i * this.pixelSize, canvas.height);
+                        ctx.stroke();
+                    }
+                    
+                    for (let i = 0; i <= this.gridHeight; i += this.gridSpacingY) {
+                        ctx.beginPath();
+                        ctx.moveTo(0, i * this.pixelSize);
+                        ctx.lineTo(canvas.width, i * this.pixelSize);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            rotatePixelCoordinates(x, y, rotation, width, height) {
+                const centerX = width / 2;
+                const centerY = height / 2;
+                
+                let tx = x - centerX + 0.5;
+                let ty = y - centerY + 0.5;
+                
+                let newX, newY;
+                switch (rotation) {
+                    case 90:
+                        newX = -ty;
+                        newY = tx;
+                        break;
+                    case 180:
+                        newX = -tx;
+                        newY = -ty;
+                        break;
+                    case 270:
+                        newX = ty;
+                        newY = -tx;
+                        break;
+                    default:
+                        newX = tx;
+                        newY = ty;
+                        break;
+                }
+                
+                newX = Math.floor(newX + centerX - 0.5);
+                newY = Math.floor(newY + centerY - 0.5);
+                
+                return { x: newX, y: newY };
+            }
+            
+            updateTexturePreview() {
+                this.textureCtx.fillStyle = '#FFFFFF';
+                this.textureCtx.fillRect(0, 0, this.textureCanvas.width, this.textureCanvas.height);
+                
+                this.updateTextureInfo();
+                
+                for (let tileY = 0; tileY < this.tilesY; tileY++) {
+                    for (let tileX = 0; tileX < this.tilesX; tileX++) {
+                        const rotation = this.tileRotations[tileY] ? this.tileRotations[tileY][tileX] : 0;
+                        const variation = this.tileVariations[tileY] ? this.tileVariations[tileY][tileX] : 0;
+                        const pixelData = this.pixelDataArray[variation] || this.pixelDataArray[0];
+                        
+                        for (let srcY = 0; srcY < this.gridHeight; srcY++) {
+                            for (let srcX = 0; srcX < this.gridWidth; srcX++) {
+                                if (pixelData[srcY] && pixelData[srcY][srcX] !== '#FFFFFF') {
+                                    const rotated = this.rotatePixelCoordinates(srcX, srcY, rotation, this.gridWidth, this.gridHeight);
+                                    
+                                    const destX = (tileX * this.gridWidth + rotated.x) * this.texturePixelSize;
+                                    const destY = (tileY * this.gridHeight + rotated.y) * this.texturePixelSize;
+                                    
+                                    this.textureCtx.fillStyle = pixelData[srcY][srcX];
+                                    this.textureCtx.fillRect(
+                                        destX,
+                                        destY,
+                                        this.texturePixelSize,
+                                        this.texturePixelSize
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            pickColor(e, variationIndex) {
+                const canvas = this.canvasArray[variationIndex];
+                const pixelData = this.pixelDataArray[variationIndex];
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / this.pixelSize);
+                const y = Math.floor((e.clientY - rect.top) / this.pixelSize);
+                
+                if (x >= 0 && x < this.gridWidth && y >= 0 && y < this.gridHeight) {
+                    const pickedColor = pixelData[y][x];
+                    this.currentColor = pickedColor;
+                    
+                    const r = parseInt(pickedColor.substr(1, 2), 16);
+                    const g = parseInt(pickedColor.substr(3, 2), 16);
+                    const b = parseInt(pickedColor.substr(5, 2), 16);
+                    
+                    this.colorPicker.setColorFromRGB(r, g, b);
+                }
+            }
+            
+            paintPixel(e, variationIndex) {
+                const canvas = this.canvasArray[variationIndex];
+                const rect = canvas.getBoundingClientRect();
+                const currentX = Math.floor((e.clientX - rect.left) / this.pixelSize);
+                const currentY = Math.floor((e.clientY - rect.top) / this.pixelSize);
+                
+                if (currentX >= 0 && currentX < this.gridWidth && currentY >= 0 && currentY < this.gridHeight) {
+                    // Save state before first pixel in stroke
+                    if (!this.strokeStarted) {
+                        this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                        this.strokeStarted = true;
+                    }
+                    
+                    // If we have a last position, draw a line from last to current
+                    if (this.lastPixel && this.lastPixel.variation === variationIndex) {
+                        this.drawLine(
+                            this.lastPixel.x,
+                            this.lastPixel.y,
+                            currentX,
+                            currentY,
+                            (x, y) => {
+                                this.paintPixelAt(x, y, variationIndex);
+                            }
+                        );
+                    } else {
+                        // Just paint the current pixel
+                        this.paintPixelAt(currentX, currentY, variationIndex);
+                    }
+                    
+                    // Update last position
+                    this.lastPixel = { x: currentX, y: currentY, variation: variationIndex };
+                }
+            }
+            
+            paintPixelAt(x, y, variationIndex) {
+                const ctx = this.ctxArray[variationIndex];
+                const pixelData = this.pixelDataArray[variationIndex];
+                
+                if (x >= 0 && x < this.gridWidth && y >= 0 && y < this.gridHeight) {
+                    pixelData[y][x] = this.currentColor;
+                    
+                    ctx.fillStyle = this.currentColor;
+                    ctx.fillRect(
+                        x * this.pixelSize,
+                        y * this.pixelSize,
+                        this.pixelSize,
+                        this.pixelSize
+                    );
+                    
+                    if (this.showGrid) {
+                        ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+                        ctx.lineWidth = 1;
+                        
+                        if (x % this.gridSpacingX === 0) {
+                            ctx.beginPath();
+                            ctx.moveTo(x * this.pixelSize, y * this.pixelSize);
+                            ctx.lineTo(x * this.pixelSize, (y + 1) * this.pixelSize);
+                            ctx.stroke();
+                        }
+                        if ((x + 1) % this.gridSpacingX === 0) {
+                            ctx.beginPath();
+                            ctx.moveTo((x + 1) * this.pixelSize, y * this.pixelSize);
+                            ctx.lineTo((x + 1) * this.pixelSize, (y + 1) * this.pixelSize);
+                            ctx.stroke();
+                        }
+                        if (y % this.gridSpacingY === 0) {
+                            ctx.beginPath();
+                            ctx.moveTo(x * this.pixelSize, y * this.pixelSize);
+                            ctx.lineTo((x + 1) * this.pixelSize, y * this.pixelSize);
+                            ctx.stroke();
+                        }
+                        if ((y + 1) % this.gridSpacingY === 0) {
+                            ctx.beginPath();
+                            ctx.moveTo(x * this.pixelSize, (y + 1) * this.pixelSize);
+                            ctx.lineTo((x + 1) * this.pixelSize, (y + 1) * this.pixelSize);
+                            ctx.stroke();
+                        }
+                    }
+                    
+                    this.updateTexturePreview();
+                }
+            }
+        }
+        
+        // Initialize the editor when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new PixelArtEditor();
+        });
+    </script>
+</body>
+</html>

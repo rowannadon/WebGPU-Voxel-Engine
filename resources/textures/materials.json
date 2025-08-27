@@ -725,7 +725,7 @@
       "id": 22,
       "name": "Spruce Log",
       "texture": [
-        "oak_log.png"
+        "texture-8x8-tiles-64x64px-6var.png"
       ],
       "normal": [],
       "roughness": [],
