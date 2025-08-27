@@ -77,58 +77,70 @@ void reorderQuadVerticesForFace(Quad& quad, int faceIndex) {
         tempAO[i] = quad.aoValues[i];
     }
 
-    // Define the vertex reordering for each face to match the meshing function
-    // These mappings ensure AO values align with the correct vertices
+    // We need to find which vertex in the OBJ corresponds to each expected vertex
+    // Based on the faceVertices array in your shader and your debug output:
+
     int vertexMapping[6][4];
 
-    // Based on the faceVertices array in your shader:
     switch (faceIndex) {
     case 0: // Right face (+X)
-        // Expected order: (1,0,0), (1,1,0), (1,1,1), (1,0,1)
-        vertexMapping[0][0] = 0; // bottom-back
-        vertexMapping[0][1] = 1; // top-back
-        vertexMapping[0][2] = 2; // top-front
-        vertexMapping[0][3] = 3; // bottom-front
+        // Shader expects: (1,0,0), (1,1,0), (1,1,1), (1,0,1)
+        // Your OBJ has: (1,1,0), (1,1,1), (1,0,1), (1,0,0)
+        // Map: 3->0, 0->1, 1->2, 2->3
+        vertexMapping[0][0] = 3;
+        vertexMapping[0][1] = 0;
+        vertexMapping[0][2] = 1;
+        vertexMapping[0][3] = 2;
         break;
 
     case 1: // Left face (-X)
-        // Expected order: (0,0,1), (0,1,1), (0,1,0), (0,0,0)
-        vertexMapping[1][0] = 0; // bottom-front
-        vertexMapping[1][1] = 1; // top-front
-        vertexMapping[1][2] = 2; // top-back
-        vertexMapping[1][3] = 3; // bottom-back
+        // Shader expects: (0,0,1), (0,1,1), (0,1,0), (0,0,0)
+        // Your OBJ has: (0,1,0), (0,0,0), (0,0,1), (0,1,1)
+        // Map: 2->0, 3->1, 0->2, 1->3
+        vertexMapping[1][0] = 2;
+        vertexMapping[1][1] = 3;
+        vertexMapping[1][2] = 0;
+        vertexMapping[1][3] = 1;
         break;
 
     case 2: // Front face (+Y)
-        // Expected order: (0,1,0), (0,1,1), (1,1,1), (1,1,0)
-        vertexMapping[2][0] = 0; // left-bottom
-        vertexMapping[2][1] = 1; // left-top
-        vertexMapping[2][2] = 2; // right-top
-        vertexMapping[2][3] = 3; // right-bottom
+        // Shader expects: (0,1,0), (0,1,1), (1,1,1), (1,1,0)
+        // Your OBJ has: (1,1,1), (1,1,0), (0,1,0), (0,1,1)
+        // Map: 2->0, 3->1, 0->2, 1->3
+        vertexMapping[2][0] = 2;
+        vertexMapping[2][1] = 3;
+        vertexMapping[2][2] = 0;
+        vertexMapping[2][3] = 1;
         break;
 
     case 3: // Back face (-Y)
-        // Expected order: (0,0,1), (0,0,0), (1,0,0), (1,0,1)
-        vertexMapping[3][0] = 0; // left-top
-        vertexMapping[3][1] = 1; // left-bottom
-        vertexMapping[3][2] = 2; // right-bottom
-        vertexMapping[3][3] = 3; // right-top
+        // Shader expects: (0,0,1), (0,0,0), (1,0,0), (1,0,1)
+        // Your OBJ has: (1,0,1), (0,0,1), (0,0,0), (1,0,0)
+        // Map: 1->0, 2->1, 3->2, 0->3
+        vertexMapping[3][0] = 1;
+        vertexMapping[3][1] = 2;
+        vertexMapping[3][2] = 3;
+        vertexMapping[3][3] = 0;
         break;
 
     case 4: // Top face (+Z)
-        // Expected order: (0,0,1), (1,0,1), (1,1,1), (0,1,1)
-        vertexMapping[4][0] = 0; // back-left
-        vertexMapping[4][1] = 1; // back-right
-        vertexMapping[4][2] = 2; // front-right
-        vertexMapping[4][3] = 3; // front-left
+        // Shader expects: (0,0,1), (1,0,1), (1,1,1), (0,1,1)
+        // Your OBJ has: (1,1,1), (0,1,1), (0,0,1), (1,0,1)
+        // Map: 2->0, 3->1, 0->2, 1->3
+        vertexMapping[4][0] = 2;
+        vertexMapping[4][1] = 3;
+        vertexMapping[4][2] = 0;
+        vertexMapping[4][3] = 1;
         break;
 
     case 5: // Bottom face (-Z)
-        // Expected order: (1,0,0), (0,0,0), (0,1,0), (1,1,0)
-        vertexMapping[5][0] = 0; // back-right
-        vertexMapping[5][1] = 1; // back-left
-        vertexMapping[5][2] = 2; // front-left
-        vertexMapping[5][3] = 3; // front-right
+        // Shader expects: (1,0,0), (0,0,0), (0,1,0), (1,1,0)
+        // Your OBJ has: (1,1,0), (1,0,0), (0,0,0), (0,1,0)
+        // Map: 1->0, 2->1, 3->2, 0->3
+        vertexMapping[5][0] = 1;
+        vertexMapping[5][1] = 2;
+        vertexMapping[5][2] = 3;
+        vertexMapping[5][3] = 0;
         break;
 
     default:

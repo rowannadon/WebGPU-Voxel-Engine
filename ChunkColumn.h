@@ -1102,33 +1102,33 @@ public:
                     if (getVoxelWholeColumn(ivec3(x, y, z), false)) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
-
+                         
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Limestone;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > -0.6 && noiseValue < -0.4) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
                             material.materialType = BlockType::Slate;
                         }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0 && noiseValue < 0.2) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > 0.2 && noiseValue < 0.4) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Limestone;
                         }
                         else if (noiseValue > 0.4 && noiseValue < 0.6) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Gneiss;
                         }
                         else if (noiseValue > 0.6 && noiseValue < 0.8) {
-                            material.materialType = BlockType::Granite;
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0.8 && noiseValue < 1) {
                             material.materialType = BlockType::Slate;
@@ -1184,20 +1184,22 @@ public:
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
-                                    static const std::array<ProbabilityConfig, 4> config = { {
+                                    static const std::array<ProbabilityConfig, 5> config = { {
                                             { 0,     0.04f},
                                             { 1,     0.33f},
                                             { 2,     0.33f},
-                                            { 3,     0.3f},
+                                            { 3,     0.1f},
+                                            { 4,     0.2f},
                                         } };
 
                                     int index = sampleFromDistribution(blockHash, config);
                                     
-                                    static const std::array<BlockType, 4> grassTypes = {
+                                    static const std::array<BlockType, 5> grassTypes = {
                                         BlockType::Bush,
                                         BlockType::Grass0,
                                         BlockType::Grass1,
-                                        BlockType::TallGrass
+                                        BlockType::TallGrass,
+                                        BlockType::Fence
                                     };
                                     
                                     UnpackedVoxelMaterial m2;
@@ -1239,7 +1241,12 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos, false)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
-                                        material.materialType = BlockType::Dirt; // dirt
+                                        if (blockHash % 2 == 0) {
+                                            material.materialType = BlockType::Dirt; // dirt
+                                        }
+                                        else {
+                                            material.materialType = BlockType::Loam; // dirt
+                                        }
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
@@ -1252,9 +1259,14 @@ public:
                             setMaterialFast(ivec3(x, y, z), material);
                         }
                     }
-                    else if (z < waterLevel) {
+                    else if (z < waterLevel - 1) {
                         setVoxelWholeColumn(ivec3(x, y, z), true, true);
                         material.materialType = BlockType::Water;
+                        setMaterialFast(ivec3(x, y, z), material);
+                    }
+                    else if (z < waterLevel) {
+                        setVoxelWholeColumn(ivec3(x, y, z), true, true);
+                        material.materialType = BlockType::WaterSurface;
                         setMaterialFast(ivec3(x, y, z), material);
                     }
                 }
@@ -1686,6 +1698,7 @@ public:
                 t == BlockType::Grass2 ||
                 t == BlockType::Grass3 ||
                 t == BlockType::Grass4 ||
+                t == BlockType::Bush ||
                 t == BlockType::Grass5;
             };
 
@@ -1740,11 +1753,20 @@ public:
                     return false;
                 }
 
+                if (currentMatType == BlockType::Fence) {
+                    return false;
+                }
+
                 ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
 
                 auto cullTransparentIfSame = [&](ivec3 nPosSameChunk) -> bool {
                     // neighbor LOD group (same chunk) — use cached sampling
                     auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/true);
+                    if (nOcc && (currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface)) {
+                        if (nMat.materialType == BlockType::Water || nMat.materialType == BlockType::WaterSurface) {
+                            return true;
+                        }
+                    }
                     return nOcc && (nMat.materialType == currentMatType);
                     };
 
@@ -1926,12 +1948,13 @@ public:
                                                             groupMaterial.materialType)) {
 
                                                         std::array<uint32_t, 4> aoValues{ 0 };
-                                                        for (int vertex = 0; vertex < 4; ++vertex) {
-                                                            aoValues[vertex] = calculateAmbientOcclusion(groupPos, face, vertex, lodLevel, transparent);
-                                                        }
-
                                                         std::array<uint32_t, 8> neighborSameMaterialFlags{ 0 };
-                                                        if (faces > 3) {
+
+                                                        if (model == "VOXEL_MODEL") {
+                                                            for (int i = 0; i < 4; i++) {
+                                                                aoValues[i] = calculateAmbientOcclusion(groupPos, face, i, lodLevel, transparent);
+                                                            }
+
                                                             for (int i = 0; i < 8; i++) {
                                                                 ivec3 neighborOffset = faceNeighborOffsets[face][i];
                                                                 auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);

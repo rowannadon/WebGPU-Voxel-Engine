@@ -69,7 +69,7 @@
         "limestone.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["limestone.png"],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -159,11 +159,10 @@
       "id": 5,
       "name": "Slate",
       "texture": [
-        "sandstone.png",
-        "sandstone_top.png"
+        "slate.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["limestone.png"],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
@@ -173,8 +172,8 @@
       "windStrength": 0.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.4,
-        "specular": 0.05,
+        "roughness": 0.45,
+        "specular": 0.045,
         "emission": [
           0.0,
           0.0,
@@ -195,7 +194,9 @@
         "sandstone_top.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": [
+        "sandstone.png"
+      ],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
@@ -226,7 +227,7 @@
         "gneiss.png"
       ],
       "normal": [],
-      "roughness": [],
+      "roughness": ["gneiss.png"],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -623,6 +624,37 @@
     },
     {
       "id": 19,
+      "name": "Water Surface",
+      "texture": [
+        "water.png"
+      ],
+      "normal": [],
+      "roughness": [],
+      "model": "WATER_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.2,
+        "specular": 0.05,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 0.2,
+        "subsurface": 0.15,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 20,
       "name": "Sand",
       "texture": [
         "sand.png"
@@ -653,7 +685,7 @@
       }
     },
     {
-      "id": 20,
+      "id": 21,
       "name": "Spruce Leaves",
       "texture": [
         "spruce_leaves.png"
@@ -690,7 +722,7 @@
       }
     },
     {
-      "id": 21,
+      "id": 22,
       "name": "Spruce Log",
       "texture": [
         "oak_log.png"
@@ -721,7 +753,7 @@
       }
     },
     {
-      "id": 22,
+      "id": 23,
       "name": "Loam",
       "texture": [
         "loam.png"
@@ -752,7 +784,7 @@
       }
     },
     {
-      "id": 23,
+      "id": 24,
       "name": "Bush",
       "texture": [
         "red_berry_bush.png"
@@ -785,7 +817,7 @@
       }
     },
     {
-      "id": 24,
+      "id": 25,
       "name": "Granite",
       "texture": [
         "texture-8x8-tiles-64x64px-rotated-3var.png"
@@ -794,6 +826,37 @@
       "roughness": [],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 26,
+      "name": "Fence",
+      "texture": [
+        "oak_log.png"
+      ],
+      "normal": [],
+      "roughness": [],
+      "model": "FENCE_MODEL",
+      "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 8,
       "randomOffset": 0.0,

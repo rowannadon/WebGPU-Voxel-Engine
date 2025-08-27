@@ -110,6 +110,7 @@ public:
         Fern = 4,
         Water = 5,
         Bush = 6,
+        Fence = 7,
         Unknown = 0xFFFFFFFF
     };
 

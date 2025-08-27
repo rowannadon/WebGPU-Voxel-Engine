@@ -410,7 +410,8 @@ bool WebGPURenderer::initTextures() {
 	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube_2x.obj");
 	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
 	modelManager->createModel("BUSH_MODEL", RESOURCE_DIR "/bush_model.obj");
-	//modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
+	modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
+	modelManager->createModel("FENCE_MODEL", RESOURCE_DIR "/fence_1.obj");
 	modelManager->writeModelsToBuffer();
 
 	textureManager->setModelOffsetResolver([mod = modelManager.get()](std::string_view modelName) -> uint32_t {
