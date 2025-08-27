@@ -92,6 +92,8 @@ struct UnpackedMaterialData {
     up_right: u32,
     down_left: u32,
     down_right: u32,
+    front: u32,
+    back: u32,
 }
 
 const VOXEL_MODEL = 0;
@@ -222,17 +224,20 @@ fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_streng
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
+    
     let position_x = packed_bits & 0x1Fu;
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0xFu;
-    let lod_bits = (packed_bits >> 19u) & 0x7u;
+    let normal_index = (packed_bits >> 15u) & 0x1Fu;
+    let lod_bits = (packed_bits >> 20u) & 0x7u;
+
     var ao = vec4u(0);
-    ao[0] = (packed_bits >> 21u) & 0x3u;
-    ao[1] = (packed_bits >> 23u) & 0x3u;
-    ao[2] = (packed_bits >> 25u) & 0x3u;
-    ao[3] = (packed_bits >> 27u) & 0x3u;
-    let reversed = (packed_bits >> 29u) & 0x1u;
+    ao[0] = (packed_bits >> 23u) & 0x3u;
+    ao[1] = (packed_bits >> 25u) & 0x3u;
+    ao[2] = (packed_bits >> 27u) & 0x3u;
+    ao[3] = (packed_bits >> 29u) & 0x3u;
+
+    let reversed = (packed_bits >> 31u) & 0x1u;
     
     var lod_level: u32;
     switch (lod_bits) {
@@ -243,24 +248,51 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
         default: { lod_level = 1u; }
     }
     
-    return UnpackedData(position_x, position_y, position_z, normal_index, lod_level, ao, reversed);
+    return UnpackedData(
+        position_x,
+        position_y,
+        position_z,
+        normal_index,
+        lod_level,
+        ao,
+        reversed
+    );
 }
 
 fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let packed_bits = bitcast<u32>(packed_data);
     let material_info = packed_bits & 0x1FFFFu;
+
     let material_id = material_info >> 3u;
     let facing_dir = material_info & 0x7u;
+
     let up = (packed_bits >> 17u) & 0x1u;
     let down = (packed_bits >> 18u) & 0x1u;
     let left = (packed_bits >> 19u) & 0x1u;
     let right = (packed_bits >> 20u) & 0x1u;
+
     let up_left = (packed_bits >> 21u) & 0x1u;
     let up_right = (packed_bits >> 22u) & 0x1u;
     let down_left = (packed_bits >> 23u) & 0x1u;
     let down_right = (packed_bits >> 24u) & 0x1u;
 
-    return UnpackedMaterialData(material_id, facing_dir, up, down, left, right, up_left, up_right, down_left, down_right);
+    let front = (packed_bits >> 25u) & 0x1u;
+    let back = (packed_bits >> 26u) & 0x1u;
+
+    return UnpackedMaterialData(
+        material_id,
+        facing_dir,
+        up,
+        down,
+        left,
+        right,
+        up_left,
+        up_right,
+        down_left,
+        down_right,
+        front,
+        back
+    );
 }
 
 fn hash_voxel_position(pos: vec3i) -> u32 {

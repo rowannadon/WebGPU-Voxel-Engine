@@ -1489,13 +1489,15 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
-        ivec3 faceNeighborOffsets[6][8] = {
+        ivec3 faceNeighborOffsets[6][10] = {
             //Right
             {
                 neighborOffsets[4], neighborOffsets[5], neighborOffsets[2], neighborOffsets[3],
 
                 neighborOffsets[4] + neighborOffsets[2], neighborOffsets[4] + neighborOffsets[3],
                 neighborOffsets[5] + neighborOffsets[2], neighborOffsets[5] + neighborOffsets[3],
+
+                neighborOffsets[0], neighborOffsets[1],
             },
             //Left
             {
@@ -1503,6 +1505,8 @@ public:
 
                 neighborOffsets[4] + neighborOffsets[3], neighborOffsets[4] + neighborOffsets[2],
                 neighborOffsets[5] + neighborOffsets[3], neighborOffsets[5] + neighborOffsets[2],
+
+                neighborOffsets[1], neighborOffsets[0],
             },
             //Front
             {
@@ -1510,6 +1514,8 @@ public:
 
                 neighborOffsets[4] + neighborOffsets[0], neighborOffsets[4] + neighborOffsets[1],
                 neighborOffsets[5] + neighborOffsets[0], neighborOffsets[5] + neighborOffsets[1],
+
+                neighborOffsets[2], neighborOffsets[3],
             },
             //Back
             {
@@ -1517,6 +1523,8 @@ public:
 
                 neighborOffsets[4] + neighborOffsets[1], neighborOffsets[4] + neighborOffsets[0],
                 neighborOffsets[5] + neighborOffsets[1], neighborOffsets[5] + neighborOffsets[0],
+
+                neighborOffsets[3], neighborOffsets[2],
             },
             //Top
             {
@@ -1524,13 +1532,17 @@ public:
 
                 neighborOffsets[2] + neighborOffsets[0], neighborOffsets[2] + neighborOffsets[1],
                 neighborOffsets[3] + neighborOffsets[0], neighborOffsets[3] + neighborOffsets[1],
+
+                neighborOffsets[4], neighborOffsets[5],
             },
             //Bottom
             {
                 neighborOffsets[2], neighborOffsets[3], neighborOffsets[1], neighborOffsets[0],
 
                 neighborOffsets[2] + neighborOffsets[1], neighborOffsets[2] + neighborOffsets[0],
-                neighborOffsets[3] + neighborOffsets[1], neighborOffsets[3] + neighborOffsets[0]
+                neighborOffsets[3] + neighborOffsets[1], neighborOffsets[3] + neighborOffsets[0],
+
+                neighborOffsets[5], neighborOffsets[4],
             },
         };
 
@@ -1851,7 +1863,7 @@ public:
                 position_x &= 0x1F;
                 position_y &= 0x1F;
                 position_z &= 0x1F;
-                normal_index &= 0xF;
+                normal_index &= 0x1F;
 
                 aoValues[0] &= 0x3;
                 aoValues[1] &= 0x3;
@@ -1875,17 +1887,17 @@ public:
                 packed |= static_cast<uint32_t>(position_y) << 5;
                 packed |= static_cast<uint32_t>(position_z) << 10;
                 packed |= static_cast<uint32_t>(normal_index) << 15;
-                packed |= static_cast<uint32_t>(lodBits) << 19;
-                packed |= static_cast<uint32_t>(aoValues[0]) << 21;
-                packed |= static_cast<uint32_t>(aoValues[1]) << 23;
-                packed |= static_cast<uint32_t>(aoValues[2]) << 25;
-                packed |= static_cast<uint32_t>(aoValues[3]) << 27;
-                packed |= static_cast<uint32_t>(reversed) << 29;
+                packed |= static_cast<uint32_t>(lodBits) << 20;
+                packed |= static_cast<uint32_t>(aoValues[0]) << 23;
+                packed |= static_cast<uint32_t>(aoValues[1]) << 25;
+                packed |= static_cast<uint32_t>(aoValues[2]) << 27;
+                packed |= static_cast<uint32_t>(aoValues[3]) << 29;
+                packed |= static_cast<uint32_t>(reversed) << 31;
 
                 return packed;
             };
 
-        auto packMaterialData32 = [](UnpackedVoxelMaterial material, std::array<uint32_t, 8> flags) -> uint32_t {
+        auto packMaterialData32 = [](UnpackedVoxelMaterial material, std::array<uint32_t, 10> flags) -> uint32_t {
             uint32_t packed16 = packMaterialData(material).materialData; // lower 16 bits = [id:13 | facing:3]
             uint32_t out = packed16 & 0xFFFFu;
 
@@ -1948,18 +1960,17 @@ public:
                                                             groupMaterial.materialType)) {
 
                                                         std::array<uint32_t, 4> aoValues{ 0 };
-                                                        std::array<uint32_t, 8> neighborSameMaterialFlags{ 0 };
+                                                        std::array<uint32_t, 10> neighborSameMaterialFlags{ 0 };
 
                                                         if (model == "VOXEL_MODEL") {
                                                             for (int i = 0; i < 4; i++) {
                                                                 aoValues[i] = calculateAmbientOcclusion(groupPos, face, i, lodLevel, transparent);
                                                             }
 
-                                                            for (int i = 0; i < 8; i++) {
+                                                            for (int i = 0; i < 10; i++) {
                                                                 ivec3 neighborOffset = faceNeighborOffsets[face][i];
                                                                 auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);
-                                                                auto [frontNeighborIsSolid, frontNeighborMaterial] = sampleLODGroupCached(groupPos + neighborOffsets[face] + neighborOffset, lodLevel, transparent);
-                                                                neighborSameMaterialFlags[i] = (groupMaterial.materialType == frontNeighborMaterial.materialType && groupMaterial.materialType != neighborMaterial.materialType) || groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
+                                                                neighborSameMaterialFlags[i] = groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
                                                             }
                                                         }
 

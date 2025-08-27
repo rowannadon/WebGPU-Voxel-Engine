@@ -41,7 +41,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/skyview_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/skyview_cs.wgsl";
 		config.computeShaderName = "render_sky_view_lut";
 
 		std::vector<BindGroupLayoutEntry> skyViewUniforms(6, Default);

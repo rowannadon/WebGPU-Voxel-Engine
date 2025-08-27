@@ -41,7 +41,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/multiscattering_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/multiscattering_cs.wgsl";
 		config.computeShaderName = "render_multi_scattering_lut";
 
 		std::vector<BindGroupLayoutEntry> multiScatteringUniforms(4, Default);

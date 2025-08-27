@@ -25,7 +25,7 @@ public:
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/shader.wgsl"; // Same shader as opaque
+		config.shaderPath = RESOURCE_DIR "/shaders/shader.wgsl"; // Same shader as opaque
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;

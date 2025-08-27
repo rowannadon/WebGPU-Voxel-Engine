@@ -63,7 +63,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/noise_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/noise_cs.wgsl";
 		config.computeShaderName = "main";
 
 		std::vector<BindGroupLayoutEntry> noiseUniforms(2, Default);

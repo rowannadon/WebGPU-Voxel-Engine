@@ -203,6 +203,8 @@ struct UnpackedMaterialData {
     up_right: u32,
     down_left: u32,
     down_right: u32,
+    front: u32,
+    back: u32,
 }
 
 const VOXEL_MODEL = 0;
@@ -438,16 +440,16 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_x = packed_bits & 0x1Fu;
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0xFu;
-    let lod_bits = (packed_bits >> 19u) & 0x7u;
+    let normal_index = (packed_bits >> 15u) & 0x1Fu;
+    let lod_bits = (packed_bits >> 20u) & 0x7u;
 
     var ao = vec4u(0);
-    ao[0] = (packed_bits >> 21u) & 0x3u;
-    ao[1] = (packed_bits >> 23u) & 0x3u;
-    ao[2] = (packed_bits >> 25u) & 0x3u;
-    ao[3] = (packed_bits >> 27u) & 0x3u;
+    ao[0] = (packed_bits >> 23u) & 0x3u;
+    ao[1] = (packed_bits >> 25u) & 0x3u;
+    ao[2] = (packed_bits >> 27u) & 0x3u;
+    ao[3] = (packed_bits >> 29u) & 0x3u;
 
-    let reversed = (packed_bits >> 29u) & 0x1u;
+    let reversed = (packed_bits >> 31u) & 0x1u;
     
     var lod_level: u32;
     switch (lod_bits) {
@@ -486,6 +488,9 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let down_left = (packed_bits >> 23u) & 0x1u;
     let down_right = (packed_bits >> 24u) & 0x1u;
 
+    let front = (packed_bits >> 25u) & 0x1u;
+    let back = (packed_bits >> 26u) & 0x1u;
+
     return UnpackedMaterialData(
         material_id,
         facing_dir,
@@ -497,6 +502,8 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
         up_right,
         down_left,
         down_right,
+        front,
+        back
     );
 }
 
@@ -1024,7 +1031,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let materialProps = material_buffer[materialData.material_id - 1];
     let data = unpack_data(faceData.data);
 
-    out.face_index = data.normal_index;
+    out.face_index = clamp(data.normal_index, 0u, 5u);
     out.facing_dir = materialData.facing_dir;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));

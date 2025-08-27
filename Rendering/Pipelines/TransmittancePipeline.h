@@ -41,7 +41,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/transmittance_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/transmittance_cs.wgsl";
 		config.computeShaderName = "render_transmittance_lut";
 
 		std::vector<BindGroupLayoutEntry> transmittanceUniforms(2, Default);

@@ -21,7 +21,7 @@ public:
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/sky_shader.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/sky_shader.wgsl";
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;

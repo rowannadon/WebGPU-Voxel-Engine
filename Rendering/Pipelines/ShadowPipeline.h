@@ -60,7 +60,7 @@ public:
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/shadow_shader.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/shadow_shader.wgsl";
 		config.colorFormat = TextureFormat::Undefined;
 		config.depthFormat = TextureFormat::Depth32Float;
 		config.sampleCount = 1;

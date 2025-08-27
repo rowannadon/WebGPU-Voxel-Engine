@@ -404,14 +404,14 @@ bool WebGPURenderer::initTextures() {
 	samplerDesc.maxAnisotropy = 1;
 	textureManager->createSampler("block_array_sampler", samplerDesc);
 	
-	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/voxel_model.obj");
-	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/grass_model_3_quad_offset_16x8.obj");
-	modelManager->createModel("TALLGRASS_MODEL", RESOURCE_DIR "/grass_model_3_quad_offset_16x16.obj");
-	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/leaf_model_cube_2x.obj");
-	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/fern_large.obj");
-	modelManager->createModel("BUSH_MODEL", RESOURCE_DIR "/bush_model.obj");
-	modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/water_model.obj");
-	modelManager->createModel("FENCE_MODEL", RESOURCE_DIR "/fence_1.obj");
+	modelManager->createModel("VOXEL_MODEL", RESOURCE_DIR "/models/voxel_model.obj");
+	modelManager->createModel("GRASS_MODEL", RESOURCE_DIR "/models/grass_model_3_quad_offset_16x8.obj");
+	modelManager->createModel("TALLGRASS_MODEL", RESOURCE_DIR "/models/grass_model_3_quad_offset_16x16.obj");
+	modelManager->createModel("LEAF_MODEL", RESOURCE_DIR "/models/leaf_model_cube_2x.obj");
+	modelManager->createModel("FERN_MODEL", RESOURCE_DIR "/models/fern_large.obj");
+	modelManager->createModel("BUSH_MODEL", RESOURCE_DIR "/models/bush_model.obj");
+	modelManager->createModel("WATER_MODEL", RESOURCE_DIR "/models/water_model.obj");
+	modelManager->createModel("FENCE_MODEL", RESOURCE_DIR "/models/fence_4.obj");
 	modelManager->writeModelsToBuffer();
 
 	textureManager->setModelOffsetResolver([mod = modelManager.get()](std::string_view modelName) -> uint32_t {
@@ -420,11 +420,11 @@ bool WebGPURenderer::initTextures() {
 
 	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", "roughness_array", "roughness_array_view", RESOURCE_DIR "/textures/");
 	
-	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_texture.png");
+	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_textures/noise_texture.png");
 
-	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/rgba_noise_256.png");
+	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png");
 
-	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/rgba_noise_64.png");
+	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/noise_textures/rgba_noise_64.png");
 
 	return textureManager->getTextureView("block_array_view") != nullptr;
 }

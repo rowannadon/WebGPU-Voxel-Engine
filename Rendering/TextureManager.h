@@ -129,6 +129,13 @@ public:
         Unknown = 0xFFFFFFFF
     };
 
+    enum class ModelType : uint32_t {
+        Single = 0,
+        ConnectedSingleAxis = 1,
+        ConnectedAllAxis = 2,
+        Unknown = 0xFFFFFFFF
+    };
+
     // public
     void setModelOffsetResolver(std::function<uint32_t(std::string_view)> fn);
 

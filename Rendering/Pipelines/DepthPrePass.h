@@ -70,7 +70,7 @@ public:
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/depth_prepass_shader.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/depth_prepass_shader.wgsl";
 		config.colorFormat = TextureFormat::Undefined;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;

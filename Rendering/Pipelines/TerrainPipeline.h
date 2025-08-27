@@ -61,7 +61,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/terrain_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/terrain_cs.wgsl";
 		config.computeShaderName = "main";
 
 		std::vector<BindGroupLayoutEntry> terrainUniforms(2, Default);

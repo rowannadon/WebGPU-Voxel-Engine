@@ -26,7 +26,7 @@ public:
 
 	bool createPipeline() {
 		PipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/atmosphere_shader.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/atmosphere_shader.wgsl";
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;

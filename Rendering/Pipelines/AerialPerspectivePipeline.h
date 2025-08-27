@@ -41,7 +41,7 @@ public:
 
 	bool createPipeline() {
 		ComputePipelineConfig config;
-		config.shaderPath = RESOURCE_DIR "/aerial_perspective_cs.wgsl";
+		config.shaderPath = RESOURCE_DIR "/shaders/aerial_perspective_cs.wgsl";
 		config.computeShaderName = "render_aerial_perspective_lut";
 
 		std::vector<BindGroupLayoutEntry> aerialPerspectiveUniforms(6, Default);

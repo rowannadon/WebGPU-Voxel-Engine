@@ -725,7 +725,7 @@
       "id": 22,
       "name": "Spruce Log",
       "texture": [
-        "texture-8x8-tiles-64x64px-6var.png"
+        "oak_log.png"
       ],
       "normal": [],
       "roughness": [],
@@ -756,10 +756,10 @@
       "id": 23,
       "name": "Loam",
       "texture": [
-        "loam.png"
+        "loam2.png"
       ],
       "normal": [],
-      "roughness": ["loam.png"],
+      "roughness": ["loam2.png"],
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -820,14 +820,14 @@
       "id": 25,
       "name": "Granite",
       "texture": [
-        "texture-8x8-tiles-64x64px-rotated-3var.png"
+        "granite2.png"
       ],
       "normal": [],
       "roughness": [],
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "NONE",
-      "tileCount": 8,
+      "tileCount": 1,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
       "windStrength": 0.0,
@@ -851,7 +851,7 @@
       "id": 26,
       "name": "Fence",
       "texture": [
-        "oak_log.png"
+        "planks.png"
       ],
       "normal": [],
       "roughness": [],
