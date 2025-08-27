@@ -8,6 +8,7 @@
       ],
       "normal": [],
       "roughness": ["dirt.png"],
+      "modelType": "SINGLE",
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
       "orientation": "NONE",
@@ -756,7 +757,7 @@
       "id": 23,
       "name": "Loam",
       "texture": [
-        "loam2.png"
+        "loam_more_flowers.png"
       ],
       "normal": [],
       "roughness": ["loam2.png"],
@@ -799,7 +800,7 @@
         "X",
         "Y"
       ],
-      "windStrength": 1.0,
+      "windStrength": 0.25,
       "pbr": {
         "metallic": 0.0,
         "roughness": 0.45,
@@ -858,7 +859,7 @@
       "model": "FENCE_MODEL",
       "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
-      "tileCount": 8,
+      "tileCount": 4,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
       "windStrength": 0.0,

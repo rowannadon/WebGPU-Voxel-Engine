@@ -186,8 +186,7 @@ struct UnpackedData {
     position_x: u32,
     position_y: u32,
     position_z: u32,
-    normal_index: u32,
-    lod_level: u32,
+    vertex_index: u32,
     ao: vec4u,
     reversed: u32,
 }
@@ -440,8 +439,7 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_x = packed_bits & 0x1Fu;
     let position_y = (packed_bits >> 5u) & 0x1Fu;
     let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0x1Fu;
-    let lod_bits = (packed_bits >> 20u) & 0x7u;
+    let vertex_index = (packed_bits >> 15u) & 0x7Fu;
 
     var ao = vec4u(0);
     ao[0] = (packed_bits >> 23u) & 0x3u;
@@ -451,21 +449,11 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
 
     let reversed = (packed_bits >> 31u) & 0x1u;
     
-    var lod_level: u32;
-    switch (lod_bits) {
-        case 0u: { lod_level = 1u; }
-        case 1u: { lod_level = 2u; }
-        case 2u: { lod_level = 4u; }
-        case 3u: { lod_level = 8u; }
-        default: { lod_level = 1u; }
-    }
-    
     return UnpackedData(
         position_x,
         position_y,
         position_z,
-        normal_index,
-        lod_level,
+        vertex_index,
         ao,
         reversed
     );
@@ -503,7 +491,7 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
         down_left,
         down_right,
         front,
-        back
+        back,
     );
 }
 
@@ -1031,7 +1019,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let materialProps = material_buffer[materialData.material_id - 1];
     let data = unpack_data(faceData.data);
 
-    out.face_index = clamp(data.normal_index, 0u, 5u);
+    out.face_index = clamp(data.vertex_index, 0u, 5u);
     out.facing_dir = materialData.facing_dir;
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
@@ -1077,8 +1065,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
-    var base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
-    var normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+    var base_vertex = modelDataArray[materialProps.modelOffset + data.vertex_index].vertexPositions[vertexInFace].xyz;
+    var normal = normalize(modelDataArray[materialProps.modelOffset + data.vertex_index].normal.xyz);
 
     if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
         normal = rotateX(normal, f32(tile_x) * 0.1);
@@ -1123,7 +1111,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         position += gerstner.position_offset;
     }
     
-    var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
+    var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
 
     uv = clamp(uv, vec2f(0.01), vec2f(0.99));
 
@@ -1135,10 +1123,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     } else if (materialProps.textureType == RANDOM_VARIANT) {
         uv = uv * tile_uv_distance + tile_offset;
     } else if (materialProps.textureType == LARGE_TILE) {
-        uv = calculate_large_tile_uv_world_unwrapped(stable_world_voxel_pos, base_vertex, lod_scale, data.normal_index);
+        uv = calculate_large_tile_uv_world_unwrapped(stable_world_voxel_pos, base_vertex, lod_scale, data.vertex_index);
     }
     
-    out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.normal_index, data.lod_level);
+    out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.vertex_index, u32(lod_scale));
     
     var ao = aoLevels[data.ao[vertexInFace]];
     if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
@@ -1149,8 +1137,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         }
     }
 
-    
-
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
 
@@ -1158,7 +1144,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     let highlighted_pos = uMyUniforms.highlightedVoxelPos;
     
-    let lod_level_i32 = i32(data.lod_level);
+    let lod_level_i32 = i32(lod_scale);
     let voxel_min = world_voxel_pos;
     let voxel_max = world_voxel_pos + vec3i(lod_level_i32 - 1);
     

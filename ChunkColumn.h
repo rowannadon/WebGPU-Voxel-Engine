@@ -1859,11 +1859,11 @@ public:
 
         // Pack data function
         auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
-            uint8_t normal_index, std::array<uint32_t, 4>& aoValues, uint32_t reversed, int lodLevel) -> uint32_t {
+            uint8_t vertex_index, std::array<uint32_t, 4>& aoValues, uint32_t reversed) -> uint32_t {
                 position_x &= 0x1F;
                 position_y &= 0x1F;
                 position_z &= 0x1F;
-                normal_index &= 0x1F;
+                vertex_index &= 0x7F;
 
                 aoValues[0] &= 0x3;
                 aoValues[1] &= 0x3;
@@ -1872,22 +1872,11 @@ public:
 
                 reversed &= 0x1;
 
-                uint8_t lodBits = 0;
-                switch (lodLevel) {
-                case 1: lodBits = 0; break;
-                case 2: lodBits = 1; break;
-                case 4: lodBits = 2; break;
-                case 8: lodBits = 3; break;
-                default: lodBits = 0; break;
-                }
-                lodBits &= 0x7;
-
                 uint32_t packed = 0;
                 packed |= static_cast<uint32_t>(position_x);
                 packed |= static_cast<uint32_t>(position_y) << 5;
                 packed |= static_cast<uint32_t>(position_z) << 10;
-                packed |= static_cast<uint32_t>(normal_index) << 15;
-                packed |= static_cast<uint32_t>(lodBits) << 20;
+                packed |= static_cast<uint32_t>(vertex_index) << 15;
                 packed |= static_cast<uint32_t>(aoValues[0]) << 23;
                 packed |= static_cast<uint32_t>(aoValues[1]) << 25;
                 packed |= static_cast<uint32_t>(aoValues[2]) << 27;
@@ -1899,13 +1888,14 @@ public:
 
         auto packMaterialData32 = [](UnpackedVoxelMaterial material, std::array<uint32_t, 10> flags) -> uint32_t {
             uint32_t packed16 = packMaterialData(material).materialData; // lower 16 bits = [id:13 | facing:3]
-            uint32_t out = packed16 & 0xFFFFu;
+            uint32_t packed = packed16 & 0xFFFFu;
 
             for (int i = 0; i < static_cast<int>(flags.size()); ++i) {
-                out |= (flags[i] & 0x1u) << (17 + i); // bit 16 unused, starts at 17 (as you had)
+                packed |= (flags[i] & 0x1u) << (17 + i);
             }
-            return out;
-            };
+
+            return packed;
+        };
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
@@ -1975,7 +1965,7 @@ public:
                                                         }
 
                                                         FaceAttributes currentFace;
-                                                        currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0, lodLevel);
+                                                        currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0);
                                                         currentFace.materialData = packMaterialData32(groupMaterial, neighborSameMaterialFlags);
                                                         faceData[meshSlot][zPos].push_back(currentFace);
                                                     }
