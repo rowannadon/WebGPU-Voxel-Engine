@@ -788,14 +788,14 @@
       "id": 24,
       "name": "Granite",
       "texture": [
-        "granite.png"
+        "texture-8x8-tiles-64x64px-rotated-3var.png"
       ],
       "normal": [],
       "roughness": [],
       "model": "VOXEL_MODEL",
-      "textureType": "LARGE_TILE",
+      "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
-      "tileCount": 1,
+      "tileCount": 8,
       "randomOffset": 0.0,
       "randomOffsetDirections": [],
       "windStrength": 0.0,
