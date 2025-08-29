@@ -878,6 +878,37 @@
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
+    },
+    {
+      "id": 27,
+      "name": "GrassFlowers",
+      "texture": [
+        "grass_flowers.png"
+      ],
+      "normal": [],
+      "roughness": ["grass_r.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.95,
+        "specular": 0.005,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
     }
   ]
 }

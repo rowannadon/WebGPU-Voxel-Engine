@@ -485,7 +485,7 @@ public:
         auto& cache = *cachePtr;
 
         // LOD selection
-        std::vector<float> lodDistances = { 5.0f, 10.0f, 15.0f, 512.0f };
+        std::vector<float> lodDistances = { 8.0f, 16.0f, 32.0f, 512.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
         int lod = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 

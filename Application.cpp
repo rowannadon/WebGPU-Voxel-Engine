@@ -314,8 +314,8 @@ void Application::MainLoop() {
     // Debug output every second
     static float lastDebugTime = 0.0f;
     if (frameEndTime - lastDebugTime >= 1.0f) {
-        chunkManager.printChunkStates();
-        chunkManager.printWorkerStatistics();
+        //chunkManager.printChunkStates();
+        //chunkManager.printWorkerStatistics();
 
         // Print frame budget and performance metrics
         float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;

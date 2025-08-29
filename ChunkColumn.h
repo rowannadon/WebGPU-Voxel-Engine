@@ -137,19 +137,19 @@ private:
     static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
 
     static constexpr int TOTAL_VOXELS2 = (CHUNK_SIZE / 2) * (CHUNK_SIZE / 2) * COLUMN_HEIGHT_BLOCKS;
-    static constexpr int BYTES_NEEDED2 = (TOTAL_VOXELS + 7) / 8;
+    static constexpr int BYTES_NEEDED2 = (TOTAL_VOXELS2 + 7) / 8;
 
     static constexpr int TOTAL_VOXELS4 = (CHUNK_SIZE / 4) * (CHUNK_SIZE / 4) * COLUMN_HEIGHT_BLOCKS;
-    static constexpr int BYTES_NEEDED4 = (TOTAL_VOXELS + 7) / 8;
+    static constexpr int BYTES_NEEDED4 = (TOTAL_VOXELS4 + 7) / 8;
 
     static constexpr int TOTAL_VOXELS8 = (CHUNK_SIZE / 8) * (CHUNK_SIZE / 8) * COLUMN_HEIGHT_BLOCKS;
-    static constexpr int BYTES_NEEDED8 = (TOTAL_VOXELS + 7) / 8;
+    static constexpr int BYTES_NEEDED8 = (TOTAL_VOXELS8 + 7) / 8;
 
     static constexpr int TOTAL_VOXELS16 = (CHUNK_SIZE / 16) * (CHUNK_SIZE / 16) * COLUMN_HEIGHT_BLOCKS;
-    static constexpr int BYTES_NEEDED16 = (TOTAL_VOXELS + 7) / 8;
+    static constexpr int BYTES_NEEDED16 = (TOTAL_VOXELS16 + 7) / 8;
 
     static constexpr int TOTAL_VOXELS32 = (CHUNK_SIZE / 32) * (CHUNK_SIZE / 32) * COLUMN_HEIGHT_BLOCKS;
-    static constexpr int BYTES_NEEDED32 = (TOTAL_VOXELS + 7) / 8;
+    static constexpr int BYTES_NEEDED32 = (TOTAL_VOXELS32 + 7) / 8;
 
     struct MaterialCounts {
         std::unordered_map<uint16_t, int> counts; // packed material -> count
@@ -501,6 +501,43 @@ public:
     // Public accessor for downscaled material data - needed for neighbor culling
     UnpackedVoxelMaterial getMaterialDownscaledPublic(int lodLevel, ivec3 worldPos) const {
         // worldPos uses world Z coordinate (0-511)
+        int scaledX = worldPos.x / lodLevel;
+        int scaledY = worldPos.y / lodLevel;
+
+        return getMaterialDownscaled(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
+    }
+
+    bool getVoxelDownscaledPublicAtLOD(int lodLevel, ivec3 worldPos, bool transparent) const {
+        // Handle LOD1 (full resolution) specially
+        if (lodLevel == 1) {
+            if (worldPos.x < 0 || worldPos.x >= CHUNK_SIZE ||
+                worldPos.y < 0 || worldPos.y >= CHUNK_SIZE ||
+                worldPos.z < 0 || worldPos.z >= COLUMN_HEIGHT_BLOCKS) {
+                return false;
+            }
+            return getVoxelWholeColumn(worldPos, transparent);
+        }
+
+        // For downscaled LODs
+        int scaledX = worldPos.x / lodLevel;
+        int scaledY = worldPos.y / lodLevel;
+        int z = worldPos.z; // Z not downscaled
+
+        return getVoxelDownscaledDirect(lodLevel, scaledX, scaledY, z, transparent);
+    }
+
+    UnpackedVoxelMaterial getMaterialDownscaledPublicAtLOD(int lodLevel, ivec3 worldPos) const {
+        // Handle LOD1 (full resolution) specially
+        if (lodLevel == 1) {
+            if (worldPos.x < 0 || worldPos.x >= CHUNK_SIZE ||
+                worldPos.y < 0 || worldPos.y >= CHUNK_SIZE ||
+                worldPos.z < 0 || worldPos.z >= COLUMN_HEIGHT_BLOCKS) {
+                return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+            }
+            return getMaterialWholeColumnCompressed(worldPos);
+        }
+
+        // For downscaled LODs
         int scaledX = worldPos.x / lodLevel;
         int scaledY = worldPos.y / lodLevel;
 
@@ -1627,12 +1664,53 @@ public:
     }
 
     void finishAllMaterialEditing() {
-        encodeAllMaterialData();       // LOD1
-        encodeMaterialDataLOD2();      // LOD2
-        encodeMaterialDataLOD4();      // LOD4
-        encodeMaterialDataLOD8();      // LOD8
-        encodeMaterialDataLOD16();     // LOD16
-        encodeMaterialDataLOD32();     // LOD32
+        // Only encode if the data was actually decoded
+        if (materialDataDecoded && rawMaterialData) {
+            encodeAllMaterialData();
+        }
+        if (materialDataDecoded2 && rawMaterialData2) {
+            encodeMaterialDataLOD2();
+        }
+        if (materialDataDecoded4 && rawMaterialData4) {
+            encodeMaterialDataLOD4();
+        }
+        if (materialDataDecoded8 && rawMaterialData8) {
+            encodeMaterialDataLOD8();
+        }
+        if (materialDataDecoded16 && rawMaterialData16) {
+            encodeMaterialDataLOD16();
+        }
+        if (materialDataDecoded32 && rawMaterialData32) {
+            encodeMaterialDataLOD32();
+        }
+    }
+
+    void forceReleaseAllRawData() {
+        // Force release all raw data regardless of state
+        if (rawMaterialData) {
+            rawMaterialData.reset();
+            materialDataDecoded = false;
+        }
+        if (rawMaterialData2) {
+            rawMaterialData2.reset();
+            materialDataDecoded2 = false;
+        }
+        if (rawMaterialData4) {
+            rawMaterialData4.reset();
+            materialDataDecoded4 = false;
+        }
+        if (rawMaterialData8) {
+            rawMaterialData8.reset();
+            materialDataDecoded8 = false;
+        }
+        if (rawMaterialData16) {
+            rawMaterialData16.reset();
+            materialDataDecoded16 = false;
+        }
+        if (rawMaterialData32) {
+            rawMaterialData32.reset();
+            materialDataDecoded32 = false;
+        }
     }
 
     // Initialize material data (call in constructor)
@@ -1867,38 +1945,38 @@ public:
                             uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
                             switch (maxHeightDifference) {
-                            case 0:
-                            case 1:
-                                material.materialType = BlockType::Grass; // grass
+                                case 0:
+                                case 1:
+                                    material.materialType = BlockType::GrassFlowers; // grass
 
+                                    if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
+                                        if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+                                            positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
-                                    if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
-                                        positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+                                            static const std::array<ProbabilityConfig, 11> config = { {
+                                                { 1,     0.2f},
+                                                { 2,     0.2f},
+                                                { 3,     0.2f},
+                                                { 4,     0.2f},
+                                                { 5,     0.2f}
+                                            } };
 
-                                        static const std::array<ProbabilityConfig, 11> config = { {
-                                            { 1,     0.2f},
-                                            { 2,     0.2f},
-                                            { 3,     0.2f},
-                                            { 4,     0.2f},
-                                            { 5,     0.2f}
-                                        } };
+                                            int size = sampleFromDistribution(blockHash, config);
 
-                                        int size = sampleFromDistribution(blockHash, config);
-
-                                        candidateTrees.push_back({ positionAbove, size, 0 });
+                                            candidateTrees.push_back({ positionAbove, size, 0 });
+                                        }
                                     }
-                                }
-                                break;
-                            case 2:
-                                material.materialType = BlockType::Dirt; // dirt
-                                break;
-                            default: // 3 or more
-                                break;
+           
+                                    break;
+                                case 2:
+                                    material.materialType = BlockType::Dirt; // dirt
+                                    break;
+                                default: // 3 or more
+                                    break;
                             }
 
                             // Apply materials to multiple layers
-                            if (material.materialType == BlockType::Grass) { // grass terrain
+                            if (material.materialType == BlockType::GrassFlowers || material.materialType == BlockType::Grass) { // grass terrain
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
                                 if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
@@ -1934,7 +2012,7 @@ public:
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::Grass; // grass
+                                        material.materialType = BlockType::GrassFlowers; // grass
                                         
                                         setMaterialFast(layerPos, material);
                                     }
@@ -2162,7 +2240,7 @@ public:
 
         std::array<LODConfig, 4> lodConfigs = { {
             {1, 0, true},   // LOD 1 with grass (full resolution)
-            {2, 1, false},  // LOD 2 without grass (2x2x1)
+            {2, 1, true},  // LOD 2 without grass (2x2x1)
             {4, 2, false},  // LOD 4 without grass (4x4x1)
             {8, 3, false}   // LOD 8 without grass (8x8x1)
         } };
@@ -2257,6 +2335,23 @@ public:
             },
         };
 
+        struct MaterialCache {
+            std::unordered_map<uint32_t, UnpackedVoxelMaterial> cache;
+
+            UnpackedVoxelMaterial get(int lodLevel, ivec3 pos,
+                std::function<UnpackedVoxelMaterial(int, ivec3)> getter) {
+                uint32_t key = (lodLevel << 24) | (pos.x << 16) | (pos.y << 8) | pos.z;
+                auto it = cache.find(key);
+                if (it != cache.end()) return it->second;
+
+                auto mat = getter(lodLevel, pos);
+                cache[key] = mat;
+                return mat;
+            }
+        };
+
+        MaterialCache matCache;
+
         // NEW: Function to get voxel from appropriate LOD level
         auto getVoxelFromLOD = [&](int lodLevel, ivec3 pos, bool transparent) -> bool {
             if (lodLevel == 1) {
@@ -2332,6 +2427,7 @@ public:
                 t == BlockType::Grass5;
             };
 
+        // Modified shouldCullLODFaceDownscaled function with seam fixing
         auto shouldCullLODFaceDownscaled = [&](ivec3 groupPos,
             int faceIndex,
             int lodLevel,
@@ -2355,21 +2451,36 @@ public:
                     worldZ >= 0 && worldZ < COLUMN_HEIGHT_BLOCKS);
 
                 if (inCurrentColumn) {
-                    // Check within current column
+                    // Check within current column - use same LOD level
                     bool neighborSolid = getVoxelDownscaledDirect(lodLevel, neighborPos.x, neighborPos.y, worldZ, false);
                     bool neighborTransparent = getVoxelDownscaledDirect(lodLevel, neighborPos.x, neighborPos.y, worldZ, true);
 
                     if (transparentPass) {
+                        // Transparent pass rendering logic
                         if (neighborTransparent) {
                             UnpackedVoxelMaterial neighborMat = getMaterialDownscaledFast(lodLevel, ivec3(neighborPos.x, neighborPos.y, worldZ));
-                            if ((currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) &&
-                                (neighborMat.materialType == BlockType::Water || neighborMat.materialType == BlockType::WaterSurface)) {
-                                return true;
+
+                            // Special handling for water blocks
+                            if (currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) {
+                                if (neighborMat.materialType == BlockType::Water ||
+                                    neighborMat.materialType == BlockType::WaterSurface) {
+                                    return true;  // Cull faces between water blocks
+                                }
+                                return false;  // Don't cull water faces against other transparent blocks
                             }
+
+                            // For other transparent blocks, cull if same material
                             return neighborMat.materialType == currentMatType;
                         }
+                        else if (neighborSolid) {
+                            // Cull transparent faces against solid blocks
+                            return true;
+                        }
+                        // Don't cull if neighbor is air
+                        return false;
                     }
                     else {
+                        // Solid pass rendering logic
                         if (neighborSolid) {
                             UnpackedVoxelMaterial neighborMat = getMaterialDownscaledFast(lodLevel, ivec3(neighborPos.x, neighborPos.y, worldZ));
                             // Don't cull if neighbor is a special block type (leaf, grass, fence)
@@ -2380,11 +2491,11 @@ public:
                             }
                             return true; // Cull face against solid neighbor
                         }
+                        // Don't cull solid faces against air or transparent blocks
+                        return false;
                     }
                 }
                 else {
-                    // Need to check neighboring column
-                    // Convert back to world coordinates for the neighbor check
                     ivec3 worldNeighborPos;
                     worldNeighborPos.x = neighborPos.x * lodLevel; // Scale back to world coords
                     worldNeighborPos.y = neighborPos.y * lodLevel; // Scale back to world coords
@@ -2417,35 +2528,103 @@ public:
                             return false; // Treat as empty if neighbor is being unloaded
                         }
 
-                        // Use the public accessor to check neighbor's downscaled data
-                        bool neighborSolid = neighbors[neighborIndex]->getVoxelDownscaledPublic(
-                            lodLevel, neighborLocalPos, false);
-                        bool neighborTransparent = neighbors[neighborIndex]->getVoxelDownscaledPublic(
-                            lodLevel, neighborLocalPos, true);
+                        // SEAM FIX: Use finer LOD level for neighbor sampling
+                        int neighborLodLevel = std::max(1, lodLevel / 2);
+                        int fineScale = lodLevel / neighborLodLevel;
 
-                        if (transparentPass) {
-                            if (neighborTransparent) {
-                                UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublic(
-                                    lodLevel, neighborLocalPos);
-                                if ((currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) &&
-                                    (neighborMat.materialType == BlockType::Water || neighborMat.materialType == BlockType::WaterSurface)) {
-                                    return true;
+                        bool shouldCull = true;
+                        bool allSolid = true;
+                        bool allSameTransparent = true;
+
+                        // Sample the face boundary in the neighbor chunk
+                        for (int dy = 0; dy < fineScale; dy++) {
+                            for (int dx = 0; dx < fineScale; dx++) {
+                                ivec3 fineNeighborPos;
+
+                                // Calculate the position to sample in neighbor's space
+                                if (faceIndex == 0) { // Right face (+X)
+                                    fineNeighborPos.x = 0;
+                                    fineNeighborPos.y = (groupPos.y * lodLevel) + dy * neighborLodLevel;
+                                    fineNeighborPos.z = worldZ;
                                 }
-                                return neighborMat.materialType == currentMatType;
+                                else if (faceIndex == 1) { // Left face (-X)
+                                    fineNeighborPos.x = CHUNK_SIZE - neighborLodLevel;
+                                    fineNeighborPos.y = (groupPos.y * lodLevel) + dy * neighborLodLevel;
+                                    fineNeighborPos.z = worldZ;
+                                }
+                                else if (faceIndex == 2) { // Front face (+Y)
+                                    fineNeighborPos.x = (groupPos.x * lodLevel) + dx * neighborLodLevel;
+                                    fineNeighborPos.y = 0;
+                                    fineNeighborPos.z = worldZ;
+                                }
+                                else if (faceIndex == 3) { // Back face (-Y)
+                                    fineNeighborPos.x = (groupPos.x * lodLevel) + dx * neighborLodLevel;
+                                    fineNeighborPos.y = CHUNK_SIZE - neighborLodLevel;
+                                    fineNeighborPos.z = worldZ;
+                                }
+                                else { // Z faces
+                                    fineNeighborPos.x = (groupPos.x * lodLevel) + dx * neighborLodLevel;
+                                    fineNeighborPos.y = (groupPos.y * lodLevel) + dy * neighborLodLevel;
+                                    fineNeighborPos.z = worldZ;
+                                }
+
+                                // Now check this position in the neighbor
+                                bool neighborSolid = neighbors[neighborIndex]->getVoxelDownscaledPublicAtLOD(
+                                    neighborLodLevel, fineNeighborPos, false);
+                                bool neighborTransparent = neighbors[neighborIndex]->getVoxelDownscaledPublicAtLOD(
+                                    neighborLodLevel, fineNeighborPos, true);
+
+                                if (transparentPass) {
+                                    if (!neighborSolid && !neighborTransparent) {
+                                        // Found air - never cull against air
+                                        return false;
+                                    }
+                                    else if (neighborTransparent) {
+                                        UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublicAtLOD(
+                                            neighborLodLevel, fineNeighborPos);
+
+                                        // Water special case
+                                        if (currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) {
+                                            if (!(neighborMat.materialType == BlockType::Water ||
+                                                neighborMat.materialType == BlockType::WaterSurface)) {
+                                                allSameTransparent = false;
+                                            }
+                                        }
+                                        else if (neighborMat.materialType != currentMatType) {
+                                            allSameTransparent = false;
+                                        }
+                                    }
+                                    else if (neighborSolid) {
+                                        allSolid = false; // Mix of solid and transparent
+                                    }
+                                }
+                                else {
+                                    // Solid pass
+                                    if (!neighborSolid) {
+                                        // Found non-solid, don't cull
+                                        return false;
+                                    }
+                                    else {
+                                        UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublicAtLOD(
+                                            neighborLodLevel, fineNeighborPos);
+                                        // Don't cull against special blocks
+                                        if (isLeaf(neighborMat.materialType) ||
+                                            isGrassBillboard(neighborMat.materialType) ||
+                                            neighborMat.materialType == BlockType::Fence) {
+                                            return false;
+                                        }
+                                    }
+                                }
                             }
                         }
+
+                        if (transparentPass) {
+                            // Cull if all neighbors are solid or all are same transparent material
+                            return allSolid || allSameTransparent;
+                        }
                         else {
-                            if (neighborSolid) {
-                                UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublic(
-                                    lodLevel, neighborLocalPos);
-                                // Don't cull if neighbor is a special block type (leaf, grass, fence)
-                                if (isLeaf(neighborMat.materialType) ||
-                                    isGrassBillboard(neighborMat.materialType) ||
-                                    neighborMat.materialType == BlockType::Fence) {
-                                    return false;
-                                }
-                                return true; // Cull face against solid neighbor
-                            }
+                            // Already returned false if any non-solid found
+                            return true;
                         }
                     }
                 }
@@ -2453,47 +2632,47 @@ public:
                 return false;
             };
 
-            auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
-                ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
-                ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
-                ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
+        auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
+            ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
+            ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
+            ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
 
-                // For AO, check if ANY block (solid OR transparent) exists at the position
-                // This gives proper shadowing from all geometry
-                auto checkOccupancy = [&](ivec3 pos) -> bool {
-                    // Check both solid and transparent voxels for occlusion
-                    bool solidExists = getVoxelFromLOD(1, pos, false);
-                    bool transparentExists = getVoxelFromLOD(1, pos, true);
+            // For AO, check if ANY block (solid OR transparent) exists at the position
+            // This gives proper shadowing from all geometry
+            auto checkOccupancy = [&](ivec3 pos) -> bool {
+                // Check both solid and transparent voxels for occlusion
+                bool solidExists = getVoxelFromLOD(1, pos, false);
+                bool transparentExists = getVoxelFromLOD(1, pos, true);
 
-                    // Special case: some transparent blocks shouldn't occlude (like water surface)
-                    if (transparentExists && !solidExists) {
-                        UnpackedVoxelMaterial mat = getMaterialFromLOD(1, pos);
-                        // Water and certain transparent blocks might not occlude
-                        if (mat.materialType == BlockType::Water ||
-                            mat.materialType == BlockType::WaterSurface) {
-                            return false; // Water doesn't cast AO shadows
-                        }
+                // Special case: some transparent blocks shouldn't occlude (like water surface)
+                if (transparentExists && !solidExists) {
+                    UnpackedVoxelMaterial mat = getMaterialFromLOD(1, pos);
+                    // Water and certain transparent blocks might not occlude
+                    if (mat.materialType == BlockType::Water ||
+                        mat.materialType == BlockType::WaterSurface) {
+                        return false; // Water doesn't cast AO shadows
                     }
-
-                    return solidExists || transparentExists;
-                    };
-
-                bool side1Solid = checkOccupancy(side1Pos);
-                bool side2Solid = checkOccupancy(side2Pos);
-                bool cornerSolid = checkOccupancy(cornerPos);
-
-                // AO calculation: 0 = full occlusion, 3 = no occlusion
-                if (side1Solid && side2Solid) {
-                    return 0; // Maximum occlusion
                 }
-                return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
+
+                return solidExists || transparentExists;
                 };
 
+            bool side1Solid = checkOccupancy(side1Pos);
+            bool side2Solid = checkOccupancy(side2Pos);
+            bool cornerSolid = checkOccupancy(cornerPos);
+
+            // AO calculation: 0 = full occlusion, 3 = no occlusion
+            if (side1Solid && side2Solid) {
+                return 0; // Maximum occlusion
+            }
+            return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
+        };
+
             // For LOD2+ (downscaled)
-            auto calculateAmbientOcclusionDownscaled = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel) -> uint32_t {
-                ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0];
-                ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1];
-                ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2];
+        auto calculateAmbientOcclusionDownscaled = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel) -> uint32_t {
+            ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0];
+            ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1];
+            ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2];
 
             auto checkOccupancy = [&](ivec3 pos) -> bool {
                 int worldZ = pos.z + zPos * CHUNK_SIZE;
@@ -2567,7 +2746,7 @@ public:
                 }
 
                 return false;
-                };
+            };
 
             bool side1Solid = checkOccupancy(side1Pos);
             bool side2Solid = checkOccupancy(side2Pos);
@@ -2577,7 +2756,7 @@ public:
                 return 0;
             }
             return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
-            };
+        };
 
 
         // Pack data function remains the same
@@ -2632,8 +2811,8 @@ public:
 
                     if (lodLevel == 1) {
                         // LOD 1: Full resolution processing (original algorithm)
-                        for (int x = 0; x < CHUNK_SIZE; x++) {
-                            for (int y = 0; y < CHUNK_SIZE; y++) {
+                        for (int y = 0; y < CHUNK_SIZE; y++) {
+                            for (int x = 0; x < CHUNK_SIZE; x++) {
                                 for (int z = 0; z < CHUNK_SIZE; z++) {
                                     if (getChunkState(zPos) == ChunkState::Unloading) {
                                         return false;
@@ -2659,26 +2838,53 @@ public:
                                         bool shouldRender = (faces == 2);
 
                                         if (!shouldRender) {
-                                            // Check if face should be culled
                                             ivec3 neighborPos = voxelPos + neighborOffsets[face];
                                             bool neighborSolid = getVoxelFromLOD(lodLevel, neighborPos, false);
                                             bool neighborTransparent = getVoxelFromLOD(lodLevel, neighborPos, true);
 
                                             if (transparent) {
+                                                // Rendering transparent pass
                                                 if (neighborTransparent) {
                                                     UnpackedVoxelMaterial neighborMat = getMaterialFromLOD(lodLevel, neighborPos);
-                                                    shouldRender = (neighborMat.materialType != material.materialType);
+
+                                                    // Special handling for water blocks
+                                                    if ((material.materialType == BlockType::Water ||
+                                                        material.materialType == BlockType::WaterSurface)) {
+                                                        if (neighborMat.materialType == BlockType::Water ||
+                                                            neighborMat.materialType == BlockType::WaterSurface) {
+                                                            // Don't render faces between water blocks
+                                                            shouldRender = false;
+                                                        }
+                                                        else {
+                                                            // Render faces against non-water blocks
+                                                            shouldRender = true;
+                                                        }
+                                                    }
+                                                    else {
+                                                        // For other transparent blocks, cull if same material
+                                                        shouldRender = (neighborMat.materialType != material.materialType);
+                                                    }
+                                                }
+                                                else if (neighborSolid) {
+                                                    // Don't render transparent faces against solid blocks
+                                                    shouldRender = false;
                                                 }
                                                 else {
+                                                    // Render face if neighbor is air
                                                     shouldRender = true;
                                                 }
                                             }
                                             else {
+                                                // Rendering solid pass
                                                 if (neighborSolid) {
                                                     UnpackedVoxelMaterial neighborMat = getMaterialFromLOD(lodLevel, neighborPos);
-                                                    shouldRender = isLeaf(neighborMat.materialType);
+                                                    // Don't cull if neighbor is a special block type (leaf, grass, fence)
+                                                    shouldRender = isLeaf(neighborMat.materialType) ||
+                                                        isGrassBillboard(neighborMat.materialType) ||
+                                                        neighborMat.materialType == BlockType::Fence;
                                                 }
                                                 else {
+                                                    // Always render solid faces against air or transparent blocks
                                                     shouldRender = true;
                                                 }
                                             }
@@ -2807,6 +3013,8 @@ public:
         }
 
         finishAllMaterialEditing();
+        forceReleaseAllRawData();
+
 
         if (state.load() == ColumnState::Unloading) {
             return false;
