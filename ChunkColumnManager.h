@@ -953,14 +953,12 @@ public:
 
         std::cout << std::endl;
 
-        // Also print quadtree statistics
-        //quadTree->printTreeStats();
-
         buf->getStorageBufferPool("storage_pool")->printStats();
 
-        // Print LOD level distribution
         printCacheStats();
         printLODStats();
+
+        workerSystem->printProfilingStats();
     }
 
     size_t getChunkCount() const {

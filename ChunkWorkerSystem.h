@@ -1,4 +1,4 @@
-// ImprovedChunkWorkerSystem.h
+// ImprovedChunkWorkerSystem.h with Profiling
 #include <thread>
 #include <queue>
 #include <mutex>
@@ -8,6 +8,7 @@
 #include <memory>
 #include <chrono>
 #include <iostream>
+#include <iomanip>
 #include "glm/glm.hpp"
 #include "ChunkColumn.h"
 
@@ -42,7 +43,7 @@ private:
     int priority;
     int id;
     std::chrono::steady_clock::time_point creation_time;
-    static inline std::atomic<int> ChunkWorkItem::next_id{ 0 };
+    static inline std::atomic<int> next_id{ 0 };
 
 public:
     // Default constructor
@@ -170,6 +171,61 @@ public:
     }
 };
 
+// Profiling data structure
+struct ProfilingData {
+    std::atomic<uint64_t> totalTime{ 0 };  // in microseconds
+    std::atomic<uint64_t> minTime{ UINT64_MAX };
+    std::atomic<uint64_t> maxTime{ 0 };
+    std::atomic<uint64_t> count{ 0 };
+    std::atomic<uint64_t> lastUpdateTime{ 0 };
+
+    void record(uint64_t microseconds) {
+        totalTime += microseconds;
+        count++;
+
+        // Update min
+        uint64_t currentMin = minTime.load();
+        while (microseconds < currentMin && !minTime.compare_exchange_weak(currentMin, microseconds));
+
+        // Update max
+        uint64_t currentMax = maxTime.load();
+        while (microseconds > currentMax && !maxTime.compare_exchange_weak(currentMax, microseconds));
+
+        lastUpdateTime = microseconds;
+    }
+
+    double getAverageMs() const {
+        uint64_t c = count.load();
+        if (c == 0) return 0.0;
+        return (totalTime.load() / 1000.0) / c;
+    }
+
+    double getMinMs() const {
+        uint64_t min = minTime.load();
+        return (min == UINT64_MAX) ? 0.0 : min / 1000.0;
+    }
+
+    double getMaxMs() const {
+        return maxTime.load() / 1000.0;
+    }
+
+    double getLastMs() const {
+        return lastUpdateTime.load() / 1000.0;
+    }
+
+    uint64_t getCount() const {
+        return count.load();
+    }
+
+    void reset() {
+        totalTime = 0;
+        minTime = UINT64_MAX;
+        maxTime = 0;
+        count = 0;
+        lastUpdateTime = 0;
+    }
+};
+
 // Enhanced chunk worker system with thread pool architecture
 class ChunkWorkerSystem {
 private:
@@ -190,7 +246,19 @@ private:
     std::atomic<size_t> terrain_generated{ 0 };
     std::atomic<size_t> topsoil_generated{ 0 };
     std::atomic<size_t> meshes_generated{ 0 };
+    std::atomic<size_t> trees_generated{ 0 };
+    std::atomic<size_t> lod_data_generated{ 0 };
     std::atomic<size_t> failed_operations{ 0 };
+
+    // Profiling data for each stage
+    ProfilingData terrainProfiling;
+    ProfilingData topsoilProfiling;
+    ProfilingData treesProfiling;
+    ProfilingData lodDataProfiling;
+    ProfilingData meshProfiling;
+    ProfilingData meshRegenerationProfiling;
+    ProfilingData queueWaitProfiling;
+    ProfilingData totalWorkItemProfiling;
 
     // Last cleanup time
     std::chrono::steady_clock::time_point last_cleanup;
@@ -201,9 +269,6 @@ public:
         for (int i = 0; i < num_workers; ++i) {
             worker_threads.emplace_back(&ChunkWorkerSystem::workerLoop, this, i);
         }
-
-        // Create result processor thread
-        //result_processor_thread = std::thread(&ChunkWorkerSystem::resultProcessorLoop, this);
     }
 
     ~ChunkWorkerSystem() {
@@ -291,7 +356,7 @@ public:
 
         if (work_queue.size() >= MAX_QUEUE_SIZE) {
             return false;
-        } 
+        }
 
         ChunkWorkItem item(ChunkWorkItem::RegenerateMesh, chunk, position, neighbors, ChunkWorkItem::CRITICAL);
         return work_queue.push(item);
@@ -309,6 +374,8 @@ public:
         size_t total_processed;
         size_t terrain_generated;
         size_t topsoil_generated;
+        size_t trees_generated;
+        size_t lod_data_generated;
         size_t meshes_generated;
         size_t failed_operations;
         size_t total_queued;
@@ -322,6 +389,8 @@ public:
         stats.total_processed = total_work_items_processed;
         stats.terrain_generated = terrain_generated;
         stats.topsoil_generated = topsoil_generated;
+        stats.trees_generated = trees_generated;
+        stats.lod_data_generated = lod_data_generated;
         stats.meshes_generated = meshes_generated;
         stats.failed_operations = failed_operations;
         stats.total_queued = work_queue.getTotalQueued();
@@ -336,17 +405,106 @@ public:
         return stats;
     }
 
+    // New method to print detailed profiling information
+    void printProfilingStats() const {
+        std::cout << "\n=== Chunk Worker Profiling Stats ===" << std::endl;
+        std::cout << std::fixed << std::setprecision(2);
+
+        // Header
+        std::cout << std::left << std::setw(20) << "Stage"
+            << std::right << std::setw(10) << "Count"
+            << std::setw(12) << "Avg (ms)"
+            << std::setw(12) << "Min (ms)"
+            << std::setw(12) << "Max (ms)"
+            << std::setw(12) << "Last (ms)"
+            << std::setw(15) << "Total (s)" << std::endl;
+        std::cout << std::string(91, '-') << std::endl;
+
+        // Print each stage
+        printProfilingRow("Terrain Gen", terrainProfiling);
+        printProfilingRow("Topsoil Gen", topsoilProfiling);
+        printProfilingRow("Trees Gen", treesProfiling);
+        printProfilingRow("LOD Data Gen", lodDataProfiling);
+        printProfilingRow("Mesh Gen", meshProfiling);
+        printProfilingRow("Mesh Regen", meshRegenerationProfiling);
+        std::cout << std::string(91, '-') << std::endl;
+        printProfilingRow("Queue Wait", queueWaitProfiling);
+        printProfilingRow("Total Work Item", totalWorkItemProfiling);
+
+        // Performance metrics
+        std::cout << "\n=== Performance Metrics ===" << std::endl;
+        uint64_t totalItems = totalWorkItemProfiling.getCount();
+        if (totalItems > 0) {
+            double avgTotalTime = totalWorkItemProfiling.getAverageMs();
+            double throughput = (totalItems > 0) ? (1000.0 / avgTotalTime) : 0.0;
+            std::cout << "Average throughput: " << throughput << " items/sec" << std::endl;
+            std::cout << "Active workers: " << active_workers.load() << " / " << worker_threads.size() << std::endl;
+
+            // Calculate stage distribution
+            double terrainPct = (terrainProfiling.getCount() * terrainProfiling.getAverageMs()) /
+                (totalWorkItemProfiling.getCount() * totalWorkItemProfiling.getAverageMs()) * 100.0;
+            double topsoilPct = (topsoilProfiling.getCount() * topsoilProfiling.getAverageMs()) /
+                (totalWorkItemProfiling.getCount() * totalWorkItemProfiling.getAverageMs()) * 100.0;
+            double treesPct = (treesProfiling.getCount() * treesProfiling.getAverageMs()) /
+                (totalWorkItemProfiling.getCount() * totalWorkItemProfiling.getAverageMs()) * 100.0;
+            double lodPct = (lodDataProfiling.getCount() * lodDataProfiling.getAverageMs()) /
+                (totalWorkItemProfiling.getCount() * totalWorkItemProfiling.getAverageMs()) * 100.0;
+            double meshPct = (meshProfiling.getCount() * meshProfiling.getAverageMs()) /
+                (totalWorkItemProfiling.getCount() * totalWorkItemProfiling.getAverageMs()) * 100.0;
+
+            std::cout << "\nTime distribution by stage:" << std::endl;
+            std::cout << "  Terrain: " << terrainPct << "%" << std::endl;
+            std::cout << "  Topsoil: " << topsoilPct << "%" << std::endl;
+            std::cout << "  Trees: " << treesPct << "%" << std::endl;
+            std::cout << "  LOD: " << lodPct << "%" << std::endl;
+            std::cout << "  Mesh: " << meshPct << "%" << std::endl;
+        }
+
+        std::cout << "===================================\n" << std::endl;
+    }
+
+    // Reset profiling statistics
+    void resetProfilingStats() {
+        terrainProfiling.reset();
+        topsoilProfiling.reset();
+        treesProfiling.reset();
+        lodDataProfiling.reset();
+        meshProfiling.reset();
+        meshRegenerationProfiling.reset();
+        queueWaitProfiling.reset();
+        totalWorkItemProfiling.reset();
+    }
+
 private:
+    void printProfilingRow(const std::string& name, const ProfilingData& data) const {
+        uint64_t count = data.getCount();
+        if (count == 0) return;
+
+        std::cout << std::left << std::setw(20) << name
+            << std::right << std::setw(10) << count
+            << std::setw(12) << data.getAverageMs()
+            << std::setw(12) << data.getMinMs()
+            << std::setw(12) << data.getMaxMs()
+            << std::setw(12) << data.getLastMs()
+            << std::setw(15) << (data.totalTime.load() / 1000000.0) << std::endl;
+    }
+
     bool validateChunkForWork(std::shared_ptr<ChunkColumn> chunk) const {
         return chunk && chunk->getState() != ColumnState::Unloading;
     }
 
     void workerLoop(int worker_id) {
         while (running) {
+            auto queue_start = std::chrono::high_resolution_clock::now();
             ChunkWorkItem workItem;
+
             if (work_queue.pop(workItem)) {
+                auto queue_end = std::chrono::high_resolution_clock::now();
+                auto queue_duration = std::chrono::duration_cast<std::chrono::microseconds>(queue_end - queue_start).count();
+                queueWaitProfiling.record(queue_duration);
+
                 active_workers++;
-                auto start_time = std::chrono::steady_clock::now();
+                auto work_start = std::chrono::high_resolution_clock::now();
 
                 bool success = false;
                 std::string error_message;
@@ -364,8 +522,9 @@ private:
                     error_message = std::string("Exception: ") + e.what();
                 }
 
-                auto processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - start_time);
+                auto work_end = std::chrono::high_resolution_clock::now();
+                auto work_duration = std::chrono::duration_cast<std::chrono::microseconds>(work_end - work_start).count();
+                totalWorkItemProfiling.record(work_duration);
 
                 total_work_items_processed++;
                 if (!success) {
@@ -381,22 +540,70 @@ private:
     }
 
     bool processWorkItem(const ChunkWorkItem& workItem, std::string& error_message) {
+        auto start = std::chrono::high_resolution_clock::now();
+        bool result = false;
+
         switch (workItem.getType()) {
         case ChunkWorkItem::GenerateTerrain:
-            return processTerrainGeneration(workItem, error_message);
+            result = processTerrainGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                terrainProfiling.record(duration);
+            }
+            break;
+
         case ChunkWorkItem::GenerateTopsoil:
-            return processTopsoilGeneration(workItem, error_message);
+            result = processTopsoilGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                topsoilProfiling.record(duration);
+            }
+            break;
+
         case ChunkWorkItem::GenerateTrees:
-            return processTreeGeneration(workItem, error_message);
-        case ChunkWorkItem::GenerateLODData:  // NEW
-            return processLODDataGeneration(workItem, error_message);
+            result = processTreeGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                treesProfiling.record(duration);
+            }
+            break;
+
+        case ChunkWorkItem::GenerateLODData:
+            result = processLODDataGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                lodDataProfiling.record(duration);
+            }
+            break;
+
         case ChunkWorkItem::GenerateMesh:
+            result = processMeshGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                meshProfiling.record(duration);
+            }
+            break;
+
         case ChunkWorkItem::RegenerateMesh:
-            return processMeshGeneration(workItem, error_message);
+            result = processMeshGeneration(workItem, error_message);  // Uses same function
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                meshRegenerationProfiling.record(duration);
+            }
+            break;
+
         default:
             error_message = "Unknown work item type";
-            return false;
+            result = false;
         }
+
+        return result;
     }
 
     bool processTerrainGeneration(const ChunkWorkItem& workItem, std::string& error_message) {
@@ -426,7 +633,7 @@ private:
 
         ColumnState currentState = chunk->getState();
         if (currentState != ColumnState::GeneratingTopsoil) {
-            error_message = "Chunk not in TerrainReady state";
+            error_message = "Chunk not in GeneratingTopsoil state";
             return false;
         }
 
@@ -444,11 +651,12 @@ private:
 
         ColumnState currentState = chunk->getState();
         if (currentState != ColumnState::GeneratingTrees) {
-            error_message = "Chunk not in TopsoilReady state";
+            error_message = "Chunk not in GeneratingTrees state";
             return false;
         }
 
         chunk->generateTrees(workItem.getNeighbors());
+        trees_generated++;
         return true;
     }
 
@@ -467,6 +675,7 @@ private:
 
         chunk->generateDownscaledLODData();
         chunk->setState(ColumnState::LODDataReady);
+        lod_data_generated++;
         return true;
     }
 
@@ -479,7 +688,7 @@ private:
 
         ColumnState currentState = chunk->getState();
         if (currentState != ColumnState::GeneratingMesh) {
-            error_message = "Chunk not in completed generation state";
+            error_message = "Chunk not in GeneratingMesh state";
             return false;
         }
 
