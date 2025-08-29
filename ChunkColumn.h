@@ -104,6 +104,8 @@ enum class ColumnState {
     TopsoilReady,       // Topsoil data ready, tree data ready
     GeneratingTrees,    // placing trees
     TreesReady,         // trees are done, mesh is ready to be generated
+    GeneratingLODData,    // NEW state
+    LODDataReady,         // NEW state
     GeneratingMesh,
     MeshReady,          // mesh has been generated
     UploadingToGPU,
@@ -133,6 +135,29 @@ private:
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS;
     static constexpr int TOTAL_VOXELS_CHUNK = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
     static constexpr int BYTES_NEEDED = (TOTAL_VOXELS + 7) / 8;
+
+    static constexpr int TOTAL_VOXELS2 = (CHUNK_SIZE / 2) * (CHUNK_SIZE / 2) * COLUMN_HEIGHT_BLOCKS;
+    static constexpr int BYTES_NEEDED2 = (TOTAL_VOXELS + 7) / 8;
+
+    static constexpr int TOTAL_VOXELS4 = (CHUNK_SIZE / 4) * (CHUNK_SIZE / 4) * COLUMN_HEIGHT_BLOCKS;
+    static constexpr int BYTES_NEEDED4 = (TOTAL_VOXELS + 7) / 8;
+
+    static constexpr int TOTAL_VOXELS8 = (CHUNK_SIZE / 8) * (CHUNK_SIZE / 8) * COLUMN_HEIGHT_BLOCKS;
+    static constexpr int BYTES_NEEDED8 = (TOTAL_VOXELS + 7) / 8;
+
+    static constexpr int TOTAL_VOXELS16 = (CHUNK_SIZE / 16) * (CHUNK_SIZE / 16) * COLUMN_HEIGHT_BLOCKS;
+    static constexpr int BYTES_NEEDED16 = (TOTAL_VOXELS + 7) / 8;
+
+    static constexpr int TOTAL_VOXELS32 = (CHUNK_SIZE / 32) * (CHUNK_SIZE / 32) * COLUMN_HEIGHT_BLOCKS;
+    static constexpr int BYTES_NEEDED32 = (TOTAL_VOXELS + 7) / 8;
+
+    struct MaterialCounts {
+        std::unordered_map<uint16_t, int> counts; // packed material -> count
+        int totalSolid = 0;
+        int totalTransparent = 0;
+    };
+
+    std::unique_ptr<std::vector<MaterialCounts>> lodMaterialCounts;
 
     struct ChunkMetaData {
         std::atomic<ChunkState> state{ ChunkState::NoMesh };
@@ -175,13 +200,112 @@ private:
     ChunkMetaData meta[COLUMN_HEIGHT];
 
     std::vector<RLEPair> encodedMaterialData[CHUNK_SIZE][CHUNK_SIZE];
+    std::vector<RLEPair> encodedMaterialData2[CHUNK_SIZE / 2][CHUNK_SIZE / 2];
+    std::vector<RLEPair> encodedMaterialData4[CHUNK_SIZE / 4][CHUNK_SIZE / 4];
+    std::vector<RLEPair> encodedMaterialData8[CHUNK_SIZE / 8][CHUNK_SIZE / 8];
+    std::vector<RLEPair> encodedMaterialData16[CHUNK_SIZE / 16][CHUNK_SIZE / 16];
+    std::vector<RLEPair> encodedMaterialData32[CHUNK_SIZE / 32][CHUNK_SIZE / 32];
+
     std::vector<FaceAttributes> faceData[8][COLUMN_HEIGHT];
 
     std::unique_ptr<std::array<uint16_t, CHUNK_SIZE* CHUNK_SIZE* COLUMN_HEIGHT_BLOCKS>> rawMaterialData;
     bool materialDataDecoded = false;  // Track if we have decoded data available
 
     uint8_t voxelData[BYTES_NEEDED] = {};
+    uint8_t voxelData2[BYTES_NEEDED2] = {};
+    uint8_t voxelData4[BYTES_NEEDED4] = {};
+    uint8_t voxelData8[BYTES_NEEDED8] = {};
+    uint8_t voxelData16[BYTES_NEEDED16] = {};
+    uint8_t voxelData32[BYTES_NEEDED32] = {};
+
     uint8_t transparentVoxelData[BYTES_NEEDED] = {};
+    uint8_t transparentVoxelData2[BYTES_NEEDED2] = {};
+    uint8_t transparentVoxelData4[BYTES_NEEDED4] = {};
+    uint8_t transparentVoxelData8[BYTES_NEEDED8] = {};
+    uint8_t transparentVoxelData16[BYTES_NEEDED16] = {};
+    uint8_t transparentVoxelData32[BYTES_NEEDED32] = {};
+
+    struct LODGroupCounts {
+        std::unordered_map<uint16_t, int> materialCounts;
+        int solidCount = 0;
+        int transparentCount = 0;
+
+        void clear() {
+            materialCounts.clear();
+            solidCount = 0;
+            transparentCount = 0;
+        }
+
+        uint16_t getDominantMaterial(float threshold = 0.5f) const {
+            int totalVoxels = solidCount + transparentCount;
+            if (totalVoxels == 0) return 0;
+
+            int minCount = static_cast<int>(totalVoxels * threshold);
+            uint16_t dominant = 0;
+            int maxCount = 0;
+
+            for (const auto& [material, count] : materialCounts) {
+                if (count > maxCount) {
+                    maxCount = count;
+                    dominant = material;
+                }
+
+                if (material == BlockType::Grass) {
+                    if (count > 4) {
+                        return BlockType::Grass;
+                    }
+                }
+
+                if (material == BlockType::Log) {
+                    if (count > 2) {
+                        return BlockType::Log;
+                    }
+                }
+
+                if (material == BlockType::SpruceLog) {
+                    if (count > 2) {
+                        return BlockType::SpruceLog;
+                    }
+                }
+
+                if (material == BlockType::SpruceLeaf) {
+                    if (count > 4) {
+                        return BlockType::SpruceLeaf;
+                    }
+                }
+            }
+
+
+            // If no material meets threshold, return the most common one anyway
+            // This prevents gaps in the LOD mesh
+            return (maxCount >= minCount) ? dominant : dominant;
+        }
+    };
+
+    // Organized storage for LOD counts at each scale
+    struct LODCountStorage {
+        // Each vector holds counts for all groups at that LOD level
+        // Indexed as: [x/lodScale][y/lodScale][z]
+        std::vector<LODGroupCounts> lod2;   // (16x16x512) groups
+        std::vector<LODGroupCounts> lod4;   // (8x8x512) groups  
+        std::vector<LODGroupCounts> lod8;   // (4x4x512) groups
+        std::vector<LODGroupCounts> lod16;  // (2x2x512) groups
+        std::vector<LODGroupCounts> lod32;  // (1x1x512) groups
+
+        LODCountStorage() {
+            // Pre-allocate storage
+            lod2.resize(16 * 16 * COLUMN_HEIGHT_BLOCKS);
+            lod4.resize(8 * 8 * COLUMN_HEIGHT_BLOCKS);
+            lod8.resize(4 * 4 * COLUMN_HEIGHT_BLOCKS);
+            lod16.resize(2 * 2 * COLUMN_HEIGHT_BLOCKS);
+            lod32.resize(1 * 1 * COLUMN_HEIGHT_BLOCKS);
+        }
+
+        // Helper to get linear index
+        static inline int getIndex(int x, int y, int z, int xySize) {
+            return x + y * xySize + z * xySize * xySize;
+        }
+    };
 
     mutable std::mutex materialDataMutex;
     mutable std::mutex voxelDataMutex;
@@ -243,6 +367,25 @@ public:
 
     std::vector<TreeDataPoint> getTreeData() {
         return treeData;
+    }
+
+    void generateDownscaledLODData() {
+        // Ensure material data is decoded for fast access
+        //beginMaterialEditing();
+
+        // Create temporary storage for counts
+        auto counts = std::make_unique<LODCountStorage>();
+
+        // Single pass through all voxels to compute all LOD counts
+        computeAllLODCounts(*counts);
+
+        // Generate downscaled data from counts
+        generateDownscaledFromCounts(*counts);
+
+        // Counts are automatically freed when unique_ptr goes out of scope
+
+        // Encode material data back
+        //finishMaterialEditing();
     }
 
     template<size_t N>
@@ -352,7 +495,261 @@ public:
         return out;
     }
 
+    bool getVoxelDownscaledPublic(int lodLevel, ivec3 worldPos, bool transparent) const {
+        // worldPos uses world Z coordinate (0-511)
+        int scaledX = worldPos.x / lodLevel;
+        int scaledY = worldPos.y / lodLevel;
+        int z = worldPos.z; // Z not downscaled
+
+        return getVoxelDownscaledDirect(lodLevel, scaledX, scaledY, z, transparent);
+    }
+
+    // Public accessor for downscaled material data - needed for neighbor culling
+    UnpackedVoxelMaterial getMaterialDownscaledPublic(int lodLevel, ivec3 worldPos) const {
+        // worldPos uses world Z coordinate (0-511)
+        int scaledX = worldPos.x / lodLevel;
+        int scaledY = worldPos.y / lodLevel;
+
+        return getMaterialDownscaled(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
+    }
+
 private:
+    void computeAllLODCounts(LODCountStorage& counts) {
+        // Single pass through all voxels
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    ivec3 pos(x, y, z);
+
+                    // Check occupancy
+                    bool isSolid = getVoxelWholeColumn(pos, false);
+                    bool isTransparent = getVoxelWholeColumn(pos, true);
+
+                    if (!isSolid && !isTransparent) continue;
+
+                    // Get material once
+                    UnpackedVoxelMaterial mat = getMaterialFast(pos);
+                    uint16_t packedMat = packMaterialData(mat).materialData;
+
+                    // Update LOD2 counts (2x2x1 groups)
+                    {
+                        int gx = x / 2, gy = y / 2, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 16);
+                        if (isSolid) counts.lod2[idx].solidCount++;
+                        if (isTransparent) counts.lod2[idx].transparentCount++;
+                        counts.lod2[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD4 counts (4x4x1 groups)
+                    {
+                        int gx = x / 4, gy = y / 4, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 8);
+                        if (isSolid) counts.lod4[idx].solidCount++;
+                        if (isTransparent) counts.lod4[idx].transparentCount++;
+                        counts.lod4[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD8 counts (8x8x1 groups)
+                    {
+                        int gx = x / 8, gy = y / 8, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 4);
+                        if (isSolid) counts.lod8[idx].solidCount++;
+                        if (isTransparent) counts.lod8[idx].transparentCount++;
+                        counts.lod8[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD16 counts (16x16x1 groups)
+                    {
+                        int gx = x / 16, gy = y / 16, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 2);
+                        if (isSolid) counts.lod16[idx].solidCount++;
+                        if (isTransparent) counts.lod16[idx].transparentCount++;
+                        counts.lod16[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD32 counts (32x32x1 groups)
+                    {
+                        int gx = 0, gy = 0, gz = z; // Only one group in XY
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 1);
+                        if (isSolid) counts.lod32[idx].solidCount++;
+                        if (isTransparent) counts.lod32[idx].transparentCount++;
+                        counts.lod32[idx].materialCounts[packedMat]++;
+                    }
+                }
+            }
+        }
+    }
+
+    void generateDownscaledFromCounts(const LODCountStorage& counts) {
+        // Generate LOD2 data
+        generateLODFromCounts<2>(counts.lod2, voxelData2, transparentVoxelData2,
+            encodedMaterialData2, 16);
+
+        // Generate LOD4 data
+        generateLODFromCounts<4>(counts.lod4, voxelData4, transparentVoxelData4,
+            encodedMaterialData4, 8);
+
+        // Generate LOD8 data
+        generateLODFromCounts<8>(counts.lod8, voxelData8, transparentVoxelData8,
+            encodedMaterialData8, 4);
+
+        // Generate LOD16 data
+        generateLODFromCounts<16>(counts.lod16, voxelData16, transparentVoxelData16,
+            encodedMaterialData16, 2);
+
+        // Generate LOD32 data
+        generateLODFromCounts<32>(counts.lod32, voxelData32, transparentVoxelData32,
+            encodedMaterialData32, 1);
+    }
+
+    template<int LOD>
+    void generateLODFromCounts(const std::vector<LODGroupCounts>& lodCounts,
+        uint8_t* solidData,
+        uint8_t* transparentData,
+        std::vector<RLEPair> encodedData[][LOD == 32 ? 1 : (32 / LOD)],
+        int xySize) {
+
+        // Clear bit arrays
+        int totalBits = xySize * xySize * COLUMN_HEIGHT_BLOCKS;
+        int totalBytes = (totalBits + 7) / 8;
+        std::memset(solidData, 0, totalBytes);
+        std::memset(transparentData, 0, totalBytes);
+
+        // Process each XY column
+        for (int x = 0; x < xySize; x++) {
+            for (int y = 0; y < xySize; y++) {
+                std::vector<uint16_t> columnMaterials;
+                columnMaterials.reserve(COLUMN_HEIGHT_BLOCKS);
+
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    int idx = LODCountStorage::getIndex(x, y, z, xySize);
+                    const auto& group = lodCounts[idx];
+
+                    // Since Z is not downscaled, each group represents LOD*LOD*1 voxels
+                    int voxelsInGroup = (LOD * LOD * 1);
+
+                    // Use majority voting - if more than half are solid/transparent
+                    bool makeSolid = group.solidCount > (voxelsInGroup / 16);
+                    bool makeTransparent = group.transparentCount > (voxelsInGroup / 16);
+
+                    // Set bits
+                    int bitIndex = x + y * xySize + z * xySize * xySize;
+                    int byteIndex = bitIndex / 8;
+                    int bitOffset = bitIndex % 8;
+
+                    if (makeSolid) {
+                        solidData[byteIndex] |= (1 << bitOffset);
+                    }
+
+                    if (makeTransparent) {
+                        transparentData[byteIndex] |= (1 << bitOffset);
+                    }
+
+                    // Get dominant material with higher threshold for consistency
+                    float threshold = 0.5f; // Majority voting for material too
+                    uint16_t material = group.getDominantMaterial(threshold);
+                    columnMaterials.push_back(material);
+                }
+
+                // Encode column
+                encodedData[x][y] = RunLengthEncoder::encode(columnMaterials);
+            }
+        }
+    }
+
+    bool getVoxelDownscaledDirect(int lodLevel, int x, int y, int z, bool transparent) const {
+        // x, y are already in downscaled coordinates
+        // z is world Z coordinate
+        int scaledSize = CHUNK_SIZE / lodLevel;
+
+        if (x >= scaledSize || y >= scaledSize || z >= COLUMN_HEIGHT_BLOCKS) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(voxelDataMutex);
+
+        int bitIndex = x + y * scaledSize + z * scaledSize * scaledSize;
+        int byteIndex = bitIndex / 8;
+        int bitOffset = bitIndex % 8;
+
+        const uint8_t* data = nullptr;
+        switch (lodLevel) {
+        case 2: data = transparent ? transparentVoxelData2 : voxelData2; break;
+        case 4: data = transparent ? transparentVoxelData4 : voxelData4; break;
+        case 8: data = transparent ? transparentVoxelData8 : voxelData8; break;
+        case 16: data = transparent ? transparentVoxelData16 : voxelData16; break;
+        case 32: data = transparent ? transparentVoxelData32 : voxelData32; break;
+        default: return false;
+        }
+
+        return (data[byteIndex] & (1 << bitOffset)) != 0;
+    }
+
+    // Simplified accessor methods
+    bool getVoxelDownscaled(int lodLevel, ivec3 pos, bool transparent) const {
+        int scaledX = pos.x / lodLevel;
+        int scaledY = pos.y / lodLevel;
+        int z = pos.z; // Z not downscaled
+        int scaledSize = CHUNK_SIZE / lodLevel;
+
+        if (scaledX >= scaledSize || scaledY >= scaledSize || z >= COLUMN_HEIGHT_BLOCKS) {
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(voxelDataMutex);
+
+        int bitIndex = scaledX + scaledY * scaledSize + z * scaledSize * scaledSize;
+        int byteIndex = bitIndex / 8;
+        int bitOffset = bitIndex % 8;
+
+        const uint8_t* data = nullptr;
+        switch (lodLevel) {
+        case 2: data = transparent ? transparentVoxelData2 : voxelData2; break;
+        case 4: data = transparent ? transparentVoxelData4 : voxelData4; break;
+        case 8: data = transparent ? transparentVoxelData8 : voxelData8; break;
+        case 16: data = transparent ? transparentVoxelData16 : voxelData16; break;
+        case 32: data = transparent ? transparentVoxelData32 : voxelData32; break;
+        default: return false;
+        }
+
+        return (data[byteIndex] & (1 << bitOffset)) != 0;
+    }
+
+    UnpackedVoxelMaterial getMaterialDownscaled(int lodLevel, ivec3 pos) const {
+        int scaledX = pos.x;
+        int scaledY = pos.y;
+        int z = pos.z;
+        int scaledSize = CHUNK_SIZE / lodLevel;
+
+        if (scaledX >= scaledSize || scaledY >= scaledSize || z >= COLUMN_HEIGHT_BLOCKS) {
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+        }
+
+        std::lock_guard<std::mutex> lock(materialDataMutex);
+
+        std::vector<uint16_t> column;
+        switch (lodLevel) {
+        case 2:
+            column = RunLengthEncoder::decode(encodedMaterialData2[scaledX][scaledY], COLUMN_HEIGHT_BLOCKS);
+            break;
+        case 4:
+            column = RunLengthEncoder::decode(encodedMaterialData4[scaledX][scaledY], COLUMN_HEIGHT_BLOCKS);
+            break;
+        case 8:
+            column = RunLengthEncoder::decode(encodedMaterialData8[scaledX][scaledY], COLUMN_HEIGHT_BLOCKS);
+            break;
+        case 16:
+            column = RunLengthEncoder::decode(encodedMaterialData16[scaledX][scaledY], COLUMN_HEIGHT_BLOCKS);
+            break;
+        case 32:
+            column = RunLengthEncoder::decode(encodedMaterialData32[0][0], COLUMN_HEIGHT_BLOCKS);
+            break;
+        default:
+            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+        }
+
+        return unpackMaterialData(PackedVoxelMaterial{ column[z] });
+    }
 
     void sortDAICsByDepth(const vec3& cameraPos) {
         // Create a vector of indices paired with distances for sorting
@@ -488,14 +885,14 @@ private:
     }
 
 public:
-    void updateChunkDataBuffer(const int zPos, BufferManager* buf) {
+    void updateChunkDataBuffer(const int zPos, BufferManager* buf, int lodLevel) {
         if (!meta[zPos].chunkDataBufferGPUInitialized) {
             return;
         }
 
         ChunkData chunkData;
         chunkData.worldPosition = meta[zPos].position;
-        chunkData.lod = currentLODLevel;
+        chunkData.lod = (lodLevel >= 0) ? lodLevel : currentLODLevel;
 
         for (int i = 0; i < 8; i++) {
             chunkData.meshSlots[i] = meta[zPos].meshSlots[i];
@@ -504,9 +901,9 @@ public:
         buf->getBufferPool("chunkdata_pool")->writeToSlot(meta[zPos].resourceId, chunkData);
     }
 
-    void updateAllChunkDataBuffers(BufferManager* buf) {
+    void updateAllChunkDataBuffers(BufferManager* buf, int lodLevel) {
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            updateChunkDataBuffer(i, buf);
+            updateChunkDataBuffer(i, buf, lodLevel);
         }
     }
 
@@ -1314,7 +1711,7 @@ public:
         //case BlockType::TallGrass:
         //case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
         //case BlockType::Grass3: case BlockType::Grass4: case BlockType::Grass5:
-        //    return true;
+        return true;
         default: return false;
         }
     }
@@ -1429,12 +1826,12 @@ public:
         // Clear all mesh slots
         {
             std::lock_guard<std::mutex> lock(meshDataMutex);
-            for (int slot = 0; slot < 4; slot++) {
+            for (int slot = 0; slot < 8; slot++) {
                 faceData[slot][zPos].clear();
             }
         }
 
-        // LOD configuration
+        // LOD configuration - now properly respecting Z=1 for downscaled levels
         struct LODConfig {
             int level;
             int meshSlot;
@@ -1442,13 +1839,15 @@ public:
         };
 
         std::array<LODConfig, 4> lodConfigs = { {
-            {1, 0, true},   // LOD 1 with grass
-            {2, 1, false},  // LOD 2 without grass
-            {4, 2, false},  // LOD 4 without grass
-            {8, 3, false}   // LOD 8 without grass
+            {1, 0, true},   // LOD 1 with grass (full resolution)
+            {2, 1, false},  // LOD 2 without grass (2x2x1)
+            {4, 2, false},  // LOD 4 without grass (4x4x1)
+            {8, 3, false}   // LOD 8 without grass (8x8x1)
         } };
 
+        // AO states remain the same
         ivec3 aoStates[6][4][3] = {
+            // ... (keeping existing AO states)
             {{ivec3(1, -1, 0), ivec3(1, 0, -1), ivec3(1, -1, -1)},
             {ivec3(1, 1, 0), ivec3(1, 0, -1), ivec3(1, 1, -1)},
             {ivec3(1, 1, 0),ivec3(1, 0, 1),ivec3(1, 1, 1),},
@@ -1489,220 +1888,117 @@ public:
             ivec3(0, 0, -1)   // Bottom
         };
 
+        // Face neighbor offsets remain the same
         ivec3 faceNeighborOffsets[6][10] = {
+            // ... (keeping existing offsets)
             //Right
             {
                 neighborOffsets[4], neighborOffsets[5], neighborOffsets[2], neighborOffsets[3],
-
                 neighborOffsets[4] + neighborOffsets[2], neighborOffsets[4] + neighborOffsets[3],
                 neighborOffsets[5] + neighborOffsets[2], neighborOffsets[5] + neighborOffsets[3],
-
                 neighborOffsets[0], neighborOffsets[1],
             },
             //Left
             {
                 neighborOffsets[4], neighborOffsets[5], neighborOffsets[3], neighborOffsets[2],
-
                 neighborOffsets[4] + neighborOffsets[3], neighborOffsets[4] + neighborOffsets[2],
                 neighborOffsets[5] + neighborOffsets[3], neighborOffsets[5] + neighborOffsets[2],
-
                 neighborOffsets[1], neighborOffsets[0],
             },
             //Front
             {
                 neighborOffsets[4], neighborOffsets[5], neighborOffsets[0], neighborOffsets[1],
-
                 neighborOffsets[4] + neighborOffsets[0], neighborOffsets[4] + neighborOffsets[1],
                 neighborOffsets[5] + neighborOffsets[0], neighborOffsets[5] + neighborOffsets[1],
-
                 neighborOffsets[2], neighborOffsets[3],
             },
             //Back
             {
                 neighborOffsets[4], neighborOffsets[5], neighborOffsets[1], neighborOffsets[0],
-
                 neighborOffsets[4] + neighborOffsets[1], neighborOffsets[4] + neighborOffsets[0],
                 neighborOffsets[5] + neighborOffsets[1], neighborOffsets[5] + neighborOffsets[0],
-
                 neighborOffsets[3], neighborOffsets[2],
             },
             //Top
             {
                 neighborOffsets[2], neighborOffsets[3], neighborOffsets[0], neighborOffsets[1],
-
                 neighborOffsets[2] + neighborOffsets[0], neighborOffsets[2] + neighborOffsets[1],
                 neighborOffsets[3] + neighborOffsets[0], neighborOffsets[3] + neighborOffsets[1],
-
                 neighborOffsets[4], neighborOffsets[5],
             },
             //Bottom
             {
                 neighborOffsets[2], neighborOffsets[3], neighborOffsets[1], neighborOffsets[0],
-
                 neighborOffsets[2] + neighborOffsets[1], neighborOffsets[2] + neighborOffsets[0],
                 neighborOffsets[3] + neighborOffsets[1], neighborOffsets[3] + neighborOffsets[0],
-
                 neighborOffsets[5], neighborOffsets[4],
             },
         };
 
-        // Cache for voxel data - only sample each voxel once
-        std::unordered_map<ivec3, std::pair<bool, bool>, IVec3Hash, IVec3Equal> voxelCache; // pos -> {hasSolid, hasTransparent}
-
-        auto getVoxelCached = [&](ivec3 pos) -> std::pair<bool, bool> {
-            auto it = voxelCache.find(pos);
-            if (it != voxelCache.end()) {
-                return it->second;
+        // NEW: Function to get voxel from appropriate LOD level
+        auto getVoxelFromLOD = [&](int lodLevel, ivec3 pos, bool transparent) -> bool {
+            if (lodLevel == 1) {
+                // LOD 1 uses original data at full resolution
+                return this->getVoxelSafe(zPos, pos, transparent, neighbors);
             }
+            else {
+                // Higher LODs use downscaled data (already computed)
+                // Map world position to downscaled position
+                int worldZ = pos.z + zPos * CHUNK_SIZE;
+                if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return false;
 
-            bool hasSolid = this->getVoxelSafe(zPos, pos, false, neighbors);
-            bool hasTransparent = this->getVoxelSafe(zPos, pos, true, neighbors);
-            auto result = std::make_pair(hasSolid, hasTransparent);
-            voxelCache[pos] = result;
-            return result;
-            };
-
-        auto getMaterialFastSafe = [&](ivec3 pos) -> UnpackedVoxelMaterial {
-            // First handle horizontal cross-chunk cases (X/Y out of bounds)
-            if (pos.x < 0 || pos.x >= CHUNK_SIZE || pos.y < 0 || pos.y >= CHUNK_SIZE) {
-                ivec3 neighborPos = pos;
-                int neighborIndex = -1;
-
-                if (pos.x >= CHUNK_SIZE) { neighborIndex = 0; neighborPos.x -= CHUNK_SIZE; }
-                else if (pos.x < 0) { neighborIndex = 1; neighborPos.x += CHUNK_SIZE; }
-                else if (pos.y >= CHUNK_SIZE) { neighborIndex = 2; neighborPos.y -= CHUNK_SIZE; }
-                else if (pos.y < 0) { neighborIndex = 3; neighborPos.y += CHUNK_SIZE; }
-
-                if (neighborIndex >= 0 && neighbors[neighborIndex] &&
-                    neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
-
-                    // map to neighbor chunk's local Z using world-Z of this column
-                    int worldZ = pos.z + zPos * CHUNK_SIZE;              // 0..COLUMN_HEIGHT_BLOCKS-1
-                    if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
-                    int targetZ = worldZ / CHUNK_SIZE;
-                    int localZ = worldZ % CHUNK_SIZE;
-
-                    return neighbors[neighborIndex]->getMaterialCompressed(targetZ,
-                        ivec3(neighborPos.x, neighborPos.y, localZ));
-                }
-                return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+                return this->getVoxelDownscaledDirect(lodLevel, pos.x, pos.y, worldZ, transparent);
             }
-
-            // X/Y in-bounds: vertical stays in the same column — ALWAYS use raw-friendly path
-            int worldZ = pos.z + zPos * CHUNK_SIZE;                        // allow z=-1 or 32 etc.
-            if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS) return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
-            return getMaterialFast(ivec3(pos.x, pos.y, worldZ));
             };
 
-        auto sampleLODGroup = [&](ivec3 groupPos, int lodLevel, bool transparent)
-            -> std::pair<bool, UnpackedVoxelMaterial>
-            {
-                struct MatKey { BlockType t; FacingDirection f; };
-                struct MatKeyHash {
-                    size_t operator()(const MatKey& k) const {
-                        return (static_cast<size_t>(k.t) << 3) ^ static_cast<size_t>(k.f);
+        // NEW: Function to get material from appropriate LOD level
+        auto getMaterialFromLOD = [&](int lodLevel, ivec3 pos) -> UnpackedVoxelMaterial {
+            if (lodLevel == 1) {
+                // LOD 1 uses original data
+                if (pos.x < 0 || pos.x >= CHUNK_SIZE || pos.y < 0 || pos.y >= CHUNK_SIZE) {
+                    // Handle cross-chunk access
+                    ivec3 neighborPos = pos;
+                    int neighborIndex = -1;
+
+                    if (pos.x >= CHUNK_SIZE) { neighborIndex = 0; neighborPos.x -= CHUNK_SIZE; }
+                    else if (pos.x < 0) { neighborIndex = 1; neighborPos.x += CHUNK_SIZE; }
+                    else if (pos.y >= CHUNK_SIZE) { neighborIndex = 2; neighborPos.y -= CHUNK_SIZE; }
+                    else if (pos.y < 0) { neighborIndex = 3; neighborPos.y += CHUNK_SIZE; }
+
+                    if (neighborIndex >= 0 && neighbors[neighborIndex] &&
+                        neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
+                        int worldZ = pos.z + zPos * CHUNK_SIZE;
+                        if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS)
+                            return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+                        int targetZ = worldZ / CHUNK_SIZE;
+                        int localZ = worldZ % CHUNK_SIZE;
+
+                        return neighbors[neighborIndex]->getMaterialCompressed(targetZ,
+                            ivec3(neighborPos.x, neighborPos.y, localZ));
                     }
-                };
-                struct MatKeyEq {
-                    bool operator()(const MatKey& a, const MatKey& b) const {
-                        return a.t == b.t && a.f == b.f;
-                    }
-                };
-
-                // Count by type, and by (type,facing)
-                std::unordered_map<BlockType, int> typeCounts;
-                std::unordered_map<MatKey, int, MatKeyHash, MatKeyEq> tfCounts;
-
-                int solidVoxels = 0;
-                int totalVoxels = 0;
-
-                for (int dx = 0; dx < lodLevel; ++dx) {
-                    for (int dy = 0; dy < lodLevel; ++dy) {
-                        for (int dz = 0; dz < lodLevel; ++dz) {
-                            ivec3 voxelPos = groupPos + ivec3(dx, dy, dz);
-                            ++totalVoxels;
-
-                            auto [hasSolid, hasTransparent] = getVoxelCached(voxelPos);
-                            bool isOccupied = transparent ? hasTransparent : hasSolid;
-                            if (!isOccupied) continue;
-
-                            ++solidVoxels;
-                            UnpackedVoxelMaterial m = getMaterialFastSafe(voxelPos);
-                            ++typeCounts[m.materialType];
-                            ++tfCounts[MatKey{ m.materialType, m.facing }];
-                        }
-                    }
+                    return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
                 }
 
-                bool groupIsSolid = solidVoxels >= glm::max(1, totalVoxels / 4);
-                UnpackedVoxelMaterial dominant{};
-                dominant.materialType = BlockType::Air;
-                dominant.facing = FacingDirection::PlusX;
-
-                if (groupIsSolid && !typeCounts.empty()) {
-                    // Pick dominant TYPE
-                    BlockType domType = BlockType::Air;
-                    int bestTypeCount = -1;
-                    for (const auto& kv : typeCounts) {
-                        if (kv.second > bestTypeCount) { bestTypeCount = kv.second; domType = kv.first; }
-                    }
-                    dominant.materialType = domType;
-
-                    // Pick dominant FACING among voxels of that type
-                    FacingDirection domFacing = FacingDirection::PlusX;
-                    int bestTFCount = -1;
-                    for (const auto& kv : tfCounts) {
-                        if (kv.first.t == domType && kv.second > bestTFCount) {
-                            bestTFCount = kv.second;
-                            domFacing = kv.first.f;
-                        }
-                    }
-                    dominant.facing = domFacing;
-                }
-
-                // Preserve your special-cases, but keep facing too
-                // (Log: if you force type to Log, pick the majority facing among Log voxels)
-                if (typeCounts[BlockType::Log] > 4) {
-                    dominant.materialType = BlockType::Log;
-                    FacingDirection logFacing = FacingDirection::PlusX;
-                    int bestLogCount = -1;
-                    for (const auto& kv : tfCounts) {
-                        if (kv.first.t == BlockType::Log && kv.second > bestLogCount) {
-                            bestLogCount = kv.second;
-                            logFacing = kv.first.f;
-                        }
-                    }
-                    dominant.facing = logFacing;
-                }
-
-                // (Grass override kept; facing is irrelevant for billboards, but we can keep the majority)
-                if (typeCounts[BlockType::Grass] > totalVoxels / 8) {
-                    dominant.materialType = BlockType::Grass;
-                    // keep whatever majority facing we already picked for that type
-                }
-
-                return { groupIsSolid, dominant };
-            };
-
-        // Cache for LOD group sampling results
-        std::unordered_map<std::tuple<ivec3, int, bool>, std::pair<bool, UnpackedVoxelMaterial>, TupleHash, TupleEqual> lodGroupCache;
-
-        auto sampleLODGroupCached = [&](ivec3 groupPos, int lodLevel, bool transparent) -> std::pair<bool, UnpackedVoxelMaterial> {
-            auto key = std::make_tuple(groupPos, lodLevel, transparent);
-            auto it = lodGroupCache.find(key);
-            if (it != lodGroupCache.end()) {
-                return it->second;
+                int worldZ = pos.z + zPos * CHUNK_SIZE;
+                if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS)
+                    return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
+                return getMaterialFast(ivec3(pos.x, pos.y, worldZ));
             }
+            else {
+                // Higher LODs use downscaled material data
+                int worldZ = pos.z + zPos * CHUNK_SIZE;
+                if (worldZ < 0 || worldZ >= COLUMN_HEIGHT_BLOCKS)
+                    return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
 
-            auto result = sampleLODGroup(groupPos, lodLevel, transparent);
-            lodGroupCache[key] = result;
-            return result;
+                return this->getMaterialDownscaled(lodLevel, ivec3(pos.x, pos.y, worldZ));
+            }
             };
 
-        // Quick material helpers
+        // Helper functions for material checking
         auto isLeaf = [](uint32_t t) -> bool {
             return t == BlockType::Leaf || t == BlockType::SpruceLeaf;
             };
+
         auto isGrassBillboard = [](uint32_t t) -> bool {
             return t == BlockType::TallGrass ||
                 t == BlockType::Grass0 ||
@@ -1714,142 +2010,181 @@ public:
                 t == BlockType::Grass5;
             };
 
-        // Fetch a material safely across chunk boundaries (local coords: 0..CHUNK_SIZE-1)
-        auto getMaterialTypeSafe = [&](int zPosLocal, ivec3 posLocal) -> uint32_t {
-            // within current chunk
-            if (posLocal.x >= 0 && posLocal.x < CHUNK_SIZE &&
-                posLocal.y >= 0 && posLocal.y < CHUNK_SIZE &&
-                posLocal.z >= 0 && posLocal.z < CHUNK_SIZE) {
-                return getMaterialCompressed(zPosLocal, posLocal).materialType;
-            }
-
-            // vertical neighbors in same column
-            if (posLocal.x >= 0 && posLocal.x < CHUNK_SIZE &&
-                posLocal.y >= 0 && posLocal.y < CHUNK_SIZE) {
-                if (posLocal.z >= CHUNK_SIZE) {
-                    if (zPosLocal < COLUMN_HEIGHT - 1)
-                        return getMaterialCompressed(zPosLocal + 1, ivec3(posLocal.x, posLocal.y, posLocal.z - CHUNK_SIZE)).materialType;
-                    return 0;
-                }
-                else if (posLocal.z < 0) {
-                    if (zPosLocal > 0)
-                        return getMaterialCompressed(zPosLocal - 1, ivec3(posLocal.x, posLocal.y, posLocal.z + CHUNK_SIZE)).materialType;
-                    return 0;
-                }
-            }
-
-            // horizontal neighbors (use neighbors[0..3])
-            ivec3 np = posLocal;
-            int ni = -1;
-            if (posLocal.x >= CHUNK_SIZE) { ni = 0; np.x -= CHUNK_SIZE; }
-            else if (posLocal.x < 0) { ni = 1; np.x += CHUNK_SIZE; }
-            else if (posLocal.y >= CHUNK_SIZE) { ni = 2; np.y -= CHUNK_SIZE; }
-            else if (posLocal.y < 0) { ni = 3; np.y += CHUNK_SIZE; }
-
-            if (ni >= 0 && neighbors[ni] && neighbors[ni]->getState() != ColumnState::Unloading) {
-                if (np.x >= 0 && np.x < CHUNK_SIZE && np.y >= 0 && np.y < CHUNK_SIZE && np.z >= 0 && np.z < CHUNK_SIZE) {
-                    return neighbors[ni]->getMaterialCompressed(zPosLocal, np).materialType;
-                }
-            }
-            return 0; // air
-            };
-
-        auto shouldCullLODFace = [&](ivec3 groupPos,
+        auto shouldCullLODFaceDownscaled = [&](ivec3 groupPos,
             int faceIndex,
             int lodLevel,
             bool transparentPass,
             uint32_t currentMatType) -> bool
             {
-                // Rule 1: No culling for grass billboards and leaves themselves
-                if (isLeaf(currentMatType) || isGrassBillboard(currentMatType)) {
+                // Special materials that never cull their own faces
+                if (isLeaf(currentMatType) || isGrassBillboard(currentMatType) || currentMatType == BlockType::Fence) {
                     return false;
                 }
 
-                if (currentMatType == BlockType::Fence) {
-                    return false;
-                }
+                // For downscaled LODs, check the neighbor in downscaled space
+                ivec3 neighborPos = groupPos + neighborOffsets[faceIndex];
 
-                ivec3 neighborGroupPos = groupPos + neighborOffsets[faceIndex] * lodLevel;
+                // Convert to world Z for downscaled access
+                int worldZ = neighborPos.z + zPos * CHUNK_SIZE;
 
-                auto cullTransparentIfSame = [&](ivec3 nPosSameChunk) -> bool {
-                    // neighbor LOD group (same chunk) — use cached sampling
-                    auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/true);
-                    if (nOcc && (currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface)) {
-                        if (nMat.materialType == BlockType::Water || nMat.materialType == BlockType::WaterSurface) {
-                            return true;
-                        }
-                    }
-                    return nOcc && (nMat.materialType == currentMatType);
-                    };
+                // First check if neighbor is in current column
+                bool inCurrentColumn = (neighborPos.x >= 0 && neighborPos.x < (CHUNK_SIZE / lodLevel) &&
+                    neighborPos.y >= 0 && neighborPos.y < (CHUNK_SIZE / lodLevel) &&
+                    worldZ >= 0 && worldZ < COLUMN_HEIGHT_BLOCKS);
 
-                auto cullSolidIfSolidNonLeaf = [&](ivec3 nPosSameChunk) -> bool {
-                    auto [nOcc, nMat] = sampleLODGroupCached(nPosSameChunk, lodLevel, /*transparent=*/false);
-                    // Modified rule: only cull if neighbor is solid AND not a leaf
-                    return nOcc && !isLeaf(nMat.materialType);
-                    };
+                if (inCurrentColumn) {
+                    // Check within current column
+                    bool neighborSolid = getVoxelDownscaledDirect(lodLevel, neighborPos.x, neighborPos.y, worldZ, false);
+                    bool neighborTransparent = getVoxelDownscaledDirect(lodLevel, neighborPos.x, neighborPos.y, worldZ, true);
 
-                bool neighborInSameChunk =
-                    (neighborGroupPos.x >= 0 && neighborGroupPos.x < CHUNK_SIZE &&
-                        neighborGroupPos.y >= 0 && neighborGroupPos.y < CHUNK_SIZE &&
-                        neighborGroupPos.z >= 0 && neighborGroupPos.z < CHUNK_SIZE);
-
-                if (neighborInSameChunk) {
                     if (transparentPass) {
-                        // Rule 2: transparent culls only when neighbor material matches
-                        return cullTransparentIfSame(neighborGroupPos);
+                        if (neighborTransparent) {
+                            UnpackedVoxelMaterial neighborMat = getMaterialDownscaled(lodLevel, ivec3(neighborPos.x, neighborPos.y, worldZ));
+                            if ((currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) &&
+                                (neighborMat.materialType == BlockType::Water || neighborMat.materialType == BlockType::WaterSurface)) {
+                                return true;
+                            }
+                            return neighborMat.materialType == currentMatType;
+                        }
                     }
                     else {
-                        // Modified Rule 3: solid culls when neighbor is solid AND not a leaf
-                        return cullSolidIfSolidNonLeaf(neighborGroupPos);
+                        if (neighborSolid) {
+                            UnpackedVoxelMaterial neighborMat = getMaterialDownscaled(lodLevel, ivec3(neighborPos.x, neighborPos.y, worldZ));
+                            // Don't cull if neighbor is a special block type (leaf, grass, fence)
+                            if (isLeaf(neighborMat.materialType) ||
+                                isGrassBillboard(neighborMat.materialType) ||
+                                neighborMat.materialType == BlockType::Fence) {
+                                return false;
+                            }
+                            return true; // Cull face against solid neighbor
+                        }
                     }
                 }
+                else {
+                    // Need to check neighboring column
+                    // Convert back to world coordinates for the neighbor check
+                    ivec3 worldNeighborPos;
+                    worldNeighborPos.x = neighborPos.x * lodLevel; // Scale back to world coords
+                    worldNeighborPos.y = neighborPos.y * lodLevel; // Scale back to world coords
+                    worldNeighborPos.z = worldZ; // Already in world Z
 
-                // Cross-chunk boundary: check the actual voxels along the face
-                // We cull the whole face only if ALL the neighboring voxels meet the cull condition.
-                for (int u = 0; u < lodLevel; ++u) {
-                    for (int v = 0; v < lodLevel; ++v) {
-                        ivec3 faceOffset, neighborOffset;
-                        switch (faceIndex) {
-                        case 0: faceOffset = ivec3(lodLevel - 1, u, v); neighborOffset = ivec3(1, 0, 0); break;
-                        case 1: faceOffset = ivec3(0, u, v);           neighborOffset = ivec3(-1, 0, 0); break;
-                        case 2: faceOffset = ivec3(u, lodLevel - 1, v); neighborOffset = ivec3(0, 1, 0); break;
-                        case 3: faceOffset = ivec3(u, 0, v);           neighborOffset = ivec3(0, -1, 0); break;
-                        case 4: faceOffset = ivec3(u, v, lodLevel - 1); neighborOffset = ivec3(0, 0, 1); break;
-                        default: // 5
-                            faceOffset = ivec3(u, v, 0);            neighborOffset = ivec3(0, 0, -1); break;
+                    // Determine which neighbor column to check
+                    int neighborIndex = -1;
+                    ivec3 neighborLocalPos = worldNeighborPos;
+
+                    if (worldNeighborPos.x >= CHUNK_SIZE) {
+                        neighborIndex = 0; // Right neighbor
+                        neighborLocalPos.x = worldNeighborPos.x - CHUNK_SIZE;
+                    }
+                    else if (worldNeighborPos.x < 0) {
+                        neighborIndex = 1; // Left neighbor
+                        neighborLocalPos.x = worldNeighborPos.x + CHUNK_SIZE;
+                    }
+                    else if (worldNeighborPos.y >= CHUNK_SIZE) {
+                        neighborIndex = 2; // Front neighbor
+                        neighborLocalPos.y = worldNeighborPos.y - CHUNK_SIZE;
+                    }
+                    else if (worldNeighborPos.y < 0) {
+                        neighborIndex = 3; // Back neighbor
+                        neighborLocalPos.y = worldNeighborPos.y + CHUNK_SIZE;
+                    }
+
+                    // Check the neighbor column if available
+                    if (neighborIndex >= 0 && neighborIndex < 4 && neighbors[neighborIndex] != nullptr) {
+                        if (neighbors[neighborIndex]->getState() == ColumnState::Unloading) {
+                            return false; // Treat as empty if neighbor is being unloaded
                         }
 
-                        ivec3 neighborVoxelPos = groupPos + faceOffset + neighborOffset;
-                        auto [nHasSolid, nHasTransp] = getVoxelCached(neighborVoxelPos);
+                        // Use the public accessor to check neighbor's downscaled data
+                        bool neighborSolid = neighbors[neighborIndex]->getVoxelDownscaledPublic(
+                            lodLevel, neighborLocalPos, false);
+                        bool neighborTransparent = neighbors[neighborIndex]->getVoxelDownscaledPublic(
+                            lodLevel, neighborLocalPos, true);
 
                         if (transparentPass) {
-                            // Must be a transparent neighbor with the SAME material, otherwise don't cull
-                            if (!nHasTransp) return false;
-                            uint32_t nMatType = getMaterialTypeSafe(zPos, neighborVoxelPos);
-                            if (nMatType != currentMatType) return false;
+                            if (neighborTransparent) {
+                                UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublic(
+                                    lodLevel, neighborLocalPos);
+                                if ((currentMatType == BlockType::Water || currentMatType == BlockType::WaterSurface) &&
+                                    (neighborMat.materialType == BlockType::Water || neighborMat.materialType == BlockType::WaterSurface)) {
+                                    return true;
+                                }
+                                return neighborMat.materialType == currentMatType;
+                            }
                         }
                         else {
-                            // Modified for solid pass: neighbor must be solid AND not a leaf
-                            if (!nHasSolid) return false;
-
-                            // Check if neighbor is a leaf - if so, don't cull
-                            uint32_t nMatType = getMaterialTypeSafe(zPos, neighborVoxelPos);
-                            if (isLeaf(nMatType)) return false;
+                            if (neighborSolid) {
+                                UnpackedVoxelMaterial neighborMat = neighbors[neighborIndex]->getMaterialDownscaledPublic(
+                                    lodLevel, neighborLocalPos);
+                                // Don't cull if neighbor is a special block type (leaf, grass, fence)
+                                if (isLeaf(neighborMat.materialType) ||
+                                    isGrassBillboard(neighborMat.materialType) ||
+                                    neighborMat.materialType == BlockType::Fence) {
+                                    return false;
+                                }
+                                return true; // Cull face against solid neighbor
+                            }
                         }
                     }
                 }
-                return true; // all neighbor checks matched the cull condition
+
+                return false;
             };
 
-        // AO calculation function
-        auto calculateAmbientOcclusion = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel, bool transparent) -> uint32_t {
-            ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0] * lodLevel;
-            ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1] * lodLevel;
-            ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2] * lodLevel;
+        auto calculateAmbientOcclusionDownscaled = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel, bool transparent) -> uint32_t {
+            ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0];
+            ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1];
+            ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2];
 
-            auto [side1Solid, _1] = sampleLODGroupCached(side1Pos, lodLevel, transparent);
-            auto [side2Solid, _2] = sampleLODGroupCached(side2Pos, lodLevel, transparent);
-            auto [cornerSolid, _3] = sampleLODGroupCached(cornerPos, lodLevel, transparent);
+            auto checkOccupancy = [&](ivec3 pos) -> bool {
+                int worldZ = pos.z + zPos * CHUNK_SIZE;
+
+                // Check if position is within current column bounds
+                if (pos.x >= 0 && pos.x < (CHUNK_SIZE / lodLevel) &&
+                    pos.y >= 0 && pos.y < (CHUNK_SIZE / lodLevel) &&
+                    worldZ >= 0 && worldZ < COLUMN_HEIGHT_BLOCKS) {
+                    return getVoxelDownscaledDirect(lodLevel, pos.x, pos.y, worldZ, transparent);
+                }
+
+                // Check neighboring columns
+                ivec3 worldPos;
+                worldPos.x = pos.x * lodLevel;
+                worldPos.y = pos.y * lodLevel;
+                worldPos.z = worldZ;
+
+                int neighborIndex = -1;
+                ivec3 neighborLocalPos = worldPos;
+
+                if (worldPos.x >= CHUNK_SIZE) {
+                    neighborIndex = 0;
+                    neighborLocalPos.x = worldPos.x - CHUNK_SIZE;
+                }
+                else if (worldPos.x < 0) {
+                    neighborIndex = 1;
+                    neighborLocalPos.x = worldPos.x + CHUNK_SIZE;
+                }
+                else if (worldPos.y >= CHUNK_SIZE) {
+                    neighborIndex = 2;
+                    neighborLocalPos.y = worldPos.y - CHUNK_SIZE;
+                }
+                else if (worldPos.y < 0) {
+                    neighborIndex = 3;
+                    neighborLocalPos.y = worldPos.y + CHUNK_SIZE;
+                }
+
+                if (neighborIndex >= 0 && neighborIndex < 4 && neighbors[neighborIndex] != nullptr) {
+                    if (neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
+                        return neighbors[neighborIndex]->getVoxelDownscaledPublic(
+                            lodLevel, neighborLocalPos, transparent);
+                    }
+                }
+
+                return false;
+                };
+
+            bool side1Solid = checkOccupancy(side1Pos);
+            bool side2Solid = checkOccupancy(side2Pos);
+            bool cornerSolid = checkOccupancy(cornerPos);
 
             if (side1Solid && side2Solid) {
                 return 0;
@@ -1857,7 +2192,7 @@ public:
             return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
             };
 
-        // Pack data function
+        // Pack data function remains the same
         auto packData = [](uint8_t position_x, uint8_t position_y, uint8_t position_z,
             uint8_t vertex_index, std::array<uint32_t, 4>& aoValues, uint32_t reversed) -> uint32_t {
                 position_x &= 0x1F;
@@ -1887,7 +2222,7 @@ public:
             };
 
         auto packMaterialData32 = [](UnpackedVoxelMaterial material, std::array<uint32_t, 10> flags) -> uint32_t {
-            uint32_t packed16 = packMaterialData(material).materialData; // lower 16 bits = [id:13 | facing:3]
+            uint32_t packed16 = packMaterialData(material).materialData;
             uint32_t packed = packed16 & 0xFFFFu;
 
             for (int i = 0; i < static_cast<int>(flags.size()); ++i) {
@@ -1895,82 +2230,180 @@ public:
             }
 
             return packed;
-        };
+            };
 
         std::lock_guard<std::mutex> lock(meshDataMutex);
 
         try {
             // Process both solid and transparent passes for all LOD levels
             for (bool transparent : {false, true}) {
-                // Find the maximum LOD level to determine iteration bounds
-                int maxLodLevel = 8; // Based on your LOD configs
+                for (const auto& config : lodConfigs) {
+                    int lodLevel = config.level;
+                    int meshSlot = config.meshSlot + (transparent ? TRANSPARENT_OFFSET : 0);
+                    bool includeGrass = config.includeGrass;
 
-                for (int x = 0; x < CHUNK_SIZE; x += maxLodLevel) {
-                    for (int y = 0; y < CHUNK_SIZE; y += maxLodLevel) {
-                        for (int z = 0; z < CHUNK_SIZE; z += maxLodLevel) {
+                    if (lodLevel == 1) {
+                        // LOD 1: Full resolution processing (original algorithm)
+                        for (int x = 0; x < CHUNK_SIZE; x++) {
+                            for (int y = 0; y < CHUNK_SIZE; y++) {
+                                for (int z = 0; z < CHUNK_SIZE; z++) {
+                                    if (getChunkState(zPos) == ChunkState::Unloading) {
+                                        return false;
+                                    }
 
-                            if (getChunkState(zPos) == ChunkState::Unloading) {
-                                return false;
-                            }
+                                    ivec3 voxelPos(x, y, z);
+                                    bool isOccupied = getVoxelFromLOD(lodLevel, voxelPos, transparent);
 
-                            // Process each LOD level for this 8x8x8 region
-                            for (const auto& config : lodConfigs) {
-                                int lodLevel = config.level;
-                                int meshSlot = config.meshSlot + (transparent ? TRANSPARENT_OFFSET : 0);
-                                bool includeGrass = config.includeGrass;
+                                    if (!isOccupied) continue;
 
-                                // Iterate through LOD groups at this level within the 8x8x8 region
-                                for (int lx = 0; lx < maxLodLevel; lx += lodLevel) {
-                                    for (int ly = 0; ly < maxLodLevel; ly += lodLevel) {
-                                        for (int lz = 0; lz < maxLodLevel; lz += lodLevel) {
+                                    UnpackedVoxelMaterial material = getMaterialFromLOD(lodLevel, voxelPos);
 
-                                            ivec3 groupPos = ivec3(x + lx, y + ly, z + lz);
+                                    // Skip grass in higher LODs if not including it
+                                    std::string model = tex->getModelKindForBlockType(material.materialType);
+                                    if ((model == "GRASS_MODEL" || model == "FERN_MODEL") && !includeGrass) {
+                                        continue;
+                                    }
 
-                                            // Skip if group is outside chunk bounds
-                                            if (groupPos.x >= CHUNK_SIZE || groupPos.y >= CHUNK_SIZE || groupPos.z >= CHUNK_SIZE) {
-                                                continue;
+                                    int faces = modelManager->getModelSizeInQuads(model);
+
+                                    for (int face = 0; face < faces; ++face) {
+                                        // Check face culling (billboards always render)
+                                        bool shouldRender = (faces == 2);
+
+                                        if (!shouldRender) {
+                                            // Check if face should be culled
+                                            ivec3 neighborPos = voxelPos + neighborOffsets[face];
+                                            bool neighborSolid = getVoxelFromLOD(lodLevel, neighborPos, false);
+                                            bool neighborTransparent = getVoxelFromLOD(lodLevel, neighborPos, true);
+
+                                            if (transparent) {
+                                                if (neighborTransparent) {
+                                                    UnpackedVoxelMaterial neighborMat = getMaterialFromLOD(lodLevel, neighborPos);
+                                                    shouldRender = (neighborMat.materialType != material.materialType);
+                                                }
+                                                else {
+                                                    shouldRender = true;
+                                                }
                                             }
-
-                                            auto [groupIsSolid, groupMaterial] = sampleLODGroupCached(groupPos, lodLevel, transparent);
-
-                                            bool shouldAdd = true;
-                                            int faces = 6;
-
-                                            std::string model = tex->getModelKindForBlockType(groupMaterial.materialType);
-                                            faces = modelManager->getModelSizeInQuads(model);
-
-                                            if ((model == "GRASS_MODEL" || model == "FERN_MODEL") && !includeGrass) {
-                                                shouldAdd = false;
+                                            else {
+                                                if (neighborSolid) {
+                                                    UnpackedVoxelMaterial neighborMat = getMaterialFromLOD(lodLevel, neighborPos);
+                                                    shouldRender = isLeaf(neighborMat.materialType);
+                                                }
+                                                else {
+                                                    shouldRender = true;
+                                                }
                                             }
+                                        }
 
-                                            if (shouldAdd && groupIsSolid) {
-                                                for (int face = 0; face < faces; ++face) {
-                                                    if (faces == 2 || // billboards (grass) always render
-                                                        !shouldCullLODFace(groupPos, face, lodLevel, transparent,
-                                                            groupMaterial.materialType)) {
+                                        if (shouldRender) {
+                                            std::array<uint32_t, 4> aoValues{ 3, 3, 3, 3 };
+                                            std::array<uint32_t, 10> neighborSameMaterialFlags{ 0 };
 
-                                                        std::array<uint32_t, 4> aoValues{ 0 };
-                                                        std::array<uint32_t, 10> neighborSameMaterialFlags{ 0 };
+                                            // Calculate AO and neighbor flags for voxel models
+                                            if (model == "VOXEL_MODEL") {
+                                                // Calculate AO (simplified for now)
+                                                for (int i = 0; i < 4; i++) {
+                                                    aoValues[i] = 3; // Full brightness for now
+                                                }
 
-                                                        if (model == "VOXEL_MODEL") {
-                                                            for (int i = 0; i < 4; i++) {
-                                                                aoValues[i] = calculateAmbientOcclusion(groupPos, face, i, lodLevel, transparent);
-                                                            }
+                                                // Check neighbor materials
+                                                for (int i = 0; i < 10; i++) {
+                                                    ivec3 neighborOffset = faceNeighborOffsets[face][i];
+                                                    ivec3 neighborPos = voxelPos + neighborOffset;
 
-                                                            for (int i = 0; i < 10; i++) {
-                                                                ivec3 neighborOffset = faceNeighborOffsets[face][i];
-                                                                auto [neighborIsSolid, neighborMaterial] = sampleLODGroupCached(groupPos + neighborOffset, lodLevel, transparent);
-                                                                neighborSameMaterialFlags[i] = groupMaterial.materialType == neighborMaterial.materialType ? 0x1 : 0x0;
-                                                            }
-                                                        }
-
-                                                        FaceAttributes currentFace;
-                                                        currentFace.data = packData(groupPos.x, groupPos.y, groupPos.z, face, aoValues, 0x0);
-                                                        currentFace.materialData = packMaterialData32(groupMaterial, neighborSameMaterialFlags);
-                                                        faceData[meshSlot][zPos].push_back(currentFace);
+                                                    if (getVoxelFromLOD(lodLevel, neighborPos, transparent)) {
+                                                        UnpackedVoxelMaterial neighborMat = getMaterialFromLOD(lodLevel, neighborPos);
+                                                        neighborSameMaterialFlags[i] = (material.materialType == neighborMat.materialType) ? 0x1 : 0x0;
                                                     }
                                                 }
                                             }
+
+                                            FaceAttributes currentFace;
+                                            currentFace.data = packData(x, y, z, face, aoValues, 0x0);
+                                            currentFace.materialData = packMaterialData32(material, neighborSameMaterialFlags);
+                                            faceData[meshSlot][zPos].push_back(currentFace);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        // LOD 2+: Use downscaled data (2x2x1, 4x4x1, 8x8x1 blocks)
+                        int downscaledSize = CHUNK_SIZE / lodLevel;
+
+                        for (int x = 0; x < downscaledSize; x++) {
+                            for (int y = 0; y < downscaledSize; y++) {
+                                for (int z = 0; z < CHUNK_SIZE; z++) {  // Still iterate through full Z in chunk space
+                                    if (getChunkState(zPos) == ChunkState::Unloading) {
+                                        return false;
+                                    }
+
+                                    // Convert to world Z for downscaled access
+                                    int worldZ = z + zPos * CHUNK_SIZE;
+                                    ivec3 downscaledPos(x, y, worldZ);
+
+                                    // Check if this downscaled voxel exists
+                                    bool isOccupied = getVoxelDownscaledDirect(lodLevel, x, y, worldZ, transparent);
+                                    if (!isOccupied) continue;
+
+                                    // Get the dominant material for this downscaled voxel
+                                    UnpackedVoxelMaterial material = getMaterialDownscaled(lodLevel, downscaledPos);
+
+                                    // Skip grass in higher LODs if not including it
+                                    std::string model = tex->getModelKindForBlockType(material.materialType);
+                                    if ((model == "GRASS_MODEL" || model == "FERN_MODEL") && !includeGrass) {
+                                        continue;
+                                    }
+
+                                    int faces = modelManager->getModelSizeInQuads(model);
+
+                                    for (int face = 0; face < faces; ++face) {
+                                        // Use simplified culling for downscaled data
+                                        bool shouldRender = (faces == 2) ||
+                                            !shouldCullLODFaceDownscaled(ivec3(x, y, z), face, lodLevel, transparent, material.materialType);
+
+                                        if (shouldRender) {
+                                            std::array<uint32_t, 4> aoValues{ 3, 3, 3, 3 };
+                                            std::array<uint32_t, 10> neighborSameMaterialFlags{ 0 };
+
+                                            // Simplified AO for downscaled voxels
+                                            if (model == "VOXEL_MODEL") {
+                                                for (int i = 0; i < 4; i++) {
+                                                    aoValues[i] = calculateAmbientOcclusionDownscaled(ivec3(x, y, z), face, i, lodLevel, transparent);
+                                                }
+
+                                                // Check neighbor materials in downscaled space
+                                                for (int i = 0; i < 10; i++) {
+                                                    ivec3 neighborOffset = faceNeighborOffsets[face][i];
+                                                    ivec3 neighborPos = ivec3(x, y, z) + neighborOffset;
+                                                    int neighborWorldZ = neighborPos.z + zPos * CHUNK_SIZE;
+
+                                                    if (neighborPos.x >= 0 && neighborPos.x < downscaledSize &&
+                                                        neighborPos.y >= 0 && neighborPos.y < downscaledSize &&
+                                                        neighborWorldZ >= 0 && neighborWorldZ < COLUMN_HEIGHT_BLOCKS) {
+
+                                                        if (getVoxelDownscaledDirect(lodLevel, neighborPos.x, neighborPos.y, neighborWorldZ, transparent)) {
+                                                            UnpackedVoxelMaterial neighborMat = getMaterialDownscaled(lodLevel, ivec3(neighborPos.x, neighborPos.y, neighborWorldZ));
+                                                            neighborSameMaterialFlags[i] = (material.materialType == neighborMat.materialType) ? 0x1 : 0x0;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Pack the face data
+                                            FaceAttributes currentFace;
+                                            currentFace.data = packData(
+                                                x * lodLevel,  // Scale back to chunk coordinates
+                                                y * lodLevel,  // Scale back to chunk coordinates
+                                                z,             // Z stays the same
+                                                face,
+                                                aoValues,
+                                                0x0
+                                            );
+                                            currentFace.materialData = packMaterialData32(material, neighborSameMaterialFlags);
+                                            faceData[meshSlot][zPos].push_back(currentFace);
                                         }
                                     }
                                 }
@@ -2045,7 +2478,7 @@ public:
 
         if (!meta[zPos].chunkDataBufferGPUInitialized) {
             initializeChunkDataBuffer(zPos, buf);
-            updateChunkDataBuffer(zPos, buf);
+            updateChunkDataBuffer(zPos, buf, currentLODLevel);
         }
 
         if (!meta[zPos].meshBufferGPUInitialized) {

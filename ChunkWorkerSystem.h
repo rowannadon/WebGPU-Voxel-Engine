@@ -22,6 +22,7 @@ public:
         GenerateTopsoil,
         GenerateMesh,
         GenerateTrees,
+        GenerateLODData,
         RegenerateMesh,
         COUNT // For validation
     };
@@ -261,6 +262,17 @@ public:
         return work_queue.push(item);
     }
 
+    bool queueLODDataGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position) {
+        if (!chunk || !validateChunkForWork(chunk)) return false;
+
+        if (work_queue.size() >= MAX_QUEUE_SIZE) {
+            return false;
+        }
+
+        ChunkWorkItem item(ChunkWorkItem::GenerateLODData, chunk, position, ChunkWorkItem::HIGH);
+        return work_queue.push(item);
+    }
+
     bool queueMeshGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
         std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
         if (!chunk || !validateChunkForWork(chunk)) return false;
@@ -376,6 +388,8 @@ private:
             return processTopsoilGeneration(workItem, error_message);
         case ChunkWorkItem::GenerateTrees:
             return processTreeGeneration(workItem, error_message);
+        case ChunkWorkItem::GenerateLODData:  // NEW
+            return processLODDataGeneration(workItem, error_message);
         case ChunkWorkItem::GenerateMesh:
         case ChunkWorkItem::RegenerateMesh:
             return processMeshGeneration(workItem, error_message);
@@ -435,6 +449,24 @@ private:
         }
 
         chunk->generateTrees(workItem.getNeighbors());
+        return true;
+    }
+
+    bool processLODDataGeneration(const ChunkWorkItem& workItem, std::string& error_message) {
+        auto chunk = workItem.getChunk();
+        if (!chunk) {
+            error_message = "Null chunk";
+            return false;
+        }
+
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingLODData) {
+            error_message = "Chunk not in GeneratingLODData state";
+            return false;
+        }
+
+        chunk->generateDownscaledLODData();
+        chunk->setState(ColumnState::LODDataReady);
         return true;
     }
 

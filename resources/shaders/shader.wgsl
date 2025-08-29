@@ -204,6 +204,7 @@ struct UnpackedMaterialData {
     down_right: u32,
     front: u32,
     back: u32,
+    lod_power: u32,  // NEW: LOD power (0, 1, 2, 3)
 }
 
 const VOXEL_MODEL = 0;
@@ -478,6 +479,9 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
 
     let front = (packed_bits >> 25u) & 0x1u;
     let back = (packed_bits >> 26u) & 0x1u;
+    
+    // Extract LOD power from bits 27-28
+    let lod_power = (packed_bits >> 27u) & 0x3u;
 
     return UnpackedMaterialData(
         material_id,
@@ -492,6 +496,7 @@ fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
         down_right,
         front,
         back,
+        lod_power
     );
 }
 
@@ -1084,7 +1089,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         }
     }
     
-    let scaled_vertex_offset = base_vertex * lod_scale;
+    let scaled_vertex_offset = vec3f(base_vertex.x * lod_scale, base_vertex.y * lod_scale, base_vertex.z );
 
     // Calculate initial position before wind
     let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
@@ -1555,7 +1560,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let chunkData = chunkDataArray[in.idx];
     var normal = in.normal;
 
-    let lod_scale = pow(2.0, f32(chunkData.lod));
     let material_id = in.material_id;
     
     if (material_id == 0u) {

@@ -776,7 +776,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         }
     }
     
-    let scaled_vertex_offset = base_vertex * lod_scale;
+    let scaled_vertex_offset = vec3f(base_vertex.x * lod_scale, base_vertex.y * lod_scale, base_vertex.z );
     let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
     // Apply wind effects

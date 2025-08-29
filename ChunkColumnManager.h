@@ -300,15 +300,6 @@ public:
         };
     }
 
-    void updateChunkDataBuffers(BufferManager* buf) {
-        for (const auto& pair : columns) {
-            if (pair.second && pair.second->getState() > ColumnState::MeshReady) {
-                // Update the buffer with current chunk position and LOD data
-                pair.second->updateAllChunkDataBuffers(buf);
-            }
-        }
-    }
-
     std::array<std::shared_ptr<ChunkColumn>, 8> getNeighbors(const ivec2& chunkPos) {
         std::array<std::shared_ptr<ChunkColumn>, 8> neighbors = {};
         ivec2 neighborPositions[8] = {
@@ -494,7 +485,7 @@ public:
         auto& cache = *cachePtr;
 
         // LOD selection
-        std::vector<float> lodDistances = { 16.0f, 32.0f, 64.0f, 512.0f };
+        std::vector<float> lodDistances = { 5.0f, 10.0f, 15.0f, 512.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
         int lod = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 
@@ -555,7 +546,7 @@ public:
         BufferManager* buf)
     {
         column->updateLODLevel(lodLevel);
-        column->updateAllChunkDataBuffers(buf);
+        column->updateAllChunkDataBuffers(buf, lodLevel);
 
         const auto& tArr = column->getDAICs(lodLevel, /*transparent=*/true, buf, cameraPos);
         const auto& oArr = column->getDAICs(lodLevel, /*transparent=*/false, buf, cameraPos);
@@ -819,6 +810,27 @@ private:
 
                 if (allNeighborsReady) {
                     ColumnState expected = ColumnState::TreesReady;
+                    if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingLODData)) {
+                        workerSystem->queueLODDataGeneration(column, chunkPos);
+                    }
+                }
+            }
+            else if (currentState == ColumnState::LODDataReady) {
+                // NEW: Transition from LODDataReady to GeneratingMesh
+                // Check if all neighbors have LOD data ready for proper boundary handling
+                auto neighbors = getNeighbors(chunkPos);
+                bool allNeighborsReady = true;
+
+                for (int i = 0; i < 8; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::LODDataReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }
+
+                if (allNeighborsReady) {
+                    ColumnState expected = ColumnState::LODDataReady;
                     auto freshNeighbors = getNeighbors(chunkPos);
                     if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingMesh)) {
                         workerSystem->queueMeshGeneration(column, chunkPos, freshNeighbors);
@@ -923,6 +935,9 @@ public:
         std::cout << "TopsoilReady=" << stateCounts[ColumnState::TopsoilReady] << " ";
         std::cout << "GenTrees=" << stateCounts[ColumnState::GeneratingTrees] << " ";
         std::cout << "TreesReady=" << stateCounts[ColumnState::TreesReady] << " ";
+        std::cout << "GenLOD=" << stateCounts[ColumnState::GeneratingLODData] << " ";
+        std::cout << "LODReady=" << stateCounts[ColumnState::LODDataReady] << " ";
+        std::cout << "GenMesh=" << stateCounts[ColumnState::GeneratingMesh] << " ";
         std::cout << "MeshReady=" << stateCounts[ColumnState::MeshReady] << " ";
         std::cout << "Added=" << numChunksAdded << " ";
         std::cout << "Queue=" << workerSystem->getQueueSize() << std::endl;
