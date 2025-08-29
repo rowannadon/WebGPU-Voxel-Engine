@@ -373,13 +373,13 @@ public:
     }
 
     void generateDownscaledLODData() {
-        auto counts = std::make_unique<LODCountStorage>();
+        LODCountStorage counts;
 
         // Single pass through all voxels to compute all LOD counts
-        computeAllLODCounts(*counts);
+        computeAllLODCounts(counts);
 
         // Generate downscaled data from counts
-        generateDownscaledFromCounts(*counts);
+        generateDownscaledFromCounts(counts);
     }
 
     template<size_t N>
@@ -1664,25 +1664,15 @@ public:
     }
 
     void finishAllMaterialEditing() {
-        // Only encode if the data was actually decoded
-        if (materialDataDecoded && rawMaterialData) {
-            encodeAllMaterialData();
-        }
-        if (materialDataDecoded2 && rawMaterialData2) {
-            encodeMaterialDataLOD2();
-        }
-        if (materialDataDecoded4 && rawMaterialData4) {
-            encodeMaterialDataLOD4();
-        }
-        if (materialDataDecoded8 && rawMaterialData8) {
-            encodeMaterialDataLOD8();
-        }
-        if (materialDataDecoded16 && rawMaterialData16) {
-            encodeMaterialDataLOD16();
-        }
-        if (materialDataDecoded32 && rawMaterialData32) {
-            encodeMaterialDataLOD32();
-        }
+        encodeAllMaterialData();      // Always call these
+        encodeMaterialDataLOD2();
+        encodeMaterialDataLOD4();
+        encodeMaterialDataLOD8();
+        encodeMaterialDataLOD16();
+        encodeMaterialDataLOD32();
+
+        // Force cleanup regardless of state
+        forceReleaseAllRawData();
     }
 
     void forceReleaseAllRawData() {
@@ -3013,8 +3003,6 @@ public:
         }
 
         finishAllMaterialEditing();
-        forceReleaseAllRawData();
-
 
         if (state.load() == ColumnState::Unloading) {
             return false;
