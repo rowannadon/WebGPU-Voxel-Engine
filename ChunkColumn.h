@@ -504,7 +504,7 @@ public:
         int scaledX = worldPos.x / lodLevel;
         int scaledY = worldPos.y / lodLevel;
 
-        return getMaterialDownscaledFast(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
+        return getMaterialDownscaled(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
     }
 
 private:
@@ -2453,10 +2453,47 @@ public:
                 return false;
             };
 
-        auto calculateAmbientOcclusionDownscaled = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel, bool transparent) -> uint32_t {
-            ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0];
-            ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1];
-            ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2];
+            auto calculateAmbientOcclusion = [&](ivec3 voxelPos, int faceIndex, int vertexIndex) -> uint32_t {
+                ivec3 side1Pos = voxelPos + aoStates[faceIndex][vertexIndex][0];
+                ivec3 side2Pos = voxelPos + aoStates[faceIndex][vertexIndex][1];
+                ivec3 cornerPos = voxelPos + aoStates[faceIndex][vertexIndex][2];
+
+                // For AO, check if ANY block (solid OR transparent) exists at the position
+                // This gives proper shadowing from all geometry
+                auto checkOccupancy = [&](ivec3 pos) -> bool {
+                    // Check both solid and transparent voxels for occlusion
+                    bool solidExists = getVoxelFromLOD(1, pos, false);
+                    bool transparentExists = getVoxelFromLOD(1, pos, true);
+
+                    // Special case: some transparent blocks shouldn't occlude (like water surface)
+                    if (transparentExists && !solidExists) {
+                        UnpackedVoxelMaterial mat = getMaterialFromLOD(1, pos);
+                        // Water and certain transparent blocks might not occlude
+                        if (mat.materialType == BlockType::Water ||
+                            mat.materialType == BlockType::WaterSurface) {
+                            return false; // Water doesn't cast AO shadows
+                        }
+                    }
+
+                    return solidExists || transparentExists;
+                    };
+
+                bool side1Solid = checkOccupancy(side1Pos);
+                bool side2Solid = checkOccupancy(side2Pos);
+                bool cornerSolid = checkOccupancy(cornerPos);
+
+                // AO calculation: 0 = full occlusion, 3 = no occlusion
+                if (side1Solid && side2Solid) {
+                    return 0; // Maximum occlusion
+                }
+                return 3 - ((side1Solid ? 1 : 0) + (side2Solid ? 1 : 0) + (cornerSolid ? 1 : 0));
+                };
+
+            // For LOD2+ (downscaled)
+            auto calculateAmbientOcclusionDownscaled = [&](ivec3 groupPos, int faceIndex, int vertexIndex, int lodLevel) -> uint32_t {
+                ivec3 side1Pos = groupPos + aoStates[faceIndex][vertexIndex][0];
+                ivec3 side2Pos = groupPos + aoStates[faceIndex][vertexIndex][1];
+                ivec3 cornerPos = groupPos + aoStates[faceIndex][vertexIndex][2];
 
             auto checkOccupancy = [&](ivec3 pos) -> bool {
                 int worldZ = pos.z + zPos * CHUNK_SIZE;
@@ -2465,7 +2502,21 @@ public:
                 if (pos.x >= 0 && pos.x < (CHUNK_SIZE / lodLevel) &&
                     pos.y >= 0 && pos.y < (CHUNK_SIZE / lodLevel) &&
                     worldZ >= 0 && worldZ < COLUMN_HEIGHT_BLOCKS) {
-                    return getVoxelDownscaledDirect(lodLevel, pos.x, pos.y, worldZ, transparent);
+
+                    // Check both solid and transparent for occlusion
+                    bool solidExists = getVoxelDownscaledDirect(lodLevel, pos.x, pos.y, worldZ, false);
+                    bool transparentExists = getVoxelDownscaledDirect(lodLevel, pos.x, pos.y, worldZ, true);
+
+                    // Optional: Check material type to exclude certain transparents from AO
+                    if (transparentExists && !solidExists) {
+                        UnpackedVoxelMaterial mat = getMaterialDownscaledFast(lodLevel, ivec3(pos.x, pos.y, worldZ));
+                        if (mat.materialType == BlockType::Water ||
+                            mat.materialType == BlockType::WaterSurface) {
+                            return false;
+                        }
+                    }
+
+                    return solidExists || transparentExists;
                 }
 
                 // Check neighboring columns
@@ -2496,8 +2547,22 @@ public:
 
                 if (neighborIndex >= 0 && neighborIndex < 4 && neighbors[neighborIndex] != nullptr) {
                     if (neighbors[neighborIndex]->getState() != ColumnState::Unloading) {
-                        return neighbors[neighborIndex]->getVoxelDownscaledPublic(
-                            lodLevel, neighborLocalPos, transparent);
+                        bool solidExists = neighbors[neighborIndex]->getVoxelDownscaledPublic(
+                            lodLevel, neighborLocalPos, false);
+                        bool transparentExists = neighbors[neighborIndex]->getVoxelDownscaledPublic(
+                            lodLevel, neighborLocalPos, true);
+
+                        // Optional: Check material type
+                        if (transparentExists && !solidExists) {
+                            UnpackedVoxelMaterial mat = neighbors[neighborIndex]->getMaterialDownscaledPublic(
+                                lodLevel, neighborLocalPos);
+                            if (mat.materialType == BlockType::Water ||
+                                mat.materialType == BlockType::WaterSurface) {
+                                return false;
+                            }
+                        }
+
+                        return solidExists || transparentExists;
                     }
                 }
 
@@ -2627,7 +2692,7 @@ public:
                                             if (model == "VOXEL_MODEL") {
                                                 // Calculate AO (simplified for now)
                                                 for (int i = 0; i < 4; i++) {
-                                                    aoValues[i] = 3;// calculateAmbientOcclusionDownscaled(ivec3(x, y, z), face, i, lodLevel, transparent);
+                                                    aoValues[i] = aoValues[i] = calculateAmbientOcclusion(voxelPos, face, i);
                                                 }
 
                                                 // Check neighbor materials
@@ -2694,7 +2759,7 @@ public:
                                             // Simplified AO for downscaled voxels
                                             if (model == "VOXEL_MODEL") {
                                                 for (int i = 0; i < 4; i++) {
-                                                    aoValues[i] = 3; // calculateAmbientOcclusionDownscaled(ivec3(x, y, z), face, i, lodLevel, transparent);
+                                                    aoValues[i] = calculateAmbientOcclusionDownscaled(ivec3(x, y, z), face, i, lodLevel);
                                                 }
 
                                                 // Check neighbor materials in downscaled space
