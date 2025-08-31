@@ -69,9 +69,12 @@ public:
         }
 
         // Perform DDA traversal
-        int side = 0; // Which side was hit (0=x, 1=y, 2=z)
+        int side = 0;
         constexpr int CHUNK_SIZE = 32;
-        constexpr int COLUMN_HEIGHT_BLOCKS = 512;
+        constexpr int CHUNK_HEIGHT = 62;
+        static constexpr int COLUMN_HEIGHT = 8;
+
+        constexpr int COLUMN_HEIGHT_BLOCKS = CHUNK_HEIGHT * COLUMN_HEIGHT;  // Changed from 512 to 620
         float totalDistance = 0.0f;
 
         // Keep track of the previous voxel position for adjacency calculation
@@ -92,7 +95,7 @@ public:
                 ivec3 localVoxelPos = ivec3(
                     worldVoxelPos.x - chunkPos.x * CHUNK_SIZE,
                     worldVoxelPos.y - chunkPos.y * CHUNK_SIZE,
-                    worldVoxelPos.z
+                    worldVoxelPos.z  // Z is absolute in the column
                 );
 
                 // Ensure local coordinates are within chunk bounds
@@ -100,7 +103,7 @@ public:
                     localVoxelPos.y >= 0 && localVoxelPos.y < CHUNK_SIZE &&
                     localVoxelPos.z >= 0 && localVoxelPos.z < COLUMN_HEIGHT_BLOCKS) {
 
-                    // Check if current voxel is solid (check both solid and transparent voxels)
+                    // Check voxel occupancy
                     if (chunkColumn->getVoxelWholeColumn(localVoxelPos, false) ||
                         chunkColumn->getVoxelWholeColumn(localVoxelPos, true)) {
 
@@ -178,7 +181,8 @@ public:
 
         float totalDistance = 0.0f;
         constexpr int CHUNK_SIZE = 32;
-        constexpr int COLUMN_HEIGHT_BLOCKS = 512;
+        constexpr int CHUNK_HEIGHT = 62;  // NEW: Separate height constant
+        constexpr int COLUMN_HEIGHT_BLOCKS = 620;  // Changed from 512 to 620
 
         while (totalDistance < maxDistance) {
             // Calculate which chunk column we're currently in

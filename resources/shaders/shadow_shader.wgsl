@@ -1,20 +1,37 @@
 // shadow_shader.wgsl - Updated to match depth pre-pass shader transformations
 
+const pi: f32 = radians(180.0);
+
+// Wind effect constants (keep same as main shader for consistency)
+const WIND_STRENGTH: f32 = 0.15;
+const WIND_FREQUENCY: f32 = 6.0;
+const WIND_SPEED: f32 = 4.0;
+const WIND_DIRECTION: vec2f = vec2f(1.0, 0.3);
+
 struct VertexInput {
     @builtin(instance_index) instance_idx: u32,
     @builtin(vertex_index) vertex_idx: u32,
 };
 
+struct FaceData {
+    data: u32,
+    materialData: u32,
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4f,
-    @location(0) world_position: vec3f,
-    @location(1) @interpolate(flat) idx: u32,
+    @location(0) @interpolate(flat) material_id: u32,
+    @location(1) world_position: vec3f,
     @location(2) uv: vec2f,
-    @location(3) @interpolate(flat) material_id: u32,
-    @location(4) tile_offset: vec2f,
-    @location(5) tile_offset2: vec2f,
-    @location(6) @interpolate(flat) tile_rotation: u32,
-    @location(7) @interpolate(flat) model_id: u32,
+    @location(3) @interpolate(flat) model_id: u32,
+};
+
+struct FragmentInput {
+    @builtin(position) position: vec4f,
+    @location(0) @interpolate(flat) material_id: u32,
+    @location(1) world_position: vec3f,
+    @location(2) uv: vec2f,
+    @location(3) @interpolate(flat) model_id: u32,
 };
 
 struct MyUniforms {
@@ -22,10 +39,8 @@ struct MyUniforms {
     infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
-
     inverseProjectionMatrix: mat4x4f,
     inverseViewMatrix: mat4x4f,
-
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
@@ -45,9 +60,11 @@ struct ChunkData {
     meshSlots: array<u32, 8>,
 };
 
-struct FaceData {
-    data: u32,
-    materialData: u32,
+struct Quad {
+    vertexPositions: array<vec4f, 4>,
+    uvs: array<vec2f, 4>,
+    aoValues: array<f32, 4>,
+    normal: vec4f,
 }
 
 struct UnpackedData {
@@ -55,7 +72,6 @@ struct UnpackedData {
     position_y: u32,
     position_z: u32,
     normal_index: u32,
-    lod_level: u32,
     ao: vec4u,
     reversed: u32,
 }
@@ -73,12 +89,19 @@ struct UnpackedMaterialData {
     down_right: u32,
 }
 
-struct Quad {
-    vertexPositions: array<vec4f, 4>,
-    uvs: array<vec2f, 4>,
-    aoValues: array<f32, 4>,
-    normal: vec4f,
-}
+const VOXEL_MODEL = 0;
+const LEAF_MODEL = 1;
+const GRASS_MODEL = 2;
+const FERN_MODEL = 3;
+
+const LARGE_TILE = 0;
+const CONNECTED = 1;
+const RANDOM_ROTATION = 2;
+const RANDOM_VARIANT = 3;
+
+const ORIENT_NONE = 0u;
+const ORIENT_SINGLE = 1u;
+const ORIENT_ALL = 2u;
 
 struct PBRMaterialPropertiesUniform {
     emission  : vec3f,
@@ -118,93 +141,6 @@ struct MaterialProperties {
     padding    : u32,
 };
 
-// Buffer metadata
-struct BufferMetadata {
-    totalFaces: u32,
-    slotCount: u32,
-    padding0: u32,
-    padding1: u32,
-}
-
-struct SlotInfo {
-    faceOffset: u32,
-    maxFaces: u32,
-    padding: u32,
-    padding2: u32,
-}
-
-// Constants
-const NUM_TOTAL_SLOTS = 64000;
-const NUM_TOTAL_QUADS = 10000;
-const CHUNK_SIZE: f32 = 32.0;
-const pi: f32 = radians(180.0);
-
-// Model types
-const VOXEL_MODEL = 0;
-const LEAF_MODEL = 1;
-const GRASS_MODEL = 2;
-const FERN_MODEL = 3;
-
-// Texture types
-const LARGE_TILE = 0;
-const CONNECTED = 1;
-const RANDOM_ROTATION = 2;
-const RANDOM_VARIANT = 3;
-
-// Orientation types
-const ORIENT_NONE = 0u;
-const ORIENT_SINGLE = 1u;
-const ORIENT_ALL = 2u;
-
-// Direction constants
-const DIRECTION_X = 0u;
-const DIRECTION_Y = 1u;
-const DIRECTION_Z = 2u;
-
-// Wind effect constants
-const WIND_STRENGTH: f32 = 0.15;
-const WIND_FREQUENCY: f32 = 6.0;
-const WIND_SPEED: f32 = 4.0;
-const WIND_DIRECTION: vec2f = vec2f(1.0, 0.3);
-
-// Connected textures constants
-const EDGE = 0;
-const CORNER = 1;
-const STRIP = 2;
-const U = 3;
-const SURROUNDED = 4;
-const ONE_INNER = 5;
-const TWO_INNER = 6;
-const THREE_INNER = 7;
-const ZERO_INNER = 8;
-const EDGE_BOTH_INNER = 10;
-const EDGE_ONE_INNER_ONE = 11;
-const EDGE_ONE_INNER_TWO = 12;
-const CORNER_ONE_INNER = 13;
-const TWO_INNER_DIAGONAL = 14;
-const FOUR_INNER = 15;
-
-const TEXTURE_SIZE = 64;
-const TILE_SIZE = 8;
-const NUM_TILES_PER_SIDE = TEXTURE_SIZE / TILE_SIZE;
-const UV_PER_TILE = 1.0 / NUM_TILES_PER_SIDE;
-
-// Bindings matching terrain shader
-@group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
-@group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere; // Placeholder for compatibility
-@group(0) @binding(2) var<uniform> material_buffer: array<MaterialProperties, 100>;
-@group(0) @binding(3) var textureArray: texture_2d_array<f32>;
-@group(0) @binding(4) var textureSampler: sampler;
-
-@group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
-
-@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
-
-@group(3) @binding(0) var<storage, read> vertexData: array<FaceData>;
-@group(3) @binding(1) var<uniform> bufferMetadata: BufferMetadata;
-@group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
-
-// Placeholder atmosphere struct for compatibility
 struct Atmosphere {
     rayleigh_scattering: vec3<f32>,
     rayleigh_density_exp_scale: f32,
@@ -230,191 +166,77 @@ struct Atmosphere {
     padding: f32
 }
 
-// Face geometry data
-const faceNormals: array<vec3<f32>, 6> = array<vec3<f32>, 6>(
-    vec3<f32>(1.0, 0.0, 0.0),
-    vec3<f32>(-1.0, 0.0, 0.0),
-    vec3<f32>(0.0, 1.0, 0.0),
-    vec3<f32>(0.0, -1.0, 0.0),
-    vec3<f32>(0.0, 0.0, 1.0),
-    vec3<f32>(0.0, 0.0, -1.0)
-);
+const NUM_TOTAL_SLOTS = 64000;
+const NUM_TOTAL_QUADS = 10000;
+const CHUNK_SIZE: f32 = 32.0;
 
-const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
-    array<vec2<f32>, 4>( // +X
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // -X
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>( // +Y
-        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0)
-    ),
-    array<vec2<f32>, 4>( // -Y
-        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // +Z
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-    array<vec2<f32>, 4>( // -Z
-        vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), 
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)
-    ),
-);
+@group(0) @binding(0) var<uniform> uMyUniforms: MyUniforms;
+@group(0) @binding(1) var<uniform> atmosphere_buffer: Atmosphere; // Placeholder for compatibility
+@group(0) @binding(2) var<uniform> material_buffer: array<MaterialProperties, 100>;
+@group(0) @binding(3) var textureArray: texture_2d_array<f32>;
+@group(0) @binding(4) var textureSampler: sampler;
 
-const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), 
-        vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)
-    ),
-    array<vec3<f32>, 4>(
-        vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), 
-        vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0)
-    )
-);
+@group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
+@group(2) @binding(0) var<storage, read> chunkDataArray: array<ChunkData, NUM_TOTAL_SLOTS>;
+@group(3) @binding(0) var<storage, read> vertexData: array<FaceData>;
 
-// Helper functions
-fn rotateX(v: vec3<f32>, angle: f32) -> vec3<f32> {
-    let c = cos(angle);
-    let s = sin(angle);
-    let m = mat3x3<f32>(
-        1.0, 0.0, 0.0,
-        0.0, c, -s,
-        0.0, s, c
-    );
-    return m * v;
+struct BufferMetadata {
+    totalFaces: u32,
+    slotCount: u32,
+    padding0: u32,
+    padding1: u32,
 }
 
-fn rotateY(v: vec3<f32>, angle: f32) -> vec3<f32> {
-    let c = cos(angle);
-    let s = sin(angle);
-    let m = mat3x3<f32>(
-        c, 0.0, s,
-        0.0, 1.0, 0.0,
-        -s, 0.0, c
-    );
-    return m * v;
+@group(3) @binding(1) var<uniform> bufferMetadata: BufferMetadata;
+
+struct SlotInfo {
+    faceOffset: u32,
+    maxFaces: u32,
+    padding: u32,
+    padding2: u32,
 }
 
-fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
-    let c = cos(angle);
-    let s = sin(angle);
-    let m = mat3x3<f32>(
-        c, -s, 0.0,
-        s, c, 0.0,
-        0.0, 0.0, 1.0
-    );
-    return m * v;
-}
+@group(3) @binding(2) var<storage, read> slotInfoArray: array<SlotInfo>;
 
-fn apply_random_tilt(vertex_pos: vec3f, normal: vec3f, hash: u32) -> vec3f {
-    // Extract tilt angles from hash (use different bits than offset)
-    let tilt_x_bits = (hash >> 24u) & 0xFFu;
-    let tilt_y_bits = (hash >> 16u) & 0xFFu;
-    let tilt_z_bits = (hash >> 8u) & 0xFFu;
-    
-    // Convert to angles in range [-20, +20] degrees
-    let max_tilt_radians = radians(10.0);
-    let tilt_x = (f32(tilt_x_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
-    let tilt_y = (f32(tilt_y_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
-    let tilt_z = (f32(tilt_z_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
-    
-    // Apply rotations in sequence: X -> Y -> Z
-    var tilted_pos = vertex_pos;
-    tilted_pos = rotateX(tilted_pos, tilt_x);
-    tilted_pos = rotateY(tilted_pos, tilt_y);
-    tilted_pos = rotateZ(tilted_pos, tilt_z);
-    
-    return tilted_pos;
-}
-
-fn has_offset(randomOffsetMask: u32, direction: u32) -> f32 {
-    switch (direction) {
-        case DIRECTION_X: { return f32(randomOffsetMask & 0x1); }
-        case DIRECTION_Y: { return f32((randomOffsetMask >> 1u) & 0x1); }
-        case DIRECTION_Z: { return f32((randomOffsetMask >> 2u) & 0x1); }
-        default: { return 0.0; }
-    }
-}
-
-fn stable_world_voxel(chunk_origin: vec3i, voxel_pos: vec3f, lod_scale: f32) -> vec3i {
-    return chunk_origin + vec3i(i32(voxel_pos.x * lod_scale), i32(voxel_pos.y * lod_scale), i32(voxel_pos.z * lod_scale));
-}
-
-// Wind displacement function
+// Wind displacement function (simplified)
 fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_strength_multiplier: f32) -> vec3f {
     let time = uMyUniforms.time * WIND_SPEED;
-    
     let wind_pos = world_pos.xz * WIND_FREQUENCY;
     let wind_wave_1 = sin(time + dot(wind_pos, WIND_DIRECTION) * 0.1) * 0.6;
     let wind_wave_2 = sin(time * 1.3 + dot(wind_pos * 0.7, WIND_DIRECTION.yx) * 0.15) * 0.4;
     let wind_wave_3 = sin(time * 2.1 + length(wind_pos) * 0.05) * 0.2;
-    
     let total_wind = (wind_wave_1 + wind_wave_2 + wind_wave_3) * WIND_STRENGTH * wind_strength_multiplier;
     let height_factor = vertex_height;
     
-    let wind_offset = vec3f(
+    return vec3f(
         WIND_DIRECTION.x * total_wind * height_factor,
         0.0,
         WIND_DIRECTION.y * total_wind * height_factor
     );
-    
-    return wind_offset;
 }
 
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0x1Fu;
-    let position_y = (packed_bits >> 5u) & 0x1Fu;
-    let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0xFu;
-    let lod_bits = (packed_bits >> 19u) & 0x7u;
-
-    var ao = vec4u(0);
-    ao[0] = (packed_bits >> 21u) & 0x3u;
-    ao[1] = (packed_bits >> 23u) & 0x3u;
-    ao[2] = (packed_bits >> 25u) & 0x3u;
-    ao[3] = (packed_bits >> 27u) & 0x3u;
-
-    let reversed = (packed_bits >> 29u) & 0x1u;
+    let position_x = packed_bits & 0x1Fu;           // bits 0-4 (5 bits)
+    let position_y = (packed_bits >> 5u) & 0x1Fu;   // bits 5-9 (5 bits)
+    let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits) - CHANGED!
+    let normal_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits) - CHANGED!
     
-    var lod_level: u32;
-    switch (lod_bits) {
-        case 0u: { lod_level = 1u; }
-        case 1u: { lod_level = 2u; }
-        case 2u: { lod_level = 4u; }
-        case 3u: { lod_level = 8u; }
-        default: { lod_level = 1u; }
-    }
+    // AO values shifted due to new bit layout
+    var ao = vec4u(0);
+    ao[0] = (packed_bits >> 22u) & 0x3u;  // bits 22-23
+    ao[1] = (packed_bits >> 24u) & 0x3u;  // bits 24-25
+    ao[2] = (packed_bits >> 26u) & 0x3u;  // bits 26-27
+    ao[3] = (packed_bits >> 28u) & 0x3u;  // bits 28-29
+    
+    let reversed = (packed_bits >> 30u) & 0x1u;  // bit 30
     
     return UnpackedData(
         position_x,
         position_y,
         position_z,
         normal_index,
-        lod_level,
         ao,
         reversed
     );
@@ -422,11 +244,11 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
 
 fn unpack_material_data(packed_data: u32) -> UnpackedMaterialData {
     let packed_bits = bitcast<u32>(packed_data);
-    
     let material_info = packed_bits & 0x1FFFFu;
+
     let material_id = material_info >> 3u;
     let facing_dir = material_info & 0x7u;
-    
+
     let up = (packed_bits >> 17u) & 0x1u;
     let down = (packed_bits >> 18u) & 0x1u;
     let left = (packed_bits >> 19u) & 0x1u;
@@ -461,7 +283,6 @@ fn hash_voxel_position(pos: vec3i) -> u32 {
 
 fn generate_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 {
     let face_vertex = vertex_idx % 6u;
-    
     if (reversed == 1u) {
         switch (face_vertex) {
             case 0u: { return 2u; } 
@@ -491,7 +312,6 @@ fn should_flip_quad(ao_values: vec4u) -> bool {
 
 fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 {
     let face_vertex = vertex_idx % 6u;
-    
     if (reversed == 1u) {
         switch (face_vertex) {
             case 0u: { return 3u; }
@@ -515,6 +335,25 @@ fn generate_flipped_vertex_in_face_index(vertex_idx: u32, reversed: u32) -> u32 
     }
 }
 
+const faceVertices: array<array<vec3<f32>, 4>, 6> = array<array<vec3<f32>, 4>, 6>(
+    array<vec3<f32>, 4>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 1.0)),
+    array<vec3<f32>, 4>(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 0.0)),
+    array<vec3<f32>, 4>(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 0.0)),
+    array<vec3<f32>, 4>(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 1.0)),
+    array<vec3<f32>, 4>(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 1.0)),
+    array<vec3<f32>, 4>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0))
+);
+
+const faceUVsIndependent: array<array<vec2<f32>, 4>, 6> = array<array<vec2<f32>, 4>, 6>(
+    array<vec2<f32>, 4>(vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)),
+    array<vec2<f32>, 4>(vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0)),
+    array<vec2<f32>, 4>(vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0)),
+    array<vec2<f32>, 4>(vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0)),
+    array<vec2<f32>, 4>(vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0)),
+    array<vec2<f32>, 4>(vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 1.0), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0))
+);
+
+// UV transformation functions for texture types
 fn rotate_uv(uv: vec2f, rot: u32) -> vec2f {
     let c = uv - 0.5;
     let r = rot & 3u;
@@ -528,15 +367,35 @@ fn rotate_uv(uv: vec2f, rot: u32) -> vec2f {
     return rotated + 0.5;
 }
 
+const TEXTURE_SIZE = 64;
+const TILE_SIZE = 8;
+const NUM_TILES_PER_SIDE = TEXTURE_SIZE / TILE_SIZE;
+const UV_PER_TILE = 1.0 / NUM_TILES_PER_SIDE;
+
 fn get_offset(index: u32) -> vec2f {
     return vec2f(f32(index % 8) * UV_PER_TILE, f32(index / 8) * UV_PER_TILE);
 }
 
-// Connected textures UV calculation
+// Connected textures constants
+const EDGE = 0;
+const CORNER = 1;
+const STRIP = 2;
+const U = 3;
+const SURROUNDED = 4;
+const ONE_INNER = 5;
+const TWO_INNER = 6;
+const THREE_INNER = 7;
+const ZERO_INNER = 8;
+const EDGE_BOTH_INNER = 10;
+const EDGE_ONE_INNER_ONE = 11;
+const EDGE_ONE_INNER_TWO = 12;
+const CORNER_ONE_INNER = 13;
+const TWO_INNER_DIAGONAL = 14;
+const FOUR_INNER = 15;
+
 fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
     let four_neighborhood = m.left + m.right + m.up + m.down;
     let corners = m.up_left + m.up_right + m.down_left + m.down_right;
-    
     if (four_neighborhood == 4u) {
         if (corners == 3u) {
             if (m.down_left == 0u) {
@@ -591,7 +450,6 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
         }
         return uv * 0.125 + get_offset(ZERO_INNER);
     }
-    
     if (four_neighborhood == 3u) {
         if (m.left == 0u) {
             if (m.down_right == 0u && m.up_right == 0u) {
@@ -642,7 +500,6 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 3) * 0.125 + get_offset(EDGE);
         }
     }
-    
     if (four_neighborhood == 2u) {
         if (m.left == 0u && m.right == 0u) {
             return rotate_uv(uv, 0) * 0.125 + get_offset(STRIP);
@@ -675,7 +532,6 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 3) * 0.125 + get_offset(CORNER);
         }
     }
-    
     if (four_neighborhood == 1u) {
         if (m.left == 0u && m.up == 0u && m.right == 0u) {
             return rotate_uv(uv, 0) * 0.125 + get_offset(U);
@@ -690,11 +546,9 @@ fn get_ct_offset(uv: vec2f, m: UnpackedMaterialData) -> vec2f {
             return rotate_uv(uv, 3) * 0.125 + get_offset(U);
         }
     }
-    
     if (four_neighborhood == 0u) {
         return rotate_uv(uv, 0) * 0.125 + get_offset(SURROUNDED);
     }
-    
     return uv * 0.125 + get_offset(ZERO_INNER);
 }
 
@@ -724,26 +578,97 @@ fn calculate_large_tile_uv_world_unwrapped(
     return vec2f(a, b) / f32(TILE_SIZE);
 }
 
+const DIRECTION_X = 0u;
+const DIRECTION_Y = 1u;
+const DIRECTION_Z = 2u;
+
+fn has_offset(randomOffsetMask: u32, direction: u32) -> f32 {
+    switch (direction) {
+        case DIRECTION_X: { return f32(randomOffsetMask & 0x1); }
+        case DIRECTION_Y: { return f32((randomOffsetMask >> 1u) & 0x1); }
+        case DIRECTION_Z: { return f32((randomOffsetMask >> 2u) & 0x1); }
+        default: { return 0.0; }
+    }
+}
+
+fn stable_world_voxel(chunk_origin: vec3i, voxel_pos: vec3f, lod_scale: f32) -> vec3i {
+    return chunk_origin + vec3i(i32(voxel_pos.x * lod_scale), i32(voxel_pos.y * lod_scale), i32(voxel_pos.z * lod_scale));
+}
+
+fn rotateX(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        1.0, 0.0, 0.0,
+        0.0, c, -s,
+        0.0, s, c
+    );
+    return m * v;
+}
+
+fn rotateY(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, 0.0, s,
+        0.0, 1.0, 0.0,
+        -s, 0.0, c
+    );
+    return m * v;
+}
+
+fn rotateZ(v: vec3<f32>, angle: f32) -> vec3<f32> {
+    let c = cos(angle);
+    let s = sin(angle);
+    let m = mat3x3<f32>(
+        c, -s, 0.0,
+        s, c, 0.0,
+        0.0, 0.0, 1.0
+    );
+    return m * v;
+}
+
+fn apply_random_tilt(vertex_pos: vec3f, normal: vec3f, hash: u32) -> vec3f {
+    // Extract tilt angles from hash (use different bits than offset)
+    let tilt_x_bits = (hash >> 24u) & 0xFFu;
+    let tilt_y_bits = (hash >> 16u) & 0xFFu;
+    let tilt_z_bits = (hash >> 8u) & 0xFFu;
+    
+    // Convert to angles in range [-20, +20] degrees
+    let max_tilt_radians = radians(10.0);
+    let tilt_x = (f32(tilt_x_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_y = (f32(tilt_y_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    let tilt_z = (f32(tilt_z_bits) / 255.0 - 0.5) * 2.0 * max_tilt_radians;
+    
+    // Apply rotations in sequence: X -> Y -> Z
+    var tilted_pos = vertex_pos;
+    tilted_pos = rotateX(tilted_pos, tilt_x);
+    tilted_pos = rotateY(tilted_pos, tilt_y);
+    tilted_pos = rotateZ(tilted_pos, tilt_z);
+    
+    return tilted_pos;
+}
+
 @vertex
 fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
 
     let dataIndex = in.instance_idx;
     let chunkData = chunkDataArray[dataIndex];
-
-    let offset = uMyUniforms.transparent * 4u;
+    var offset = uMyUniforms.transparent * 4u;
     var storageSlot = chunkData.meshSlots[offset + chunkData.lod];
-
-    // Robust bounds checks
-    if (storageSlot == 0xFFFFFFFFu || storageSlot >= bufferMetadata.slotCount) {
-        out.position = vec4f(0.0, 0.0, 0.0, 0.0); // clip
+    
+    // Bounds check
+    if (storageSlot >= bufferMetadata.slotCount) {
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
     }
-
+    
     let slotInfo = slotInfoArray[storageSlot];
     let faceIndex = in.vertex_idx / 6u;
+    
     if (faceIndex >= slotInfo.maxFaces) {
-        out.position = vec4f(0.0, 0.0, 0.0, 0.0);
+        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
         return out;
     }
     
@@ -756,29 +681,17 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     
     let faceData = vertexData[globalFaceIndex];
     let materialData = unpack_material_data(faceData.materialData);
-
-    out.idx = in.instance_idx;
     out.material_id = materialData.material_id;
-    
-    if (materialData.material_id == 0u || materialData.material_id > 100u) {
-        out.position = vec4f(0.0, 0.0, 0.0, 1.0);
-        return out;
-    }
 
     let materialProps = material_buffer[materialData.material_id - 1];
     out.model_id = materialProps.modelId;
-    
     let data = unpack_data(faceData.data);
     
     let chunk_world_pos = vec3f(f32(chunkData.worldPosition.x), f32(chunkData.worldPosition.y), f32(chunkData.worldPosition.z));
-    
-    var position: vec3f;
-    var voxel_pos: vec3f;
-
     let lod_scale = pow(2.0, f32(chunkData.lod));
-    voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
+    let voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
-    // Generate vertex index
+    // Generate vertex index within face
     var vertexInFace: u32;
     let shouldFlip = should_flip_quad(data.ao);
     
@@ -788,63 +701,50 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
         vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
     }
 
-    var normal: vec3f;
-    if (materialProps.modelId != VOXEL_MODEL) {
-        normal = modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz;
-    } else {
-        normal = faceNormals[data.normal_index];
-    }
-
     let stable_world_voxel_pos = stable_world_voxel(chunkData.worldPosition, voxel_pos, lod_scale);
     let hash = hash_voxel_position(stable_world_voxel_pos);
     
-    // Calculate tile offsets for texture variations
+    // Calculate tile offsets for random texture variations
     let tile_x = hash & (materialProps.tileCount - 1u);
     let tile_y = (hash >> (materialProps.tileCount * 2u)) & (materialProps.tileCount - 1u);
     let tile_z = (hash >> (materialProps.tileCount * 3u)) & (materialProps.tileCount - 1u);
     let tile_rotation = (hash >> (materialProps.tileCount * 4u)) & (materialProps.tileCount - 1u);
-    
     let tile_uv_distance = (1.0 / f32(materialProps.tileCount));
     let tile_offset = vec2f(f32(tile_x) * tile_uv_distance, f32(tile_y) * tile_uv_distance);
     
-    // Calculate random offsets
     let tile_x_2 = hash & 7u;
     let tile_y_2 = (hash >> 8u) & 7u;
     let tile_z_2 = (hash >> 16u) & 7u;
-    
+
     var random_offset = vec3f(
         (f32(tile_x_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_X), 
         (f32(tile_y_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Y), 
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
     );
-    
-    out.tile_offset = tile_offset;
-    out.tile_offset2 = vec2f(f32(tile_x / 2) * 0.25, f32(tile_y / 2) * 0.25);
-    out.tile_rotation = tile_rotation;
 
-    var scaled_vertex_offset: vec3f;
-    var base_vertex: vec3f;
-    
-    if (materialProps.modelId != VOXEL_MODEL) {
-        base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
-        
-        // Apply random tilt if all offset directions are enabled
-        if (has_offset(materialProps.randomOffsetDirections, DIRECTION_X) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Y) > 0.0 && 
-            has_offset(materialProps.randomOffsetDirections, DIRECTION_Z) > 0.0) {
+    var base_vertex = modelDataArray[materialProps.modelOffset + data.normal_index].vertexPositions[vertexInFace].xyz;
+    var normal = normalize(modelDataArray[materialProps.modelOffset + data.normal_index].normal.xyz);
+
+    if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
+        normal = rotateX(normal, f32(tile_x) * 0.1);
+        normal = rotateY(normal, f32(tile_y) * 0.1);
+        normal = rotateZ(normal, f32(tile_z) * 0.1);
+        normal = normalize(normal);
+
+        if (materialProps.modelId == LEAF_MODEL) {
+            // Apply random tilt to break coplanarity when all axes have offset
             base_vertex = apply_random_tilt(base_vertex, normal, hash);
+            
+            // Also apply tilt to the normal vector
+            normal = apply_random_tilt(normal, normal, hash);
+            normal = normalize(normal);
         }
-        
-        scaled_vertex_offset = base_vertex * lod_scale;
-    } else {
-        base_vertex = faceVertices[data.normal_index][vertexInFace];
-        scaled_vertex_offset = base_vertex * lod_scale;
     }
     
-    // Calculate initial position before wind
+    let scaled_vertex_offset = vec3f(base_vertex.x * lod_scale, base_vertex.y * lod_scale, base_vertex.z );
     let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
-    // Apply wind effects using material's wind strength
+    // Apply wind effects
     var wind_displacement = vec3f(0.0);
     if (materialProps.windStrength > 0.0) {
         let vertex_height = base_vertex.z;
@@ -853,15 +753,17 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
         }
     }
     
-    position = base_position + wind_displacement;
+    let position = base_position + wind_displacement;
+    let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     
-    // Calculate UV
+    // Transform to light's view space for shadow mapping
+    let light_view_position = uMyUniforms.lightViewMatrix * world_position;
+    out.position = uMyUniforms.lightProjectionMatrix * light_view_position;
+    out.world_position = world_position.xyz;
+    
+    // Calculate UV for alpha testing
     var uv = modelDataArray[materialProps.modelOffset + data.normal_index].uvs[vertexInFace];
     
-    if (materialProps.modelId == VOXEL_MODEL) {
-        uv = faceUVsIndependent[data.normal_index][vertexInFace];
-    }
-
     uv = clamp(uv, vec2f(0.01), vec2f(0.99));
     
     // Apply texture type transformations
@@ -877,21 +779,14 @@ fn shadow_vs_main(in: VertexInput) -> VertexOutput {
     }
     
     out.uv = uv;
-    
-    let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
 
-    // Transform to light's view space for shadow mapping
-    let light_view_position = uMyUniforms.lightViewMatrix * world_position;
-    out.position = uMyUniforms.lightProjectionMatrix * light_view_position;
-    out.world_position = world_position.xyz;
-    
     return out;
 }
 
 @fragment
-fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
-    let material_id = in.material_id;
-    if (material_id == 0u) {
+fn shadow_fs_main(in: FragmentInput) -> @location(0) vec4f {
+    // Early exit for invalid materials
+    if (in.material_id == 0u) {
         discard;
     }
 
@@ -904,8 +799,8 @@ fn shadow_fs_main(in: VertexOutput) -> @location(0) vec4f {
     // Note: This can impact performance significantly
     /*
     if (in.model_id == LEAF_MODEL) {
-        let materialProps = material_buffer[material_id - 1];
-        let textureColor = textureSampleLevel(textureArray, textureSampler, in.uv, materialProps.textureId0, 0);
+        let materialProps = material_buffer[in.material_id - 1];
+        let textureColor = textureSample(textureArray, textureSampler, in.uv, materialProps.textureId0);
 
         if (textureColor.a < 0.9) {
             discard;

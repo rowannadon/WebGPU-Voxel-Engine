@@ -437,24 +437,25 @@ fn get_sun_color(sun_elevation: f32) -> vec3f {
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0x1Fu;
-    let position_y = (packed_bits >> 5u) & 0x1Fu;
-    let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let vertex_index = (packed_bits >> 15u) & 0x7Fu;
-
+    let position_x = packed_bits & 0x1Fu;           // bits 0-4 (5 bits)
+    let position_y = (packed_bits >> 5u) & 0x1Fu;   // bits 5-9 (5 bits)
+    let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits) - CHANGED!
+    let normal_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits) - CHANGED!
+    
+    // AO values shifted due to new bit layout
     var ao = vec4u(0);
-    ao[0] = (packed_bits >> 23u) & 0x3u;
-    ao[1] = (packed_bits >> 25u) & 0x3u;
-    ao[2] = (packed_bits >> 27u) & 0x3u;
-    ao[3] = (packed_bits >> 29u) & 0x3u;
-
-    let reversed = (packed_bits >> 31u) & 0x1u;
+    ao[0] = (packed_bits >> 22u) & 0x3u;  // bits 22-23
+    ao[1] = (packed_bits >> 24u) & 0x3u;  // bits 24-25
+    ao[2] = (packed_bits >> 26u) & 0x3u;  // bits 26-27
+    ao[3] = (packed_bits >> 28u) & 0x3u;  // bits 28-29
+    
+    let reversed = (packed_bits >> 30u) & 0x1u;  // bit 30
     
     return UnpackedData(
         position_x,
         position_y,
         position_z,
-        vertex_index,
+        normal_index,
         ao,
         reversed
     );
@@ -1586,32 +1587,32 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     var blendState = 1.0;
-    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
-        let viewAlignment = dot(viewDir, normal);
+    // if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+    //     let viewAlignment = dot(viewDir, normal);
         
-        // Define blending ranges
-        var discardThreshold = 0.25;    // Hard discard at very sharp angles
-        var blendStartThreshold = 0.25;  // Start blending at this angle
-        var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
+    //     // Define blending ranges
+    //     var discardThreshold = 0.25;    // Hard discard at very sharp angles
+    //     var blendStartThreshold = 0.25;  // Start blending at this angle
+    //     var blendEndThreshold = 0.5;    // Full opacity at this angle and beyond
         
-        //Hard discard at very sharp angles
-        if (viewAlignment < discardThreshold) {
-            discard;
-        }
+    //     //Hard discard at very sharp angles
+    //     if (viewAlignment < discardThreshold) {
+    //         discard;
+    //     }
         
-        // Smooth alpha blending between discard and blend thresholds
-        if (viewAlignment < blendEndThreshold) {
-            if (viewAlignment < blendStartThreshold) {
-                // Linear blend from 0 to 1 between discard and blend start
-                blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
-            } else {
-                // Smooth transition from blend start to full opacity
-                let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
-                blendState = smoothstep(0.0, 1.0, blendFactor);
-            }
-            blendState = clamp(blendState, 0.0, 1.0);
-        }
-    }
+    //     // Smooth alpha blending between discard and blend thresholds
+    //     if (viewAlignment < blendEndThreshold) {
+    //         if (viewAlignment < blendStartThreshold) {
+    //             // Linear blend from 0 to 1 between discard and blend start
+    //             blendState = (viewAlignment - discardThreshold) / (blendStartThreshold - discardThreshold);
+    //         } else {
+    //             // Smooth transition from blend start to full opacity
+    //             let blendFactor = (viewAlignment - blendStartThreshold) / (blendEndThreshold - blendStartThreshold);
+    //             blendState = smoothstep(0.0, 1.0, blendFactor);
+    //         }
+    //         blendState = clamp(blendState, 0.0, 1.0);
+    //     }
+    // }
     let unbent_normal = normal;
     if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
         normal = normalize(normal + vec3f(0.0, 0.0, 2.0));

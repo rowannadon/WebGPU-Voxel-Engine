@@ -54,27 +54,6 @@ struct ChunkPriority {
     }
 };
 
-struct CachedDAICData {
-    // Per-Z optional DAICs (aligned to z = 0..COLUMN_HEIGHT-1)
-    std::array<std::optional<DAIC>, 16> opaqueByZ;
-    std::array<std::optional<DAIC>, 16> transparentByZ;
-
-    // Cache metadata (keep what you already had)
-    int lodLevel = -1;
-    glm::mat4x4 lastViewMatrix;
-    glm::mat4x4 lastProjMatrix;
-    glm::mat4x4 lastLightViewMatrix;
-    glm::mat4x4 lastLightProjMatrix;
-    uint64_t frameGenerated = 0;
-    bool isDirty = true;
-
-    // Column AABB in world space for quick culling
-    vec3 columnBoundsMin{ 0.0f };
-    vec3 columnBoundsMax{ 0.0f };
-
-    void invalidate() { isDirty = true; }
-};
-
 struct SpatialBucket {
     std::vector<ivec2> chunkColumns;
     vec3 boundsMin;
@@ -103,12 +82,34 @@ private:
 
     int renderDistance = 128;
     static constexpr int CHUNK_SIZE = 32;
-    static constexpr int COLUMN_HEIGHT_BLOCKS = 512;
-    static constexpr int COLUMN_HEIGHT = COLUMN_HEIGHT_BLOCKS / CHUNK_SIZE;
+    static constexpr int CHUNK_HEIGHT = 62;
+    static constexpr int COLUMN_HEIGHT = 8;
+    static constexpr int COLUMN_HEIGHT_BLOCKS = COLUMN_HEIGHT * CHUNK_HEIGHT;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
     static constexpr int MAX_ACTIVE_COLUMNS = 24000;
     static constexpr int MAX_TOTAL_COLUMNS = 24000;
+
+    struct CachedDAICData {
+        // Per-Z optional DAICs (aligned to z = 0..COLUMN_HEIGHT-1)
+        std::array<std::optional<DAIC>, COLUMN_HEIGHT> opaqueByZ;  // Changed from 16 to 10
+        std::array<std::optional<DAIC>, COLUMN_HEIGHT> transparentByZ;  // Changed from 16 to 10
+
+        // Cache metadata (keep what you already had)
+        int lodLevel = -1;
+        glm::mat4x4 lastViewMatrix;
+        glm::mat4x4 lastProjMatrix;
+        glm::mat4x4 lastLightViewMatrix;
+        glm::mat4x4 lastLightProjMatrix;
+        uint64_t frameGenerated = 0;
+        bool isDirty = true;
+
+        // Column AABB in world space for quick culling
+        vec3 columnBoundsMin{ 0.0f };
+        vec3 columnBoundsMax{ 0.0f };
+
+        void invalidate() { isDirty = true; }
+    };
 
     std::priority_queue<ChunkPriority> pendingChunkCreation;
 
@@ -396,7 +397,7 @@ public:
                 bucket->boundsMax = vec3(
                     (bucketPos.x + 1) * SPATIAL_BUCKET_SIZE * 32.0f,
                     (bucketPos.y + 1) * SPATIAL_BUCKET_SIZE * 32.0f,
-                    512.0f // COLUMN_HEIGHT_BLOCKS
+                    620.0f  // Changed from 512.0f to 620.0f
                 );
             }
 
@@ -509,10 +510,13 @@ public:
         const vec3 basePos = vec3(float(chunkPos.x * 32), float(chunkPos.y * 32), 0.0f);
 
         for (int z = 0; z < COLUMN_HEIGHT; ++z) {
-            vec3 zPos = basePos + vec3(0.0f, 0.0f, float(z * 32));
+            vec3 zPos = basePos + vec3(0.0f, 0.0f, float(z * CHUNK_HEIGHT));
 
-            // Camera pass culling
-            if (camCol && cameraFrustum.isCubeInside(zPos, 32.0f)) {
+            vec3 chunkMin = zPos;
+            vec3 chunkMax = zPos + vec3(32.0f, 32.0f, 62.0f);
+
+            // Camera pass culling - cube is now 32x32x62
+            if (camCol && cameraFrustum.isAABBInside(chunkMin, chunkMax)) {
                 if (cache.opaqueByZ[z].has_value()) {
                     opaqueDAICs.emplace_back(cache.opaqueByZ[z].value(), zPos);
                 }
@@ -521,7 +525,7 @@ public:
                 }
             }
             // Shadow pass culling
-            if (shCol && shadowFrustum.isCubeInside(zPos, 32.0f)) {
+            if (shCol && shadowFrustum.isAABBInside(chunkMin, chunkMax)) {
                 if (cache.opaqueByZ[z].has_value()) {
                     opaqueShadowDAICs.push_back(cache.opaqueByZ[z].value());
                 }
@@ -575,15 +579,14 @@ public:
         for (int z = 0; z < COLUMN_HEIGHT; ++z) {
             if (!cache.opaqueByZ[z].has_value() && !cache.transparentByZ[z].has_value()) continue;
             any = true;
-            vec3 mn = base + vec3(0.0f, 0.0f, float(z * 32));
-            vec3 mx = mn + vec3(32.0f);
+            vec3 mn = base + vec3(0.0f, 0.0f, float(z * CHUNK_HEIGHT));
+            vec3 mx = mn + vec3(32.0f, 32.0f, 62.0f);
             bmin = glm::min(bmin, mn);
             bmax = glm::max(bmax, mx);
         }
         if (!any) {
-            // Empty column—give it a degenerate but valid box
             bmin = base;
-            bmax = base + vec3(32.0f, 32.0f, float(COLUMN_HEIGHT * 32));
+            bmax = base + vec3(32.0f, 32.0f, float(COLUMN_HEIGHT * CHUNK_HEIGHT));
         }
         cache.columnBoundsMin = bmin;
         cache.columnBoundsMax = bmax;
@@ -773,7 +776,16 @@ private:
 
             if (currentState == ColumnState::TerrainReady) {
                 // Check if all neighbors are TerrainReady or better before transitioning
+                auto neighbors = getNeighbors(chunkPos);
                 bool allNeighborsReady = true;
+
+                for (int i = 0; i < 8; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::TerrainReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }
 
                 if (allNeighborsReady) {
                     ColumnState expected = ColumnState::TerrainReady;

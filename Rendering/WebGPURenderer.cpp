@@ -20,20 +20,20 @@ bool WebGPURenderer::initialize() {
 	struct SizeClassCfg { int faces; int baseCount; };
 
 	static const std::array<SizeClassCfg, 11> kBaseline = { {
-		{ 16,     10807 },
-		{ 32,      5150 },
-		{ 64,     10848 },
-		{ 128,     7699 },
-		{ 256,     9467 },
-		{ 512,     5713 },
-		{ 1024,   10244 },
-		{ 2048,    5485 },
-		{ 4096,    2698 },
-		{ 16384,   2391 },
-		{ 65536,      1500 }, 
+		{ 16,      8441 },
+		{ 32,      2130 },
+		{ 64,     10745 }, 
+		{ 128,     6651 },
+		{ 256,    12043 },
+		{ 512,     5653 },
+		{ 1024,   13202 },
+		{ 2048,    6112 }, 
+		{ 4096,    2632 }, 
+		{ 16384,   3458 }, 
+		{ 65536,    935 }, 
 	} };
 
-	float capacityScale = 3.0f;
+	float capacityScale = 4.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());

@@ -76,7 +76,6 @@ struct UnpackedData {
     position_y: u32,
     position_z: u32,
     normal_index: u32,
-    lod_level: u32,
     ao: vec4u,
     reversed: u32,
 }
@@ -225,35 +224,25 @@ fn calculate_wind_displacement(world_pos: vec3f, vertex_height: f32, wind_streng
 fn unpack_data(packed_data: u32) -> UnpackedData {
     let packed_bits = bitcast<u32>(packed_data);
     
-    let position_x = packed_bits & 0x1Fu;
-    let position_y = (packed_bits >> 5u) & 0x1Fu;
-    let position_z = (packed_bits >> 10u) & 0x1Fu;
-    let normal_index = (packed_bits >> 15u) & 0x1Fu;
-    let lod_bits = (packed_bits >> 20u) & 0x7u;
-
-    var ao = vec4u(0);
-    ao[0] = (packed_bits >> 23u) & 0x3u;
-    ao[1] = (packed_bits >> 25u) & 0x3u;
-    ao[2] = (packed_bits >> 27u) & 0x3u;
-    ao[3] = (packed_bits >> 29u) & 0x3u;
-
-    let reversed = (packed_bits >> 31u) & 0x1u;
+    let position_x = packed_bits & 0x1Fu;           // bits 0-4 (5 bits)
+    let position_y = (packed_bits >> 5u) & 0x1Fu;   // bits 5-9 (5 bits)
+    let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits) - CHANGED!
+    let normal_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits) - CHANGED!
     
-    var lod_level: u32;
-    switch (lod_bits) {
-        case 0u: { lod_level = 1u; }
-        case 1u: { lod_level = 2u; }
-        case 2u: { lod_level = 4u; }
-        case 3u: { lod_level = 8u; }
-        default: { lod_level = 1u; }
-    }
+    // AO values shifted due to new bit layout
+    var ao = vec4u(0);
+    ao[0] = (packed_bits >> 22u) & 0x3u;  // bits 22-23
+    ao[1] = (packed_bits >> 24u) & 0x3u;  // bits 24-25
+    ao[2] = (packed_bits >> 26u) & 0x3u;  // bits 26-27
+    ao[3] = (packed_bits >> 28u) & 0x3u;  // bits 28-29
+    
+    let reversed = (packed_bits >> 30u) & 0x1u;  // bit 30
     
     return UnpackedData(
         position_x,
         position_y,
         position_z,
         normal_index,
-        lod_level,
         ao,
         reversed
     );
