@@ -3004,255 +3004,496 @@ public:
     }
 
     void extractLODFacesFromMasks(int zPos, int lodLevel, LODBitCaches& lodCache) {
-        int size = CHUNK_SIZE / lodLevel;
-        int meshSlot = (lodLevel == 2) ? 1 : (lodLevel == 4) ? 2 : 3;
+        const int size = CHUNK_SIZE / lodLevel;                  // LOD grid size in XY
+        const int baseSlot = (lodLevel == 2) ? 1 : (lodLevel == 4) ? 2 : 3;
 
-        uint64_t* solidMasks, * waterMasks, * foliageMasks;
-
+        uint64_t* solidMasks = nullptr, * waterMasks = nullptr, * foliageMasks = nullptr;
         switch (lodLevel) {
-        case 2:
-            solidMasks = lodCache.solidFaceMasks2;
-            waterMasks = lodCache.waterFaceMasks2;
-            foliageMasks = lodCache.foliageFaceMasks2;
-            break;
-        case 4:
-            solidMasks = lodCache.solidFaceMasks4;
-            waterMasks = lodCache.waterFaceMasks4;
-            foliageMasks = lodCache.foliageFaceMasks4;
-            break;
-        case 8:
-            solidMasks = lodCache.solidFaceMasks8;
-            waterMasks = lodCache.waterFaceMasks8;
-            foliageMasks = lodCache.foliageFaceMasks8;
-            break;
-        default:
-            return;
+        case 2: solidMasks = lodCache.solidFaceMasks2; waterMasks = lodCache.waterFaceMasks2; foliageMasks = lodCache.foliageFaceMasks2; break;
+        case 4: solidMasks = lodCache.solidFaceMasks4; waterMasks = lodCache.waterFaceMasks4; foliageMasks = lodCache.foliageFaceMasks4; break;
+        case 8: solidMasks = lodCache.solidFaceMasks8; waterMasks = lodCache.waterFaceMasks8; foliageMasks = lodCache.foliageFaceMasks8; break;
+        default: return;
         }
 
-        auto extractFaces = [this, zPos, lodLevel, size](uint64_t* faceMasks, bool isWater, int meshSlot) {
-            for (int face = 0; face < 6; face++) {
-                if (face < 4) {
-                    for (int i = 0; i < size * CHUNK_HEIGHT; i++) {
-                        uint64_t mask = faceMasks[face * size * CHUNK_HEIGHT + i];
+        auto blockIsGreedy = [this](BlockType t) -> bool {
+            if (!tex) return false;
+            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL";
+            };
 
-                        while (mask) {
-                            int bitPos = findLowestSetBit(mask);
-                            if (bitPos < 0) break;
-                            mask &= ~(1ULL << bitPos);
+        // Emit a (possibly tiled) quad. wCells/hCells are in LOD "coarse cells".
+        // widthScaled/heightScaled tell whether the corresponding axis must be multiplied by lodLevel.
+        auto emitFaceLOD = [this, zPos, lodLevel](int meshSlot, bool /*isWater*/,
+            int xWorld, int yWorld, int zLayer, int face,
+            const UnpackedVoxelMaterial& mat,
+            int wCells, int hCells,
+            bool widthScaled, bool heightScaled)
+            {
+                const int maxCellsW = widthScaled ? std::max(1, 16 / lodLevel) : 16; // <=16 world units
+                const int maxCellsH = heightScaled ? std::max(1, 16 / lodLevel) : 16; // <=16 world units
 
-                            int x, y, z;
-                            if (face == 0 || face == 1) {
-                                x = bitPos;
-                                y = i / CHUNK_HEIGHT;
-                                z = i % CHUNK_HEIGHT;
+                for (int oy = 0; oy < hCells; oy += maxCellsH) {
+                    for (int ox = 0; ox < wCells; ox += maxCellsW) {
+                        const int tileCellsW = std::min(maxCellsW, wCells - ox);
+                        const int tileCellsH = std::min(maxCellsH, hCells - oy);
+
+                        // Starting position in WORLD units for this tile
+                        int px = xWorld, py = yWorld, pz = zLayer;
+
+                        switch (face) {
+                            // +X / -X : width→Y (scaled), height→Z (not scaled)
+                        case 0: case 1:
+                            py = yWorld + ox * lodLevel;
+                            pz = zLayer + oy;
+                            break;
+
+                            // +Y / -Y : width→X (scaled), height→Z (not scaled)
+                        case 2: case 3:
+                            px = xWorld + ox * lodLevel;
+                            pz = zLayer + oy;
+                            break;
+
+                            // +Z / -Z : width→X (scaled), height→Y (scaled)
+                        case 4: case 5:
+                            px = xWorld + ox * lodLevel;
+                            py = yWorld + oy * lodLevel;
+                            break;
+                        }
+
+                        const int worldW = tileCellsW * (widthScaled ? lodLevel : 1);
+                        const int worldH = tileCellsH * (heightScaled ? lodLevel : 1);
+
+                        FaceAttributes fa{};
+                        uint32_t d = 0;
+                        d |= (px & 0x1F);
+                        d |= (py & 0x1F) << 5;
+                        d |= (pz & 0x3F) << 10;
+                        d |= (face & 0x3F) << 16;
+                        d |= ((worldW - 1) & 0xF) << 22;
+                        d |= ((worldH - 1) & 0xF) << 26;
+                        fa.data = d;
+
+                        uint32_t packed16 = packMaterialData(mat).materialData;
+                        fa.materialData = packed16 & 0xFFFF;
+
+                        faceData[meshSlot][zPos].push_back(fa);
+                    }
+                }
+            };
+
+        // Greedy across each mask set
+        auto processSet = [&](uint64_t* masks, bool asWater, int meshSlot) {
+            // -------- X faces (0:+X, 1:-X) => greedy in (Y,Z) --------
+            for (int face = 0; face < 2; ++face) {
+                bool processed[32][CHUNK_HEIGHT] = {}; // size <= 32; cleared each x
+                for (int x = 0; x < size; ++x) {
+                    std::memset(processed, 0, sizeof(processed));
+                    for (int y = 0; y < size; ++y) {
+                        for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                            const uint64_t row = masks[face * size * CHUNK_HEIGHT + y * CHUNK_HEIGHT + z];
+                            if ((row & (1ULL << x)) == 0) continue;
+                            if (processed[y][z]) continue;
+
+                            const int worldZ = zPos * CHUNK_HEIGHT + z;
+                            UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (asWater && !isWaterBlock(base.materialType)) continue;
+                            if (!asWater && isWaterBlock(base.materialType)) continue;
+
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/false);
+                                continue;
                             }
-                            else {
-                                x = i / CHUNK_HEIGHT;
-                                y = bitPos;
-                                z = i % CHUNK_HEIGHT;
+
+                            // grow along +Y
+                            int wY = 1;
+                            while (y + wY < size) {
+                                const uint64_t r = masks[face * size * CHUNK_HEIGHT + (y + wY) * CHUNK_HEIGHT + z];
+                                if ((r & (1ULL << x)) == 0) break;
+                                if (processed[y + wY][z]) break;
+                                auto m = getMaterialDownscaledFast(lodLevel, ivec3(x, y + wY, worldZ));
+                                if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
+                                ++wY;
+                            }
+                            // grow along +Z
+                            int hZ = 1; bool ok = true;
+                            while (z + hZ < CHUNK_HEIGHT && ok) {
+                                for (int yy = y; yy < y + wY; ++yy) {
+                                    if (processed[yy][z + hZ]) { ok = false; break; }
+                                    const uint64_t r = masks[face * size * CHUNK_HEIGHT + yy * CHUNK_HEIGHT + (z + hZ)];
+                                    if ((r & (1ULL << x)) == 0) { ok = false; break; }
+                                    auto m = getMaterialDownscaledFast(lodLevel, ivec3(x, yy, zPos * CHUNK_HEIGHT + (z + hZ)));
+                                    if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) { ok = false; break; }
+                                }
+                                if (ok) ++hZ;
                             }
 
-                            int worldZ = zPos * CHUNK_HEIGHT + z;
-                            UnpackedVoxelMaterial mat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                /*wCells*/wY, /*hCells*/hZ, /*widthScaled*/true, /*heightScaled*/false);
 
-                            if (isWater && !isWaterBlock(mat.materialType)) continue;
-                            if (!isWater && isWaterBlock(mat.materialType)) continue;
-
-                            FaceAttributes faceAttr;
-
-                            uint32_t packedData = 0;
-                            packedData |= ((x * lodLevel) & 0x1F);
-                            packedData |= ((y * lodLevel) & 0x1F) << 5;
-                            packedData |= (z & 0x3F) << 10;
-                            packedData |= (face & 0x3F) << 16;
-                            packedData |= (3 & 0x3) << 22; // AO
-                            packedData |= (3 & 0x3) << 24;
-                            packedData |= (3 & 0x3) << 26;
-                            packedData |= (3 & 0x3) << 28;
-
-                            faceAttr.data = packedData;
-
-                            uint32_t packed16 = packMaterialData(mat).materialData;
-                            faceAttr.materialData = packed16 & 0xFFFF;
-
-                            faceData[meshSlot][zPos].push_back(faceAttr);
+                            for (int yy = y; yy < y + wY; ++yy)
+                                for (int zz = z; zz < z + hZ; ++zz)
+                                    processed[yy][zz] = true;
                         }
                     }
                 }
-                else {
-                    int baseOffset = 4 * size * CHUNK_HEIGHT + (face - 4) * size * size;
-                    for (int i = 0; i < size * size; i++) {
-                        uint64_t mask = faceMasks[baseOffset + i];
+            }
 
-                        while (mask) {
-                            int bitPos = findLowestSetBit(mask);
-                            if (bitPos < 0) break;
-                            mask &= ~(1ULL << bitPos);
+            // -------- Y faces (2:+Y, 3:-Y) => greedy in (X,Z) --------
+            for (int face = 2; face < 4; ++face) {
+                bool processed[32][CHUNK_HEIGHT] = {}; // per Y slice
+                for (int y = 0; y < size; ++y) {
+                    std::memset(processed, 0, sizeof(processed));
+                    for (int x = 0; x < size; ++x) {
+                        for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                            const uint64_t row = masks[face * size * CHUNK_HEIGHT + x * CHUNK_HEIGHT + z];
+                            if ((row & (1ULL << y)) == 0) continue;
+                            if (processed[x][z]) continue;
 
-                            int x = i / size;
-                            int y = i % size;
-                            int z = bitPos;
+                            const int worldZ = zPos * CHUNK_HEIGHT + z;
+                            UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (asWater && !isWaterBlock(base.materialType)) continue;
+                            if (!asWater && isWaterBlock(base.materialType)) continue;
 
-                            int worldZ = zPos * CHUNK_HEIGHT + z;
-                            UnpackedVoxelMaterial mat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/false);
+                                continue;
+                            }
 
-                            if (isWater && !isWaterBlock(mat.materialType)) continue;
-                            if (!isWater && isWaterBlock(mat.materialType)) continue;
+                            // grow along +X
+                            int wX = 1;
+                            while (x + wX < size) {
+                                const uint64_t r = masks[face * size * CHUNK_HEIGHT + (x + wX) * CHUNK_HEIGHT + z];
+                                if ((r & (1ULL << y)) == 0) break;
+                                if (processed[x + wX][z]) break;
+                                auto m = getMaterialDownscaledFast(lodLevel, ivec3(x + wX, y, worldZ));
+                                if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
+                                ++wX;
+                            }
+                            // grow along +Z
+                            int hZ = 1; bool ok = true;
+                            while (z + hZ < CHUNK_HEIGHT && ok) {
+                                for (int xx = x; xx < x + wX; ++xx) {
+                                    if (processed[xx][z + hZ]) { ok = false; break; }
+                                    const uint64_t r = masks[face * size * CHUNK_HEIGHT + xx * CHUNK_HEIGHT + (z + hZ)];
+                                    if ((r & (1ULL << y)) == 0) { ok = false; break; }
+                                    auto m = getMaterialDownscaledFast(lodLevel, ivec3(xx, y, zPos * CHUNK_HEIGHT + (z + hZ)));
+                                    if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) { ok = false; break; }
+                                }
+                                if (ok) ++hZ;
+                            }
 
-                            FaceAttributes faceAttr;
+                            emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                /*wCells*/wX, /*hCells*/hZ, /*widthScaled*/true, /*heightScaled*/false);
 
-                            uint32_t packedData = 0;
-                            packedData |= ((x * lodLevel) & 0x1F);
-                            packedData |= ((y * lodLevel) & 0x1F) << 5;
-                            packedData |= (z & 0x3F) << 10;
-                            packedData |= (face & 0x3F) << 16;
-                            packedData |= (3 & 0x3) << 22;
-                            packedData |= (3 & 0x3) << 24;
-                            packedData |= (3 & 0x3) << 26;
-                            packedData |= (3 & 0x3) << 28;
+                            for (int xx = x; xx < x + wX; ++xx)
+                                for (int zz = z; zz < z + hZ; ++zz)
+                                    processed[xx][zz] = true;
+                        }
+                    }
+                }
+            }
 
-                            faceAttr.data = packedData;
+            // -------- Z faces (4:+Z, 5:-Z) => greedy in (X,Y) --------
+            for (int face = 4; face < 6; ++face) {
+                const int baseOffset = 4 * size * CHUNK_HEIGHT + (face - 4) * size * size;
+                bool processed[32][32] = {}; // per Z slice
+                for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                    std::memset(processed, 0, sizeof(processed));
+                    for (int x = 0; x < size; ++x) {
+                        for (int y = 0; y < size; ++y) {
+                            const uint64_t cell = masks[baseOffset + (x * size + y)];
+                            if ((cell & (1ULL << z)) == 0) continue;
+                            if (processed[x][y]) continue;
 
-                            uint32_t packed16 = packMaterialData(mat).materialData;
-                            faceAttr.materialData = packed16 & 0xFFFF;
+                            const int worldZ = zPos * CHUNK_HEIGHT + z;
+                            UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (asWater && !isWaterBlock(base.materialType)) continue;
+                            if (!asWater && isWaterBlock(base.materialType)) continue;
 
-                            faceData[meshSlot][zPos].push_back(faceAttr);
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/true);
+                                continue;
+                            }
+
+                            // grow along +X
+                            int wX = 1;
+                            while (x + wX < size) {
+                                const uint64_t c = masks[baseOffset + ((x + wX) * size + y)];
+                                if ((c & (1ULL << z)) == 0) break;
+                                if (processed[x + wX][y]) break;
+                                auto m = getMaterialDownscaledFast(lodLevel, ivec3(x + wX, y, worldZ));
+                                if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
+                                ++wX;
+                            }
+                            // grow along +Y
+                            int hY = 1; bool ok = true;
+                            while (y + hY < size && ok) {
+                                for (int xx = x; xx < x + wX; ++xx) {
+                                    if (processed[xx][y + hY]) { ok = false; break; }
+                                    const uint64_t c = masks[baseOffset + (xx * size + (y + hY))];
+                                    if ((c & (1ULL << z)) == 0) { ok = false; break; }
+                                    auto m = getMaterialDownscaledFast(lodLevel, ivec3(xx, y + hY, worldZ));
+                                    if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) { ok = false; break; }
+                                }
+                                if (ok) ++hY;
+                            }
+
+                            emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                /*wCells*/wX, /*hCells*/hY, /*widthScaled*/true, /*heightScaled*/true);
+
+                            for (int xx = x; xx < x + wX; ++xx)
+                                for (int yy = y; yy < y + hY; ++yy)
+                                    processed[xx][yy] = true;
                         }
                     }
                 }
             }
             };
 
-        extractFaces(solidMasks, false, meshSlot);
-        extractFaces(waterMasks, true, meshSlot + TRANSPARENT_OFFSET);
-        extractFaces(foliageMasks, false, meshSlot);
+        // Solid → opaque slot, Water → transparent slot, Foliage → opaque slot
+        processSet(solidMasks,   /*asWater*/false, baseSlot);
+        processSet(waterMasks,   /*asWater*/true, baseSlot + TRANSPARENT_OFFSET);
+        processSet(foliageMasks, /*asWater*/false, baseSlot);
     }
 
-    void extractFacesFromMasks(int zPos, int lodLevel, ChunkBitCaches& cache) {
-        // Helper to extract faces from a face mask with proper material lookup
-        auto extractFaces = [this, zPos](uint64_t* faceMasks, bool isWater, int meshSlot) {
-            for (int face = 0; face < 6; face++) {
-                if (face < 4) {
-                    // X and Y faces use CHUNK_HEIGHT for second dimension
-                    for (int i = 0; i < CHUNK_SIZE * CHUNK_HEIGHT; i++) {
-                        uint64_t mask = faceMasks[face * CHUNK_SIZE * CHUNK_HEIGHT + i];
+    void extractFacesFromMasks(int zPos, int /*lodLevel*/, ChunkBitCaches& cache) {
+        auto emitFace = [this, zPos](int meshSlot, bool /*isWater*/,
+            int x, int y, int z, int face,
+            const UnpackedVoxelMaterial& mat,
+            int w, int h) {
+                // Tile to <=16×<=16, but apply OFFSETS per tile based on face orientation
+                for (int oy = 0; oy < h; oy += 16) {
+                    for (int ox = 0; ox < w; ox += 16) {
+                        int tileW = std::min(16, w - ox);
+                        int tileH = std::min(16, h - oy);
 
-                        while (mask) {
-                            int bitPos = findLowestSetBit(mask);
-                            if (bitPos < 0) break;
+                        // Start position for THIS tile
+                        int px = x, py = y, pz = z;
+                        switch (face) {
+                        case 0: // +X (YZ-rect): width→Y, height→Z
+                        case 1: // -X
+                            py = y + ox;
+                            pz = z + oy;
+                            break;
+                        case 2: // +Y (XZ-rect): width→X, height→Z
+                        case 3: // -Y
+                            px = x + ox;
+                            pz = z + oy;
+                            break;
+                        case 4: // +Z (XY-rect): width→X, height→Y
+                        case 5: // -Z
+                            px = x + ox;
+                            py = y + oy;
+                            break;
+                        }
 
-                            mask &= ~(1ULL << bitPos);
+                        FaceAttributes fa{};
+                        uint32_t packed = 0;
+                        packed |= (px & 0x1F);
+                        packed |= (py & 0x1F) << 5;
+                        packed |= (pz & 0x3F) << 10;
+                        packed |= (face & 0x3F) << 16;
+                        packed |= ((tileW - 1) & 0xF) << 22;  // 4 bits
+                        packed |= ((tileH - 1) & 0xF) << 26;  // 4 bits
+                        fa.data = packed;
 
-                            int x, y, z;
-                            if (face == 0 || face == 1) { // X faces
-                                x = bitPos;
-                                y = i / CHUNK_HEIGHT;
-                                z = i % CHUNK_HEIGHT;
-                            }
-                            else { // Y faces (2, 3)
-                                x = i / CHUNK_HEIGHT;
-                                y = bitPos;
-                                z = i % CHUNK_HEIGHT;
-                            }
+                        uint32_t packed16 = packMaterialData(mat).materialData;
+                        fa.materialData = (packed16 & 0xFFFF);
 
-                            // Get the actual material from the voxel data
+                        faceData[meshSlot][zPos].push_back(fa);
+                    }
+                }
+            };
+
+        auto blockIsGreedy = [this](BlockType t) -> bool {
+            if (!tex) return false;
+            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL";
+            };
+
+        auto processSet = [&](uint64_t* masks, bool isWater, int meshSlot) {
+            // ---------- X faces (0: +X, 1: -X) ----------
+            for (int face = 0; face < 2; ++face) {
+                for (int x = 0; x < CHUNK_SIZE; ++x) {
+                    bool processed[CHUNK_SIZE][CHUNK_HEIGHT] = {}; // per X plane
+                    for (int y = 0; y < CHUNK_SIZE; ++y) {
+                        for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                            uint64_t row = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_HEIGHT + z];
+                            if ((row & (1ULL << x)) == 0) continue;
+
                             int worldZ = zPos * CHUNK_HEIGHT + z;
-                            UnpackedVoxelMaterial mat = getMaterialFast(ivec3(x, y, worldZ));
+                            UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
 
-                            // Skip if wrong material type for this pass
-                            if (isWater && !isWaterBlock(mat.materialType)) continue;
-                            if (!isWater && isWaterBlock(mat.materialType)) continue;
+                            if (isWater && !isWaterBlock(baseMat.materialType)) continue;
+                            if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            // Create face attributes
-                            std::array<uint32_t, 4> aoValues{ 3, 3, 3, 3 };
-                            std::array<uint32_t, 10> neighborFlags{ 0 };
-
-                            FaceAttributes faceAttr;
-
-                            // Pack the data
-                            uint32_t packedData = 0;
-                            packedData |= (x & 0x1F);
-                            packedData |= (y & 0x1F) << 5;
-                            packedData |= (z & 0x3F) << 10;
-                            packedData |= (face & 0x3F) << 16;
-                            packedData |= (aoValues[0] & 0x3) << 22;
-                            packedData |= (aoValues[1] & 0x3) << 24;
-                            packedData |= (aoValues[2] & 0x3) << 26;
-                            packedData |= (aoValues[3] & 0x3) << 28;
-
-                            faceAttr.data = packedData;
-
-                            // Pack material
-                            uint32_t packed16 = packMaterialData(mat).materialData;
-                            uint32_t materialPacked = packed16 & 0xFFFF;
-                            for (int j = 0; j < 10; j++) {
-                                materialPacked |= (neighborFlags[j] & 0x1) << (17 + j);
+                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            if (!greedy) {
+                                // No greedy: emit single 1x1
+                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                continue;
                             }
-                            faceAttr.materialData = materialPacked;
 
-                            faceData[meshSlot][zPos].push_back(faceAttr);
+                            if (processed[y][z]) continue;
+
+                            // Greedy grow in (Y,Z) within this X plane
+                            int wY = 1;
+                            // grow along +Y
+                            while (y + wY < CHUNK_SIZE) {
+                                uint64_t r = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + (y + wY) * CHUNK_HEIGHT + z];
+                                if ((r & (1ULL << x)) == 0) break;
+                                auto m = getMaterialFast({ x, y + wY, worldZ });
+                                if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) break;
+                                if (processed[y + wY][z]) break;
+                                ++wY;
+                            }
+
+                            int hZ = 1;
+                            // grow along +Z
+                            bool canGrowZ = true;
+                            while (z + hZ < CHUNK_HEIGHT && canGrowZ) {
+                                for (int yy = y; yy < y + wY; ++yy) {
+                                    if (processed[yy][z + hZ]) { canGrowZ = false; break; }
+                                    uint64_t r = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + yy * CHUNK_HEIGHT + (z + hZ)];
+                                    if ((r & (1ULL << x)) == 0) { canGrowZ = false; break; }
+                                    auto m = getMaterialFast({ x, yy, zPos * CHUNK_HEIGHT + (z + hZ) });
+                                    if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) { canGrowZ = false; break; }
+                                }
+                                if (canGrowZ) ++hZ;
+                            }
+
+                            // Emit (tiled) and mark processed for this X plane area
+                            emitFace(meshSlot, isWater, x, y, z, face, baseMat, wY, hZ);
+                            for (int yy = y; yy < y + wY; ++yy)
+                                for (int zz = z; zz < z + hZ; ++zz)
+                                    processed[yy][zz] = true;
                         }
                     }
                 }
-                else {
-                    int baseOffset = 4 * CHUNK_SIZE * CHUNK_HEIGHT + (face - 4) * CHUNK_SIZE * CHUNK_SIZE;
-                    for (int i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
-                        uint64_t mask = faceMasks[baseOffset + i];
+            }
 
-                        while (mask) {
-                            int bitPos = findLowestSetBit(mask);
-                            if (bitPos < 0) break;
+            // ---------- Y faces (2: +Y, 3: -Y) ----------
+            for (int face = 2; face < 4; ++face) {
+                for (int y = 0; y < CHUNK_SIZE; ++y) {
+                    bool processed[CHUNK_SIZE][CHUNK_HEIGHT] = {}; // per Y plane
+                    for (int x = 0; x < CHUNK_SIZE; ++x) {
+                        for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                            uint64_t row = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + x * CHUNK_HEIGHT + z];
+                            if ((row & (1ULL << y)) == 0) continue;
 
-                            mask &= ~(1ULL << bitPos);
-
-                            int x = i / CHUNK_SIZE;
-                            int y = i % CHUNK_SIZE;
-                            int z = bitPos;
-
-                            // Get the actual material
                             int worldZ = zPos * CHUNK_HEIGHT + z;
-                            UnpackedVoxelMaterial mat = getMaterialFast(ivec3(x, y, worldZ));
+                            UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
 
-                            // Skip if wrong material type
-                            if (isWater && !isWaterBlock(mat.materialType)) continue;
-                            if (!isWater && isWaterBlock(mat.materialType)) continue;
+                            if (isWater && !isWaterBlock(baseMat.materialType)) continue;
+                            if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            // Create face attributes
-                            std::array<uint32_t, 4> aoValues{ 3, 3, 3, 3 };
-                            std::array<uint32_t, 10> neighborFlags{ 0 };
-
-                            FaceAttributes faceAttr;
-
-                            uint32_t packedData = 0;
-                            packedData |= (x & 0x1F);
-                            packedData |= (y & 0x1F) << 5;
-                            packedData |= (z & 0x3F) << 10;
-                            packedData |= (face & 0x3F) << 16;
-                            packedData |= (aoValues[0] & 0x3) << 22;
-                            packedData |= (aoValues[1] & 0x3) << 24;
-                            packedData |= (aoValues[2] & 0x3) << 26;
-                            packedData |= (aoValues[3] & 0x3) << 28;
-
-                            faceAttr.data = packedData;
-
-                            uint32_t packed16 = packMaterialData(mat).materialData;
-                            uint32_t materialPacked = packed16 & 0xFFFF;
-                            for (int j = 0; j < 10; j++) {
-                                materialPacked |= (neighborFlags[j] & 0x1) << (17 + j);
+                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            if (!greedy) {
+                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                continue;
                             }
-                            faceAttr.materialData = materialPacked;
 
-                            faceData[meshSlot][zPos].push_back(faceAttr);
+                            if (processed[x][z]) continue;
+
+                            // Greedy grow in (X,Z) within this Y plane
+                            int wX = 1;
+                            while (x + wX < CHUNK_SIZE) {
+                                uint64_t r = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + (x + wX) * CHUNK_HEIGHT + z];
+                                if ((r & (1ULL << y)) == 0) break;
+                                auto m = getMaterialFast({ x + wX, y, worldZ });
+                                if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) break;
+                                if (processed[x + wX][z]) break;
+                                ++wX;
+                            }
+
+                            int hZ = 1;
+                            bool canGrowZ = true;
+                            while (z + hZ < CHUNK_HEIGHT && canGrowZ) {
+                                for (int xx = x; xx < x + wX; ++xx) {
+                                    if (processed[xx][z + hZ]) { canGrowZ = false; break; }
+                                    uint64_t r = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + xx * CHUNK_HEIGHT + (z + hZ)];
+                                    if ((r & (1ULL << y)) == 0) { canGrowZ = false; break; }
+                                    auto m = getMaterialFast({ xx, y, zPos * CHUNK_HEIGHT + (z + hZ) });
+                                    if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) { canGrowZ = false; break; }
+                                }
+                                if (canGrowZ) ++hZ;
+                            }
+
+                            emitFace(meshSlot, isWater, x, y, z, face, baseMat, wX, hZ);
+                            for (int xx = x; xx < x + wX; ++xx)
+                                for (int zz = z; zz < z + hZ; ++zz)
+                                    processed[xx][zz] = true;
+                        }
+                    }
+                }
+            }
+
+            // ---------- Z faces (4: +Z, 5: -Z) ----------
+            for (int face = 4; face < 6; ++face) {
+                int baseOffset = 4 * CHUNK_SIZE * CHUNK_HEIGHT + (face - 4) * CHUNK_SIZE * CHUNK_SIZE;
+                for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                    bool processed[CHUNK_SIZE][CHUNK_SIZE] = {}; // per Z plane
+                    for (int x = 0; x < CHUNK_SIZE; ++x) {
+                        for (int y = 0; y < CHUNK_SIZE; ++y) {
+                            uint64_t cell = masks[baseOffset + (x * CHUNK_SIZE + y)];
+                            if ((cell & (1ULL << z)) == 0) continue;
+
+                            int worldZ = zPos * CHUNK_HEIGHT + z;
+                            UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
+
+                            if (isWater && !isWaterBlock(baseMat.materialType)) continue;
+                            if (!isWater && isWaterBlock(baseMat.materialType)) continue;
+
+                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            if (!greedy) {
+                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                continue;
+                            }
+
+                            if (processed[x][y]) continue;
+
+                            // Greedy grow in (X,Y) within this Z plane
+                            int wX = 1;
+                            while (x + wX < CHUNK_SIZE) {
+                                uint64_t c = masks[baseOffset + ((x + wX) * CHUNK_SIZE + y)];
+                                if ((c & (1ULL << z)) == 0) break;
+                                auto m = getMaterialFast({ x + wX, y, worldZ });
+                                if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) break;
+                                if (processed[x + wX][y]) break;
+                                ++wX;
+                            }
+
+                            int hY = 1;
+                            bool canGrowY = true;
+                            while (y + hY < CHUNK_SIZE && canGrowY) {
+                                for (int xx = x; xx < x + wX; ++xx) {
+                                    if (processed[xx][y + hY]) { canGrowY = false; break; }
+                                    uint64_t c = masks[baseOffset + (xx * CHUNK_SIZE + (y + hY))];
+                                    if ((c & (1ULL << z)) == 0) { canGrowY = false; break; }
+                                    auto m = getMaterialFast({ xx, y + hY, worldZ });
+                                    if (m.materialType != baseMat.materialType || !blockIsGreedy(m.materialType)) { canGrowY = false; break; }
+                                }
+                                if (canGrowY) ++hY;
+                            }
+
+                            emitFace(meshSlot, isWater, x, y, z, face, baseMat, wX, hY);
+                            for (int xx = x; xx < x + wX; ++xx)
+                                for (int yy = y; yy < y + hY; ++yy)
+                                    processed[xx][yy] = true;
                         }
                     }
                 }
             }
             };
 
-        // Process each material type
-        extractFaces(cache.solidFaceMasks, false, 0);
-        extractFaces(cache.waterFaceMasks, true, 0 + TRANSPARENT_OFFSET);
-        extractFaces(cache.foliageFaceMasks, false, 0);
+        // Solid, Water (transparent), Foliage (as solid pass for now)
+        processSet(cache.solidFaceMasks,   /*isWater*/false, 0);
+        processSet(cache.waterFaceMasks,   /*isWater*/true, 0 + TRANSPARENT_OFFSET);
+        processSet(cache.foliageFaceMasks, /*isWater*/false, 0);
     }
 
     bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors8 = {}) {

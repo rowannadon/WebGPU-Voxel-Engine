@@ -187,8 +187,8 @@ struct UnpackedData {
     position_y: u32,
     position_z: u32,
     vertex_index: u32,
-    ao: vec4u,
-    reversed: u32,
+    face_width: u32,   // NEW: width of greedy quad
+    face_height: u32,  // NEW: height of greedy quad
 }
 
 struct UnpackedMaterialData {
@@ -439,25 +439,18 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     
     let position_x = packed_bits & 0x1Fu;           // bits 0-4 (5 bits)
     let position_y = (packed_bits >> 5u) & 0x1Fu;   // bits 5-9 (5 bits)
-    let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits) - CHANGED!
-    let normal_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits) - CHANGED!
-    
-    // AO values shifted due to new bit layout
-    var ao = vec4u(0);
-    ao[0] = (packed_bits >> 22u) & 0x3u;  // bits 22-23
-    ao[1] = (packed_bits >> 24u) & 0x3u;  // bits 24-25
-    ao[2] = (packed_bits >> 26u) & 0x3u;  // bits 26-27
-    ao[3] = (packed_bits >> 28u) & 0x3u;  // bits 28-29
-    
-    let reversed = (packed_bits >> 30u) & 0x1u;  // bit 30
+    let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits)
+    let normal_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits)
+    let face_width = ((packed_bits >> 22u) & 0xFu) + 1u;  // bits 22-25 (4 bits) + 1
+    let face_height = ((packed_bits >> 26u) & 0xFu) + 1u; // bits 26-29 (4 bits) + 1
     
     return UnpackedData(
         position_x,
         position_y,
         position_z,
         normal_index,
-        ao,
-        reversed
+        face_width,
+        face_height
     );
 }
 
@@ -1036,16 +1029,23 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let lod_scale = pow(2.0, f32(chunkData.lod));
     voxel_pos = vec3f(f32(data.position_x), f32(data.position_y), f32(data.position_z));
 
-    // Generate the proper vertex index within the face (0-3) based on triangle pattern
-    var vertexInFace: u32;
+    var vertexInFace = generate_vertex_in_face_index(in.vertex_idx, 0u);
+
+    // Get base vertex position from model data
+    var base_vertex = modelDataArray[materialProps.modelOffset + data.vertex_index].vertexPositions[vertexInFace].xyz;
     
-    // Check if this face should be flipped based on AO values
-    let shouldFlip = should_flip_quad(data.ao);
-    
-    if (shouldFlip) {
-        vertexInFace = generate_flipped_vertex_in_face_index(in.vertex_idx, data.reversed);
-    } else {
-        vertexInFace = generate_vertex_in_face_index(in.vertex_idx, data.reversed);
+    // Scale the vertex by the greedy quad dimensions
+    if (data.vertex_index < 4u) { // X/Y faces
+        if (data.vertex_index == 0u || data.vertex_index == 1u) { // X faces
+            base_vertex.y *= f32(data.face_width);
+            base_vertex.z *= f32(data.face_height);
+        } else { // Y faces
+            base_vertex.x *= f32(data.face_width);
+            base_vertex.z *= f32(data.face_height);
+        }
+    } else { // Z faces
+        base_vertex.x *= f32(data.face_width);
+        base_vertex.y *= f32(data.face_height);
     }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
@@ -1071,7 +1071,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         (f32(tile_z_2) * materialProps.randomOffset - (4 * materialProps.randomOffset)) * has_offset(materialProps.randomOffsetDirections, DIRECTION_Z)
         );
 
-    var base_vertex = modelDataArray[materialProps.modelOffset + data.vertex_index].vertexPositions[vertexInFace].xyz;
     var normal = normalize(modelDataArray[materialProps.modelOffset + data.vertex_index].normal.xyz);
 
     if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
@@ -1089,11 +1088,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             normal = normalize(normal);
         }
     }
-    
-    let scaled_vertex_offset = vec3f(base_vertex.x * lod_scale, base_vertex.y * lod_scale, base_vertex.z );
 
-    // Calculate initial position before wind
-    let base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
+    if (data.vertex_index == 0u) {        // +X (YZ plane)
+        base_vertex.x *= lod_scale;       // push to x + lod_scale
+    } else if (data.vertex_index == 2u) { // +Y (XZ plane)
+        base_vertex.y *= lod_scale;       // push to y + lod_scale
+    }
+    
+    let scaled_vertex_offset = vec3f(base_vertex.x, base_vertex.y, base_vertex.z);
+    var base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
     //Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
@@ -1134,7 +1137,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     out.chunk_edge_factor = calculate_chunk_edge_factor(voxel_pos / lod_scale, data.vertex_index, u32(lod_scale));
     
-    var ao = aoLevels[data.ao[vertexInFace]];
+    var ao = 1.0;
     if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
         if (base_vertex.z <= 0) {
             ao = 0.35;
