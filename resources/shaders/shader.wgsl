@@ -1112,10 +1112,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     position = base_position + wind_displacement;
 
-    if (materialData.material_id == 20u) { // Water material
-        let gerstner = calculate_gerstner_waves(position.xy, uMyUniforms.time);
-        position += gerstner.position_offset;
-    }
+    // if (materialData.material_id == 20u) { // Water material
+    //     let gerstner = calculate_gerstner_waves(position.xy, uMyUniforms.time);
+    //     position += gerstner.position_offset;
+    // }
     
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
 
@@ -1624,47 +1624,47 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     var foam: f32 = 0.0;
     var fresnelTerm: f32 = 0.0;
 
-    if (material_id == 20u) {
-        let p = in.world_position.xy; // Z-up
-        let t = uMyUniforms.time;
+    // if (material_id == 20u) {
+    //     let p = in.world_position.xy; // Z-up
+    //     let t = uMyUniforms.time;
 
-        // Calculate Gerstner waves
-        let gerstner = calculate_gerstner_waves(p, t);
+    //     // Calculate Gerstner waves
+    //     let gerstner = calculate_gerstner_waves(p, t);
         
-        // Apply Gerstner normal
-        normal = normalize(mix(normal, gerstner.normal, 0.9));
+    //     // Apply Gerstner normal
+    //     normal = normalize(mix(normal, gerstner.normal, 0.9));
         
-        // Add some high-frequency detail noise to break up patterns
-        let detail_scale = 8.0;
-        let detail1 = simple_noise(p * detail_scale + vec2f(t * 0.5, -t * 0.3));
-        let detail2 = simple_noise(p * detail_scale * 1.5 + vec2f(-t * 0.4, t * 0.6));
-        let detail_normal_offset = vec3f(
-            (detail1 - 0.5) * 0.1,
-            (detail2 - 0.5) * 0.1,
-            1.0
-        );
-        normal = normalize(normal + detail_normal_offset * 0.2);
+    //     // Add some high-frequency detail noise to break up patterns
+    //     let detail_scale = 8.0;
+    //     let detail1 = simple_noise(p * detail_scale + vec2f(t * 0.5, -t * 0.3));
+    //     let detail2 = simple_noise(p * detail_scale * 1.5 + vec2f(-t * 0.4, t * 0.6));
+    //     let detail_normal_offset = vec3f(
+    //         (detail1 - 0.5) * 0.1,
+    //         (detail2 - 0.5) * 0.1,
+    //         1.0
+    //     );
+    //     normal = normalize(normal + detail_normal_offset * 0.2);
         
-        // UV distortion based on wave displacement
-        let uv_distortion = gerstner.position_offset.xy * 0.02;
-        uv += uv_distortion;
+    //     // UV distortion based on wave displacement
+    //     let uv_distortion = gerstner.position_offset.xy * 0.02;
+    //     uv += uv_distortion;
         
-        // Fresnel-based transparency
-        let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
-        fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
-        blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
+    //     // Fresnel-based transparency
+    //     let vdotn = clamp(dot(normalize(viewDir), normalize(normal)), 0.0, 1.0);
+    //     fresnelTerm = pow(1.0 - vdotn, WATER_FRESNEL_POWER) * WATER_FRESNEL_STRENGTH;
+    //     //blendState = clamp(WATER_BASE_ALPHA + fresnelTerm * (1.0 - WATER_BASE_ALPHA), 0.0, 0.98);
         
-        // Depth tint based on wave height
-        let wave_height = gerstner.position_offset.z;
-        waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, 
-                        clamp(abs(wave_height) * 10.0, 0.0, 1.0));
+    //     // Depth tint based on wave height
+    //     let wave_height = gerstner.position_offset.z;
+    //     waterTint = mix(WATER_TINT_SHALLOW, WATER_TINT_DEEP, 
+    //                     clamp(abs(wave_height) * 10.0, 0.0, 1.0));
         
-        // Foam generation
-        // Combine Gerstner foam with detail noise for more organic look
-        let foam_noise = simple_noise(p * 4.0 + vec2f(t * 0.2, -t * 0.15));
-        foam = smoothstep(WATER_FOAM_THRESHOLD, WATER_FOAM_THRESHOLD + 0.3, 
-                         gerstner.foam_factor + foam_noise * 0.3);
-    }
+    //     // Foam generation
+    //     // Combine Gerstner foam with detail noise for more organic look
+    //     let foam_noise = simple_noise(p * 4.0 + vec2f(t * 0.2, -t * 0.15));
+    //     foam = smoothstep(WATER_FOAM_THRESHOLD, WATER_FOAM_THRESHOLD + 0.3, 
+    //                      gerstner.foam_factor + foam_noise * 0.3);
+    // }
 
     var layer : u32 = materialProps.textureId0;
     if (materialProps.modelId == VOXEL_MODEL) {
@@ -1697,11 +1697,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     // Combine material albedo with texture
     var albedo = textureColor.rgb;
 
-    if (material_id == 20u || material_id == 19u) {
-        let transmitted = textureColor.rgb * waterTint;
-        let simpleSkyReflect = WATER_SKY_COLOR; // cheap env reflection approximation
-        albedo = mix(transmitted, simpleSkyReflect, 0.15);
-    }
+    // if (material_id == 20u || material_id == 19u) {
+    //     let transmitted = textureColor.rgb * waterTint;
+    //     let simpleSkyReflect = WATER_SKY_COLOR; // cheap env reflection approximation
+    //     albedo = mix(transmitted, simpleSkyReflect, 0.15);
+    // }
     
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
@@ -1764,14 +1764,14 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     // Add emission if present
     finalColor += materialProps.pbr.emission;
 
-    if (material_id == 20u || material_id == 19u) {
-        // Fresnel reflection of a cheap sky color
-        let reflectionColor = WATER_SKY_COLOR * (0.5 + 0.5 * pow(max(dot(normalize(normal), normalize(-sunDirection)), 0.0), 8.0));
-        finalColor = mix(finalColor * waterTint, reflectionColor, fresnelTerm);
+    // if (material_id == 20u || material_id == 19u) {
+    //     // Fresnel reflection of a cheap sky color
+    //     let reflectionColor = WATER_SKY_COLOR * (0.5 + 0.5 * pow(max(dot(normalize(normal), normalize(-sunDirection)), 0.0), 8.0));
+    //     finalColor = mix(finalColor * waterTint, reflectionColor, fresnelTerm);
 
-        // Foam over the top (additive-ish via mix)
-        finalColor = mix(finalColor, WATER_FOAM_COLOR, foam * WATER_FOAM_INTENSITY);
-    }
+    //     // Foam over the top (additive-ish via mix)
+    //     finalColor = mix(finalColor, WATER_FOAM_COLOR, foam * WATER_FOAM_INTENSITY);
+    // }
     
     // Apply chunk edge highlighting
     // if (in.chunk_edge_factor > 0.0) {

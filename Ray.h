@@ -104,8 +104,7 @@ public:
                     localVoxelPos.z >= 0 && localVoxelPos.z < COLUMN_HEIGHT_BLOCKS) {
 
                     // Check voxel occupancy
-                    if (chunkColumn->getVoxelWholeColumn(localVoxelPos, false) ||
-                        chunkColumn->getVoxelWholeColumn(localVoxelPos, true)) {
+                    if (chunkColumn->getVoxelWholeColumn(localVoxelPos)) {
 
                         // Calculate the adjacent voxel position based on which face we hit
                         glm::ivec3 adjacentPos = worldVoxelPos;
@@ -204,8 +203,7 @@ public:
                     voxelPos.y >= 0 && voxelPos.y < CHUNK_SIZE &&
                     voxelPos.z >= 0 && voxelPos.z < COLUMN_HEIGHT_BLOCKS) {
 
-                    if (chunkColumn->getVoxelWholeColumn(voxelPos, false) ||
-                        chunkColumn->getVoxelWholeColumn(voxelPos, true)) {
+                    if (chunkColumn->getVoxelWholeColumn(voxelPos)) {
                         // Hit a solid voxel - calculate adjacent position
                         glm::ivec3 hitVoxel = ivec3(glm::floor(currentPos));
                         glm::ivec3 adjacentVoxel = ivec3(glm::floor(previousPos));
