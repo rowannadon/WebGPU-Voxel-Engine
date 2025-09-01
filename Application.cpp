@@ -674,11 +674,19 @@ void Application::onResize() {
 
     tex->removeTexture("depth_texture");
     tex->removeTextureView("depth_view");
-    tex->removeTextureView("depth_sample_view");  // Also remove the sample view if it exists
+    tex->removeTextureView("depth_sample_view");
 
-    // IMPORTANT: Remove the old bind group that references the destroyed texture
-    // This prevents the "Destroyed texture used in submit" error
+    // IMPORTANT: Remove SSAO textures and views
+    tex->removeTexture("depth_resolved");
+    tex->removeTextureView("depth_resolved_view");
+    tex->removeTexture("ssao_texture");
+    tex->removeTextureView("ssao_view");
+    // Note: ssao_noise doesn't need removal as it's size-independent (4x4)
+
+    // Remove old bind groups that reference the destroyed textures
     pip->deleteBindGroup("sky_uniforms_group");
+    pip->deleteBindGroup("ssao_bind_group");  // Add this
+    pip->deleteBindGroup("global_uniforms_group_opaque");  // Add this if it uses ssao_view
 
     // Reconfigure surface
     gpu.getContext()->unconfigureSurface();
@@ -687,8 +695,14 @@ void Application::onResize() {
     // Re-create textures with new dimensions
     gpu.recreateRenderingTextures();
 
-    // CRITICAL: Recreate the sky bind group with the new depth texture
-    gpu.initBindGroups();  // This will recreate all bind groups including sky_uniforms_group
+    // Recreate all bind groups including SSAO
+    gpu.initBindGroups();
+
+    int width, height;
+    glfwGetFramebufferSize(gpu.getContext()->getWindow(), &width, &height);
+
+    screenWidth = width;
+    screenHeight = height;
 
     // Update projection matrix
     updateProjectionMatrix(camera.zoom);
@@ -726,7 +740,7 @@ void Application::updateProjectionMatrix(int zoom) {
     uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 2500.0f);
     uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
-    uniforms.screenSize = glm::vec2(static_cast<float>(width), static_cast<float>(height));
+    uniforms.screenSize = glm::ivec2(screenWidth, screenHeight);
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }

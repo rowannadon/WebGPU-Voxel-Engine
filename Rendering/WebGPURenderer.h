@@ -23,6 +23,8 @@
 #include "Pipelines/TransparentVoxelPipeline.h"
 #include "Pipelines/AtmospherePipeline.h"
 #include "Pipelines/DepthPrePass.h"
+#include "Pipelines/SSAOPipeline.h"
+#include "Pipelines/DepthResolvePipeline.h"
 
 #include "../ColumnDAICs.h"
 #include "../Atmosphere.h"
@@ -75,6 +77,8 @@ public:
     VoxelPipeline voxelPipeline;
     TransparentVoxelPipeline transparentVoxelPipeline;
     DepthPrePassPipeline depthPrePassPipeline;
+    SSAOPipeline ssaoPipeline;
+    DepthResolvePipeline depthResolvePipeline;
 
     bool initTextures();
     bool initSharedUniformBuffers();

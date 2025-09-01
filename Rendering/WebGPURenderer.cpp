@@ -83,6 +83,8 @@ bool WebGPURenderer::initialize() {
 	voxelPipeline.init(buf, tex, pip, mod, context.get());
 	transparentVoxelPipeline.init(buf, tex, pip, mod, context.get());
 	depthPrePassPipeline.init(buf, tex, pip, mod, context.get());
+	ssaoPipeline.init(buf, tex, pip, context.get());
+	depthResolvePipeline.init(buf, tex, pip);
 
 	// create resources
 	initTextures();
@@ -96,6 +98,7 @@ bool WebGPURenderer::initialize() {
 	terrainPipeline.createResources();
 	shadowPipeline.createResources();
 	depthPrePassPipeline.createResources();
+	ssaoPipeline.createResources();
 
 	// create pipelines
 	noisePipeline.createPipeline();
@@ -110,6 +113,8 @@ bool WebGPURenderer::initialize() {
 	terrainPipeline.createPipeline();
 	transparentVoxelPipeline.createPipeline();
 	depthPrePassPipeline.createPipeline();
+	ssaoPipeline.createPipeline();
+	depthResolvePipeline.createPipeline();
 
 	initSharedUniformBuffers();
 	initBindGroups();
@@ -118,6 +123,7 @@ bool WebGPURenderer::initialize() {
 }
 
 void WebGPURenderer::recreateRenderingTextures() {
+	ssaoPipeline.createResources();
 	voxelPipeline.createResources();
 	depthPrePassPipeline.createResources();
 }
@@ -252,12 +258,27 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 			targetView,
 			encoder);
 
-		voxelPipeline.render(
-			chunkRenderData.opaqueDAICs.size(),
-			opaqueIndirectBuffer,
-			targetView,
-			encoder
-		);
+		if (chunkRenderData.opaqueDAICs.size() > 0) {
+			depthPrePassPipeline.render(
+				chunkRenderData.opaqueDAICs.size(),
+				opaqueIndirectBuffer,
+				targetView,
+				encoder);
+
+			// Resolve MSAA depth for SSAO
+			depthResolvePipeline.render(encoder);
+
+			// Generate SSAO
+			ssaoPipeline.render(encoder);
+
+			// Continue with main rendering...
+			voxelPipeline.render(
+				chunkRenderData.opaqueDAICs.size(),
+				opaqueIndirectBuffer,
+				targetView,
+				encoder
+			);
+		}
 	}
 
 	// === TRANSPARENT VOXEL RENDER PASS ===
@@ -443,6 +464,8 @@ bool WebGPURenderer::initBindGroups() {
 	atmospherePipeline.createBindGroup();
 	transparentVoxelPipeline.createBindGroup();
 	depthPrePassPipeline.createBindGroup();
+	ssaoPipeline.createBindGroup();
+	depthResolvePipeline.createBindGroup();
 
 	return true;
 }

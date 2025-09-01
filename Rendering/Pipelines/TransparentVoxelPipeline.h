@@ -67,7 +67,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(14);
+		std::vector<BindGroupEntry> bindings(15);
 
 		int i = 0;
 
@@ -107,6 +107,10 @@ public:
 
 		bindings[i].binding = i;
 		bindings[i].textureView = tex->getTextureView("shadow_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("ssao_view");
 		i++;
 
 		bindings[i].binding = i;

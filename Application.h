@@ -183,6 +183,8 @@ private:
     ivec3 chunkPosition;
     ivec3 pastChunkPosition;
 
+    int screenWidth = 1280;
+    int screenHeight = 720;
 
     ivec3 lookingAtBlockPos = ivec3(0, 0, 0);
     bool shouldBreakBlock = false;

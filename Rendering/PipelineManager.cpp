@@ -1,6 +1,5 @@
 #include "PipelineManager.h"
 
-
 RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineName, PipelineConfig& config) {
     std::cout << "Creating shader module..." << std::endl;
     ShaderModule shaderModule = loadShaderModule(config.shaderPath, device);
@@ -56,20 +55,12 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
 
     if (config.useColorTarget) {
         // Blend state
-
-        /*blendState.color.srcFactor = BlendFactor::SrcAlpha;
-        blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
-        blendState.color.operation = BlendOperation::Add;
-        blendState.alpha.srcFactor = BlendFactor::Zero;
-        blendState.alpha.dstFactor = BlendFactor::One;
-        blendState.alpha.operation = BlendOperation::Add;*/
-
         if (config.useCustomBlending) {
             blendState = config.blendState;
         }
 
         // Color target state
-        colorTarget.format = surfaceFormat;
+        colorTarget.format = config.useCustomColorFormat ? config.colorFormat : surfaceFormat;
         colorTarget.blend = &blendState;
         colorTarget.writeMask = ColorWriteMask::All;
 
@@ -81,15 +72,21 @@ RenderPipeline PipelineManager::createRenderPipeline(const std::string pipelineN
         fragmentState.targets = nullptr;
     }
 
-    // Depth stencil state
+    // Depth stencil state - declare outside to keep in scope
     DepthStencilState depthStencilState = Default;
-    depthStencilState.depthCompare = config.depthCompare;
-    depthStencilState.depthWriteEnabled = config.depthWriteEnabled ? OptionalBool::True : OptionalBool::False;
-    depthStencilState.format = config.depthFormat;
-    depthStencilState.stencilReadMask = 0;
-    depthStencilState.stencilWriteMask = 0;
 
-    pipelineDesc.depthStencil = &depthStencilState;
+    // Only configure and set depth stencil if useDepthStencil is true
+    if (config.useDepthStencil) {
+        depthStencilState.depthCompare = config.depthCompare;
+        depthStencilState.depthWriteEnabled = config.depthWriteEnabled ? OptionalBool::True : OptionalBool::False;
+        depthStencilState.format = config.depthFormat;
+        depthStencilState.stencilReadMask = 0;
+        depthStencilState.stencilWriteMask = 0;
+        pipelineDesc.depthStencil = &depthStencilState;
+    }
+    else {
+        pipelineDesc.depthStencil = nullptr;
+    }
 
     // Pipeline layout
     PipelineLayoutDescriptor layoutDesc{};

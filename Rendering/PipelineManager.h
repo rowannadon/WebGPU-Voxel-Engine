@@ -17,7 +17,7 @@ struct PipelineConfig {
     std::vector<VertexAttribute> vertexAttributes;
     std::vector<BindGroupLayout> bindGroupLayouts;
     TextureFormat colorFormat = TextureFormat::BGRA8Unorm;
-    TextureFormat depthFormat = TextureFormat::Depth32Float;
+    TextureFormat depthFormat = TextureFormat::Depth24Plus;
     uint32_t sampleCount = 4;
     PrimitiveTopology topology = PrimitiveTopology::TriangleList;
     CullMode cullMode = CullMode::Back;
@@ -28,6 +28,8 @@ struct PipelineConfig {
     bool useCustomBlending = false;
     BlendState blendState;
     bool alphaToCoverageEnabled = false;
+    bool useCustomColorFormat = false;
+    bool useDepthStencil = true;  // Add this flag
 };
 
 struct ComputePipelineConfig {

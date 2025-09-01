@@ -305,13 +305,14 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(5) var roughnessTextureArray: texture_2d_array<f32>;
 @group(0) @binding(6) var textureSampler: sampler;
 @group(0) @binding(7) var shadowMap: texture_depth_2d;
-@group(0) @binding(8) var shadowSampler: sampler_comparison;
+@group(0) @binding(8) var ssaoTexture: texture_2d<f32>;
+@group(0) @binding(9) var shadowSampler: sampler_comparison;
 
-@group(0) @binding(9) var lut_sampler: sampler;
-@group(0) @binding(10) var transmittance_lut: texture_2d<f32>;
-@group(0) @binding(11) var sky_view_lut: texture_2d<f32>;
-@group(0) @binding(12) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(13) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(10) var lut_sampler: sampler;
+@group(0) @binding(11) var transmittance_lut: texture_2d<f32>;
+@group(0) @binding(12) var sky_view_lut: texture_2d<f32>;
+@group(0) @binding(13) var aerial_perspective_lut: texture_3d<f32>;
+@group(0) @binding(14) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -1189,7 +1190,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
     out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
     
-    out.position = uMyUniforms.infiniteProjectionMatrix * view_position;
+    out.position = uMyUniforms.projectionMatrix * view_position;
     out.normal = normalize((uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz);
     out.uv = uv;
     out.world_position = world_position.xyz;
@@ -1646,6 +1647,10 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var uv = in.uv;
 
+    let screen_uv = in.position.xy / vec2f(f32(uMyUniforms.screenSize.x), f32(uMyUniforms.screenSize.y));
+
+    let ssao_value = textureSampleLevel(ssaoTexture, lut_sampler, screen_uv, 0.0).r;
+
     var waterTint: vec3f = vec3f(1.0);
     var foam: f32 = 0.0;
     var fresnelTerm: f32 = 0.0;
@@ -1779,11 +1784,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-    let ao_adjusted = select(
-        mix(1.0, in.ao, aoStrength * distanceAdjustedAoFactor),
-        1.0,
-        materialProps.pbr.AO == 0.0
-    );
+    let ao_adjusted = ssao_value;
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     

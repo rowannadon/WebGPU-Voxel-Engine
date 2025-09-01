@@ -58,8 +58,8 @@ public:
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::Back;
-		config.depthWriteEnabled = false;
-		config.depthCompare = CompareFunction::Equal;
+		config.depthWriteEnabled = true;
+		config.depthCompare = CompareFunction::LessEqual;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
 		config.vertexShaderName = "vs_main";  // Vertex shader entry point
 		config.useVertexBuffers = false;
@@ -69,7 +69,7 @@ public:
 
 		// uniforms binding
 		int i = 0;
-		std::vector<BindGroupLayoutEntry> globalUniforms(14, Default);
+		std::vector<BindGroupLayoutEntry> globalUniforms(15, Default);
 		globalUniforms[i].binding = i;
 		globalUniforms[i].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 		globalUniforms[i].buffer.type = BufferBindingType::Uniform;
@@ -119,6 +119,12 @@ public:
 		globalUniforms[i].binding = i;
 		globalUniforms[i].visibility = ShaderStage::Fragment | ShaderStage::Vertex;
 		globalUniforms[i].texture.sampleType = TextureSampleType::Depth;
+		globalUniforms[i].texture.viewDimension = TextureViewDimension::_2D;
+		i++;
+
+		globalUniforms[i].binding = i;
+		globalUniforms[i].visibility = ShaderStage::Fragment;
+		globalUniforms[i].texture.sampleType = TextureSampleType::Float;
 		globalUniforms[i].texture.viewDimension = TextureViewDimension::_2D;
 		i++;
 
@@ -176,7 +182,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(14);
+		std::vector<BindGroupEntry> bindings(15);
 
 		int i = 0;
 		bindings[i].binding = i;
@@ -215,6 +221,10 @@ public:
 
 		bindings[i].binding = i;
 		bindings[i].textureView = tex->getTextureView("shadow_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("ssao_view");
 		i++;
 
 		bindings[i].binding = i;
@@ -263,7 +273,7 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Load;
+		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;

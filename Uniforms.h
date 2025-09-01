@@ -25,12 +25,21 @@ struct MyUniforms {
     glm::vec3 lightPosition;
     float padding2;  // For 16-byte alignment
 
-	glm::vec2 screenSize;
+	glm::ivec2 screenSize;
 
     float padding4[2];
 };
 
 static_assert(sizeof(MyUniforms) % 16 == 0);
+
+struct SSAOParams {
+    float radius = 0.5f;
+    float bias = 0.025f;
+    float intensity = 1.0f;
+    int kernelSize = 64;
+    float noiseScale = 4.0f;
+    float padding[3];
+};
 
 inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCenter, float sceneRadius) {
     
