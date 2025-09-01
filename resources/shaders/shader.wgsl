@@ -1049,7 +1049,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
 
     let world_voxel_pos = vec3i(i32(voxel_pos.x), i32(voxel_pos.y), i32(voxel_pos.z)) + chunkData.worldPosition;
-
     let stable_world_voxel_pos = stable_world_voxel(chunkData.worldPosition, voxel_pos, lod_scale);
 
     let hash = hash_voxel_position(stable_world_voxel_pos);
@@ -1123,6 +1122,30 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
 
     uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+
+    if (materialProps.textureType != LARGE_TILE) { // Large tile handles its own UV scaling
+    // Determine which axes correspond to UV based on face normal
+        var uv_scale = vec2f(1.0, 1.0);
+        
+        if (data.vertex_index < 4u) { // X/Y faces
+            if (data.vertex_index == 0u || data.vertex_index == 1u) { // X faces (YZ plane)
+                // U maps to Y axis, V maps to Z axis
+                uv_scale.x = f32(data.face_width);  // Y dimension
+                uv_scale.y = f32(data.face_height); // Z dimension
+            } else { // Y faces (XZ plane)
+                // U maps to X axis, V maps to Z axis
+                uv_scale.x = f32(data.face_width);  // X dimension
+                uv_scale.y = f32(data.face_height); // Z dimension
+            }
+        } else { // Z faces (XY plane)
+            // U maps to X axis, V maps to Y axis
+            uv_scale.x = f32(data.face_width);  // X dimension
+            uv_scale.y = f32(data.face_height); // Y dimension
+        }
+        
+        // Apply scaling to make textures repeat across the greedy mesh
+        uv = uv * uv_scale;
+    }
 
     if (materialProps.textureType == RANDOM_ROTATION) {        
         uv = rotate_uv(uv, tile_rotation);

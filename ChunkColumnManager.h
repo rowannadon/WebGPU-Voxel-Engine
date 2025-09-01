@@ -83,7 +83,7 @@ private:
     int renderDistance = 128;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int CHUNK_HEIGHT = 62;
-    static constexpr int COLUMN_HEIGHT = 8;
+    static constexpr int COLUMN_HEIGHT = 10;
     static constexpr int COLUMN_HEIGHT_BLOCKS = COLUMN_HEIGHT * CHUNK_HEIGHT;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
@@ -486,7 +486,7 @@ public:
         auto& cache = *cachePtr;
 
         // LOD selection
-        std::vector<float> lodDistances = { 8.0f, 16.0f, 32.0f, 512.0f };
+        std::vector<float> lodDistances = { 12.0f, 24.0f, 48.0f, 96.0f };
         ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
         int lod = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
 

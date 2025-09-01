@@ -238,9 +238,9 @@ private:
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 8;
+    static constexpr int DEFAULT_WORKER_COUNT = 6;
     static constexpr size_t MAX_QUEUE_SIZE = 100;
-    static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(30);
+    static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(60);
 
     // Statistics
     std::atomic<size_t> terrain_generated{ 0 };

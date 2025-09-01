@@ -171,7 +171,7 @@ private:
 
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int CHUNK_HEIGHT = 62;
-    static constexpr int COLUMN_HEIGHT = 8;
+    static constexpr int COLUMN_HEIGHT = 10;
     static constexpr int COLUMN_HEIGHT_BLOCKS = COLUMN_HEIGHT * CHUNK_HEIGHT;  // Changed from 512 to 620 (10 chunks * 62)
     static constexpr int VOXELS_PER_UINT64 = 62;  // Perfect fit!
 

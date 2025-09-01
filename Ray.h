@@ -72,7 +72,7 @@ public:
         int side = 0;
         constexpr int CHUNK_SIZE = 32;
         constexpr int CHUNK_HEIGHT = 62;
-        static constexpr int COLUMN_HEIGHT = 8;
+        static constexpr int COLUMN_HEIGHT = 10;
 
         constexpr int COLUMN_HEIGHT_BLOCKS = CHUNK_HEIGHT * COLUMN_HEIGHT;  // Changed from 512 to 620
         float totalDistance = 0.0f;

@@ -4,13 +4,13 @@
       "id": 0,
       "name": "Dirt",
       "texture": [
-        "debug.png"
+        "dirt.png"
       ],
       "normal": [],
       "roughness": ["dirt.png"],
       "modelType": "SINGLE",
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "NONE",
       "tileCount": 8,
       "randomOffset": 0.0,
@@ -67,7 +67,7 @@
       "id": 2,
       "name": "Limestone",
       "texture": [
-        "debug.png"
+        "limestone.png"
       ],
       "normal": [],
       "roughness": ["limestone.png"],
@@ -160,12 +160,12 @@
       "id": 5,
       "name": "Slate",
       "texture": [
-        "debug.png"
+        "slate.png"
       ],
       "normal": [],
       "roughness": ["limestone.png"],
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
       "tileCount": 4,
       "randomOffset": 0.0,
@@ -191,15 +191,15 @@
       "id": 6,
       "name": "Andesite",
       "texture": [
-        "debug.png",
-        "debug.png"
+        "sandstone.png",
+        "sandstone_top.png"
       ],
       "normal": [],
       "roughness": [
         "sandstone.png"
       ],
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "SINGLE_AXIS",
       "tileCount": 8,
       "randomOffset": 0.0,
@@ -225,7 +225,7 @@
       "id": 7,
       "name": "Gneiss",
       "texture": [
-        "debug.png"
+        "gneiss.png"
       ],
       "normal": [],
       "roughness": ["gneiss.png"],
@@ -596,7 +596,7 @@
       "id": 18,
       "name": "Water",
       "texture": [
-        "debug.png"
+        "water.png"
       ],
       "normal": [],
       "roughness": [],
@@ -627,7 +627,7 @@
       "id": 19,
       "name": "Water Surface",
       "texture": [
-        "debug.png"
+        "water.png"
       ],
       "normal": [],
       "roughness": [],
@@ -658,12 +658,12 @@
       "id": 20,
       "name": "Sand",
       "texture": [
-        "debug.png"
+        "sand.png"
       ],
       "normal": [],
       "roughness": ["sand.png"],
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "NONE",
       "tileCount": 8,
       "randomOffset": 0.0,
@@ -726,7 +726,7 @@
       "id": 22,
       "name": "Spruce Log",
       "texture": [
-        "debug.png"
+        "oak_log.png"
       ],
       "normal": [],
       "roughness": [],
@@ -757,7 +757,7 @@
       "id": 23,
       "name": "Loam",
       "texture": [
-        "debug.png"
+        "loam_more_flowers.png"
       ],
       "normal": [],
       "roughness": ["loam2.png"],
@@ -883,7 +883,7 @@
       "id": 27,
       "name": "GrassFlowers",
       "texture": [
-        "debug.png"
+        "grass_flowers.png"
       ],
       "normal": [],
       "roughness": ["grass_r.png"],
