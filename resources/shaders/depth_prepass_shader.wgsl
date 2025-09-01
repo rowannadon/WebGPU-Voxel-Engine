@@ -788,7 +788,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
     
-    out.position = uMyUniforms.infiniteProjectionMatrix * view_position;
+    out.position = uMyUniforms.projectionMatrix * view_position;
 
     out.world_position = world_position.xyz;
     

@@ -259,10 +259,10 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 			encoder);
 
 		// Resolve MSAA depth for SSAO
-		//depthResolvePipeline.render(encoder);
+		depthResolvePipeline.render(encoder);
 
 		// Generate SSAO
-		//ssaoPipeline.render(encoder);
+		ssaoPipeline.render(encoder);
 
 		// Continue with main rendering...
 		voxelPipeline.render(

@@ -1784,7 +1784,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-    let ao_adjusted = 1.0; //ssao_value;
+    let ao_adjusted = ssao_value;
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     

@@ -273,9 +273,9 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Load;
-		depthStencilAttachment.depthStoreOp = StoreOp::Store;
-		depthStencilAttachment.depthReadOnly = false;
+		depthStencilAttachment.depthLoadOp = LoadOp::Undefined;
+		depthStencilAttachment.depthStoreOp = StoreOp::Undefined;
+		depthStencilAttachment.depthReadOnly = true;
 		depthStencilAttachment.stencilClearValue = 0;
 		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
 		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;

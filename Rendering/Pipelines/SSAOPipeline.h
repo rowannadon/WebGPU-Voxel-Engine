@@ -85,7 +85,7 @@ public:
 		// Initialize default parameters
 		SSAOParams defaultParams;
 		defaultParams.radius = 3.0f;
-		defaultParams.bias = 0.045f;
+		defaultParams.bias = 0.015f;
 		defaultParams.intensity = 1.5f;
 		defaultParams.kernelSize = 64;
 		defaultParams.noiseScale = 4.0f;
