@@ -58,8 +58,8 @@ public:
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::Back;
-		config.depthWriteEnabled = true;
-		config.depthCompare = CompareFunction::LessEqual;
+		config.depthWriteEnabled = false;
+		config.depthCompare = CompareFunction::Equal;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
 		config.vertexShaderName = "vs_main";  // Vertex shader entry point
 		config.useVertexBuffers = false;
@@ -273,7 +273,7 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+		depthStencilAttachment.depthLoadOp = LoadOp::Load;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;

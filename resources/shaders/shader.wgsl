@@ -166,7 +166,7 @@ struct MyUniforms {
     padding2: f32,
     lightPosition: vec3f,
     padding1: u32,
-    screenSize: vec2i,
+    screenSize: vec2f,
 };
 
 struct ChunkData {
@@ -1647,7 +1647,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     var uv = in.uv;
 
-    let screen_uv = in.position.xy / vec2f(f32(uMyUniforms.screenSize.x), f32(uMyUniforms.screenSize.y));
+    let screen_uv = in.position.xy / uMyUniforms.screenSize;
 
     let ssao_value = textureSampleLevel(ssaoTexture, lut_sampler, screen_uv, 0.0).r;
 
@@ -1784,7 +1784,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-    let ao_adjusted = ssao_value;
+    let ao_adjusted = 1.0; //ssao_value;
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     

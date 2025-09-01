@@ -740,7 +740,7 @@ void Application::updateProjectionMatrix(int zoom) {
     uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 2500.0f);
     uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
-    uniforms.screenSize = glm::ivec2(screenWidth, screenHeight);
+    uniforms.screenSize = glm::vec2(static_cast<float>(screenWidth), static_cast<float>(screenHeight));
 
     buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, projectionMatrix), &uniforms.projectionMatrix, sizeof(MyUniforms::projectionMatrix));
 }

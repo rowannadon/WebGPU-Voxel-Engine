@@ -23,7 +23,7 @@ public:
 		PipelineConfig config;
 		config.shaderPath = RESOURCE_DIR "/shaders/sky_shader.wgsl";
 		config.colorFormat = TextureFormat::BGRA8Unorm;
-		config.depthFormat = TextureFormat::Depth24Plus;
+		config.depthFormat = TextureFormat::Undefined;
 		config.sampleCount = 4;
 		config.cullMode = CullMode::None;  // No culling for sky
 		config.depthWriteEnabled = false;  // Don't write to depth buffer
@@ -33,6 +33,7 @@ public:
 		config.useVertexBuffers = false;  // Sky shader generates vertices procedurally
 		config.useColorTarget = true;
 		config.useCustomBlending = false;
+		config.useDepthStencil = false;
 
 		// Clear vertex attributes since we don't need them
 		config.vertexAttributes.clear();
@@ -200,18 +201,7 @@ public:
 		renderPassDesc.colorAttachmentCount = 1;
 		renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
-		RenderPassDepthStencilAttachment depthStencilAttachment;
-		depthStencilAttachment.view = tex->getTextureView("depth_view");
-		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Undefined;  // Keep existing depth values
-		depthStencilAttachment.depthStoreOp = StoreOp::Undefined;
-		depthStencilAttachment.depthReadOnly = true;  // Don't modify depth in sky pass
-		depthStencilAttachment.stencilClearValue = 0;
-		depthStencilAttachment.stencilLoadOp = LoadOp::Undefined;
-		depthStencilAttachment.stencilStoreOp = StoreOp::Undefined;
-		depthStencilAttachment.stencilReadOnly = true;
-
-		renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+		renderPassDesc.depthStencilAttachment = nullptr;
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder skyRenderPass = encoder.beginRenderPass(renderPassDesc);

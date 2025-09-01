@@ -250,7 +250,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 
 	skyPipeline.render(targetView, encoder);
 
-	// === OPAQUE VOXEL RENDER PASS ===
+
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		depthPrePassPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
@@ -258,27 +258,19 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 			targetView,
 			encoder);
 
-		if (chunkRenderData.opaqueDAICs.size() > 0) {
-			depthPrePassPipeline.render(
-				chunkRenderData.opaqueDAICs.size(),
-				opaqueIndirectBuffer,
-				targetView,
-				encoder);
+		// Resolve MSAA depth for SSAO
+		//depthResolvePipeline.render(encoder);
 
-			// Resolve MSAA depth for SSAO
-			depthResolvePipeline.render(encoder);
+		// Generate SSAO
+		//ssaoPipeline.render(encoder);
 
-			// Generate SSAO
-			ssaoPipeline.render(encoder);
-
-			// Continue with main rendering...
-			voxelPipeline.render(
-				chunkRenderData.opaqueDAICs.size(),
-				opaqueIndirectBuffer,
-				targetView,
-				encoder
-			);
-		}
+		// Continue with main rendering...
+		voxelPipeline.render(
+			chunkRenderData.opaqueDAICs.size(),
+			opaqueIndirectBuffer,
+			targetView,
+			encoder
+		);
 	}
 
 	// === TRANSPARENT VOXEL RENDER PASS ===

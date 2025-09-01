@@ -60,7 +60,7 @@ struct MyUniforms {
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
-    padding: f32,
+    transparent: u32,
     highlightedVoxelPos: vec3i,
     time: f32,
     cameraWorldPos: vec3f,
@@ -837,7 +837,7 @@ fn get_sun_luminance(world_pos: vec3<f32>, world_dir: vec3<f32>, atmosphere: Atm
 		let sun = get_atmosphere_light_with_dynamic_direction(uniforms.lightDirection);
 		sun_luminance += enhanced_sun_disk_luminance(world_pos, world_dir, atmosphere, 
 		                                            sun.direction, LIMB_DARKENING_ON_SUN,
-		                                            pixel_pos, uniforms.screenSize);
+		                                            pixel_pos, vec2f(f32(uniforms.screenSize.x), f32(uniforms.screenSize.y)));
 	}
 	if RENDER_MOON_DISK && USE_MOON {
 		let moon = get_atmosphere_light_with_dynamic_direction(-uniforms.lightDirection);

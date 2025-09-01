@@ -25,7 +25,7 @@ struct MyUniforms {
     glm::vec3 lightPosition;
     float padding2;  // For 16-byte alignment
 
-	glm::ivec2 screenSize;
+	glm::vec2 screenSize;
 
     float padding4[2];
 };
