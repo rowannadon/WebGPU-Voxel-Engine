@@ -976,6 +976,82 @@ fn linear_to_srgb(c_in: vec3f) -> vec3f {
     return mix(lo, hi, step(thresh, c));
 }
 
+fn calculate_horizon_distance(camera_pos: vec3<f32>, ray_dir: vec3<f32>, atmosphere: Atmosphere) -> f32 {
+    // Calculate geometric horizon distance based on camera height
+    let camera_height = length(camera_pos) - atmosphere.bottom_radius;
+    
+    // Approximate horizon distance using Earth curvature
+    // This gives us the distance to the horizon based on viewer height
+    let horizon_dist_geometric = sqrt(2.0 * atmosphere.bottom_radius * camera_height + camera_height * camera_height);
+    
+    // Adjust based on ray direction - rays pointing down should use shorter distances
+    let ray_pitch = ray_dir.z; // Z is up in your system
+    
+    // For downward rays, blend between render distance and geometric horizon
+    if (ray_pitch < 0.0) {
+        // Looking down - use a blend between max render distance and geometric horizon
+        let down_factor = saturate(-ray_pitch * 2.0);
+        return mix(horizon_dist_geometric, 50.0, down_factor); // 50km max for downward views
+    } else {
+        // Looking up or horizontal - use geometric horizon
+        return horizon_dist_geometric;
+    }
+}
+
+// Add this function to integrate fog analytically
+fn integrate_atmospheric_fog(
+    camera_pos: vec3<f32>,
+    ray_dir: vec3<f32>,
+    max_distance: f32,
+    atmosphere: Atmosphere,
+    sun_dir: vec3<f32>,
+    uv: vec2<f32>
+) -> vec4<f32> {
+    // Number of integration steps
+    let num_steps = 32;
+    let step_size = max_distance / f32(num_steps);
+    
+    var transmittance = 1.0;
+    var in_scattering = vec3<f32>(0.0);
+    
+    // Get the view height for LUT sampling
+    let view_height = length(camera_pos);
+    
+    for (var i = 0; i < num_steps; i++) {
+        let t = (f32(i) + 0.5) * step_size;
+        let sample_pos = camera_pos + ray_dir * t;
+        let sample_height = length(sample_pos) - atmosphere.bottom_radius;
+        
+        // Height-based fog density (exponential falloff)
+        let fog_height_scale = 8.0; // Scale height in km
+        let base_density = 0.0001; // Base fog density
+        let density = base_density * exp(-sample_height / fog_height_scale);
+        
+        // Distance-based falloff for smooth blending
+        let distance_falloff = 1.0 - smoothstep(30.0, 50.0, t);
+        let final_density = density * distance_falloff;
+        
+        // Calculate scattering contribution
+        let step_transmittance = exp(-final_density * step_size);
+        
+        // Sample sky view LUT for the scattering color at this point
+        let sample_uv = compute_sky_view_lut_uv(
+            length(sample_pos),
+            sample_pos,
+            -ray_dir, // Look back toward camera
+            sun_dir,
+            atmosphere,
+            config_buffer
+        );
+        let sky_color = textureSampleLevel(sky_view_lut, lut_sampler, sample_uv, 0).rgb;
+        
+        // Accumulate in-scattering
+        in_scattering += transmittance * (1.0 - step_transmittance) * sky_color;
+        transmittance *= step_transmittance;
+    }
+    
+    return vec4<f32>(in_scattering, 1.0 - transmittance);
+}
 
 @fragment 
 fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
@@ -1000,71 +1076,72 @@ fn atmo_fs_main(in: SkyVertexOutput) -> @location(0) vec4f {
     let depth = depth_sample.depth;
     let pixel_pos = vec2f(in.position.x, in.position.y);
     
-    let view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
+    // Calculate view distance - either to terrain or to virtual horizon
+    var view_distance: f32;
+    var apply_height_fog = true;
     
-    // Apply aerial perspective for terrain
-    let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
-    
-    // Calculate height-based fog multiplier
-    // depth_buffer_world_pos is in km, convert back to feet for height calculation
-    let world_pos_feet = depth_buffer_world_pos / TO_KM_SCALE;
-    
-    // Get the height (Y coordinate in feet)
-    let terrain_height = world_pos_feet.z;
-    
-    // Define fog height parameters (in feet)
-    let fog_height_min = 300.0;      // Sea level - maximum fog
-    let fog_height_max = 475.0;
-    
-    // Calculate height-based fog multiplier (1.0 at sea level, 0.0 at fog_height_max)
-    let height_fog_factor = 1.0 - saturate((terrain_height - fog_height_min) / (fog_height_max - fog_height_min));
-    
-    // Squared for faster falloff at higher altitudes
-    let height_fog_multiplier = height_fog_factor * height_fog_factor;
-    
-    // Calculate distance-based fog
-    // Define distance fog parameters (in km)
-    let fog_distance_start = 32.0;   // Start of distance fog (10 km)
-    let fog_distance_end = 35.0;     // Full fog at this distance (50 km)
-    
-    // Calculate distance fog factor based on world space distance
-    let camera_to_terrain_distance = length(depth_buffer_world_pos - camera_pos_relative_to_planet);
-    let distance_fog_factor = saturate((camera_to_terrain_distance - fog_distance_start) / (fog_distance_end - fog_distance_start));
-    
-    // Optional: Apply a curve to distance fog for more control
-    let distance_fog_multiplier = distance_fog_factor * distance_fog_factor;
-    
-    // Combine height and distance fog factors
-    // Use max to ensure fog appears in either low areas OR at distance
-    let combined_fog_multiplier = max(height_fog_multiplier, distance_fog_multiplier);
-
-    // Alternative combination methods:
-    // 1. Additive (clamped): let combined_fog_multiplier = saturate(height_fog_multiplier + distance_fog_multiplier);
-    // 2. Multiplicative blend: let combined_fog_multiplier = 1.0 - (1.0 - height_fog_multiplier) * (1.0 - distance_fog_multiplier);
-    
-    var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
-    
-    let w = sqrt(slice / AP_SLICE_COUNT);
-    
-    let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
-    
-    let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
-    
-    // Apply combined fog multiplier to the final fog alpha
-    let final_fog_alpha = aerial_perspective.a * combined_fog_multiplier;
-        
-    // if (is_valid_depth(depth)) {
-    //     let debug_color = vec3<f32>(
-    //         saturate(camera_to_terrain_distance / 2.0),    // Red increases with distance
-    //         saturate(distance_fog_factor),          // Green shows distance fog factor
-    //         saturate(height_fog_multiplier)         // Blue shows height fog
-    //     );
-    //     return vec4f(debug_color, 1.0);
-    // }
-
     if (is_valid_depth(depth)) {
-        return vec4f(linear_to_srgb(dithered_aerial_perspective), final_fog_alpha);
+        // We hit terrain - use actual distance
+        view_distance = calculate_view_space_distance(uv, depth, config.inverseProjectionMatrix);
+        
+        // Get terrain height for height-based fog
+        let depth_buffer_world_pos = uv_and_depth_to_world_pos(uv, config.inverseProjectionMatrix, config.inverseViewMatrix, depth);
+        let world_pos_feet = depth_buffer_world_pos / TO_KM_SCALE;
+        let terrain_height = world_pos_feet.z;
+        
+        // Calculate height-based fog multiplier
+        let fog_height_min = 300.0;
+        let fog_height_max = 475.0;
+        let height_fog_factor = 1.0 - saturate((terrain_height - fog_height_min) / (fog_height_max - fog_height_min));
+        let height_fog_multiplier = height_fog_factor * height_fog_factor;
+        
+        // Distance fog
+        let camera_to_terrain_distance = length(depth_buffer_world_pos - camera_pos_relative_to_planet);
+        let fog_distance_start = 32.0;
+        let fog_distance_end = 35.0;
+        let distance_fog_factor = saturate((camera_to_terrain_distance - fog_distance_start) / (fog_distance_end - fog_distance_start));
+        let distance_fog_multiplier = distance_fog_factor * distance_fog_factor;
+        let combined_fog_multiplier = max(height_fog_multiplier, distance_fog_multiplier);
+        
+        // Sample aerial perspective LUT
+        var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
+        let w = sqrt(slice / AP_SLICE_COUNT);
+        let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
+        let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+        
+        return vec4f(linear_to_srgb(dithered_aerial_perspective), aerial_perspective.a * combined_fog_multiplier);
+    } else {
+        // No terrain hit - use virtual horizon distance for fog
+        // Calculate a virtual distance based on ray direction
+        let camera_height = view_height - atmosphere.bottom_radius;
+        
+        // Base horizon distance from geometric calculation
+        let horizon_dist_geometric = sqrt(2.0 * atmosphere.bottom_radius * camera_height + camera_height * camera_height);
+        
+        // Convert to view space units (matching the scale of terrain distances)
+        // We need to use a reasonable virtual distance that will work with the aerial perspective LUT
+        let max_fog_distance = 100000.0; // 100km in meters
+        
+        // For rays pointing toward horizon, use full distance
+        // For rays pointing up or down, reduce distance
+        let ray_pitch = world_dir.z; // Z is up
+        let horizon_factor = 1.0 - abs(ray_pitch); // 1.0 at horizon, 0.0 straight up/down
+        
+        // Virtual view distance in meters (to match terrain path units)
+        view_distance = mix(10000.0, max_fog_distance, horizon_factor);
+        
+        // Sample aerial perspective LUT with virtual distance
+        var slice = aerial_perspective_depth_to_slice(view_distance * atmosphere.ap_slice_scale);
+        slice = min(slice, AP_SLICE_COUNT - 1.0); // Clamp to valid range
+        let w = sqrt(slice / AP_SLICE_COUNT);
+        let aerial_perspective = textureSampleLevel(aerial_perspective_lut, lut_sampler, vec3<f32>(uv, w), 0);
+        
+        // For sky pixels, reduce fog alpha based on ray direction
+        // We want less fog when looking up at clear sky, more at horizon
+        let fog_alpha_multiplier = smoothstep(0.3, -0.1, ray_pitch); // More fog at/below horizon
+        
+        let dithered_aerial_perspective = applyDitherToPixelColor(aerial_perspective.rgb, pixel_pos);
+        
+        return vec4f(linear_to_srgb(dithered_aerial_perspective), aerial_perspective.a * fog_alpha_multiplier);
     }
-
-    return vec4f(0.5, 1.0, 1.0, 0.0);
 }
