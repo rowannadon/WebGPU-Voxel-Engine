@@ -1073,21 +1073,21 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var normal = normalize(modelDataArray[materialProps.modelOffset + data.vertex_index].normal.xyz);
 
-    if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL) {
-        normal = rotateX(normal, f32(tile_x) * 0.1);
-        normal = rotateY(normal, f32(tile_y) * 0.1);
-        normal = rotateZ(normal, f32(tile_z) * 0.1);
-        normal = normalize(normal);
+    // if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+    //     normal = rotateX(normal, f32(tile_x) * 0.1);
+    //     normal = rotateY(normal, f32(tile_y) * 0.1);
+    //     normal = rotateZ(normal, f32(tile_z) * 0.1);
+    //     normal = normalize(normal);
 
-        if (materialProps.modelId == LEAF_MODEL) {
-            // Apply random tilt to break coplanarity when all axes have offset
-            base_vertex = apply_random_tilt(base_vertex, normal, hash);
+    //     if (materialProps.modelId == LEAF_MODEL) {
+    //         // Apply random tilt to break coplanarity when all axes have offset
+    //         base_vertex = apply_random_tilt(base_vertex, normal, hash);
             
-            // Also apply tilt to the normal vector
-            normal = apply_random_tilt(normal, normal, hash);
-            normal = normalize(normal);
-        }
-    }
+    //         // Also apply tilt to the normal vector
+    //         normal = apply_random_tilt(normal, normal, hash);
+    //         normal = normalize(normal);
+    //     }
+    // }
 
     if (data.vertex_index == 0u) {        // +X (YZ plane)
         base_vertex.x *= lod_scale;       // push to x + lod_scale
@@ -1096,22 +1096,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     let scaled_vertex_offset = vec3f(base_vertex.x, base_vertex.y, base_vertex.z);
-    var base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
+    var base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset; // + random_offset;
     
     //Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
-    if (materialProps.windStrength > 0.0) {
-        let vertex_height = base_vertex.z;
-        if (vertex_height > 0.1) {
-            let wind_strength = vertex_height;
-            wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
-        }
-
-        normal = rotateX(normal, f32(wind_displacement.x) * 0.2);
-        normal = rotateY(normal, f32(wind_displacement.y) * 0.2);
-        normal = rotateZ(normal, f32(wind_displacement.z) * 0.2);
-        normal = normalize(normal);
-    }
+    // if (materialProps.windStrength > 0.0) {
+    //     let vertex_height = base_vertex.z;
+    //     if (vertex_height > 0.1) {
+    //         let wind_strength = vertex_height;
+    //         wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
+    //     }
+    // }
     
     position = base_position + wind_displacement;
 
@@ -1641,9 +1636,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     //     }
     // }
     let unbent_normal = normal;
-    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
-        normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
-    }
+    // if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
+    //     normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
+    // }
 
     var uv = in.uv;
 
@@ -1737,11 +1732,11 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let sunDirection = uMyUniforms.lightDirection;
     let sunColor = get_sun_color(uMyUniforms.lightDirection.z);
     var x_value = asin(uMyUniforms.lightDirection.z);
-    let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.0125)), 2.0);
+    let sun_intensity = pow(smoothstep(0.0, 1.0, pow(uMyUniforms.lightDirection.z, 0.125)), 2.0);
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
 
-    var leaf_wrap: f32 = 0.2;
+    var leaf_wrap: f32 = 0.1;
     if (materialProps.modelId == LEAF_MODEL) {
         leaf_wrap = 0.35; // 0..0.35 is a good range
     }
@@ -1784,7 +1779,15 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let baseAoStrength = materialProps.pbr.AO;
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
-    let ao_adjusted = ssao_value;
+    var ao = ssao_value;
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+        ao = in.ao;
+    }
+    let ao_adjusted = select(
+        mix(1.0, ao, aoStrength * distanceAdjustedAoFactor),
+        1.0,
+        materialProps.pbr.AO == 0.0
+    );
     // Combine all lighting
     var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     
