@@ -139,6 +139,9 @@ public:
     // public
     void setModelOffsetResolver(std::function<uint32_t(std::string_view)> fn);
 
+    std::string getTextureKindForBlockType(BlockType blockType);
+    std::string getTypeString(const TextureType m);
+
     // private
     std::function<uint32_t(std::string_view)> modelOffsetResolver_;
 

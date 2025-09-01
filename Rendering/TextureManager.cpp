@@ -161,6 +161,14 @@ std::string TextureManager::getModelString(const CpuModelKind m) {
     return "";
 }
 
+std::string TextureManager::getTypeString(const TextureType m) {
+    if (m == TextureType::LargeTile) return "LARGE_TILE";
+    if (m == TextureType::Connected) return "CONNECTED";
+    if (m == TextureType::RandomRotation) return "RANDOM_ROTATION";
+    if (m == TextureType::RandomVariant) return "RANDOM_VARIANT";
+    return "";
+}
+
 TextureManager::OrientationType TextureManager::parseOrientation(const std::string& s) {
     if (s == "NONE") return OrientationType::None;
     if (s == "SINGLE_AXIS")  return OrientationType::SingleAxis;
@@ -867,6 +875,27 @@ std::string TextureManager::getModelKindForBlockType(BlockType blockType) {
         // Return the modelId as CpuModelKind
         CpuModelKind m = static_cast<CpuModelKind>(it->second.modelId);
         return getModelString(m);
+    }
+
+    std::cout << "unknown model for block type: " << materialId << "\n";
+
+    return "UNKNOWN";
+}
+
+std::string TextureManager::getTextureKindForBlockType(BlockType blockType) {
+    std::shared_lock<std::shared_mutex> lock(textureMutex);
+    // Convert BlockType to material ID (assuming they match directly)
+    uint32_t materialId = static_cast<uint32_t>(blockType) - 1;
+    if (blockType == BlockType::Air) {
+        return "NONE";
+    }
+
+    // Look up the material in our material map
+    auto it = materialMap.find(materialId);
+    if (it != materialMap.end()) {
+        // Return the modelId as CpuModelKind
+        TextureType m = static_cast<TextureType>(it->second.textureType);
+        return getTypeString(m);
     }
 
     std::cout << "unknown model for block type: " << materialId << "\n";

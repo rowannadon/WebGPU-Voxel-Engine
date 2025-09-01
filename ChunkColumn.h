@@ -3312,7 +3312,8 @@ public:
 
         auto blockIsGreedy = [this](BlockType t) -> bool {
             if (!tex) return false;
-            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL";
+            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL" &&
+                tex->getTextureKindForBlockType(t) != "CONNECTED";
             };
 
         auto processSet = [&](uint64_t* masks, bool isWater, int meshSlot) {

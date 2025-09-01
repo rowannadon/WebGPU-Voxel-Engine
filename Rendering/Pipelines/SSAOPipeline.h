@@ -84,11 +84,11 @@ public:
 
 		// Initialize default parameters
 		SSAOParams defaultParams;
-		defaultParams.radius = 3.0f;
-		defaultParams.bias = 0.015f;
-		defaultParams.intensity = 1.5f;
+		defaultParams.radius = 4.0f;
+		defaultParams.bias = 0.025f;
+		defaultParams.intensity = 2.0f;
 		defaultParams.kernelSize = 64;
-		defaultParams.noiseScale = 4.0f;
+		defaultParams.noiseScale = 2.0f;
 
 		context->getQueue().writeBuffer(
 			paramsBuffer,
