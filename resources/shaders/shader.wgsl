@@ -1073,21 +1073,21 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var normal = normalize(modelDataArray[materialProps.modelOffset + data.vertex_index].normal.xyz);
 
-    // if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
-    //     normal = rotateX(normal, f32(tile_x) * 0.1);
-    //     normal = rotateY(normal, f32(tile_y) * 0.1);
-    //     normal = rotateZ(normal, f32(tile_z) * 0.1);
-    //     normal = normalize(normal);
+    if (materialProps.modelId == LEAF_MODEL || materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+        normal = rotateX(normal, f32(tile_x) * 0.1);
+        normal = rotateY(normal, f32(tile_y) * 0.1);
+        normal = rotateZ(normal, f32(tile_z) * 0.1);
+        normal = normalize(normal);
 
-    //     if (materialProps.modelId == LEAF_MODEL) {
-    //         // Apply random tilt to break coplanarity when all axes have offset
-    //         base_vertex = apply_random_tilt(base_vertex, normal, hash);
+        if (materialProps.modelId == LEAF_MODEL) {
+            // Apply random tilt to break coplanarity when all axes have offset
+            base_vertex = apply_random_tilt(base_vertex, normal, hash);
             
-    //         // Also apply tilt to the normal vector
-    //         normal = apply_random_tilt(normal, normal, hash);
-    //         normal = normalize(normal);
-    //     }
-    // }
+            // Also apply tilt to the normal vector
+            normal = apply_random_tilt(normal, normal, hash);
+            normal = normalize(normal);
+        }
+    }
 
     if (data.vertex_index == 0u) {        // +X (YZ plane)
         base_vertex.x *= lod_scale;       // push to x + lod_scale
@@ -1636,9 +1636,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     //     }
     // }
     let unbent_normal = normal;
-    // if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
-    //     normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
-    // }
+    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
+        normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
+    }
 
     var uv = in.uv;
 
@@ -1742,7 +1742,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
-    let boosted_sun_intensity = sun_intensity * 3.5; // Boost sun intensity for PBR
+    let boosted_sun_intensity = sun_intensity * 3.75; // Boost sun intensity for PBR
     let specular_intensity = 1.0;
     let direct_lighting = calculate_pbr_lighting(
         albedo,
@@ -1780,9 +1780,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let normalBasedAoStrength = smoothClamp(dot(viewDir, normal), 0.4, 1.0);
     let aoStrength = mix(baseAoStrength, normalBasedAoStrength, normalFadeFactor);
     var ao = ssao_value;
-    if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
-        ao = in.ao;
-    }
+    // if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
+    //     ao = in.ao;
+    // }
     let ao_adjusted = select(
         mix(1.0, ao, aoStrength * distanceAdjustedAoFactor),
         1.0,

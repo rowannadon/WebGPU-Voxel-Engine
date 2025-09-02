@@ -636,6 +636,8 @@ private:
         case BlockType::Grass5:
         case BlockType::Bush:
         case BlockType::Fence:
+        case BlockType::Leaf:
+        case BlockType::SpruceLeaf:
             return false;
         default:
             // Everything else is solid (all rock types, dirt, grass, logs, etc.)
@@ -650,7 +652,8 @@ private:
     bool isFoliageBlock(BlockType type) const {
         return isGrassBillboard(type) ||
             type == BlockType::Leaf ||
-            type == BlockType::SpruceLeaf;
+            type == BlockType::SpruceLeaf ||
+            type == BlockType::Fence;
     }
 
     inline void setVoxelBit(uint64_t* data, int x, int y, int z, bool value) {
@@ -2585,7 +2588,7 @@ public:
 
                             if (currentSolid) {
                                 // Solid blocks only render faces against non-solid blocks
-                                shouldRenderFace = !neighborSolid;
+                                shouldRenderFace = !neighborSolid || neighborFoliage;
                             }
                             else if (currentWater) {
                                 // Water only renders against non-water
@@ -3247,6 +3250,19 @@ public:
     }
 
     void extractFacesFromMasks(int zPos, int /*lodLevel*/, ChunkBitCaches& cache) {
+        auto generateFaceIndices = [](const ModelCullInfo& cullInfo) {
+            std::vector<std::vector<int>> result(6);
+            int currentIndex = 0;
+
+            for (int dir = 0; dir < 6; dir++) {
+                for (int i = 0; i < cullInfo.cullableFaces[dir].count; i++) {
+                    result[dir].push_back(currentIndex++);
+                }
+            }
+
+            return result;
+            };
+
         auto emitFace = [this, zPos](int meshSlot, bool /*isWater*/,
             int x, int y, int z, int face,
             const UnpackedVoxelMaterial& mat,
@@ -3342,12 +3358,28 @@ public:
                             std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
                             ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
 
+                            if (face >= cullInfo.totalQuads) continue;
+
+                            if (cullInfo.cullableFaces[face].count <= 0) continue;
+
                             // Check if this model has cullable faces for this direction
                             if (cullInfo.cullableFaces[face].count > 0) {
                                 // For models with custom cullable faces (like fence), emit them
                                 // The mask already says this face should be visible
+                                auto faceIndices = generateFaceIndices(cullInfo);
+
+                                // Emit each cullable face with its unique index
                                 for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
-                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                    int uniqueFaceIndex = faceIndices[face][i];
+
+                                    /*if (modelName == "FENCE_MODEL")
+                                        std::cout << "generating cullable face for model:" << modelName
+                                        << ", voxel: " << x << " " << y << " " << z
+                                        << ", direction: " << face
+                                        << ", unique id: " << uniqueFaceIndex
+                                        << ", out of: " << cullInfo.cullableFaces[face].count << "\n";*/
+
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, uniqueFaceIndex, baseMat);
                                 }
                                 // Mark as processed to prevent greedy meshing from also handling this
                                 processed[y][z] = true;
@@ -3357,7 +3389,7 @@ public:
                             // If we get here, it's a regular voxel face, check for greedy meshing
                             bool greedy = blockIsGreedy(baseMat.materialType);
                             if (!greedy) {
-                                emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                               // emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
                                 continue;
                             }
 
@@ -3422,17 +3454,35 @@ public:
                             if (isWater && !isWaterBlock(baseMat.materialType)) continue;
                             if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            bool greedy = false && blockIsGreedy(baseMat.materialType);
-                            if (!greedy) {
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                // For models with custom cullable faces (like fence), emit them
+                                // The mask already says this face should be visible
+                                auto faceIndices = generateFaceIndices(cullInfo);
+
+                                // Emit each cullable face with its unique index
                                 for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
-                                    //std::cout << "generating cullable mesh, id: " << faceCounts[x][y][z] << "\n";
-                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
-                                    faceCounts[x][y][z]++;
+                                    int uniqueFaceIndex = faceIndices[face][i];
+
+                                    /*if (modelName == "FENCE_MODEL")
+                                        std::cout << "generating cullable face for model:" << modelName
+                                        << ", voxel: " << x << " " << y << " " << z
+                                        << ", direction: " << face
+                                        << ", unique id: " << uniqueFaceIndex
+                                        << ", out of: " << cullInfo.cullableFaces[face].count << "\n";*/
+
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, uniqueFaceIndex, baseMat);
                                 }
+                                // Mark as processed to prevent greedy meshing from also handling this
+                                processed[x][z] = true;
                                 continue;
                             }
 
-                            if (processed[x][z]) continue;
+                            // If we get here, it's a regular voxel face, check for greedy meshing
+                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            if (!greedy) {
+                                // emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                continue;
+                            }
 
                             // Greedy grow in (X,Z) within this Y plane
                             int wX = 1;
@@ -3491,13 +3541,33 @@ public:
                             if (isWater && !isWaterBlock(baseMat.materialType)) continue;
                             if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            bool greedy = false && blockIsGreedy(baseMat.materialType);
-                            if (!greedy) {
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                // For models with custom cullable faces (like fence), emit them
+                                // The mask already says this face should be visible
+                                auto faceIndices = generateFaceIndices(cullInfo);
+
+                                // Emit each cullable face with its unique index
                                 for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
-                                    //std::cout << "generating cullable mesh, id: " << face << "\n";
-                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
-                                    faceCounts[x][y][z]++;
+                                    int uniqueFaceIndex = faceIndices[face][i];
+
+                                    /*if (modelName == "FENCE_MODEL")
+                                        std::cout << "generating cullable face for model:" << modelName
+                                        << ", voxel: " << x << " " << y << " " << z
+                                        << ", direction: " << face
+                                        << ", unique id: " << uniqueFaceIndex
+                                        << ", out of: " << cullInfo.cullableFaces[face].count << "\n";*/
+
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, uniqueFaceIndex, baseMat);
                                 }
+                                // Mark as processed to prevent greedy meshing from also handling this
+                                processed[x][y] = true;
+                                continue;
+                            }
+
+                            // If we get here, it's a regular voxel face, check for greedy meshing
+                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            if (!greedy) {
+                                // emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
                                 continue;
                             }
 
@@ -3551,6 +3621,7 @@ public:
 
                         std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
                         ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
+
 
                         // Calculate total cullable faces
                         int totalCullableFaces =
