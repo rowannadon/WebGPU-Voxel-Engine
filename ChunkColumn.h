@@ -626,8 +626,6 @@ private:
         case BlockType::Air:
         case BlockType::Water:
         case BlockType::WaterSurface:
-        case BlockType::Leaf:
-        case BlockType::SpruceLeaf:
         case BlockType::TallGrass:
         case BlockType::Fern:
         case BlockType::Grass0:
@@ -637,6 +635,7 @@ private:
         case BlockType::Grass4:
         case BlockType::Grass5:
         case BlockType::Bush:
+        case BlockType::Fence:
             return false;
         default:
             // Everything else is solid (all rock types, dirt, grass, logs, etc.)
@@ -2026,11 +2025,12 @@ public:
 
                                     if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
 
-                                        static const std::array<ProbabilityConfig, 4> config = { {
+                                        static const std::array<ProbabilityConfig, 5> config = { {
                                             { 0,     0.04f},
                                             { 1,     0.33f},
                                             { 2,     0.33f},
-                                            { 3,     0.3f},
+                                            { 3,     0.15f},
+                                            { 4,     0.15f}
                                         } };
 
 										GrassDataPoint gdp;
@@ -2132,12 +2132,12 @@ public:
         treeData = filterTreesWithPoissonDisk(candidateTrees, 24.0f);
 
         for (auto gdp : grassPositions) {
-            static const std::array<BlockType, 4> grassTypes = {
+            static const std::array<BlockType, 5> grassTypes = {
                 BlockType::Bush,
                 BlockType::Grass0,
                 BlockType::Grass1,
                 BlockType::TallGrass,
-                //BlockType::Fence
+                BlockType::Fence
             };
 
             UnpackedVoxelMaterial m;
@@ -2176,21 +2176,6 @@ public:
         }
 
         return filteredTrees;
-    }
-
-    inline bool isTransparentMaterial(BlockType t) {
-        switch (t) {
-        case BlockType::Water:
-        case BlockType::WaterSurface:
-        //case BlockType::Leaf:
-        //case BlockType::SpruceLeaf:
-        //case BlockType::Fern:
-        /*case BlockType::TallGrass:
-        case BlockType::Grass0: case BlockType::Grass1: case BlockType::Grass2:
-        case BlockType::Grass3: case BlockType::Grass4: case BlockType::Grass5:*/
-        return true;
-        default: return false;
-        }
     }
 
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors = {}) {
@@ -3067,9 +3052,9 @@ public:
                         d |= (px & 0x1F);
                         d |= (py & 0x1F) << 5;
                         d |= (pz & 0x3F) << 10;
-                        d |= (face & 0x3F) << 16;
-                        d |= ((worldW - 1) & 0xF) << 22;
-                        d |= ((worldH - 1) & 0xF) << 26;
+                        d |= (face & 0x7F) << 16;
+                        d |= ((worldW - 1) & 0xF) << 23;
+                        d |= ((worldH - 1) & 0xF) << 27;
                         fa.data = d;
 
                         uint32_t packed16 = packMaterialData(mat).materialData;
@@ -3297,9 +3282,9 @@ public:
                         packed |= (px & 0x1F);
                         packed |= (py & 0x1F) << 5;
                         packed |= (pz & 0x3F) << 10;
-                        packed |= (face & 0x3F) << 16;
-                        packed |= ((tileW - 1) & 0xF) << 22;  // 4 bits
-                        packed |= ((tileH - 1) & 0xF) << 26;  // 4 bits
+                        packed |= (face & 0x7F) << 16;
+                        packed |= ((tileW - 1) & 0xF) << 23;  // 4 bits
+                        packed |= ((tileH - 1) & 0xF) << 27;  // 4 bits
                         fa.data = packed;
 
                         uint32_t packed16 = packMaterialData(mat).materialData;
@@ -3310,6 +3295,27 @@ public:
                 }
             };
 
+        auto emitFaceNotGreedy = [this, zPos](int meshSlot, bool /*isWater*/,
+            int x, int y, int z, int face,
+            const UnpackedVoxelMaterial& mat) {
+
+                FaceAttributes fa{};
+                uint32_t packed = 0;
+                packed |= (x & 0x1F);
+                packed |= (y & 0x1F) << 5;
+                packed |= (z & 0x3F) << 10;
+                packed |= (face & 0x7F) << 16;
+                packed |= ((1 - 1) & 0xF) << 23;  // 4 bits
+                packed |= ((1 - 1) & 0xF) << 27;  // 4 bits
+                fa.data = packed;
+
+                uint32_t packed16 = packMaterialData(mat).materialData;
+                fa.materialData = (packed16 & 0xFFFF);
+
+                faceData[meshSlot][zPos].push_back(fa);
+
+            };
+
         auto blockIsGreedy = [this](BlockType t) -> bool {
             if (!tex) return false;
             return tex->getModelKindForBlockType(t) == "VOXEL_MODEL" &&
@@ -3318,13 +3324,14 @@ public:
 
         auto processSet = [&](uint64_t* masks, bool isWater, int meshSlot) {
             // ---------- X faces (0: +X, 1: -X) ----------
+            int faceCounts[CHUNK_SIZE][CHUNK_SIZE][CHUNK_HEIGHT]{ 0 };
             for (int face = 0; face < 2; ++face) {
                 for (int x = 0; x < CHUNK_SIZE; ++x) {
-                    bool processed[CHUNK_SIZE][CHUNK_HEIGHT] = {}; // per X plane
+                    bool processed[CHUNK_SIZE][CHUNK_HEIGHT] = {};
                     for (int y = 0; y < CHUNK_SIZE; ++y) {
                         for (int z = 0; z < CHUNK_HEIGHT; ++z) {
                             uint64_t row = masks[face * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_HEIGHT + z];
-                            if ((row & (1ULL << x)) == 0) continue;
+                            if ((row & (1ULL << x)) == 0) continue;  // No face here according to mask
 
                             int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
@@ -3332,10 +3339,25 @@ public:
                             if (isWater && !isWaterBlock(baseMat.materialType)) continue;
                             if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
+                            std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
+                            ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
+
+                            // Check if this model has cullable faces for this direction
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                // For models with custom cullable faces (like fence), emit them
+                                // The mask already says this face should be visible
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                }
+                                // Mark as processed to prevent greedy meshing from also handling this
+                                processed[y][z] = true;
+                                continue;
+                            }
+
+                            // If we get here, it's a regular voxel face, check for greedy meshing
                             bool greedy = blockIsGreedy(baseMat.materialType);
                             if (!greedy) {
-                                // No greedy: emit single 1x1
-                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
                                 continue;
                             }
 
@@ -3389,12 +3411,24 @@ public:
                             int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
 
+                            std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
+
+                            ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
+
+                            if (face >= cullInfo.totalQuads) continue;
+
+                            if (cullInfo.cullableFaces[face].count <= 0) continue;
+
                             if (isWater && !isWaterBlock(baseMat.materialType)) continue;
                             if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            bool greedy = false && blockIsGreedy(baseMat.materialType);
                             if (!greedy) {
-                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    //std::cout << "generating cullable mesh, id: " << faceCounts[x][y][z] << "\n";
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                    faceCounts[x][y][z]++;
+                                }
                                 continue;
                             }
 
@@ -3446,12 +3480,24 @@ public:
                             int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
 
+                            std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
+
+                            ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
+
+                            if (face >= cullInfo.totalQuads) continue;
+
+                            if (cullInfo.cullableFaces[face].count <= 0) continue;
+
                             if (isWater && !isWaterBlock(baseMat.materialType)) continue;
                             if (!isWater && isWaterBlock(baseMat.materialType)) continue;
 
-                            bool greedy = blockIsGreedy(baseMat.materialType);
+                            bool greedy = false && blockIsGreedy(baseMat.materialType);
                             if (!greedy) {
-                                emitFace(meshSlot, isWater, x, y, z, face, baseMat, 1, 1);
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    //std::cout << "generating cullable mesh, id: " << face << "\n";
+                                    emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                    faceCounts[x][y][z]++;
+                                }
                                 continue;
                             }
 
@@ -3489,7 +3535,46 @@ public:
                     }
                 }
             }
-            };
+
+            for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                for (int x = 0; x < CHUNK_SIZE; ++x) {
+                    for (int y = 0; y < CHUNK_SIZE; ++y) {
+                        // First check if there's actually a voxel here
+                        if (!getVoxel(zPos, ivec3(x, y, z))) continue;
+
+                        int worldZ = zPos * CHUNK_HEIGHT + z;
+                        UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
+
+                        // Check material type matches the current pass
+                        if (isWater && !isWaterBlock(baseMat.materialType)) continue;
+                        if (!isWater && isWaterBlock(baseMat.materialType)) continue;
+
+                        std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
+                        ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
+
+                        // Calculate total cullable faces
+                        int totalCullableFaces =
+                            cullInfo.cullableFaces[0].count +
+                            cullInfo.cullableFaces[1].count +
+                            cullInfo.cullableFaces[2].count +
+                            cullInfo.cullableFaces[3].count +
+                            cullInfo.cullableFaces[4].count +
+                            cullInfo.cullableFaces[5].count;
+
+                        if (cullInfo.nonCullableFaces.count > 0) {
+                            /*std::cout << "Generating non-cullable faces for " << modelName
+                                << " at (" << x << ", " << y << ", " << z << ")"
+                                << " - count: " << cullInfo.nonCullableFaces.count << "\n";*/
+
+                            for (int i = 0; i < cullInfo.nonCullableFaces.count; i++) {
+                                // Use totalCullableFaces + i as the face index
+                                emitFace(meshSlot, isWater, x, y, z, totalCullableFaces + i, baseMat, 1, 1);
+                            }
+                        }
+                    }
+                }
+            }
+        };
 
         // Solid, Water (transparent), Foliage (as solid pass for now)
         processSet(cache.solidFaceMasks,   /*isWater*/false, 0);

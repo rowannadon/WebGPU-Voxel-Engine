@@ -1,4 +1,4 @@
-// ModelManager.cpp - Fixed version with correct AO vertex mapping
+// ModelManager.cpp - New version
 #include "ModelManager.h"
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "../tiny_obj_loader.h"
@@ -58,107 +58,6 @@ static int getNormalDirectionIndex(const glm::vec3& normal) {
     }
 
     return 6; // "other" category for non-cardinal normals
-}
-
-// CRITICAL FIX: Map OBJ vertex order to match the meshing function's expected order
-void reorderQuadVerticesForFace(Quad& quad, int faceIndex) {
-    // The meshing function expects vertices in a specific winding order per face
-    // This matches the faceVertices array in the shader
-
-    // Temporary storage for reordering
-    glm::vec4 tempPos[4];
-    glm::vec2 tempUV[4];
-    float tempAO[4];
-
-    // Copy current values
-    for (int i = 0; i < 4; i++) {
-        tempPos[i] = quad.vertexPositions[i];
-        tempUV[i] = quad.uvs[i];
-        tempAO[i] = quad.aoValues[i];
-    }
-
-    // We need to find which vertex in the OBJ corresponds to each expected vertex
-    // Based on the faceVertices array in your shader and your debug output:
-
-    int vertexMapping[6][4];
-
-    switch (faceIndex) {
-    case 0: // Right face (+X)
-        // Shader expects: (1,0,0), (1,1,0), (1,1,1), (1,0,1)
-        // Your OBJ has: (1,1,0), (1,1,1), (1,0,1), (1,0,0)
-        // Map: 3->0, 0->1, 1->2, 2->3
-        vertexMapping[0][0] = 3;
-        vertexMapping[0][1] = 0;
-        vertexMapping[0][2] = 1;
-        vertexMapping[0][3] = 2;
-        break;
-
-    case 1: // Left face (-X)
-        // Shader expects: (0,0,1), (0,1,1), (0,1,0), (0,0,0)
-        // Your OBJ has: (0,1,0), (0,0,0), (0,0,1), (0,1,1)
-        // Map: 2->0, 3->1, 0->2, 1->3
-        vertexMapping[1][0] = 2;
-        vertexMapping[1][1] = 3;
-        vertexMapping[1][2] = 0;
-        vertexMapping[1][3] = 1;
-        break;
-
-    case 2: // Front face (+Y)
-        // Shader expects: (0,1,0), (0,1,1), (1,1,1), (1,1,0)
-        // Your OBJ has: (1,1,1), (1,1,0), (0,1,0), (0,1,1)
-        // Map: 2->0, 3->1, 0->2, 1->3
-        vertexMapping[2][0] = 2;
-        vertexMapping[2][1] = 3;
-        vertexMapping[2][2] = 0;
-        vertexMapping[2][3] = 1;
-        break;
-
-    case 3: // Back face (-Y)
-        // Shader expects: (0,0,1), (0,0,0), (1,0,0), (1,0,1)
-        // Your OBJ has: (1,0,1), (0,0,1), (0,0,0), (1,0,0)
-        // Map: 1->0, 2->1, 3->2, 0->3
-        vertexMapping[3][0] = 1;
-        vertexMapping[3][1] = 2;
-        vertexMapping[3][2] = 3;
-        vertexMapping[3][3] = 0;
-        break;
-
-    case 4: // Top face (+Z)
-        // Shader expects: (0,0,1), (1,0,1), (1,1,1), (0,1,1)
-        // Your OBJ has: (1,1,1), (0,1,1), (0,0,1), (1,0,1)
-        // Map: 2->0, 3->1, 0->2, 1->3
-        vertexMapping[4][0] = 2;
-        vertexMapping[4][1] = 3;
-        vertexMapping[4][2] = 0;
-        vertexMapping[4][3] = 1;
-        break;
-
-    case 5: // Bottom face (-Z)
-        // Shader expects: (1,0,0), (0,0,0), (0,1,0), (1,1,0)
-        // Your OBJ has: (1,1,0), (1,0,0), (0,0,0), (0,1,0)
-        // Map: 1->0, 2->1, 3->2, 0->3
-        vertexMapping[5][0] = 1;
-        vertexMapping[5][1] = 2;
-        vertexMapping[5][2] = 3;
-        vertexMapping[5][3] = 0;
-        break;
-
-    default:
-        // No reordering for non-standard faces
-        for (int i = 0; i < 4; i++) {
-            vertexMapping[faceIndex][i] = i;
-        }
-        break;
-    }
-
-    // Apply the mapping if we have a valid face index
-    if (faceIndex < 6) {
-        for (int i = 0; i < 4; i++) {
-            quad.vertexPositions[i] = tempPos[vertexMapping[faceIndex][i]];
-            quad.uvs[i] = tempUV[vertexMapping[faceIndex][i]];
-            // AO values stay in place - they're calculated for the expected vertex order
-        }
-    }
 }
 
 // Initialize default AO values based on face orientation
@@ -250,6 +149,14 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
     Model model;
     model.quads.reserve(256);
 
+    // Initialize cullable quad vectors
+    for (int i = 0; i < 6; i++) {
+        model.cullableQuads[i].clear();
+        model.cullableQuads[i].reserve(64);
+    }
+    model.nonCullableQuads.clear();
+    model.nonCullableQuads.reserve(128);
+
     for (const auto& shape : shapes) {
         size_t index_offset = 0;
         for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
@@ -270,7 +177,8 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
 
                 // Position
                 if (idx.vertex_index < 0 || (size_t)idx.vertex_index * 3 + 2 >= attrib.vertices.size()) {
-                    haveAnyNormal = false; haveAnyUV = false;
+                    haveAnyNormal = false;
+                    haveAnyUV = false;
                     pos[v] = glm::vec3(0);
                 }
                 else {
@@ -319,29 +227,36 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
                 vnorm[3] = vnorm[2];
             }
 
-            // Calculate face normal
-            glm::vec3 faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
-            q.normal = glm::vec4(faceN, 0.0f);
-
             // Store vertices in their original order first
             for (int i = 0; i < 4; ++i) {
                 q.vertexPositions[i] = glm::vec4(pos[i], 1.0f);
                 q.uvs[i] = haveAnyUV ? uv[i] : glm::vec2(0.0f);
             }
 
-            // Determine face index based on normal
+            // Calculate face normal
+            glm::vec3 faceN = computeFaceNormal(pos[0], pos[1], pos[2]);
+            q.normal = glm::vec4(faceN, 0.0f);
+
+            // Determine face index based on normal (for reordering)
             int faceIndex = getNormalDirectionIndex(faceN);
 
             // Initialize AO values for this face
             initializeAOForFace(q, faceIndex);
 
-            // CRITICAL: Reorder vertices to match meshing function's expectations
-            if (faceIndex < 6) {
-                reorderQuadVerticesForFace(q, faceIndex);
-            }
+            // IMPORTANT: Determine alignment BEFORE reordering vertices
+            // Check if this quad aligns with any voxel cube face
+            int alignedFace = determineAlignedFace(q);
 
 #if MODEL_LOADER_DEBUG
-            dbg() << "    Final Quad (face " << faceIndex << "):\n";
+            dbg() << "    Quad " << model.quads.size() << " (face " << faceIndex;
+            if (alignedFace >= 0) {
+                dbg() << ", aligned with voxel face " << alignedFace;
+            }
+            else {
+                dbg() << ", non-aligned";
+            }
+            dbg() << "):\n";
+
             for (int i = 0; i < 4; ++i) {
                 dbg() << "      V" << i << " P("
                     << q.vertexPositions[i].x << ", "
@@ -353,13 +268,37 @@ bool ModelManager::createModel(std::string modelName, const std::filesystem::pat
             dbg() << "      Quad normal: (" << q.normal.x << ", " << q.normal.y << ", " << q.normal.z << ")\n";
 #endif
 
+            // Add to appropriate vector based on alignment
+            if (alignedFace >= 0 && alignedFace < 6) {
+                model.cullableQuads[alignedFace].push_back(q);
+            }
+            else {
+                model.nonCullableQuads.push_back(q);
+            }
+
+            // Also add to the main quads vector for backward compatibility
             model.quads.push_back(q);
         }
     }
 
+    // Initialize the cull info structure (will be properly filled during writeModelsToBuffer)
+    model.cullInfo = ModelCullInfo{};
+    model.cullInfo.totalQuads = model.quads.size();
+
 #if MODEL_LOADER_DEBUG
     dbg() << "[ModelManager] Loaded model \"" << modelName
-        << "\" -> " << model.quads.size() << " quads\n";
+        << "\" -> " << model.quads.size() << " total quads\n";
+
+    int cullableTotal = 0;
+    for (int face = 0; face < 6; face++) {
+        if (!model.cullableQuads[face].empty()) {
+            dbg() << "  Face " << face << " aligned: " << model.cullableQuads[face].size() << " quads\n";
+            cullableTotal += model.cullableQuads[face].size();
+        }
+    }
+    dbg() << "  Non-aligned: " << model.nonCullableQuads.size() << " quads\n";
+    dbg() << "  Total cullable: " << cullableTotal << ", non-cullable: "
+        << model.nonCullableQuads.size() << "\n";
 #endif
 
     models[modelName] = std::move(model);
@@ -412,38 +351,35 @@ bool ModelManager::writeModelsToBuffer() {
 
     packed.resize(totalQuads);
 
-    // Group and sort quads by face index for better cache coherency
-    for (auto const& kv : models) {
+    for (auto& kv : models) {
         const std::string& name = kv.first;
-        const Model& model = kv.second;
-
-        // Create face groups
-        std::vector<std::vector<Quad>> faceGroups(7); // 0-5 for standard faces, 6 for others
-
-        for (const auto& quad : model.quads) {
-            int faceIndex = getNormalDirectionIndex(glm::vec3(quad.normal));
-            if (faceIndex > 6) faceIndex = 6;
-            faceGroups[faceIndex].push_back(quad);
-        }
+        Model& model = kv.second;
 
         modelOffsetInBuffer[name] = currentOffset;
 
-        // Write quads grouped by face
-        for (int face = 0; face < 7; face++) {
-            for (const auto& quad : faceGroups[face]) {
-                packed[currentOffset++] = quad;
+        // Initialize cull info
+        model.cullInfo = ModelCullInfo{};
+        model.cullInfo.totalQuads = model.quads.size();
+
+        // Pack cullable quads for each direction
+        for (int face = 0; face < 6; face++) {
+            model.cullInfo.cullableFaces[face].offset = currentOffset;
+            model.cullInfo.cullableFaces[face].count = model.cullableQuads[face].size();
+
+            for (const auto& quad : model.cullableQuads[face]) {
+                packed[currentOffset] = quad;  // Direct assignment instead of push_back
+                currentOffset++;
             }
         }
 
-#if MODEL_LOADER_DEBUG
-        dbg() << "[ModelManager] Packed \"" << name << "\"  quads=" << model.quads.size()
-            << "  offset=" << modelOffsetInBuffer[name] << "\n";
-        for (int face = 0; face < 7; face++) {
-            if (!faceGroups[face].empty()) {
-                dbg() << "    Face " << face << ": " << faceGroups[face].size() << " quads\n";
-            }
+        // Pack non-cullable quads
+        model.cullInfo.nonCullableFaces.offset = currentOffset;
+        model.cullInfo.nonCullableFaces.count = model.nonCullableQuads.size();
+
+        for (const auto& quad : model.nonCullableQuads) {
+            packed[currentOffset] = quad;  // Direct assignment instead of push_back
+            currentOffset++;
         }
-#endif
     }
 
     const uint64_t requiredSize = sizeof(Quad) * (uint64_t)MAX_TOTAL_QUADS;
@@ -483,6 +419,61 @@ int ModelManager::getModelSizeInQuads(std::string modelName) {
     auto it = models.find(modelName);
     if (it == models.end()) return -1;
     return it->second.quads.size();
+}
+
+int ModelManager::determineAlignedFace(const Quad& quad) {
+    const float epsilon = 0.001f;
+
+    // Check each of the 6 cardinal faces
+    // Face 0: +X (x = 1)
+    if (isAlignedWithPlane(quad.vertexPositions, 0, 1.0f, epsilon)) {
+        return 0;
+    }
+    // Face 1: -X (x = 0)
+    if (isAlignedWithPlane(quad.vertexPositions, 0, 0.0f, epsilon)) {
+        return 1;
+    }
+    // Face 2: +Y (y = 1)
+    if (isAlignedWithPlane(quad.vertexPositions, 1, 1.0f, epsilon)) {
+        return 2;
+    }
+    // Face 3: -Y (y = 0)
+    if (isAlignedWithPlane(quad.vertexPositions, 1, 0.0f, epsilon)) {
+        return 3;
+    }
+    // Face 4: +Z (z = 1)
+    if (isAlignedWithPlane(quad.vertexPositions, 2, 1.0f, epsilon)) {
+        return 4;
+    }
+    // Face 5: -Z (z = 0)
+    if (isAlignedWithPlane(quad.vertexPositions, 2, 0.0f, epsilon)) {
+        return 5;
+    }
+
+    // Not aligned with any voxel face
+    return -1;
+}
+
+bool ModelManager::isAlignedWithPlane(const vec4 positions[4], int axis, float value, float epsilon) {
+    for (int i = 0; i < 4; i++) {
+        float coord = (axis == 0) ? positions[i].x :
+            (axis == 1) ? positions[i].y : positions[i].z;
+        if (std::abs(coord - value) > epsilon) {
+            return false;
+        }
+    }
+    return true;
+}
+
+ModelCullInfo ModelManager::getModelCullInfo(const std::string& modelName) const {
+    std::shared_lock<std::shared_mutex> lock(modelMutex);
+
+    auto it = models.find(modelName);
+    if (it == models.end()) {
+        return ModelCullInfo{};  // Return empty info if model not found
+    }
+
+    return it->second.cullInfo;
 }
 
 void ModelManager::terminate() {

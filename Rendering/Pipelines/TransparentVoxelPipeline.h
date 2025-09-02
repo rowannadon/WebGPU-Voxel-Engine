@@ -29,8 +29,8 @@ public:
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::Back;  // IMPORTANT: Disable culling for transparency
-		config.depthWriteEnabled = true;  // CRITICAL: Disable depth writes
+		config.cullMode = CullMode::None;
+		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less; // Still test depth for proper ordering
 		config.fragmentShaderName = "fs_main";
 		config.vertexShaderName = "vs_main";

@@ -227,15 +227,15 @@ fn unpack_data(packed_data: u32) -> UnpackedData {
     let position_x = packed_bits & 0x1Fu;           // bits 0-4 (5 bits)
     let position_y = (packed_bits >> 5u) & 0x1Fu;   // bits 5-9 (5 bits)
     let position_z = (packed_bits >> 10u) & 0x3Fu;  // bits 10-15 (6 bits)
-    let vertex_index = (packed_bits >> 16u) & 0x3Fu; // bits 16-21 (6 bits)
-    let face_width = ((packed_bits >> 22u) & 0xFu) + 1u;  // bits 22-25 (4 bits) + 1
-    let face_height = ((packed_bits >> 26u) & 0xFu) + 1u; // bits 26-29 (4 bits) + 1
+    let normal_index = (packed_bits >> 16u) & 0x7Fu; // bits 16-21 (7 bits)
+    let face_width = ((packed_bits >> 23u) & 0xFu) + 1u;  // bits 22-25 (4 bits) + 1
+    let face_height = ((packed_bits >> 27u) & 0xFu) + 1u; // bits 26-29 (4 bits) + 1
     
     return UnpackedData(
         position_x,
         position_y,
         position_z,
-        vertex_index,
+        normal_index,
         face_width,
         face_height
     );

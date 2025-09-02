@@ -74,7 +74,7 @@ public:
 		config.colorFormat = TextureFormat::Undefined;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::Back;
+		config.cullMode = CullMode::None;
 		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
