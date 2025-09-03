@@ -84,11 +84,11 @@ public:
 
 		// Initialize default parameters
 		SSAOParams defaultParams;
-		defaultParams.radius = 4.0f;
+		defaultParams.radius = 3.5f;
 		defaultParams.bias = 0.025f;
-		defaultParams.intensity = 2.0f;
+		defaultParams.intensity = 1.5f;
 		defaultParams.kernelSize = 64;
-		defaultParams.noiseScale = 2.0f;
+		defaultParams.noiseScale = 4.0f;
 
 		context->getQueue().writeBuffer(
 			paramsBuffer,
@@ -284,7 +284,7 @@ public:
 		config.useDepthStencil = false;
 
 		// Bind group layout
-		std::vector<BindGroupLayoutEntry> ssaoBindings(7, Default);
+		std::vector<BindGroupLayoutEntry> ssaoBindings(8, Default);
 
 		// Depth texture
 		ssaoBindings[0].binding = 0;
@@ -292,39 +292,45 @@ public:
 		ssaoBindings[0].texture.sampleType = TextureSampleType::Depth;
 		ssaoBindings[0].texture.viewDimension = TextureViewDimension::_2D;
 
-		// Depth sampler
 		ssaoBindings[1].binding = 1;
 		ssaoBindings[1].visibility = ShaderStage::Fragment;
-		ssaoBindings[1].sampler.type = SamplerBindingType::NonFiltering;
+		ssaoBindings[1].texture.sampleType = TextureSampleType::Depth;
+		ssaoBindings[1].texture.multisampled = true;
+		ssaoBindings[1].texture.viewDimension = TextureViewDimension::_2D;
 
-		// Noise texture - MUST match the actual texture format's capabilities
+		// Depth sampler
 		ssaoBindings[2].binding = 2;
 		ssaoBindings[2].visibility = ShaderStage::Fragment;
-		ssaoBindings[2].texture.sampleType = TextureSampleType::Float;  // RG16Float is filterable
-		ssaoBindings[2].texture.viewDimension = TextureViewDimension::_2D;
+		ssaoBindings[2].sampler.type = SamplerBindingType::NonFiltering;
 
-		// Noise sampler
+		// Noise texture - MUST match the actual texture format's capabilities
 		ssaoBindings[3].binding = 3;
 		ssaoBindings[3].visibility = ShaderStage::Fragment;
-		ssaoBindings[3].sampler.type = SamplerBindingType::Filtering;
+		ssaoBindings[3].texture.sampleType = TextureSampleType::Float;  // RG16Float is filterable
+		ssaoBindings[3].texture.viewDimension = TextureViewDimension::_2D;
 
-		// Camera uniforms
+		// Noise sampler
 		ssaoBindings[4].binding = 4;
 		ssaoBindings[4].visibility = ShaderStage::Fragment;
-		ssaoBindings[4].buffer.type = BufferBindingType::Uniform;
-		ssaoBindings[4].buffer.minBindingSize = sizeof(MyUniforms);
+		ssaoBindings[4].sampler.type = SamplerBindingType::Filtering;
 
-		// SSAO params
+		// Camera uniforms
 		ssaoBindings[5].binding = 5;
 		ssaoBindings[5].visibility = ShaderStage::Fragment;
 		ssaoBindings[5].buffer.type = BufferBindingType::Uniform;
-		ssaoBindings[5].buffer.minBindingSize = sizeof(SSAOParams);
+		ssaoBindings[5].buffer.minBindingSize = sizeof(MyUniforms);
 
-		// Sample kernel
+		// SSAO params
 		ssaoBindings[6].binding = 6;
 		ssaoBindings[6].visibility = ShaderStage::Fragment;
 		ssaoBindings[6].buffer.type = BufferBindingType::Uniform;
-		ssaoBindings[6].buffer.minBindingSize = sizeof(glm::vec4) * 64;
+		ssaoBindings[6].buffer.minBindingSize = sizeof(SSAOParams);
+
+		// Sample kernel
+		ssaoBindings[7].binding = 7;
+		ssaoBindings[7].visibility = ShaderStage::Fragment;
+		ssaoBindings[7].buffer.type = BufferBindingType::Uniform;
+		ssaoBindings[7].buffer.minBindingSize = sizeof(glm::vec4) * 64;
 
 		config.bindGroupLayouts.push_back(
 			pip->createBindGroupLayout("ssao_bindings", ssaoBindings)
@@ -334,41 +340,44 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(7);
+		std::vector<BindGroupEntry> bindings(8);
 
 		// Binding 0: Resolved depth texture (non-MSAA)
 		bindings[0].binding = 0;
 		bindings[0].textureView = tex->getTextureView("depth_resolved_view");
 
-		// Binding 1: Depth sampler
 		bindings[1].binding = 1;
-		bindings[1].sampler = tex->getSampler("depth_sampler");
+		bindings[1].textureView = tex->getTextureView("depth_view");
+
+		// Binding 1: Depth sampler
+		bindings[2].binding = 2;
+		bindings[2].sampler = tex->getSampler("depth_sampler");
 
 		// Binding 2: Noise texture
-		bindings[2].binding = 2;
-		bindings[2].textureView = tex->getTextureView("ssao_noise_view");
+		bindings[3].binding = 3;
+		bindings[3].textureView = tex->getTextureView("ssao_noise_view");
 
 		// Binding 3: Noise sampler
-		bindings[3].binding = 3;
-		bindings[3].sampler = tex->getSampler("ssao_noise_sampler");
+		bindings[4].binding = 4;
+		bindings[4].sampler = tex->getSampler("ssao_noise_sampler");
 
 		// Binding 4: Camera uniforms
-		bindings[4].binding = 4;
-		bindings[4].buffer = buf->getBuffer("uniform_buffer_opaque");
-		bindings[4].offset = 0;
-		bindings[4].size = sizeof(MyUniforms);
+		bindings[5].binding = 5;
+		bindings[5].buffer = buf->getBuffer("uniform_buffer_opaque");
+		bindings[5].offset = 0;
+		bindings[5].size = sizeof(MyUniforms);
 
 		// Binding 5: SSAO parameters
-		bindings[5].binding = 5;
-		bindings[5].buffer = buf->getBuffer("ssao_params");
-		bindings[5].offset = 0;
-		bindings[5].size = sizeof(SSAOParams);
+		bindings[6].binding = 6;
+		bindings[6].buffer = buf->getBuffer("ssao_params");
+		bindings[6].offset = 0;
+		bindings[6].size = sizeof(SSAOParams);
 
 		// Binding 6: Sample kernel
-		bindings[6].binding = 6;
-		bindings[6].buffer = buf->getBuffer("ssao_kernel");
-		bindings[6].offset = 0;
-		bindings[6].size = sizeof(float) * 4 * 64;
+		bindings[7].binding = 7;
+		bindings[7].buffer = buf->getBuffer("ssao_kernel");
+		bindings[7].offset = 0;
+		bindings[7].size = sizeof(float) * 4 * 64;
 
 		BindGroup bindGroup = pip->createBindGroup("ssao_bind_group", "ssao_bindings", bindings);
 

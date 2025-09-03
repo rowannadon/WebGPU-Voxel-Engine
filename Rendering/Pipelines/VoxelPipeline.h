@@ -224,7 +224,7 @@ public:
 		i++;
 
 		bindings[i].binding = i;
-		bindings[i].textureView = tex->getTextureView("ssao_view");
+		bindings[i].textureView = tex->getTextureView("ssao_blur_view");
 		i++;
 
 		bindings[i].binding = i;

@@ -43,7 +43,6 @@ struct ProbabilityConfig {
     float probability;
 };
 
-
 struct IVec3Hash {
     std::size_t operator()(const ivec3& k) const {
         // Simple hash combination
@@ -159,7 +158,7 @@ private:
     struct TreeDataPoint {
         ivec3 basePos;
         int index;
-        int radius;
+        float radius;
     };
 
     struct GrassDataPoint {
@@ -219,8 +218,6 @@ private:
         }
     };
 
-    //ChunkBitCaches bitCaches[COLUMN_HEIGHT];
-
     struct LODBitCaches {
         // LOD2 bit caches (16x16xCHUNK_HEIGHT with padding)
         uint64_t solid2[18 * 18];      // 18x18 for padding
@@ -254,8 +251,6 @@ private:
             std::memset(this, 0, sizeof(*this));
         }
     };
-
-    //LODBitCaches lodBitCaches[COLUMN_HEIGHT];
 
     // Change voxel data storage from uint8_t arrays to uint64_t arrays
     uint64_t voxelData[TOTAL_UINT64S] = {};
@@ -363,6 +358,14 @@ private:
         static inline int getIndex(int x, int y, int z, int xySize) {
             return x + y * xySize + z * xySize * xySize;
         }
+    };
+
+    struct SlotRenderInfo {
+        int slotIndex;
+        uint32_t faceOffset;
+        uint32_t indexOffset;
+        uint32_t maxFaces;
+        bool isValid;
     };
 
     bool daicsGenerated = false;
@@ -1374,15 +1377,6 @@ public:
         }
     }
 
-    // Helper function to get slot information for rendering
-    struct SlotRenderInfo {
-        int slotIndex;
-        uint32_t faceOffset;
-        uint32_t indexOffset;
-        uint32_t maxFaces;
-        bool isValid;
-    };
-
     SlotRenderInfo getSlotRenderInfo(int zPos, int lodLevel, bool transparent, BufferManager* buf) {
         if (lodLevel < 0 || lodLevel >= 4) return {};
         const int slotIndexInMeta = lodLevel + (transparent ? TRANSPARENT_OFFSET : 0);
@@ -1406,9 +1400,6 @@ public:
 
         return info;
     }
-
-public:
-    // ... (rest of the voxel and material methods remain the same)
 
     bool getVoxelWholeColumn(ivec3 pos) const {
         int x = pos.x, y = pos.y, z = pos.z;
@@ -1671,7 +1662,6 @@ public:
         return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
     }
 
-    // Whole-column (absolute Z) compressed getter; returns UNPACKED
     UnpackedVoxelMaterial getMaterialWholeColumnCompressed(ivec3 pos) const {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
@@ -1690,7 +1680,6 @@ public:
         setMaterialWholeColumnCompressed(pos, UnpackedVoxelMaterial{ type, facing });
     }
 
-    // Whole-column (absolute Z) compressed setter; accepts UNPACKED
     void setMaterialWholeColumnCompressed(ivec3 pos, const UnpackedVoxelMaterial& material) {
         if (pos.x < 0 || pos.x >= CHUNK_SIZE ||
             pos.y < 0 || pos.y >= CHUNK_SIZE ||
@@ -1727,7 +1716,6 @@ public:
         return hash;
     }
 
-    // Methods to manage the encoding/decoding lifecycle
     void beginMaterialEditing() {
         decodeAllMaterialData();      // LOD1
     }
@@ -1808,13 +1796,6 @@ public:
     // Helper method to check memory usage
     bool isRawMaterialDataAllocated() const {
         return rawMaterialData != nullptr;
-    }
-
-    // Method to force cleanup of raw data (useful for debugging/memory management)
-    void forceEncodeIfNeeded() {
-        if (materialDataDecoded && rawMaterialData) {
-            encodeAllMaterialData();
-        }
     }
 
     // Get memory footprint information
@@ -1984,7 +1965,7 @@ public:
                             material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
-                            material.materialType = BlockType::RedRock;
+                            material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
                             material.materialType = BlockType::Andesite;
@@ -1999,7 +1980,7 @@ public:
                             material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > 0.6 && noiseValue < 0.8) {
-                            material.materialType = BlockType::Andesite;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > 0.8 && noiseValue < 1) {
                             material.materialType = BlockType::RedRock;
@@ -2022,11 +2003,11 @@ public:
                             switch (maxHeightDifference) {
                                 case 0:
                                 case 1:
-                                    material.materialType = BlockType::Sand; // grass
+                                    material.materialType = BlockType::Grass; // grass
 
                                     ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                    /*if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                    if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
 
                                         static const std::array<ProbabilityConfig, 5> config = { {
                                             { 0,     0.04f},
@@ -2041,13 +2022,7 @@ public:
                                         gdp.type = sampleFromDistribution(blockHash, config);;
 
 										grassPositions.push_back(gdp);
-                                    }*/
-
-                                    
-           
-                                    break;
-                                case 2:
-                                    material.materialType = BlockType::Dirt; // dirt
+                                    }
 
                                     if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
                                         if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
@@ -2063,23 +2038,29 @@ public:
 
                                             int size = sampleFromDistribution(blockHash, config);
 
-                                            candidateTrees.push_back({ positionAbove, size, 0 });
+                                            candidateTrees.push_back({ positionAbove, size, 15.0 });
                                         }
                                     }
+           
+                                    break;
+                                case 2:
+                                    material.materialType = BlockType::Dirt; // dirt
+
+                                    
                                     break;
                                 default: // 3 or more
                                     break;
                             }
 
                             // Apply materials to multiple layers
-                            if (material.materialType == BlockType::Sand || material.materialType == BlockType::Grass) { // grass terrain
+                            if (material.materialType == BlockType::GrassFlowers || material.materialType == BlockType::Grass) { // grass terrain
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::Sand; // grass
+                                        material.materialType = BlockType::Grass; // grass
                                         
                                         setMaterialFast(layerPos, material);
                                     }
@@ -2134,7 +2115,7 @@ public:
             }
         }
 
-        treeData = filterTreesWithPoissonDisk(candidateTrees, 4.0f);
+        treeData = filterTreesWithPoissonDisk(candidateTrees);
 
         for (auto gdp : grassPositions) {
             static const std::array<BlockType, 5> grassTypes = {
@@ -2157,8 +2138,7 @@ public:
     }
 
     std::vector<TreeDataPoint> filterTreesWithPoissonDisk(
-        const std::vector<TreeDataPoint>& candidateTrees,
-        float minDistance = 16.0f) {
+        const std::vector<TreeDataPoint>& candidateTrees) {
 
         std::vector<TreeDataPoint> filteredTrees;
 
@@ -2169,7 +2149,7 @@ public:
             for (const auto& placed : filteredTrees) {
                 float dist = glm::length(vec2(candidate.basePos.x - placed.basePos.x,
                     candidate.basePos.y - placed.basePos.y));
-                if (dist < minDistance) {
+                if (dist < candidate.radius) {
                     tooClose = true;
                     break;
                 }
@@ -2947,14 +2927,18 @@ public:
                             bool neighborWater = (waterCache[neighIdx] >> neighZ) & 1;
                             bool neighborFoliage = (foliageCache[neighIdx] >> neighZ) & 1;
 
+                            // Updated culling rules to match non-LOD version
                             if (currentSolid) {
-                                shouldRender = !neighborSolid;
+                                // Solid blocks render against non-solid or foliage
+                                shouldRender = !neighborSolid || neighborFoliage;
                             }
                             else if (currentWater) {
+                                // Water only renders against non-water
                                 shouldRender = !neighborWater;
                             }
                             else if (currentFoliage) {
-                                shouldRender = true;
+                                // Foliage renders against non-solid
+                                shouldRender = !neighborSolid;
                             }
                         }
                         else {
@@ -2994,7 +2978,7 @@ public:
     }
 
     void extractLODFacesFromMasks(int zPos, int lodLevel, LODBitCaches& lodCache) {
-        const int size = CHUNK_SIZE / lodLevel;                  // LOD grid size in XY
+        const int size = CHUNK_SIZE / lodLevel;
         const int baseSlot = (lodLevel == 2) ? 1 : (lodLevel == 4) ? 2 : 3;
 
         uint64_t* solidMasks = nullptr, * waterMasks = nullptr, * foliageMasks = nullptr;
@@ -3005,44 +2989,67 @@ public:
         default: return;
         }
 
-        auto blockIsGreedy = [this](BlockType t) -> bool {
-            if (!tex) return false;
-            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL";
+        auto generateFaceIndices = [](const ModelCullInfo& cullInfo) {
+            std::vector<std::vector<int>> result(6);
+            int currentIndex = 0;
+
+            for (int dir = 0; dir < 6; dir++) {
+                for (int i = 0; i < cullInfo.cullableFaces[dir].count; i++) {
+                    result[dir].push_back(currentIndex++);
+                }
+            }
+            return result;
             };
 
-        // Emit a (possibly tiled) quad. wCells/hCells are in LOD "coarse cells".
-        // widthScaled/heightScaled tell whether the corresponding axis must be multiplied by lodLevel.
+        auto blockIsGreedy = [this](BlockType t) -> bool {
+            if (!tex) return false;
+            return tex->getModelKindForBlockType(t) == "VOXEL_MODEL" &&
+                tex->getTextureKindForBlockType(t) != "CONNECTED";
+            };
+
+        auto emitFaceLODNotGreedy = [this, zPos, lodLevel](int meshSlot, bool /*isWater*/,
+            int x, int y, int z, int face,
+            const UnpackedVoxelMaterial& mat) {
+                FaceAttributes fa{};
+                uint32_t d = 0;
+                d |= (x * lodLevel & 0x1F);
+                d |= (y * lodLevel & 0x1F) << 5;
+                d |= (z & 0x3F) << 10;
+                d |= (face & 0x7F) << 16;
+                d |= ((lodLevel - 1) & 0xF) << 23;
+                d |= ((lodLevel - 1) & 0xF) << 27;
+                fa.data = d;
+
+                uint32_t packed16 = packMaterialData(mat).materialData;
+                fa.materialData = packed16 & 0xFFFF;
+
+                faceData[meshSlot][zPos].push_back(fa);
+            };
+
         auto emitFaceLOD = [this, zPos, lodLevel](int meshSlot, bool /*isWater*/,
             int xWorld, int yWorld, int zLayer, int face,
             const UnpackedVoxelMaterial& mat,
             int wCells, int hCells,
-            bool widthScaled, bool heightScaled)
-            {
-                const int maxCellsW = widthScaled ? std::max(1, 16 / lodLevel) : 16; // <=16 world units
-                const int maxCellsH = heightScaled ? std::max(1, 16 / lodLevel) : 16; // <=16 world units
+            bool widthScaled, bool heightScaled) {
+                const int maxCellsW = widthScaled ? std::max(1, 16 / lodLevel) : 16;
+                const int maxCellsH = heightScaled ? std::max(1, 16 / lodLevel) : 16;
 
                 for (int oy = 0; oy < hCells; oy += maxCellsH) {
                     for (int ox = 0; ox < wCells; ox += maxCellsW) {
                         const int tileCellsW = std::min(maxCellsW, wCells - ox);
                         const int tileCellsH = std::min(maxCellsH, hCells - oy);
 
-                        // Starting position in WORLD units for this tile
                         int px = xWorld, py = yWorld, pz = zLayer;
 
                         switch (face) {
-                            // +X / -X : width→Y (scaled), height→Z (not scaled)
                         case 0: case 1:
                             py = yWorld + ox * lodLevel;
                             pz = zLayer + oy;
                             break;
-
-                            // +Y / -Y : width→X (scaled), height→Z (not scaled)
                         case 2: case 3:
                             px = xWorld + ox * lodLevel;
                             pz = zLayer + oy;
                             break;
-
-                            // +Z / -Z : width→X (scaled), height→Y (scaled)
                         case 4: case 5:
                             px = xWorld + ox * lodLevel;
                             py = yWorld + oy * lodLevel;
@@ -3070,11 +3077,10 @@ public:
                 }
             };
 
-        // Greedy across each mask set
         auto processSet = [&](uint64_t* masks, bool asWater, int meshSlot) {
             // -------- X faces (0:+X, 1:-X) => greedy in (Y,Z) --------
             for (int face = 0; face < 2; ++face) {
-                bool processed[32][CHUNK_HEIGHT] = {}; // size <= 32; cleared each x
+                bool processed[32][CHUNK_HEIGHT] = {};
                 for (int x = 0; x < size; ++x) {
                     std::memset(processed, 0, sizeof(processed));
                     for (int y = 0; y < size; ++y) {
@@ -3088,14 +3094,28 @@ public:
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
-                            const bool greedy = blockIsGreedy(base.materialType);
-                            if (!greedy) {
-                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/false);
+                            // Check for model with cullable faces
+                            std::string modelName = tex ? tex->getModelKindForBlockType(base.materialType) : "VOXEL_MODEL";
+                            ModelCullInfo cullInfo = modelManager ? modelManager->getModelCullInfo(modelName) : ModelCullInfo{};
+
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                auto faceIndices = generateFaceIndices(cullInfo);
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    int uniqueFaceIndex = faceIndices[face][i];
+                                    emitFaceLODNotGreedy(meshSlot, asWater, x, y, z, uniqueFaceIndex, base);
+                                }
+                                processed[y][z] = true;
                                 continue;
                             }
 
-                            // grow along +Y
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    1, 1, true, false);
+                                continue;
+                            }
+
+                            // Greedy meshing logic (unchanged)
                             int wY = 1;
                             while (y + wY < size) {
                                 const uint64_t r = masks[face * size * CHUNK_HEIGHT + (y + wY) * CHUNK_HEIGHT + z];
@@ -3105,7 +3125,7 @@ public:
                                 if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
                                 ++wY;
                             }
-                            // grow along +Z
+
                             int hZ = 1; bool ok = true;
                             while (z + hZ < CHUNK_HEIGHT && ok) {
                                 for (int yy = y; yy < y + wY; ++yy) {
@@ -3119,7 +3139,7 @@ public:
                             }
 
                             emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                /*wCells*/wY, /*hCells*/hZ, /*widthScaled*/true, /*heightScaled*/false);
+                                wY, hZ, true, false);
 
                             for (int yy = y; yy < y + wY; ++yy)
                                 for (int zz = z; zz < z + hZ; ++zz)
@@ -3131,7 +3151,7 @@ public:
 
             // -------- Y faces (2:+Y, 3:-Y) => greedy in (X,Z) --------
             for (int face = 2; face < 4; ++face) {
-                bool processed[32][CHUNK_HEIGHT] = {}; // per Y slice
+                bool processed[32][CHUNK_HEIGHT] = {};
                 for (int y = 0; y < size; ++y) {
                     std::memset(processed, 0, sizeof(processed));
                     for (int x = 0; x < size; ++x) {
@@ -3145,14 +3165,27 @@ public:
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
-                            const bool greedy = blockIsGreedy(base.materialType);
-                            if (!greedy) {
-                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/false);
+                            std::string modelName = tex ? tex->getModelKindForBlockType(base.materialType) : "VOXEL_MODEL";
+                            ModelCullInfo cullInfo = modelManager ? modelManager->getModelCullInfo(modelName) : ModelCullInfo{};
+
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                auto faceIndices = generateFaceIndices(cullInfo);
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    int uniqueFaceIndex = faceIndices[face][i];
+                                    emitFaceLODNotGreedy(meshSlot, asWater, x, y, z, uniqueFaceIndex, base);
+                                }
+                                processed[x][z] = true;
                                 continue;
                             }
 
-                            // grow along +X
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    1, 1, true, false);
+                                continue;
+                            }
+
+                            // Greedy meshing logic
                             int wX = 1;
                             while (x + wX < size) {
                                 const uint64_t r = masks[face * size * CHUNK_HEIGHT + (x + wX) * CHUNK_HEIGHT + z];
@@ -3162,7 +3195,7 @@ public:
                                 if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
                                 ++wX;
                             }
-                            // grow along +Z
+
                             int hZ = 1; bool ok = true;
                             while (z + hZ < CHUNK_HEIGHT && ok) {
                                 for (int xx = x; xx < x + wX; ++xx) {
@@ -3176,7 +3209,7 @@ public:
                             }
 
                             emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                /*wCells*/wX, /*hCells*/hZ, /*widthScaled*/true, /*heightScaled*/false);
+                                wX, hZ, true, false);
 
                             for (int xx = x; xx < x + wX; ++xx)
                                 for (int zz = z; zz < z + hZ; ++zz)
@@ -3189,7 +3222,7 @@ public:
             // -------- Z faces (4:+Z, 5:-Z) => greedy in (X,Y) --------
             for (int face = 4; face < 6; ++face) {
                 const int baseOffset = 4 * size * CHUNK_HEIGHT + (face - 4) * size * size;
-                bool processed[32][32] = {}; // per Z slice
+                bool processed[32][32] = {};
                 for (int z = 0; z < CHUNK_HEIGHT; ++z) {
                     std::memset(processed, 0, sizeof(processed));
                     for (int x = 0; x < size; ++x) {
@@ -3203,14 +3236,27 @@ public:
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
-                            const bool greedy = blockIsGreedy(base.materialType);
-                            if (!greedy) {
-                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                    /*wCells*/1, /*hCells*/1, /*widthScaled*/true, /*heightScaled*/true);
+                            std::string modelName = tex ? tex->getModelKindForBlockType(base.materialType) : "VOXEL_MODEL";
+                            ModelCullInfo cullInfo = modelManager ? modelManager->getModelCullInfo(modelName) : ModelCullInfo{};
+
+                            if (cullInfo.cullableFaces[face].count > 0) {
+                                auto faceIndices = generateFaceIndices(cullInfo);
+                                for (int i = 0; i < cullInfo.cullableFaces[face].count; i++) {
+                                    int uniqueFaceIndex = faceIndices[face][i];
+                                    emitFaceLODNotGreedy(meshSlot, asWater, x, y, z, uniqueFaceIndex, base);
+                                }
+                                processed[x][y] = true;
                                 continue;
                             }
 
-                            // grow along +X
+                            const bool greedy = blockIsGreedy(base.materialType);
+                            if (!greedy) {
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
+                                    1, 1, true, true);
+                                continue;
+                            }
+
+                            // Greedy meshing logic
                             int wX = 1;
                             while (x + wX < size) {
                                 const uint64_t c = masks[baseOffset + ((x + wX) * size + y)];
@@ -3220,7 +3266,7 @@ public:
                                 if (m.materialType != base.materialType || !blockIsGreedy(m.materialType)) break;
                                 ++wX;
                             }
-                            // grow along +Y
+
                             int hY = 1; bool ok = true;
                             while (y + hY < size && ok) {
                                 for (int xx = x; xx < x + wX; ++xx) {
@@ -3234,7 +3280,7 @@ public:
                             }
 
                             emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z, face, base,
-                                /*wCells*/wX, /*hCells*/hY, /*widthScaled*/true, /*heightScaled*/true);
+                                wX, hY, true, true);
 
                             for (int xx = x; xx < x + wX; ++xx)
                                 for (int yy = y; yy < y + hY; ++yy)
@@ -3243,12 +3289,46 @@ public:
                     }
                 }
             }
+
+            // Add non-cullable faces for LOD blocks
+            for (int z = 0; z < CHUNK_HEIGHT; ++z) {
+                for (int x = 0; x < size; ++x) {
+                    for (int y = 0; y < size; ++y) {
+                        // Check if there's a voxel at this LOD position
+                        int worldZ = zPos * CHUNK_HEIGHT + z;
+                        if (!getVoxelDownscaledDirect(lodLevel, x, y, worldZ)) continue;
+
+                        UnpackedVoxelMaterial baseMat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+
+                        // Check material type matches the current pass
+                        if (asWater && !isWaterBlock(baseMat.materialType)) continue;
+                        if (!asWater && isWaterBlock(baseMat.materialType)) continue;
+
+                        std::string modelName = tex ? tex->getModelKindForBlockType(baseMat.materialType) : "VOXEL_MODEL";
+                        ModelCullInfo cullInfo = modelManager ? modelManager->getModelCullInfo(modelName) : ModelCullInfo{};
+
+                        // Calculate total cullable faces
+                        int totalCullableFaces = 0;
+                        for (int dir = 0; dir < 6; dir++) {
+                            totalCullableFaces += cullInfo.cullableFaces[dir].count;
+                        }
+
+                        if (cullInfo.nonCullableFaces.count > 0) {
+                            for (int i = 0; i < cullInfo.nonCullableFaces.count; i++) {
+                                // Use totalCullableFaces + i as the face index
+                                emitFaceLOD(meshSlot, asWater, x * lodLevel, y * lodLevel, z,
+                                    totalCullableFaces + i, baseMat, 1, 1, true, true);
+                            }
+                        }
+                    }
+                }
+            }
             };
 
-        // Solid → opaque slot, Water → transparent slot, Foliage → opaque slot
-        processSet(solidMasks,   /*asWater*/false, baseSlot);
-        processSet(waterMasks,   /*asWater*/true, baseSlot + TRANSPARENT_OFFSET);
-        processSet(foliageMasks, /*asWater*/false, baseSlot);
+        // Process each material set
+        processSet(solidMasks, false, baseSlot);
+        processSet(waterMasks, true, baseSlot + TRANSPARENT_OFFSET);
+        processSet(foliageMasks, false, baseSlot);
     }
 
     void extractFacesFromMasks(int zPos, int /*lodLevel*/, ChunkBitCaches& cache) {

@@ -1096,7 +1096,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     let scaled_vertex_offset = vec3f(base_vertex.x, base_vertex.y, base_vertex.z);
-    var base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset; // + random_offset;
+    var base_position = chunk_world_pos + voxel_pos + scaled_vertex_offset + random_offset;
     
     //Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
@@ -1761,7 +1761,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 0.2;
+    let ambient_strength = 0.2 * ssao_value;
     let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     
@@ -1784,7 +1784,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     //     ao = in.ao;
     // }
     let ao_adjusted = select(
-        mix(1.0, ao, aoStrength * distanceAdjustedAoFactor),
+        mix(1.0, ao, baseAoStrength * distanceAdjustedAoFactor),
         1.0,
         materialProps.pbr.AO == 0.0
     );

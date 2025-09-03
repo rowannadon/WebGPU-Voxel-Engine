@@ -31,12 +31,13 @@ struct SSAOParams {
 }
 
 @group(0) @binding(0) var depthTexture: texture_depth_2d;
-@group(0) @binding(1) var depthSampler: sampler;
-@group(0) @binding(2) var noiseTexture: texture_2d<f32>;
-@group(0) @binding(3) var noiseSampler: sampler;
-@group(0) @binding(4) var<uniform> camera: MyUniforms;
-@group(0) @binding(5) var<uniform> params: SSAOParams;
-@group(0) @binding(6) var<uniform> kernel: array<vec4<f32>, 64>;
+@group(0) @binding(1) var depthTextureMS: texture_depth_multisampled_2d;
+@group(0) @binding(2) var depthSampler: sampler;
+@group(0) @binding(3) var noiseTexture: texture_2d<f32>;
+@group(0) @binding(4) var noiseSampler: sampler;
+@group(0) @binding(5) var<uniform> camera: MyUniforms;
+@group(0) @binding(6) var<uniform> params: SSAOParams;
+@group(0) @binding(7) var<uniform> kernel: array<vec4<f32>, 64>;
 
 // Fullscreen triangle vertex shader
 @vertex

@@ -917,7 +917,7 @@
         "red_rock/red_rock.png"
       ],
       "normal": [],
-      "roughness": ["limestone.png"],
+      "roughness": ["red_rock/red_rock.png"],
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",
@@ -927,7 +927,7 @@
       "windStrength": 0.0,
       "pbr": {
         "metallic": 0.0,
-        "roughness": 0.6,
+        "roughness": 0.75,
         "specular": 0.04,
         "emission": [
           0.0,

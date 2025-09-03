@@ -8,16 +8,11 @@
 const pi: f32 = radians(180.0);
 const tau: f32 = pi * 2.0;
 const golden_ratio: f32 = (1.0 + sqrt(5.0)) / 2.0;
-
 const one_over_four_pi = 1.0 / (2.0 * tau);
-
 const u32_max: f32 = 4294967296.0;
-
 const sphere_solid_angle: f32 = 4.0 * pi;
-
 const t_max_max: f32 = 9000000.0;
 const planet_radius_offset: f32 = 0.01;
-
 const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const TO_KM_SCALE = 1.0/3280.0;
@@ -27,10 +22,8 @@ struct MyUniforms {
     infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
-
     inverseProjectionMatrix: mat4x4f,
     inverseViewMatrix: mat4x4f,
-
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
     lightDirection: vec3f,
@@ -68,8 +61,6 @@ struct Atmosphere {
     ap_slice_scale: f32,
     padding: f32
 }
-
-
 
 override SKY_VIEW_LUT_RES_X: f32 = 192.0;
 override SKY_VIEW_LUT_RES_Y: f32 = 108.0;
