@@ -2043,7 +2043,13 @@ public:
 										grassPositions.push_back(gdp);
                                     }*/
 
-                                    if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
+                                    
+           
+                                    break;
+                                case 2:
+                                    material.materialType = BlockType::Dirt; // dirt
+
+                                    if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
                                         if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                             positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
@@ -2060,10 +2066,6 @@ public:
                                             candidateTrees.push_back({ positionAbove, size, 0 });
                                         }
                                     }
-           
-                                    break;
-                                case 2:
-                                    material.materialType = BlockType::Dirt; // dirt
                                     break;
                                 default: // 3 or more
                                     break;
@@ -2132,7 +2134,7 @@ public:
             }
         }
 
-        treeData = filterTreesWithPoissonDisk(candidateTrees, 24.0f);
+        treeData = filterTreesWithPoissonDisk(candidateTrees, 4.0f);
 
         for (auto gdp : grassPositions) {
             static const std::array<BlockType, 5> grassTypes = {

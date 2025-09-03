@@ -37,7 +37,7 @@ struct ColorMapEntry {
 static const std::vector<ColorMapEntry> kBlockColorLUT = {
     { {88.0f/255.0f, 104.0f/255.0f, 8.0f/255.0f}, BlockType::Leaf       }, // leafy green
     { {88.0f / 255.0f, 104.0f / 255.0f, 65.0f / 255.0f}, BlockType::SpruceLeaf       }, // leafy green
-    { {110.0f/255.0f, 94.0f/255.0f, 78.0f/255.0f}, BlockType::Log        }, // trunk brown
+    { {110.0f/255.0f, 94.0f/255.0f, 78.0f/255.0f}, BlockType::RedRock        }, // trunk brown
     { {64.0f / 255.0f, 39.0f / 255.0f, 45.0f / 255.0f}, BlockType::SpruceLog        }, // trunk brown
     //{ {0.55f, 0.38f, 0.25f}, BlockType::Log       }, // dirt
     //{ {0.35f, 0.55f, 0.30f}, BlockType::Grass      }, // grass block top-ish
