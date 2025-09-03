@@ -1975,37 +1975,37 @@ public:
                         float noiseValue = worldGen.sample3D2(pos);
                          
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = BlockType::Limestone;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > -0.6 && noiseValue < -0.4) {
                             material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > -0.4 && noiseValue < -0.2) {
-                            material.materialType = BlockType::Slate;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > -0.2 && noiseValue < 0) {
                             material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0 && noiseValue < 0.2) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > 0.2 && noiseValue < 0.4) {
-                            material.materialType = BlockType::Limestone;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > 0.4 && noiseValue < 0.6) {
-                            material.materialType = BlockType::Gneiss;
+                            material.materialType = BlockType::RedRock;
                         }
                         else if (noiseValue > 0.6 && noiseValue < 0.8) {
                             material.materialType = BlockType::Andesite;
                         }
                         else if (noiseValue > 0.8 && noiseValue < 1) {
-                            material.materialType = BlockType::Slate;
+                            material.materialType = BlockType::RedRock;
                         }
                         else {
-                            material.materialType = BlockType::Limestone;
+                            material.materialType = BlockType::RedRock;
                         }
 
                         setMaterialFast(ivec3(x, y, z), material);
@@ -2022,11 +2022,11 @@ public:
                             switch (maxHeightDifference) {
                                 case 0:
                                 case 1:
-                                    material.materialType = BlockType::GrassFlowers; // grass
+                                    material.materialType = BlockType::Sand; // grass
 
                                     ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                    if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                    /*if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
 
                                         static const std::array<ProbabilityConfig, 5> config = { {
                                             { 0,     0.04f},
@@ -2041,7 +2041,7 @@ public:
                                         gdp.type = sampleFromDistribution(blockHash, config);;
 
 										grassPositions.push_back(gdp);
-                                    }
+                                    }*/
 
                                     if (pos.z > (-10 + blockHash % 20) && blockHash % 64 == 0) {
                                         if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
@@ -2070,14 +2070,14 @@ public:
                             }
 
                             // Apply materials to multiple layers
-                            if (material.materialType == BlockType::GrassFlowers || material.materialType == BlockType::Grass) { // grass terrain
+                            if (material.materialType == BlockType::Sand || material.materialType == BlockType::Grass) { // grass terrain
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::GrassFlowers; // grass
+                                        material.materialType = BlockType::Sand; // grass
                                         
                                         setMaterialFast(layerPos, material);
                                     }
@@ -2104,7 +2104,7 @@ public:
                                             material.materialType = BlockType::Dirt; // dirt
                                         }
                                         else {
-                                            material.materialType = BlockType::Loam; // dirt
+                                            material.materialType = BlockType::Dirt; // dirt
                                         }
                                         setMaterialFast(layerPos, material);
                                     }
@@ -2229,7 +2229,7 @@ public:
         for (const auto tree : treeData) {
             ivec3 localTreePos = tree.basePos;
 
-            std::string treeName = "tree" + std::to_string(tree.index);
+            std::string treeName = "rock" + std::to_string(tree.index);
             stampStructureAt(treeName, localTreePos);
         }
 
@@ -2265,7 +2265,7 @@ public:
                     ivec3 transformedBasePos = neighborTreeLocalPos +
                         ivec3(transformOffset.x, transformOffset.y, 0);
 
-                    std::string treeName = "tree" + std::to_string(tree.index);
+                    std::string treeName = "rock" + std::to_string(tree.index);
                     stampStructureAt(treeName, transformedBasePos);
                 }
             }
@@ -2596,7 +2596,7 @@ public:
                             }
                             else if (currentFoliage) {
                                 // Foliage always renders (or against non-foliage/solid)
-                                shouldRenderFace = true;
+                                shouldRenderFace = !neighborSolid;
                             }
                         }
                         else {

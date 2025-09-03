@@ -166,6 +166,11 @@
             border-color: #8a4040;
         }
         
+        .variation-control-btn.fill:hover {
+            background: #306a30;
+            border-color: #408a40;
+        }
+        
         .add-variation-btn {
             width: 60px;
             height: 60px;
@@ -309,6 +314,20 @@
             border-color: #5a5a5a;
         }
         
+        input[type="text"] {
+            padding: 6px 10px;
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            width: 160px;
+            font-size: 14px;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #5a5a5a;
+        }
+
         input[type="file"] {
             display: none;
         }
@@ -460,6 +479,22 @@
         .color-hex {
             font-family: monospace;
             font-size: 14px;
+            background: transparent;
+            border: none;
+            color: #e0e0e0;
+            outline: none;
+            cursor: text;
+            padding: 2px 4px;
+            border-radius: 2px;
+            transition: background 0.2s ease;
+        }
+        
+        .color-hex:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .color-hex:focus {
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .color-grid {
@@ -563,6 +598,10 @@
                         <button id="undoButton" disabled>Undo</button>
                         <button id="redoButton" disabled>Redo</button>
                     </div>
+                    <div class="control-row">
+                        <label>Texture Name:</label>
+                        <input type="text" id="textureName" value="texture" placeholder="e.g. stone">
+                    </div>
                     <button id="exportVariations">Export All Variations</button>
                 </div>
             </div>
@@ -623,7 +662,7 @@
                     <div class="color-picker-container">
                         <div class="color-display">
                             <div class="color-preview" id="colorPreview"></div>
-                            <div class="color-hex" id="colorHex">#000000</div>
+                            <input type="text" class="color-hex" id="colorHex" value="#000000" maxlength="7">
                         </div>
                         <div class="color-grid" id="colorGrid">
                             <div class="color-pointer" id="colorPointer"></div>
@@ -885,6 +924,68 @@
                 this.rgbR.addEventListener('input', () => this.updateFromRGB());
                 this.rgbG.addEventListener('input', () => this.updateFromRGB());
                 this.rgbB.addEventListener('input', () => this.updateFromRGB());
+                
+                // Handle hex input
+                this.colorHex.addEventListener('input', (e) => {
+                    let value = e.target.value;
+                    
+                    // Ensure it starts with #
+                    if (!value.startsWith('#')) {
+                        value = '#' + value;
+                    }
+                    
+                    // Validate hex format
+                    if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
+                        this.updateFromHex(value);
+                    }
+                });
+                
+                this.colorHex.addEventListener('blur', () => {
+                    // On blur, ensure valid hex format
+                    this.colorHex.value = this.getHexColor().toUpperCase();
+                });
+                
+                this.colorHex.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    let pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                    
+                    // Clean up pasted text
+                    pastedText = pastedText.trim();
+                    if (!pastedText.startsWith('#')) {
+                        pastedText = '#' + pastedText;
+                    }
+                    
+                    // Validate and apply
+                    if (/^#[0-9A-Fa-f]{6}$/.test(pastedText)) {
+                        this.colorHex.value = pastedText.toUpperCase();
+                        this.updateFromHex(pastedText);
+                    }
+                });
+            }
+            
+            updateFromHex(hex) {
+                const r = parseInt(hex.substr(1, 2), 16);
+                const g = parseInt(hex.substr(3, 2), 16);
+                const b = parseInt(hex.substr(5, 2), 16);
+                
+                this.rgb = { r, g, b };
+                this.rgbR.value = r;
+                this.rgbG.value = g;
+                this.rgbB.value = b;
+                
+                const hsv = this.rgbToHsv(r, g, b);
+                this.hue = hsv.h;
+                this.saturation = hsv.s;
+                this.value = hsv.v;
+                
+                this.updateColorDisplay();
+                this.updatePointerPosition();
+                this.updateHueThumbPosition();
+                this.updateGridBackground();
+                
+                if (this.onColorChange) {
+                    this.onColorChange(hex);
+                }
             }
             
             handleGridClick(e) {
@@ -970,7 +1071,7 @@
             updateColorDisplay() {
                 const hex = this.getHexColor();
                 this.colorPreview.style.backgroundColor = hex;
-                this.colorHex.textContent = hex.toUpperCase();
+                this.colorHex.value = hex.toUpperCase();
             }
             
             updatePointerPosition() {
@@ -1118,6 +1219,10 @@
                 this.addVariationBtn = document.getElementById('addVariationBtn');
                 this.hiddenFileInput = document.getElementById('hiddenFileInput');
                 
+                this.textureNameInput = document.getElementById('textureName');
+                this.textureBaseName = 'texture';
+
+
                 this.init();
             }
             
@@ -1134,6 +1239,14 @@
                 this.setupGlobalCursorHandling();
             }
             
+            getSanitizedBaseName() {
+                // Prefer current input value, fall back to stored or "texture"
+                const raw = (this.textureNameInput?.value ?? this.textureBaseName ?? 'texture').trim();
+                // Keep letters, numbers, dashes, underscores; collapse spaces -> underscores
+                const cleaned = raw.replace(/\s+/g, '_').replace(/[^A-Za-z0-9_\-]/g, '');
+                return cleaned.length ? cleaned : 'texture';
+            }
+
             setupGlobalCursorHandling() {
                 // Global mouse move for cursor box
                 document.addEventListener('mousemove', (e) => {
@@ -1244,6 +1357,12 @@
                 const controls = document.createElement('div');
                 controls.className = 'variation-controls';
                 
+                const fillBtn = document.createElement('button');
+                fillBtn.className = 'variation-control-btn fill';
+                fillBtn.innerHTML = '▮';
+                fillBtn.title = 'Fill with color';
+                fillBtn.onclick = () => this.fillVariation(index);
+                
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'variation-control-btn remove';
                 removeBtn.innerHTML = '−';
@@ -1262,6 +1381,7 @@
                 uploadBtn.title = 'Upload texture';
                 uploadBtn.onclick = () => this.triggerUpload(index);
                 
+                controls.appendChild(fillBtn);
                 controls.appendChild(removeBtn);
                 controls.appendChild(downloadBtn);
                 controls.appendChild(uploadBtn);
@@ -1321,14 +1441,32 @@
                     
                     // Update button handlers
                     const buttons = wrapper.querySelectorAll('.variation-control-btn');
-                    buttons[0].onclick = () => this.removeVariation(i);
-                    buttons[1].onclick = () => this.exportVariation(i);
-                    buttons[2].onclick = () => this.triggerUpload(i);
+                    buttons[0].onclick = () => this.fillVariation(i);
+                    buttons[1].onclick = () => this.removeVariation(i);
+                    buttons[2].onclick = () => this.exportVariation(i);
+                    buttons[3].onclick = () => this.triggerUpload(i);
                 }
                 
                 // Regenerate tile data
                 this.generateTileData();
                 this.resizeCanvas();
+            }
+            
+            fillVariation(index) {
+                if (!this.pixelDataArray[index]) return;
+                
+                this.historyManager.saveState(this.pixelDataArray, this.variations, this.gridWidth, this.gridHeight);
+                
+                // Fill the entire variation with the current color
+                for (let y = 0; y < this.gridHeight; y++) {
+                    for (let x = 0; x < this.gridWidth; x++) {
+                        this.pixelDataArray[index][y][x] = this.currentColor;
+                    }
+                }
+                
+                // Redraw
+                this.redraw(index);
+                this.updateTexturePreview();
             }
             
             triggerUpload(index) {
@@ -1551,6 +1689,10 @@
                         this.textureCanvas.style.cursor = 'default';
                     }
                 });
+
+                this.textureNameInput.addEventListener('input', () => {
+                    this.textureBaseName = this.getSanitizedBaseName();
+                });
                 
                 window.addEventListener('resize', () => this.resizeCanvas());
             }
@@ -1590,7 +1732,8 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `pixel-art-variation-${variationIndex + 1}-${this.gridWidth}x${this.gridHeight}.png`;
+                    const base = this.getSanitizedBaseName();
+                    a.download = `${base}_${variationIndex + 1}.png`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -1644,9 +1787,8 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    const rotationText = this.randomRotation ? '-rotated' : '';
-                    const variationText = this.variations > 1 ? `-${this.variations}var` : '';
-                    a.download = `texture-${this.tilesX}x${this.tilesY}-tiles-${textureWidth}x${textureHeight}px${rotationText}${variationText}.png`;
+                    const base = this.getSanitizedBaseName();
+                    a.download = `${base}.png`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);

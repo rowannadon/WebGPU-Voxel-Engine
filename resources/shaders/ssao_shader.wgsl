@@ -1,3 +1,5 @@
+// SSAO shader
+
 struct MyUniforms {
     projectionMatrix: mat4x4f,
     infiniteProjectionMatrix: mat4x4f,
