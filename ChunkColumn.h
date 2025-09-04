@@ -436,6 +436,90 @@ public:
         generateDownscaledFromCounts(counts);
     }
 
+
+    void computeAllLODCounts(LODCountStorage& counts) {
+        // Single pass through all voxels
+        for (int x = 0; x < CHUNK_SIZE; x++) {
+            for (int y = 0; y < CHUNK_SIZE; y++) {
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
+                    ivec3 pos(x, y, z);
+
+                    // Check occupancy
+                    bool isSolid = getVoxelWholeColumn(pos);
+
+                    if (!isSolid) continue;
+
+                    // Get material once
+                    UnpackedVoxelMaterial mat = getMaterialFast(pos);
+                    uint16_t packedMat = packMaterialData(mat).materialData;
+
+                    // Update LOD2 counts (2x2x1 groups)
+                    {
+                        int gx = x / 2, gy = y / 2, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 16);
+                        if (isSolid) counts.lod2[idx].solidCount++;
+                        counts.lod2[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD4 counts (4x4x1 groups)
+                    {
+                        int gx = x / 4, gy = y / 4, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 8);
+                        if (isSolid) counts.lod4[idx].solidCount++;
+                        counts.lod4[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD8 counts (8x8x1 groups)
+                    {
+                        int gx = x / 8, gy = y / 8, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 4);
+                        if (isSolid) counts.lod8[idx].solidCount++;
+                        counts.lod8[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD16 counts (16x16x1 groups)
+                    {
+                        int gx = x / 16, gy = y / 16, gz = z;
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 2);
+                        if (isSolid) counts.lod16[idx].solidCount++;
+                        counts.lod16[idx].materialCounts[packedMat]++;
+                    }
+
+                    // Update LOD32 counts (32x32x1 groups)
+                    {
+                        int gx = 0, gy = 0, gz = z; // Only one group in XY
+                        int idx = LODCountStorage::getIndex(gx, gy, gz, 1);
+                        if (isSolid) counts.lod32[idx].solidCount++;
+                        counts.lod32[idx].materialCounts[packedMat]++;
+                    }
+                }
+            }
+        }
+    }
+
+    void generateDownscaledFromCounts(const LODCountStorage& counts) {
+        // Generate LOD2 data
+        generateLODFromCounts<2>(counts.lod2, voxelData2,
+            encodedMaterialData2, 16);
+
+        // Generate LOD4 data
+        generateLODFromCounts<4>(counts.lod4, voxelData4,
+            encodedMaterialData4, 8);
+
+        // Generate LOD8 data
+        generateLODFromCounts<8>(counts.lod8, voxelData8,
+            encodedMaterialData8, 4);
+
+        // Generate LOD16 data
+        generateLODFromCounts<16>(counts.lod16, voxelData16,
+            encodedMaterialData16, 2);
+
+        // Generate LOD32 data
+        generateLODFromCounts<32>(counts.lod32, voxelData32,
+            encodedMaterialData32, 1);
+    }
+
+
     template<size_t N>
     int sampleFromDistribution(uint32_t hash, const std::array<ProbabilityConfig, N>& config) {
         // Convert hash to normalized float [0, 1)
@@ -717,65 +801,7 @@ private:
         return (data[arrayIndex] & (1ULL << bitIndex)) != 0;
     }
 
-    void computeAllLODCounts(LODCountStorage& counts) {
-        // Single pass through all voxels
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int y = 0; y < CHUNK_SIZE; y++) {
-                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
-                    ivec3 pos(x, y, z);
 
-                    // Check occupancy
-                    bool isSolid = getVoxelWholeColumn(pos);
-
-                    if (!isSolid) continue;
-
-                    // Get material once
-                    UnpackedVoxelMaterial mat = getMaterialFast(pos);
-                    uint16_t packedMat = packMaterialData(mat).materialData;
-
-                    // Update LOD2 counts (2x2x1 groups)
-                    {
-                        int gx = x / 2, gy = y / 2, gz = z;
-                        int idx = LODCountStorage::getIndex(gx, gy, gz, 16);
-                        if (isSolid) counts.lod2[idx].solidCount++;
-                        counts.lod2[idx].materialCounts[packedMat]++;
-                    }
-
-                    // Update LOD4 counts (4x4x1 groups)
-                    {
-                        int gx = x / 4, gy = y / 4, gz = z;
-                        int idx = LODCountStorage::getIndex(gx, gy, gz, 8);
-                        if (isSolid) counts.lod4[idx].solidCount++;
-                        counts.lod4[idx].materialCounts[packedMat]++;
-                    }
-
-                    // Update LOD8 counts (8x8x1 groups)
-                    {
-                        int gx = x / 8, gy = y / 8, gz = z;
-                        int idx = LODCountStorage::getIndex(gx, gy, gz, 4);
-                        if (isSolid) counts.lod8[idx].solidCount++;
-                        counts.lod8[idx].materialCounts[packedMat]++;
-                    }
-
-                    // Update LOD16 counts (16x16x1 groups)
-                    {
-                        int gx = x / 16, gy = y / 16, gz = z;
-                        int idx = LODCountStorage::getIndex(gx, gy, gz, 2);
-                        if (isSolid) counts.lod16[idx].solidCount++;
-                        counts.lod16[idx].materialCounts[packedMat]++;
-                    }
-
-                    // Update LOD32 counts (32x32x1 groups)
-                    {
-                        int gx = 0, gy = 0, gz = z; // Only one group in XY
-                        int idx = LODCountStorage::getIndex(gx, gy, gz, 1);
-                        if (isSolid) counts.lod32[idx].solidCount++;
-                        counts.lod32[idx].materialCounts[packedMat]++;
-                    }
-                }
-            }
-        }
-    }
 
     inline size_t getMaterialIndexLOD(int x, int y, int z, int lodLevel) const {
         int size = CHUNK_SIZE / lodLevel;
@@ -1008,32 +1034,11 @@ private:
         materialDataDecoded32 = false;
     }
 
-    void generateDownscaledFromCounts(const LODCountStorage& counts) {
-        // Generate LOD2 data
-        generateLODFromCounts<2>(counts.lod2, voxelData2,
-            encodedMaterialData2, 16);
-
-        // Generate LOD4 data
-        generateLODFromCounts<4>(counts.lod4, voxelData4,
-            encodedMaterialData4, 8);
-
-        // Generate LOD8 data
-        generateLODFromCounts<8>(counts.lod8, voxelData8,
-            encodedMaterialData8, 4);
-
-        // Generate LOD16 data
-        generateLODFromCounts<16>(counts.lod16, voxelData16,
-            encodedMaterialData16, 2);
-
-        // Generate LOD32 data
-        generateLODFromCounts<32>(counts.lod32, voxelData32,
-            encodedMaterialData32, 1);
-    }
 
     template<int LOD>
     void generateLODFromCounts(const std::vector<LODGroupCounts>& lodCounts,
         uint64_t* solidData,
-        std::vector<RLEPair> encodedData[][LOD == 32 ? 1 : (32 / LOD)],
+        std::vector<RLEPair> encodedData[][(32 / LOD)],
         int xySize) {
 
         // Clear bit arrays
@@ -1046,7 +1051,7 @@ private:
                 std::vector<uint16_t> columnMaterials;
                 columnMaterials.reserve(COLUMN_HEIGHT_BLOCKS);
 
-                float threshold = 0.5;
+                float threshold = 0.75;
                 int solidThreshold = (int)(threshold * (float)CHUNK_SIZE);
 
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
@@ -1816,16 +1821,16 @@ public:
         }
 
         // generate 2d terrain
-        //for (int y = 0; y < CHUNK_SIZE; y++) {
-        //    for (int x = 0; x < CHUNK_SIZE; x++) {
-        //        // Generate height for this column
-        //        float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
-        //        int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
-        //        for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
-        //            setVoxelWholeColumn(ivec3(x, y, z), true, false);
-        //        }
-        //    }
-        //}
+        /*for (int y = 0; y < CHUNK_SIZE; y++) {
+            for (int x = 0; x < CHUNK_SIZE; x++) {
+                // Generate height for this column
+                float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+                int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
+                    setVoxelWholeColumn(ivec3(x, y, z), true);
+                }
+            }
+        }*/
 
         setState(ColumnState::TerrainReady);
     }

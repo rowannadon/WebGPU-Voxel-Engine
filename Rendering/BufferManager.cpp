@@ -123,6 +123,31 @@ void BufferManager::notifyStoragePoolChanged(const std::string& poolName) {
     }
 }
 
+TripleBuffer BufferManager::createTripleBuffer(const std::string& name, BufferDescriptor config) {
+    TripleBuffer tb;
+    for (int i = 0; i < 3; i++) {
+        tb.buffers[i] = device.createBuffer(config);
+    }
+    tb.frameIndex = 0;
+    tripleBuffers[name] = tb;
+    return tb;
+}
+
+wgpu::Buffer BufferManager::getCurrentTripleBuffer(const std::string& name) {
+    return tripleBuffers.at(name).current();
+}
+
+void BufferManager::writeCurrentTripleBuffer(const std::string& name, uint64_t offset, void* data, size_t size) {
+    auto& tb = tripleBuffers.at(name);
+    queue.writeBuffer(tb.current(), offset, data, size);
+}
+
+void BufferManager::nextFrame() {
+    for (auto& kv : tripleBuffers) {
+        kv.second.advanceFrame();
+    }
+}
+
 void BufferManager::terminate() {
     // Clean up regular buffers
     for (auto pair : buffers) {

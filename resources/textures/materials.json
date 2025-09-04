@@ -4,13 +4,13 @@
       "id": 0,
       "name": "Dirt",
       "texture": [
-        "dirt/texture-8x8-tiles-64x64px-rotated-6var.png"
+        "dirt/dirt_tiled.png"
       ],
       "normal": [],
-      "roughness": ["dirt/texture-8x8-tiles-64x64px-rotated-6var.png"],
+      "roughness": ["dirt/dirt_tiled.png"],
       "modelType": "SINGLE",
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "LARGE_TILE",
       "orientation": "NONE",
       "tileCount": 8,
       "randomOffset": 0.0,

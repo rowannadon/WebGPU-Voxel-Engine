@@ -777,12 +777,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     // Apply wind effects
     var wind_displacement = vec3f(0.0);
-    // if (materialProps.windStrength > 0.0) {
-    //     let vertex_height = base_vertex.z;
-    //     if (vertex_height > 0.1) {
-    //         wind_displacement = calculate_wind_displacement(base_position, vertex_height, materialProps.windStrength);
-    //     }
-    // }
+    if (materialProps.windStrength > 0.0) {
+        let vertex_height = base_vertex.z;
+        if (vertex_height > 0.1) {
+            wind_displacement = calculate_wind_displacement(base_position, vertex_height, materialProps.windStrength);
+        }
+    }
     
     let position = base_position + wind_displacement;
     let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);

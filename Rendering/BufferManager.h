@@ -10,6 +10,19 @@
 
 using namespace wgpu;
 
+struct TripleBuffer {
+    std::vector<wgpu::Buffer> buffers = { nullptr, nullptr, nullptr };
+    uint32_t frameIndex = 0;
+
+    wgpu::Buffer current() const {
+        return buffers[frameIndex % 3];
+    }
+
+    void advanceFrame() {
+        frameIndex = (frameIndex + 1) % 3;
+    }
+};
+
 class BufferManager {
 private:
     std::unordered_map<std::string, Buffer> buffers;
@@ -20,6 +33,8 @@ private:
     Device device;
     Queue queue;
 
+    std::unordered_map<std::string, TripleBuffer> tripleBuffers;
+
 public:
     BufferManager(Device d, Queue q) : device(d), queue(q) {}
 
@@ -27,6 +42,11 @@ public:
     Buffer createBuffer(std::string bufferName, BufferDescriptor config);
     Buffer getBuffer(std::string bufferName);
     void writeBuffer(const std::string bufferName, uint64_t bufferOffset, void* data, size_t size);
+
+    TripleBuffer createTripleBuffer(const std::string& name, BufferDescriptor config);
+    wgpu::Buffer getCurrentTripleBuffer(const std::string& name);
+    void writeCurrentTripleBuffer(const std::string& name, uint64_t offset, void* data, size_t size);
+    void nextFrame(); // advance all triple buffers
 
     std::shared_ptr<MeshBufferPool> createMeshBufferPool(const std::string name);
     std::shared_ptr<MeshBufferPool> getMeshBufferPool(const std::string name);

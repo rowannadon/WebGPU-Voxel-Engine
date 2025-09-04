@@ -546,7 +546,7 @@ fn calculate_shadow_factor(shadow_pos: vec4f, normal: vec3f, light_dir: vec3f) -
     let bias = max(0.002 * (1.0 - n_dot_l), 0.002);
     let current_depth = proj_coords.z - bias;
     
-    let texel_size = 1.0 / 4096.0;
+    let texel_size = 1.0 / 8192.0;
     var shadow = 0.0;
     let samples = 64;
     
@@ -1100,13 +1100,13 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     //Apply wind effects for grass and leaf models
     var wind_displacement = vec3f(0.0);
-    // if (materialProps.windStrength > 0.0) {
-    //     let vertex_height = base_vertex.z;
-    //     if (vertex_height > 0.1) {
-    //         let wind_strength = vertex_height;
-    //         wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
-    //     }
-    // }
+    if (materialProps.windStrength > 0.0) {
+        let vertex_height = base_vertex.z;
+        if (vertex_height > 0.1) {
+            let wind_strength = vertex_height;
+            wind_displacement = calculate_wind_displacement(base_position, wind_strength, materialProps.windStrength);
+        }
+    }
     
     position = base_position + wind_displacement;
 
@@ -1761,7 +1761,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     );
     
     // Enhanced ambient lighting to compensate for PBR energy conservation
-    let ambient_strength = 0.2 * ssao_value;
+    let ambient_strength = 0.2 * (ssao_value + 0.2);
     let ambient_color = vec3f(0.5, 0.6, 0.9) * sun_intensity + vec3f(0.2, 0.2, 0.2); 
     let ambient_lighting = ambient_color * albedo * ambient_strength;
     

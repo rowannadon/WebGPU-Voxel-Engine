@@ -103,7 +103,7 @@ bool WebGPUContext::initialize(const RenderConfig& config) {
     deviceDesc.defaultQueue.label = StringView("Main Queue");
     std::vector<FeatureName> requiredFeatures = {
         FeatureName::IndirectFirstInstance,
-        FeatureName::MultiDrawIndirect,
+        FeatureName::MultiDrawIndirect
     };
     deviceDesc.requiredFeatures = (const WGPUFeatureName*)requiredFeatures.data();
     deviceDesc.requiredFeatureCount = (uint32_t)requiredFeatures.size();

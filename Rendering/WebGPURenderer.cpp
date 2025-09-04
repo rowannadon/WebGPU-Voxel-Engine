@@ -20,21 +20,21 @@ bool WebGPURenderer::initialize() {
 	struct SizeClassCfg { int faces; int baseCount; };
 
 	static const std::array<SizeClassCfg, 11> kBaseline = { {
-		{ 16,      9683 },
-		{ 32,      6956 },
-		{ 64,     10153 },
-		{ 128,     9795 },
-		{ 256,    10584 },
-		{ 512,     6571 },
-		{ 1024,    6907 }, 
-		{ 2048,    3607 }, 
-		{ 4096,    2698 }, 
-		{ 16384,   3890 },
-		{ 65536,   1159 },
+		{ 16,    46706 },
+		{ 32,    27664 },
+		{ 64,    62257 },
+		{ 128,   50459 },
+		{ 256,   80216 },
+		{ 512,   67869 },
+		{ 1024,  83193 },
+		{ 2048,  64711 },
+		{ 4096,  14573 },
+		{ 16384,   135 }, 
+		{ 65536,     2 },
 	} };
 
 
-	float capacityScale = 2.0f;
+	float capacityScale = 1.5f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());
@@ -54,19 +54,19 @@ bool WebGPURenderer::initialize() {
 	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
 
 	indirectBufferDesc.label = StringView("opaque indirect buffer");
-	opaqueIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	opaqueIndirectBuffer = bufferManager->createTripleBuffer("opaqueIndirect", indirectBufferDesc);
 
 	indirectBufferDesc.label = StringView("transparent indirect buffer");
-	transparentIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	transparentIndirectBuffer = bufferManager->createTripleBuffer("transparentIndirect", indirectBufferDesc);
 
 	indirectBufferDesc.label = StringView("double sided indirect buffer");
-	doubleSidedIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	doubleSidedIndirectBuffer = bufferManager->createTripleBuffer("doubleSidedIndirect", indirectBufferDesc);
 
 	indirectBufferDesc.label = StringView("opaque shadow indirect buffer");
-	opaqueShadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	opaqueShadowIndirectBuffer = bufferManager->createTripleBuffer("opaqueShadowIndirect", indirectBufferDesc);
 
 	indirectBufferDesc.label = StringView("transparent shadow indirect buffer");
-	transparentShadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+	transparentShadowIndirectBuffer = bufferManager->createTripleBuffer("transparentShadowIndirect", indirectBufferDesc);
 
 	// initialize pipeline objects
 	BufferManager* buf = bufferManager.get();
@@ -190,7 +190,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.transparentDAICs.size() > 0) {
 		//std::cout << "writing " << chunkRenderData.transparentDAICs.size() << " transparent DAICS\n";
 		context->getQueue().writeBuffer(
-			transparentIndirectBuffer, 
+			transparentIndirectBuffer.current(),
 			0, 
 			chunkRenderData.transparentDAICs.data(), 
 			chunkRenderData.transparentDAICs.size() * sizeof(DAIC)
@@ -200,7 +200,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		//std::cout << "writing " << chunkRenderData.opaqueDAICs.size() << " opaque DAICS\n";
 		context->getQueue().writeBuffer(
-			opaqueIndirectBuffer, 
+			opaqueIndirectBuffer.current(),
 			0, 
 			chunkRenderData.opaqueDAICs.data(), 
 			chunkRenderData.opaqueDAICs.size() * sizeof(DAIC)
@@ -210,7 +210,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
 		//std::cout << "writing " << chunkRenderData.doubleSidedDAICs.size() << " double sided DAICS\n";
 		context->getQueue().writeBuffer(
-			doubleSidedIndirectBuffer,
+			doubleSidedIndirectBuffer.current(),
 			0,
 			chunkRenderData.doubleSidedDAICs.data(),
 			chunkRenderData.doubleSidedDAICs.size() * sizeof(DAIC)
@@ -220,7 +220,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.transparentShadowDAICs.size() > 0) {
 		//std::cout << "writing " << chunkRenderData.transparentShadowDAICs.size() << " transparent shadow DAICS\n";
 		context->getQueue().writeBuffer(
-			transparentShadowIndirectBuffer,
+			transparentShadowIndirectBuffer.current(),
 			0, 
 			chunkRenderData.transparentShadowDAICs.data(),
 			chunkRenderData.transparentShadowDAICs.size() * sizeof(DAIC)
@@ -230,7 +230,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.opaqueShadowDAICs.size() > 0) {
 		//std::cout << "writing " << chunkRenderData.opaqueShadowDAICs.size() << " opaque shadow DAICS\n";
 		context->getQueue().writeBuffer(
-			opaqueShadowIndirectBuffer,
+			opaqueShadowIndirectBuffer.current(),
 			0,
 			chunkRenderData.opaqueShadowDAICs.data(),
 			chunkRenderData.opaqueShadowDAICs.size() * sizeof(DAIC)
@@ -259,9 +259,10 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	// OPAQUE casters
 	if (!chunkRenderData.opaqueShadowDAICs.empty()) {
 		// First shadow pass clears depth
+		//std::cout << "rendering " << chunkRenderData.opaqueShadowDAICs.size() << "opaque shadow DAICs \n";
 		shadowPipeline.render(
 			chunkRenderData.opaqueShadowDAICs.size(),
-			opaqueShadowIndirectBuffer,
+			opaqueShadowIndirectBuffer.current(),
 			encoder,
 			/*bindGroupName=*/"shadow_uniforms_group_opaque",
 			/*loadOp=*/LoadOp::Clear
@@ -269,32 +270,24 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	}
 
 	// TRANSPARENT casters
-	//if (!chunkRenderData.transparentShadowDAICs.empty()) {
-	//	// Second shadow pass loads & stores into the same depth
-	//	shadowPipeline.render(
-	//		chunkRenderData.transparentShadowDAICs.size(),
-	//		transparentShadowIndirectBuffer,
-	//		encoder,
-	//		/*bindGroupName=*/"shadow_uniforms_group_transparent",
-	//		/*loadOp=*/LoadOp::Load
-	//	);
-	//}
+	if (!chunkRenderData.transparentShadowDAICs.empty()) {
+		// Second shadow pass loads & stores into the same depth
+		//std::cout << "rendering " << chunkRenderData.transparentShadowDAICs.size() << "transparent shadow DAICs \n";
+		shadowPipeline.render(
+			chunkRenderData.transparentShadowDAICs.size(),
+			transparentShadowIndirectBuffer.current(),
+			encoder,
+			/*bindGroupName=*/"shadow_uniforms_group_transparent",
+			/*loadOp=*/LoadOp::Load
+		);
+	}
 
 	skyPipeline.render(targetView, encoder);
-
-
-	/*if (chunkRenderData.opaqueDAICs.size() > 0) {
-		depthPrePassPipeline.render(
-			chunkRenderData.opaqueDAICs.size(),
-			opaqueIndirectBuffer,
-			targetView,
-			encoder);
-	}*/
 
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		depthPrePassPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
-			opaqueIndirectBuffer,
+			opaqueIndirectBuffer.current(),
 			targetView,
 			encoder);
 	}
@@ -302,7 +295,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
 		doubleSidedDepthPrePassPipeline.render(
 			chunkRenderData.doubleSidedDAICs.size(),
-			doubleSidedIndirectBuffer,
+			doubleSidedIndirectBuffer.current(),
 			targetView,
 			encoder);
 	}
@@ -318,7 +311,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		// Continue with main rendering...
 		voxelPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
-			opaqueIndirectBuffer,
+			opaqueIndirectBuffer.current(),
 			targetView,
 			encoder
 		);
@@ -327,7 +320,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
 		doubleSidedPipeline.render(
 			chunkRenderData.doubleSidedDAICs.size(),
-			doubleSidedIndirectBuffer,
+			doubleSidedIndirectBuffer.current(),
 			targetView,
 			encoder
 		);
@@ -338,7 +331,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	if (chunkRenderData.transparentDAICs.size() > 0) {
 		transparentVoxelPipeline.render(
 			chunkRenderData.transparentDAICs.size(),
-			transparentIndirectBuffer,
+			transparentIndirectBuffer.current(),
 			targetView,
 			encoder
 		);
@@ -393,6 +386,8 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		});*/
 
 	command.release();
+
+	bufferManager->nextFrame();
 
 	// CRITICAL FIX: Tick the device to process async operations
 #ifdef WEBGPU_BACKEND_DAWN
@@ -591,10 +586,10 @@ std::pair<SurfaceTexture, TextureView> WebGPURenderer::GetNextSurfaceViewData() 
 }
 
 void WebGPURenderer::terminate() {
-	opaqueIndirectBuffer.release();
-	transparentIndirectBuffer.release();
-	transparentShadowIndirectBuffer.release();
-	opaqueShadowIndirectBuffer.release();
+	opaqueIndirectBuffer.current().release();
+	transparentIndirectBuffer.current().release();
+	transparentShadowIndirectBuffer.current().release();
+	opaqueShadowIndirectBuffer.current().release();
 
 	textureManager->terminate();
 	pipelineManager->terminate();

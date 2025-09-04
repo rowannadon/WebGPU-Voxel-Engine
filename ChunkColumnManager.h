@@ -231,6 +231,7 @@ public:
         static std::vector<DAICWithPosition> doubleSidedDAICsWithPos;
         static std::vector<DAIC> opaqueShadowDAICs;
         static std::vector<DAIC> transparentShadowDAICs;
+        static std::vector<DAIC> doubleSidedShadowDAICs;
 
         transparentDAICsWithPos.clear();
         opaqueDAICsWithPos.clear();
@@ -509,8 +510,8 @@ public:
 
         // LOD selection
         std::vector<float> lodDistances = { 12.0f, 24.0f, 48.0f, 96.0f };
-        ivec2 cameraChunkPos = ivec2(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f));
-        int lod = calculateLODLevel(glm::floor(cameraPos.z / 32.0f), chunkPos, cameraChunkPos, lodDistances);
+        ivec3 cameraChunkPos = ivec3(glm::floor(cameraPos.x / 32.0f), glm::floor(cameraPos.y / 32.0f), glm::floor(cameraPos.z / 62.0f));
+        int lod = calculateLODLevel(0, chunkPos, cameraChunkPos, lodDistances);
 
         bool cacheValid = (!cache.isDirty && cache.lodLevel == lod && cache.frameGenerated > 0 &&
             (currentFrame - cache.frameGenerated) < MAX_CACHE_AGE);
@@ -554,8 +555,8 @@ public:
                 if (cache.opaqueByZ[z].has_value()) {
                     opaqueShadowDAICs.push_back(cache.opaqueByZ[z].value());
                 }
-                if (cache.transparentByZ[z].has_value()) {
-                    transparentShadowDAICs.push_back(cache.transparentByZ[z].value());
+                if (cache.doubleSidedByZ[z].has_value()) {
+                    transparentShadowDAICs.push_back(cache.doubleSidedByZ[z].value());
                 }
             }
         }
@@ -631,9 +632,9 @@ public:
         cache.isDirty = false;
     }
 
-    int calculateLODLevel(int zHeight, const ivec2& chunkPos, const ivec2& viewerPos,
+    int calculateLODLevel(int zHeight, const ivec2& chunkPos, const ivec3& viewerPos,
         const std::vector<float>& lodDistances) const {
-        float distance = glm::length(vec2(chunkPos - viewerPos));
+        float distance = glm::length(vec3(ivec3(chunkPos.x, chunkPos.y, zHeight) - viewerPos));
 
         int distanceLODLevel = lodDistances.size();
         for (int i = 0; i < lodDistances.size(); i++) {

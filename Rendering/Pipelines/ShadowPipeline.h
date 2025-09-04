@@ -26,7 +26,7 @@ public:
 		depthTextureDesc.format = depthTextureFormat;
 		depthTextureDesc.mipLevelCount = 1;
 		depthTextureDesc.sampleCount = 1;
-		depthTextureDesc.size = { 4096, 4096, 1 };
+		depthTextureDesc.size = { 8192, 8192, 1 };
 		depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
 		depthTextureDesc.viewFormatCount = 0;
 		depthTextureDesc.viewFormats = nullptr;
@@ -162,7 +162,7 @@ public:
 		BindGroup opaqueShadowBindGroup = pip->createBindGroup("shadow_uniforms_group_opaque", "shadow_global_uniforms", shadowBindings);
 
 		shadowBindings[0].binding = 0;
-		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer_transparent");
+		shadowBindings[0].buffer = buf->getBuffer("uniform_buffer_doublesided");
 		shadowBindings[0].offset = 0;
 		shadowBindings[0].size = sizeof(MyUniforms);
 
