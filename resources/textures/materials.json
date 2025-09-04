@@ -4,10 +4,10 @@
       "id": 0,
       "name": "Dirt",
       "texture": [
-        "texture-8x8-tiles-64x64px-rotated-6var.png"
+        "dirt/texture-8x8-tiles-64x64px-rotated-6var.png"
       ],
       "normal": [],
-      "roughness": ["dirt.png"],
+      "roughness": ["dirt/texture-8x8-tiles-64x64px-rotated-6var.png"],
       "modelType": "SINGLE",
       "model": "VOXEL_MODEL",
       "textureType": "RANDOM_ROTATION",
@@ -191,15 +191,14 @@
       "id": 6,
       "name": "Andesite",
       "texture": [
-        "sandstone.png",
-        "sandstone_top.png"
+        "red_rock/red_rock.png"
       ],
       "normal": [],
       "roughness": [
-        "sandstone.png"
+        "red_rock/red_rock.png.png"
       ],
       "model": "VOXEL_MODEL",
-      "textureType": "LARGE_TILE",
+      "textureType": "RANDOM_ROTATION",
       "orientation": "SINGLE_AXIS",
       "tileCount": 8,
       "randomOffset": 0.0,
@@ -914,12 +913,12 @@
       "id": 28,
       "name": "RedRock",
       "texture": [
-        "red_rock/red_rock.png"
+        "red_rock/layered_red_rock_flat_red.png"
       ],
       "normal": [],
-      "roughness": ["red_rock/red_rock.png"],
+      "roughness": ["red_rock/layered_red_rock_flat_red.png"],
       "model": "VOXEL_MODEL",
-      "textureType": "RANDOM_ROTATION",
+      "textureType": "RANDOM_VARIANT",
       "orientation": "NONE",
       "tileCount": 8,
       "randomOffset": 0.0,
