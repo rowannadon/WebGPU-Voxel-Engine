@@ -2,9 +2,16 @@
 
 #include "../Atmosphere.h"
 #include <GLFW/glfw3.h>
+#include <webgpu/webgpu.hpp>
 #include "../Uniforms.h"
+#include "../PipelineManager.h"
+#include "../BufferManager.h"
+#include "../TextureManager.h"
+#include "../ModelManager.h"
+#include "../WebGPUContext.h"
 
-class DepthPrePassPipeline {
+
+class DoubleSidedDepthPrePassPipeline {
 private:
 	BufferManager* buf;
 	TextureManager* tex;
@@ -21,60 +28,13 @@ public:
 		mod = m;
 	}
 
-	bool createResources() {
-		int width, height;
-		glfwGetFramebufferSize(context->getWindow(), &width, &height);
-
-		TextureFormat depthTextureFormat = TextureFormat::Depth24Plus;
-		TextureDescriptor depthTextureDesc;
-		depthTextureDesc.dimension = TextureDimension::_2D;
-		depthTextureDesc.format = depthTextureFormat;
-		depthTextureDesc.mipLevelCount = 1;
-		depthTextureDesc.sampleCount = 4;
-		depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
-		depthTextureDesc.usage = TextureUsage::RenderAttachment | TextureUsage::TextureBinding;
-		depthTextureDesc.viewFormatCount = 0;
-		depthTextureDesc.viewFormats = nullptr;
-		Texture depthTexture = tex->createTexture("depth_texture", depthTextureDesc);
-
-		TextureViewDescriptor depthTextureViewDesc;
-		depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
-		depthTextureViewDesc.baseArrayLayer = 0;
-		depthTextureViewDesc.arrayLayerCount = 1;
-		depthTextureViewDesc.baseMipLevel = 0;
-		depthTextureViewDesc.mipLevelCount = 1;
-		depthTextureViewDesc.dimension = TextureViewDimension::_2D;
-		depthTextureViewDesc.format = depthTextureFormat;
-		TextureView depthTextureView = tex->createTextureView("depth_texture", "depth_view", depthTextureViewDesc);
-
-
-		TextureViewDescriptor depthSampleViewDesc = depthTextureViewDesc; // Copy settings
-		TextureView depthSampleView = tex->createTextureView("depth_texture", "depth_sample_view", depthSampleViewDesc);
-
-		// Create a sampler for depth texture reading
-		SamplerDescriptor depthSamplerDesc;
-		depthSamplerDesc.addressModeU = AddressMode::ClampToEdge;
-		depthSamplerDesc.addressModeV = AddressMode::ClampToEdge;
-		depthSamplerDesc.addressModeW = AddressMode::ClampToEdge;
-		depthSamplerDesc.magFilter = FilterMode::Nearest;
-		depthSamplerDesc.minFilter = FilterMode::Nearest;
-		depthSamplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
-		depthSamplerDesc.lodMinClamp = 0.0f;
-		depthSamplerDesc.lodMaxClamp = 1.0f;
-		depthSamplerDesc.compare = CompareFunction::Undefined;
-		depthSamplerDesc.maxAnisotropy = 1;
-		tex->createSampler("depth_sampler", depthSamplerDesc);
-
-		return depthTextureView != nullptr;
-	}
-
 	bool createPipeline() {
 		PipelineConfig config;
 		config.shaderPath = RESOURCE_DIR "/shaders/depth_prepass_shader.wgsl";
 		config.colorFormat = TextureFormat::Undefined;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::Back;
+		config.cullMode = CullMode::None;
 		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less;
 		config.fragmentShaderName = "fs_main";  // Fragment shader entry point
@@ -98,7 +58,7 @@ public:
 			buf->getStorageBufferPool("storage_pool")->getBindGroupLayout()
 		);
 
-		RenderPipeline pipeline = pip->createRenderPipeline("depth_prepass_pipeline", config);
+		RenderPipeline pipeline = pip->createRenderPipeline("ds_depth_prepass_pipeline", config);
 
 		return pipeline != nullptr;
 	}
@@ -108,7 +68,7 @@ public:
 
 		// Binding 0: MyUniforms
 		bindings[0].binding = 0;
-		bindings[0].buffer = buf->getBuffer("uniform_buffer_depth_prepass");
+		bindings[0].buffer = buf->getBuffer("uniform_buffer_depth_prepass_doublesided");
 		bindings[0].offset = 0;
 		bindings[0].size = sizeof(MyUniforms);
 
@@ -132,7 +92,7 @@ public:
 		bindings[4].binding = 4;
 		bindings[4].sampler = tex->getSampler("block_array_sampler");
 
-		BindGroup bindGroup = pip->createBindGroup("global_uniforms_depth_prepass_opaque", "shadow_global_uniforms", bindings);
+		BindGroup bindGroup = pip->createBindGroup("global_uniforms_depth_prepass_doublesided", "shadow_global_uniforms", bindings);
 
 		return bindGroup != nullptr;
 	}
@@ -145,7 +105,7 @@ public:
 		RenderPassDepthStencilAttachment depthStencilAttachment;
 		depthStencilAttachment.view = tex->getTextureView("depth_view");
 		depthStencilAttachment.depthClearValue = 1.0f;
-		depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+		depthStencilAttachment.depthLoadOp = LoadOp::Load;
 		depthStencilAttachment.depthStoreOp = StoreOp::Store;
 		depthStencilAttachment.depthReadOnly = false;
 		depthStencilAttachment.stencilClearValue = 0;
@@ -157,8 +117,8 @@ public:
 		renderPassDesc.timestampWrites = nullptr;
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
-		voxelRenderPass.setPipeline(pip->getPipeline("depth_prepass_pipeline"));
-		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_depth_prepass_opaque"), 0, nullptr);
+		voxelRenderPass.setPipeline(pip->getPipeline("ds_depth_prepass_pipeline"));
+		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_depth_prepass_doublesided"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);

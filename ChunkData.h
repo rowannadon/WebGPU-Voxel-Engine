@@ -6,7 +6,7 @@
 struct ChunkData {
     glm::ivec3 worldPosition;
     uint32_t lod;
-    uint32_t meshSlots[8];
+    uint32_t meshSlots[12];
 };
 
 struct ChunkDataSimple {

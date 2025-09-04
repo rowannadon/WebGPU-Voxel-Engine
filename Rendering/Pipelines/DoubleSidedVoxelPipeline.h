@@ -19,6 +19,80 @@ public:
 		mod = m;
 	}
 
+	bool createBindGroup() {
+		std::vector<BindGroupEntry> bindings(15);
+
+		int i = 0;
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("uniform_buffer_doublesided");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(MyUniforms);
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("atmosphere_buffer");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(Atmosphere);
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].buffer = buf->getBuffer("material_buffer");
+		bindings[i].offset = 0;
+		bindings[i].size = sizeof(MaterialProperties) * 100;
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("block_array_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("normal_array_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("roughness_array_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("block_array_sampler");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("shadow_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("ssao_blur_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("shadow_sampler");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].sampler = tex->getSampler("lut_sampler");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("transmittance_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("skyview_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("aerialperspective_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("cloud_noise_64_view");
+
+		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_doublesided", "global_uniforms", bindings);
+
+		return bindGroup != nullptr;
+	}
+
 	bool createPipeline() {
 		PipelineConfig config;
 		config.shaderPath = RESOURCE_DIR "/shaders/shader.wgsl"; // Same shader as opaque
@@ -93,7 +167,7 @@ public:
 
 		RenderPassEncoder voxelRenderPass = encoder.beginRenderPass(renderPassDesc);
 		voxelRenderPass.setPipeline(pip->getPipeline("doublesided_voxel_pipeline"));
-		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group_opaque"), 0, nullptr);
+		voxelRenderPass.setBindGroup(0, pip->getBindGroup("global_uniforms_group_doublesided"), 0, nullptr);
 		voxelRenderPass.setBindGroup(1, mod->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(2, buf->getBufferPool("chunkdata_pool")->getBindGroup(), 0, nullptr);
 		voxelRenderPass.setBindGroup(3, buf->getStorageBufferPool("storage_pool")->getBindGroup(), 0, nullptr);

@@ -29,7 +29,7 @@ public:
 		config.colorFormat = TextureFormat::BGRA8Unorm;
 		config.depthFormat = TextureFormat::Depth24Plus;
 		config.sampleCount = 4;
-		config.cullMode = CullMode::None;
+		config.cullMode = CullMode::Back;
 		config.depthWriteEnabled = true;
 		config.depthCompare = CompareFunction::Less; // Still test depth for proper ordering
 		config.fragmentShaderName = "fs_main";

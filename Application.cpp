@@ -23,17 +23,17 @@ bool Application::Initialize() {
 
     structureManager = std::make_shared<StructureManager>();
 
-    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
-    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
-    structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/treegen3.vox", ivec3(12, 14, 3));
-    structureManager->loadStructure("tree4", RESOURCE_DIR "/structures/pine2.vox", ivec3(13, 13, 3));
-    structureManager->loadStructure("tree5", RESOURCE_DIR "/structures/pine.vox", ivec3(9, 13, 3));
+    //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
+    //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
+    //structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/treegen3.vox", ivec3(12, 14, 3));
+    //structureManager->loadStructure("tree4", RESOURCE_DIR "/structures/pine2.vox", ivec3(13, 13, 3));
+    structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/pine.vox", ivec3(9, 13, 3));
 
     structureManager->loadStructure("rock1", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 3));
     structureManager->loadStructure("rock2", RESOURCE_DIR "/structures/rock2.vox", ivec3(4, 5, 3));
     structureManager->loadStructure("rock3", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
     structureManager->loadStructure("rock4", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));
-    structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
+    //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
 
     chunkManager.init(tex, buf, structureManager.get(), modelManager);
     registerMovementCallbacks();

@@ -49,7 +49,7 @@ bool WebGPURenderer::initialize() {
 	//benchmarkManager->createQuerySet("frame_timer", 2); // Start and end timestamps
 
 	BufferDescriptor indirectBufferDesc = Default;
-	indirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount();
+	indirectBufferDesc.size = sizeof(DAIC) * storagePool->getTotalSlotCount() / 2;
 	indirectBufferDesc.mappedAtCreation = false;
 	indirectBufferDesc.usage = BufferUsage::Indirect | BufferUsage::CopyDst;
 
@@ -58,6 +58,9 @@ bool WebGPURenderer::initialize() {
 
 	indirectBufferDesc.label = StringView("transparent indirect buffer");
 	transparentIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
+
+	indirectBufferDesc.label = StringView("double sided indirect buffer");
+	doubleSidedIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
 
 	indirectBufferDesc.label = StringView("opaque shadow indirect buffer");
 	opaqueShadowIndirectBuffer = context->getDevice().createBuffer(indirectBufferDesc);
@@ -87,6 +90,7 @@ bool WebGPURenderer::initialize() {
 	ssaoBlurPipeline.init(buf, tex, pip, context.get());
 	depthResolvePipeline.init(buf, tex, pip);
 	doubleSidedPipeline.init(buf, tex, pip, mod, context.get());
+	doubleSidedDepthPrePassPipeline.init(buf, tex, pip, mod, context.get());
 
 	// create resources
 	initTextures();
@@ -120,6 +124,7 @@ bool WebGPURenderer::initialize() {
 	ssaoBlurPipeline.createPipeline();
 	depthResolvePipeline.createPipeline();
 	doubleSidedPipeline.createPipeline();
+	doubleSidedDepthPrePassPipeline.createPipeline();
 
 	initSharedUniformBuffers();
 	initBindGroups();
@@ -166,16 +171,24 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 		MyUniforms uOpaque = uniforms;
 		uOpaque.transparent = 0u;
 		bufferManager->writeBuffer("uniform_buffer_opaque", 0, &uOpaque, sizeof(MyUniforms));
+		bufferManager->writeBuffer("uniform_buffer_depth_prepass", 0, &uOpaque, sizeof(MyUniforms));
 
 		MyUniforms uTransp = uniforms;
 		uTransp.transparent = 1u;
 		bufferManager->writeBuffer("uniform_buffer_transparent", 0, &uTransp, sizeof(MyUniforms));
+
+		MyUniforms uDoub = uniforms;
+		uDoub.transparent = 2u;
+		bufferManager->writeBuffer("uniform_buffer_doublesided", 0, &uDoub, sizeof(MyUniforms));
+		bufferManager->writeBuffer("uniform_buffer_depth_prepass_doublesided", 0, &uDoub, sizeof(MyUniforms));
+
 	}
 
 	// Begin frame timing
 	//benchmarkManager->beginFrame("frame_timer", encoder);
 
 	if (chunkRenderData.transparentDAICs.size() > 0) {
+		//std::cout << "writing " << chunkRenderData.transparentDAICs.size() << " transparent DAICS\n";
 		context->getQueue().writeBuffer(
 			transparentIndirectBuffer, 
 			0, 
@@ -185,6 +198,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	}
 
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
+		//std::cout << "writing " << chunkRenderData.opaqueDAICs.size() << " opaque DAICS\n";
 		context->getQueue().writeBuffer(
 			opaqueIndirectBuffer, 
 			0, 
@@ -192,8 +206,19 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 			chunkRenderData.opaqueDAICs.size() * sizeof(DAIC)
 		);
 	}
+
+	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
+		//std::cout << "writing " << chunkRenderData.doubleSidedDAICs.size() << " double sided DAICS\n";
+		context->getQueue().writeBuffer(
+			doubleSidedIndirectBuffer,
+			0,
+			chunkRenderData.doubleSidedDAICs.data(),
+			chunkRenderData.doubleSidedDAICs.size() * sizeof(DAIC)
+		);
+	}
 	
 	if (chunkRenderData.transparentShadowDAICs.size() > 0) {
+		//std::cout << "writing " << chunkRenderData.transparentShadowDAICs.size() << " transparent shadow DAICS\n";
 		context->getQueue().writeBuffer(
 			transparentShadowIndirectBuffer,
 			0, 
@@ -203,6 +228,7 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	}
 
 	if (chunkRenderData.opaqueShadowDAICs.size() > 0) {
+		//std::cout << "writing " << chunkRenderData.opaqueShadowDAICs.size() << " opaque shadow DAICS\n";
 		context->getQueue().writeBuffer(
 			opaqueShadowIndirectBuffer,
 			0,
@@ -257,20 +283,38 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	skyPipeline.render(targetView, encoder);
 
 
+	/*if (chunkRenderData.opaqueDAICs.size() > 0) {
+		depthPrePassPipeline.render(
+			chunkRenderData.opaqueDAICs.size(),
+			opaqueIndirectBuffer,
+			targetView,
+			encoder);
+	}*/
+
 	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		depthPrePassPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
 			opaqueIndirectBuffer,
 			targetView,
 			encoder);
+	}
 
-		// Resolve MSAA depth for SSAO
-		depthResolvePipeline.render(encoder);
+	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
+		doubleSidedDepthPrePassPipeline.render(
+			chunkRenderData.doubleSidedDAICs.size(),
+			doubleSidedIndirectBuffer,
+			targetView,
+			encoder);
+	}
 
-		// Generate SSAO
-		ssaoPipeline.render(encoder);
-		ssaoBlurPipeline.render(encoder);
+	// Resolve MSAA depth for SSAO
+	depthResolvePipeline.render(encoder);
 
+	// Generate SSAO
+	ssaoPipeline.render(encoder);
+	ssaoBlurPipeline.render(encoder);
+
+	if (chunkRenderData.opaqueDAICs.size() > 0) {
 		// Continue with main rendering...
 		voxelPipeline.render(
 			chunkRenderData.opaqueDAICs.size(),
@@ -278,14 +322,17 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 			targetView,
 			encoder
 		);
+	}
 
-		/*doubleSidedPipeline.render(
+	if (chunkRenderData.doubleSidedDAICs.size() > 0) {
+		doubleSidedPipeline.render(
 			chunkRenderData.doubleSidedDAICs.size(),
-			opaqueIndirectBuffer,
+			doubleSidedIndirectBuffer,
 			targetView,
 			encoder
-		);*/
+		);
 	}
+	
 
 	// === TRANSPARENT VOXEL RENDER PASS ===
 	if (chunkRenderData.transparentDAICs.size() > 0) {
@@ -386,6 +433,36 @@ bool WebGPURenderer::initSharedUniformBuffers() {
 		if (!ubo) return false;
 	}
 
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("uniform buffer double sided");
+		desc.size = sizeof(MyUniforms);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer ubo = bufferManager->createBuffer("uniform_buffer_doublesided", desc);
+		if (!ubo) return false;
+	}
+
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("uniform buffer depth prepass");
+		desc.size = sizeof(MyUniforms);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer ubo = bufferManager->createBuffer("uniform_buffer_depth_prepass", desc);
+		if (!ubo) return false;
+	}
+
+	{
+		BufferDescriptor desc{};
+		desc.label = StringView("uniform buffer depth prepass double sided");
+		desc.size = sizeof(MyUniforms);
+		desc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+		desc.mappedAtCreation = false;
+		Buffer ubo = bufferManager->createBuffer("uniform_buffer_depth_prepass_doublesided", desc);
+		if (!ubo) return false;
+	}
+
 	// Atmosphere (unchanged)
 	{
 		BufferDescriptor desc{};
@@ -469,10 +546,12 @@ bool WebGPURenderer::initBindGroups() {
 	skyPipeline.createBindGroup();
 	atmospherePipeline.createBindGroup();
 	transparentVoxelPipeline.createBindGroup();
+	doubleSidedPipeline.createBindGroup();
 	depthPrePassPipeline.createBindGroup();
 	ssaoPipeline.createBindGroup();
 	ssaoBlurPipeline.createBindGroup();
 	depthResolvePipeline.createBindGroup();
+	doubleSidedDepthPrePassPipeline.createBindGroup();
 
 	return true;
 }

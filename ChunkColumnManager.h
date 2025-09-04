@@ -94,6 +94,7 @@ private:
         // Per-Z optional DAICs (aligned to z = 0..COLUMN_HEIGHT-1)
         std::array<std::optional<DAIC>, COLUMN_HEIGHT> opaqueByZ;  // Changed from 16 to 10
         std::array<std::optional<DAIC>, COLUMN_HEIGHT> transparentByZ;  // Changed from 16 to 10
+        std::array<std::optional<DAIC>, COLUMN_HEIGHT> doubleSidedByZ;  // Changed from 16 to 10
 
         // Cache metadata (keep what you already had)
         int lodLevel = -1;
@@ -227,16 +228,19 @@ public:
         // Working buffers (reused each frame)
         static std::vector<DAICWithPosition> transparentDAICsWithPos;
         static std::vector<DAICWithPosition> opaqueDAICsWithPos;
+        static std::vector<DAICWithPosition> doubleSidedDAICsWithPos;
         static std::vector<DAIC> opaqueShadowDAICs;
         static std::vector<DAIC> transparentShadowDAICs;
 
         transparentDAICsWithPos.clear();
         opaqueDAICsWithPos.clear();
+        doubleSidedDAICsWithPos.clear();
         opaqueShadowDAICs.clear();
         transparentShadowDAICs.clear();
 
         if (opaqueDAICsWithPos.capacity() < 16384) opaqueDAICsWithPos.reserve(16384);
         if (transparentDAICsWithPos.capacity() < 8196) transparentDAICsWithPos.reserve(8196);
+        if (doubleSidedDAICsWithPos.capacity() < 8196) doubleSidedDAICsWithPos.reserve(8196);
         if (opaqueShadowDAICs.capacity() < 16384) opaqueShadowDAICs.reserve(16384);
         if (transparentShadowDAICs.capacity() < 8196) transparentShadowDAICs.reserve(8196);
 
@@ -252,7 +256,7 @@ public:
             columns,
             cameraPos, view, proj, lightView, lightProj,
             cameraFrustum, shadowFrustum,
-            opaqueDAICsWithPos, transparentDAICsWithPos,
+            opaqueDAICsWithPos, transparentDAICsWithPos, doubleSidedDAICsWithPos,
             opaqueShadowDAICs, transparentShadowDAICs,
             buf
         );
@@ -286,16 +290,32 @@ public:
                 return glm::length2(ac - cameraPos) < glm::length2(bc - cameraPos);
             });
 
+        std::sort(doubleSidedDAICsWithPos.begin(), doubleSidedDAICsWithPos.end(),
+            [&cameraPos](const DAICWithPosition& a, const DAICWithPosition& b) {
+                vec3 ac = a.worldPosition + vec3(16.0f);
+                vec3 bc = b.worldPosition + vec3(16.0f);
+                return glm::length2(ac - cameraPos) < glm::length2(bc - cameraPos);
+            });
+
         // Flatten
-        std::vector<DAIC> opaqueCamera, transparentCamera;
+        std::vector<DAIC> opaqueCamera, transparentCamera, doubleSidedCamera;
         opaqueCamera.reserve(opaqueDAICsWithPos.size());
         transparentCamera.reserve(transparentDAICsWithPos.size());
-        for (auto& p : opaqueDAICsWithPos)       opaqueCamera.push_back(p.daic);
-        for (auto& p : transparentDAICsWithPos)  transparentCamera.push_back(p.daic);
+        doubleSidedCamera.reserve(doubleSidedDAICsWithPos.size());
+        for (auto& p : opaqueDAICsWithPos) {
+            opaqueCamera.push_back(p.daic);
+        }
+        for (auto& p : doubleSidedDAICsWithPos) {
+            doubleSidedCamera.push_back(p.daic);
+        }
+        for (auto& p : transparentDAICsWithPos) {
+            transparentCamera.push_back(p.daic);
+        }
 
         return {
             std::move(opaqueCamera),
             std::move(transparentCamera),
+            std::move(doubleSidedCamera),
             std::move(opaqueShadowDAICs),
             std::move(transparentShadowDAICs)
         };
@@ -416,6 +436,7 @@ public:
         const Frustum& shadowFrustum,
         std::vector<DAICWithPosition>& opaqueDAICs,
         std::vector<DAICWithPosition>& transparentDAICs,
+        std::vector<DAICWithPosition>& doubleSidedDAICs,
         std::vector<DAIC>& opaqueShadowDAICs,
         std::vector<DAIC>& transparentShadowDAICs,
         BufferManager* buf)
@@ -447,7 +468,7 @@ public:
                     processChunkColumn(
                         colIt->second, cp, cameraPos, view, proj, lightView, lightProj,
                         cameraFrustum, shadowFrustum,
-                        opaqueDAICs, transparentDAICs,
+                        opaqueDAICs, transparentDAICs, doubleSidedDAICs,
                         opaqueShadowDAICs, transparentShadowDAICs,
                         buf
                     );
@@ -469,6 +490,7 @@ public:
         const Frustum& shadowFrustum,
         std::vector<DAICWithPosition>& opaqueDAICs,
         std::vector<DAICWithPosition>& transparentDAICs,
+        std::vector<DAICWithPosition>& doubleSidedDAICs,
         std::vector<DAIC>& opaqueShadowDAICs,
         std::vector<DAIC>& transparentShadowDAICs,
         BufferManager* buf)
@@ -523,6 +545,9 @@ public:
                 if (cache.transparentByZ[z].has_value()) {
                     transparentDAICs.emplace_back(cache.transparentByZ[z].value(), zPos);
                 }
+                if (cache.doubleSidedByZ[z].has_value()) {
+                    doubleSidedDAICs.emplace_back(cache.doubleSidedByZ[z].value(), zPos);
+                }
             }
             // Shadow pass culling
             if (shCol && shadowFrustum.isAABBInside(chunkMin, chunkMax)) {
@@ -552,13 +577,15 @@ public:
         column->updateLODLevel(lodLevel);
         column->updateAllChunkDataBuffers(buf, lodLevel);
 
-        const auto& tArr = column->getDAICs(lodLevel, /*transparent=*/true, buf, cameraPos);
-        const auto& oArr = column->getDAICs(lodLevel, /*transparent=*/false, buf, cameraPos);
+        const auto& tArr = column->getDAICs(lodLevel, /*passIdx=*/1, buf, cameraPos);
+        const auto& oArr = column->getDAICs(lodLevel, /*passIdx=*/0, buf, cameraPos);
+        const auto& dArr = column->getDAICs(lodLevel, /*passIdx=*/2, buf, cameraPos);
 
         // Reset
         for (int z = 0; z < COLUMN_HEIGHT; ++z) {
             cache.opaqueByZ[z].reset();
             cache.transparentByZ[z].reset();
+            cache.doubleSidedByZ[z].reset();
         }
 
         // Fill per-Z
@@ -569,6 +596,9 @@ public:
             if (tArr[z].has_value()) {
                 cache.transparentByZ[z] = tArr[z]->second; // DAIC
             }
+            if (dArr[z].has_value()) {
+                cache.doubleSidedByZ[z] = dArr[z]->second; // DAIC
+            }
         }
 
         // Compute bounds from any active Z
@@ -577,7 +607,7 @@ public:
         vec3 bmin(std::numeric_limits<float>::max());
         vec3 bmax(-std::numeric_limits<float>::max());
         for (int z = 0; z < COLUMN_HEIGHT; ++z) {
-            if (!cache.opaqueByZ[z].has_value() && !cache.transparentByZ[z].has_value()) continue;
+            if (!cache.opaqueByZ[z].has_value() && !cache.transparentByZ[z].has_value() && !cache.doubleSidedByZ[z].has_value()) continue;
             any = true;
             vec3 mn = base + vec3(0.0f, 0.0f, float(z * CHUNK_HEIGHT));
             vec3 mx = mn + vec3(32.0f, 32.0f, 62.0f);

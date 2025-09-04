@@ -57,7 +57,7 @@ inline std::pair<glm::vec3, glm::vec3> getSunInfo(float time, glm::vec3 sceneCen
 }
 
 inline float getSceneRadius() {
-    return 1000.0f;
+    return 250.0f;
 }
 
 // Helper function to calculate light matrices

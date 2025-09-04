@@ -23,6 +23,7 @@
 #include "Pipelines/TransparentVoxelPipeline.h"
 #include "Pipelines/AtmospherePipeline.h"
 #include "Pipelines/DepthPrePass.h"
+#include "Pipelines/DoubleSidedDepthPrePass.h"
 #include "Pipelines/SSAOPipeline.h"
 #include "Pipelines/DepthResolvePipeline.h"
 #include "Pipelines/DoubleSidedVoxelPipeline.h"
@@ -60,6 +61,7 @@ private:
     Buffer transparentIndirectBuffer;
     Buffer transparentShadowIndirectBuffer;
     Buffer opaqueShadowIndirectBuffer;
+    Buffer doubleSidedIndirectBuffer;
 
 public:
     bool initialize();
@@ -83,6 +85,7 @@ public:
     SSAOBlurPipeline ssaoBlurPipeline;
     DepthResolvePipeline depthResolvePipeline;
     DoubleSidedVoxelPipeline doubleSidedPipeline;
+    DoubleSidedDepthPrePassPipeline doubleSidedDepthPrePassPipeline;
 
     bool initTextures();
     bool initSharedUniformBuffers();

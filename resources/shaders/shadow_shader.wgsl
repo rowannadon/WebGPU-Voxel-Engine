@@ -57,7 +57,7 @@ struct MyUniforms {
 struct ChunkData {
     worldPosition: vec3i,
     lod: u32,
-    meshSlots: array<u32, 8>,
+    meshSlots: array<u32, 12>,
 };
 
 struct Quad {

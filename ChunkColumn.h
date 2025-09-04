@@ -125,6 +125,7 @@ private:
     std::string resourceId;
 
     static constexpr int TRANSPARENT_OFFSET = 4;
+    static constexpr int DOUBLE_SIDED_OFFSET = 8;
 
     struct ChunkMetaData {
         std::atomic<ChunkState> state{ ChunkState::NoMesh };
@@ -147,10 +148,10 @@ private:
 
         // Updated mesh slots to support variable size classes
         // Each LOD level can have different slot assignments based on face count
-        int meshSlots[8] = { -1 };
+        int meshSlots[12] = { -1 };
 
         // Track estimated face counts for each LOD to help with slot allocation
-        size_t estimatedFaceCounts[8] = { 0 };
+        size_t estimatedFaceCounts[12] = { 0 };
     };
 
     WorldGenerator worldGen;
@@ -276,7 +277,7 @@ private:
     std::unique_ptr<std::array<uint16_t, (CHUNK_SIZE / 32)* (CHUNK_SIZE / 32)* COLUMN_HEIGHT_BLOCKS>> rawMaterialData32;
 
     ChunkMetaData meta[COLUMN_HEIGHT];  // Now 10 instead of 16
-    std::vector<FaceAttributes> faceData[8][COLUMN_HEIGHT];  // 8 LODs, 10 chunks
+    std::vector<FaceAttributes> faceData[12][COLUMN_HEIGHT];  // 8 LODs, 10 chunks
 
     // Track which LOD levels have been decoded
     bool materialDataDecoded = false;
@@ -373,11 +374,11 @@ private:
     vec3 lastCameraPos = vec3(0.0f);
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> daics{ std::nullopt };
     std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT> sortedDaics{ std::nullopt };
-    std::array<std::optional<std::pair<glm::ivec3, DAIC>>, COLUMN_HEIGHT> daicsPerPass[2];
+    std::array<std::optional<std::pair<glm::ivec3, DAIC>>, COLUMN_HEIGHT> daicsPerPass[3];
 
-    bool        daicsGeneratedPerPass[2] = { false, false };
-    int         lastLodLevelPerPass[2] = { -1, -1 };
-    glm::vec3   lastCameraPosPerPass[2] = { glm::vec3(1e9f), glm::vec3(1e9f) };
+    bool        daicsGeneratedPerPass[3] = { false, false, false };
+    int         lastLodLevelPerPass[3] = { -1, -1, -1 };
+    glm::vec3   lastCameraPosPerPass[3] = { glm::vec3(1e9f), glm::vec3(1e9f), glm::vec3(1e9f) };
 
     int currentLODLevel = 0;
 
@@ -456,7 +457,7 @@ public:
     }
 
     const std::array<std::optional<std::pair<ivec3, DAIC>>, COLUMN_HEIGHT>&
-        getDAICs(int lodLevel, bool transparent, BufferManager* buf, vec3 cameraPos = vec3(0.0f))
+        getDAICs(int lodLevel, int passType, BufferManager* buf, vec3 cameraPos = vec3(0.0f))
     {
         // Early out if the column isn't ready
         if (state.load() != ColumnState::Active) {
@@ -464,7 +465,7 @@ public:
             return kEmpty;
         }
 
-        const int passIdx = transparent ? 1 : 0;
+        const int passIdx = passType;
         auto& out = daicsPerPass[passIdx];
         auto& generated = daicsGeneratedPerPass[passIdx];
         auto& lastLOD = lastLodLevelPerPass[passIdx];
@@ -481,7 +482,19 @@ public:
             return out; // return the per-pass cache as-is
         }
 
-        const int passSlot = lodLevel + (transparent ? 4 : 0);
+        int passSlot;
+        if (passType == 0) {  // opaque
+            passSlot = lodLevel;
+        }
+        else if (passType == 1) {  // transparent
+            passSlot = lodLevel + TRANSPARENT_OFFSET;
+        }
+        else if (passType == 2) {  // grass
+            passSlot = lodLevel + DOUBLE_SIDED_OFFSET;
+        }
+        else {
+            passSlot = 0;
+        }
 
         //std::lock_guard<std::mutex> lock(meshDataMutex);
         auto storagePool = buf->getStorageBufferPool("storage_pool");
@@ -500,34 +513,25 @@ public:
                 continue;
             }
 
-            // Must have GPU buffers initialized and a valid slot for THIS pass
             const int storageSlotId = meta[z].meshSlots[passSlot];
             if (!meta[z].meshBufferGPUInitialized || storageSlotId < 0) {
                 out[z] = std::nullopt;
                 continue;
             }
 
-            // Number of faces for THIS pass/LOD/Z
             const uint32_t faceCount = static_cast<uint32_t>(faceData[passSlot][z].size());
             if (faceCount == 0) {
                 out[z] = std::nullopt;
                 continue;
             }
 
-            // (Optional) sanity: ensure the pool capacity for this slot is >= faceCount
-            // If your pool API exposes it, check and log once:
-            // const auto info = storagePool->getSlotInfoBySlotIndex(storageSlotId);
-            // if (info.maxFaces < faceCount) { log once; out[z] = std::nullopt; continue; }
-
             DAIC d{};
-            d.vertexCount = faceCount * 6;                  // 6 verts per face
+            d.vertexCount = faceCount * 6;
             d.instanceCount = 1;
-            d.firstVertex = 0;                              // vertex pulling path
-            d.firstInstance = static_cast<uint32_t>(meta[z].dataSlot);  // index into chunkData array
+            d.firstVertex = 0;
+            d.firstInstance = static_cast<uint32_t>(meta[z].dataSlot);
 
-            // World position of this subchunk
             ivec3 chunkWorldPos(position.x, position.y, z * CHUNK_HEIGHT);
-
             out[z] = std::make_pair(chunkWorldPos, d);
         }
 
@@ -1258,7 +1262,7 @@ private:
         }
 
         // For each LOD level, allocate appropriate size slot based on face count
-        for (int lodLevel = 0; lodLevel < 8; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 12; lodLevel++) {
             size_t faceCount = faceData[lodLevel][zPos].size();
 
             // Update estimated face count for future allocations
@@ -1306,7 +1310,7 @@ private:
         auto pool = buf->getStorageBufferPool("storage_pool");
 
         // Upload each LOD level separately with proper slot management
-        for (int lodLevel = 0; lodLevel < 8; lodLevel++) {
+        for (int lodLevel = 0; lodLevel < 12; lodLevel++) {
             int slotId = meta[zPos].meshSlots[lodLevel];
             if (slotId == -1) {
                 continue; // Skip if no slot allocated
@@ -1364,7 +1368,7 @@ public:
         chunkData.worldPosition = meta[zPos].position;
         chunkData.lod = (lodLevel >= 0) ? lodLevel : currentLODLevel;
 
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 12; i++) {
             chunkData.meshSlots[i] = meta[zPos].meshSlots[i];
         }
 
@@ -1375,30 +1379,6 @@ public:
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             updateChunkDataBuffer(i, buf, lodLevel);
         }
-    }
-
-    SlotRenderInfo getSlotRenderInfo(int zPos, int lodLevel, bool transparent, BufferManager* buf) {
-        if (lodLevel < 0 || lodLevel >= 4) return {};
-        const int slotIndexInMeta = lodLevel + (transparent ? TRANSPARENT_OFFSET : 0);
-
-        SlotRenderInfo info = {};
-        info.isValid = false;
-
-        if (lodLevel >= 8 || zPos >= COLUMN_HEIGHT) {
-            return info;
-        }
-
-        if (slotIndexInMeta == -1) {
-            return info;
-        }
-
-        auto pool = buf->getStorageBufferPool("storage_pool");
-        info.slotIndex = slotIndexInMeta;
-        info.faceOffset = pool->getFaceOffsetInElements(slotIndexInMeta);
-        info.maxFaces = pool->getSlotMaxFaces(slotIndexInMeta);
-        info.isValid = true;
-
-        return info;
     }
 
     bool getVoxelWholeColumn(ivec3 pos) const {
@@ -2024,21 +2004,21 @@ public:
 										grassPositions.push_back(gdp);
                                     }
 
-                                    if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
+                                    if (maxHeightDifference == 1 && pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
                                         if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                             positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
                                             static const std::array<ProbabilityConfig, 11> config = { {
-                                                { 1,     0.2f},
+                                                { 1,     0.38f},
                                                 { 2,     0.2f},
                                                 { 3,     0.2f},
                                                 { 4,     0.2f},
-                                                { 5,     0.2f}
+                                                { 5,     0.02f}
                                             } };
 
                                             int size = sampleFromDistribution(blockHash, config);
 
-                                            candidateTrees.push_back({ positionAbove, size, 15.0 });
+                                            candidateTrees.push_back({ positionAbove, size, size * 4.0f });
                                         }
                                     }
            
@@ -2123,7 +2103,7 @@ public:
                 BlockType::Grass0,
                 BlockType::Grass1,
                 BlockType::TallGrass,
-                BlockType::Fence
+                BlockType::Grass1
             };
 
             UnpackedVoxelMaterial m;
@@ -2578,7 +2558,7 @@ public:
                             }
                             else if (currentFoliage) {
                                 // Foliage always renders (or against non-foliage/solid)
-                                shouldRenderFace = !neighborSolid;
+                                shouldRenderFace = !neighborSolid || !neighborFoliage;
                             }
                         }
                         else {
@@ -2634,7 +2614,7 @@ public:
             return false;
         }
 
-        for (int slot = 0; slot < 8; slot++) {
+        for (int slot = 0; slot < 12; slot++) {
             faceData[slot][zPos].clear();
         }
 
@@ -2927,18 +2907,14 @@ public:
                             bool neighborWater = (waterCache[neighIdx] >> neighZ) & 1;
                             bool neighborFoliage = (foliageCache[neighIdx] >> neighZ) & 1;
 
-                            // Updated culling rules to match non-LOD version
                             if (currentSolid) {
-                                // Solid blocks render against non-solid or foliage
                                 shouldRender = !neighborSolid || neighborFoliage;
                             }
                             else if (currentWater) {
-                                // Water only renders against non-water
                                 shouldRender = !neighborWater;
                             }
                             else if (currentFoliage) {
-                                // Foliage renders against non-solid
-                                shouldRender = !neighborSolid;
+                                shouldRender = !neighborSolid || !neighborFoliage;
                             }
                         }
                         else {
@@ -3010,14 +2986,48 @@ public:
         auto emitFaceLODNotGreedy = [this, zPos, lodLevel](int meshSlot, bool /*isWater*/,
             int x, int y, int z, int face,
             const UnpackedVoxelMaterial& mat) {
+
+                // Convert cell coords to world coords in XY for downscaled LOD
+                const int xWorld = x * lodLevel;
+                const int yWorld = y * lodLevel;
+
+                // Width/height are in WORLD units in your packed format.
+                // Only scale along the axes lying on the face's plane.
+                int worldW = 1; // first in-plane dimension
+                int worldH = 1; // second in-plane dimension
+
+                switch (face) {
+                case 0: // +X (YZ plane): width→Y (scaled), height→Z (not scaled)
+                case 1: // -X
+                    worldW = lodLevel; // spans lodLevel in Y
+                    worldH = 1;        // 1 in Z
+                    break;
+
+                case 2: // +Y (XZ plane): width→X (scaled), height→Z (not scaled)
+                case 3: // -Y
+                    worldW = lodLevel; // spans lodLevel in X
+                    worldH = 1;        // 1 in Z
+                    break;
+
+                case 4: // +Z (XY plane): width→X (scaled), height→Y (scaled)
+                case 5: // -Z
+                    worldW = lodLevel; // spans lodLevel in X
+                    worldH = lodLevel; // spans lodLevel in Y
+                    break;
+                }
+
+                // Clamp to 4-bit fields (<=16). Greedy path already tiles; here we only ever use 1 cell.
+                worldW = std::min(worldW, 16);
+                worldH = std::min(worldH, 16);
+
                 FaceAttributes fa{};
                 uint32_t d = 0;
-                d |= (x * lodLevel & 0x1F);
-                d |= (y * lodLevel & 0x1F) << 5;
+                d |= (xWorld & 0x1F);
+                d |= (yWorld & 0x1F) << 5;
                 d |= (z & 0x3F) << 10;
                 d |= (face & 0x7F) << 16;
-                d |= ((lodLevel - 1) & 0xF) << 23;
-                d |= ((lodLevel - 1) & 0xF) << 27;
+                d |= ((worldW - 1) & 0xF) << 23;
+                d |= ((worldH - 1) & 0xF) << 27;
                 fa.data = d;
 
                 uint32_t packed16 = packMaterialData(mat).materialData;
@@ -3328,7 +3338,7 @@ public:
         // Process each material set
         processSet(solidMasks, false, baseSlot);
         processSet(waterMasks, true, baseSlot + TRANSPARENT_OFFSET);
-        processSet(foliageMasks, false, baseSlot);
+        processSet(foliageMasks, false, baseSlot + DOUBLE_SIDED_OFFSET);
     }
 
     void extractFacesFromMasks(int zPos, int /*lodLevel*/, ChunkBitCaches& cache) {
@@ -3698,8 +3708,16 @@ public:
                         UnpackedVoxelMaterial baseMat = getMaterialFast({ x, y, worldZ });
 
                         // Check material type matches the current pass
-                        if (isWater && !isWaterBlock(baseMat.materialType)) continue;
-                        if (!isWater && isWaterBlock(baseMat.materialType)) continue;
+                        const bool foliagePass = (meshSlot >= DOUBLE_SIDED_OFFSET); // 8..11
+                        if (isWater) {
+                            if (!isWaterBlock(baseMat.materialType)) continue;
+                        }
+                        else if (foliagePass) {
+                            if (!isFoliageBlock(baseMat.materialType)) continue;
+                        }
+                        else { // solid pass
+                            if (!isSolidBlock(baseMat.materialType)) continue;
+                        }
 
                         std::string modelName = tex->getModelKindForBlockType(baseMat.materialType);
                         ModelCullInfo cullInfo = modelManager->getModelCullInfo(modelName);
@@ -3729,10 +3747,10 @@ public:
             }
         };
 
-        // Solid, Water (transparent), Foliage (as solid pass for now)
+        // Solid, Water (transparent)
         processSet(cache.solidFaceMasks,   /*isWater*/false, 0);
         processSet(cache.waterFaceMasks,   /*isWater*/true, 0 + TRANSPARENT_OFFSET);
-        processSet(cache.foliageFaceMasks, /*isWater*/false, 0);
+        processSet(cache.foliageFaceMasks, /*isWater*/false, 0 + DOUBLE_SIDED_OFFSET);
     }
 
     bool generateAllMeshes(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors8 = {}) {
@@ -3767,13 +3785,13 @@ public:
         }
 
         auto emptyAll = true;
-        for (int slot = 0; slot < 8; ++slot)
+        for (int slot = 0; slot < 12; ++slot)
             emptyAll &= faceData[slot][zPos].empty();
         if (emptyAll) {
             if (meta[zPos].meshSlots[0] != -1) {
                 // Deallocate slots if they were previously allocated
                 auto pool = buf->getStorageBufferPool("storage_pool");
-                for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
+                for (int lodLevel = 0; lodLevel < 12; lodLevel++) {
                     if (meta[zPos].meshSlots[lodLevel] != -1) {
                         std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
                         pool->deAllocateSlot(slotId);
@@ -3825,7 +3843,7 @@ public:
     void cleanupBuffersOnly(int zPos, BufferManager* buf) {
         if (meta[zPos].meshBufferGPUInitialized) {
             auto pool = buf->getStorageBufferPool("storage_pool");
-            for (int lodLevel = 0; lodLevel < 4; lodLevel++) {
+            for (int lodLevel = 0; lodLevel < 12; lodLevel++) {
                 if (meta[zPos].meshSlots[lodLevel] != -1) {
                     std::string slotId = meta[zPos].resourceId + "-" + std::to_string(lodLevel);
                     pool->deAllocateSlot(slotId);
@@ -3851,7 +3869,7 @@ public:
         cleanupBuffersOnly(zPos, buf);
         {
             //std::lock_guard<std::mutex> lock2(meshDataMutex);
-            for (int i = 0; i < 8; i++) {
+            for (int i = 0; i < 12; i++) {
                 faceData[i][zPos].clear();
             }
         }
