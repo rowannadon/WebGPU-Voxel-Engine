@@ -180,7 +180,7 @@ public:
         ivec3 playerChunkPos3d = glm::floor(playerPos / 32.0f);
         playerChunkPos = ivec2(playerChunkPos3d.x, playerChunkPos3d.y);
 
-        removeDistantChunks(playerChunkPos);
+        //removeDistantChunks(playerChunkPos);
         queueNewChunks(playerChunkPos);
         queueChunkBatchForGeneration(playerChunkPos);
         progressChunks();

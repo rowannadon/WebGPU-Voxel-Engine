@@ -2026,14 +2026,7 @@ public:
                                             candidateTrees.push_back({ positionAbove, size, size * 4.0f });
                                         }
                                     }
-           
-                                    break;
-                                case 2:
-                                    material.materialType = BlockType::Dirt; // dirt
 
-                                    
-                                    break;
-                                default: // 3 or more
                                     break;
                             }
 
@@ -2559,7 +2552,7 @@ public:
                             }
                             else if (currentWater) {
                                 // Water only renders against non-water
-                                shouldRenderFace = !neighborWater;
+                                shouldRenderFace = !neighborWater && !neighborSolid;
                             }
                             else if (currentFoliage) {
                                 // Foliage always renders (or against non-foliage/solid)
@@ -2916,7 +2909,7 @@ public:
                                 shouldRender = !neighborSolid || neighborFoliage;
                             }
                             else if (currentWater) {
-                                shouldRender = !neighborWater;
+                                shouldRender = !neighborWater && !neighborSolid;
                             }
                             else if (currentFoliage) {
                                 shouldRender = !neighborSolid || !neighborFoliage;
