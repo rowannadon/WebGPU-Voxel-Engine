@@ -1239,7 +1239,7 @@ private:
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             if (daics[i].has_value()) {
                 const ivec3& chunkPos = daics[i].value().first;
-                vec3 chunkCenter = vec3(chunkPos) + vec3(16.0f, 16.0f, 16.0f); // Center of 32x32x32 chunk
+                vec3 chunkCenter = vec3(chunkPos) + vec3(16.0f, 16.0f, 31.0f); // Center of 32x32x32 chunk
                 float distanceSquared = glm::length2(chunkCenter - cameraPos);
                 daicDistances.emplace_back(distanceSquared, i);
             }

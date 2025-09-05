@@ -1261,7 +1261,7 @@ fn calculate_pbr_lighting(
         if (back_n_dot_l > 0.0) {
             // Subsurface scattering parameters
             let subsurface_power = 2.0;  // Controls the falloff of the subsurface effect
-            let subsurface_distortion = 0.2;  // How much the light bends through the material
+            let subsurface_distortion = 0.5;  // How much the light bends through the material
             let subsurface_scale = 1.0;  // Overall intensity scale
             
             // Calculate the subsurface vector (light direction bent by surface normal)
