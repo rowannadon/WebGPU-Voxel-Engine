@@ -644,7 +644,7 @@ public:
             }
         }
 
-        return glm::min(distanceLODLevel, 7); // Cap to reasonable limit
+        return glm::min(distanceLODLevel, 3); // Cap to reasonable limit
     }
 
     bool matrixEqual(const glm::mat4x4& a, const glm::mat4x4& b) const {

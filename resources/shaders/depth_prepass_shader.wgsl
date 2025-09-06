@@ -43,19 +43,31 @@ struct MyUniforms {
     infiniteProjectionMatrix: mat4x4f,
     viewMatrix: mat4x4f,
     modelMatrix: mat4x4f,
+
     inverseProjectionMatrix: mat4x4f,
     inverseViewMatrix: mat4x4f,
+
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
+
     lightDirection: vec3f,
     transparent: u32,
+
     highlightedVoxelPos: vec3i,
     time: f32,
+
     cameraWorldPos: vec3f,
     padding2: f32,
+
     lightPosition: vec3f,
     padding1: u32,
-    screenSize: vec2i,
+
+    screenSize: vec2f,
+	padding3: f32,
+	padding4: f32,
+
+    cameraOffset: vec3f,
+	padding5: f32,
 };
 
 struct ChunkData {
@@ -785,13 +797,18 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
     
     let position = base_position + wind_displacement;
-    let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
+
+    let relative_position = position - uMyUniforms.cameraOffset;
+
+
+    let world_position = uMyUniforms.modelMatrix * vec4f(relative_position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
     
     out.position = uMyUniforms.projectionMatrix * view_position;
 
     out.world_position = world_position.xyz;
     
+
     // Calculate UV for alpha testing
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
     

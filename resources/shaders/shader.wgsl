@@ -158,15 +158,25 @@ struct MyUniforms {
 
     lightViewMatrix: mat4x4f,
     lightProjectionMatrix: mat4x4f,
+
     lightDirection: vec3f,
     transparent: u32,
+
     highlightedVoxelPos: vec3i,
     time: f32,
+
     cameraWorldPos: vec3f,
     padding2: f32,
+
     lightPosition: vec3f,
     padding1: u32,
+
     screenSize: vec2f,
+	padding3: f32,
+	padding4: f32,
+
+    cameraOffset: vec3f,
+	padding5: f32,
 };
 
 struct ChunkData {
@@ -1114,6 +1124,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         let gerstner = calculate_gerstner_waves(position.xy, uMyUniforms.time);
         position += gerstner.position_offset;
     }
+
+    let relative_position = position - uMyUniforms.cameraOffset;
     
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
 
@@ -1165,7 +1177,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         }
     }
 
-    let world_position = uMyUniforms.modelMatrix * vec4f(position, 1.0);
+    let world_position = uMyUniforms.modelMatrix * vec4f(relative_position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
 
     out.highlighted = 0.0;
@@ -1182,13 +1194,17 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         out.highlighted = 1.0;
     }
     
-    let light_view_pos = uMyUniforms.lightViewMatrix * world_position;
-    out.shadow_pos = uMyUniforms.lightProjectionMatrix * light_view_pos;
+    let world_for_shadow = world_position.xyz + uMyUniforms.cameraOffset;
+
+    out.shadow_pos =
+        uMyUniforms.lightProjectionMatrix *
+        uMyUniforms.lightViewMatrix *
+        vec4f(world_for_shadow, 1.0);
     
     out.position = uMyUniforms.projectionMatrix * view_position;
     out.normal = normalize((uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz);
     out.uv = uv;
-    out.world_position = world_position.xyz;
+    out.world_position = relative_position.xyz;
     out.ao = ao;
     out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));       
     out.voxel_pos = voxel_pos;

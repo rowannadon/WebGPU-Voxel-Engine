@@ -50,7 +50,7 @@ bool Application::Initialize() {
     uniforms.time = 1.0f;
     uniforms.highlightedVoxelPos = { 0, 0, 0 };
     uniforms.modelMatrix = mat4x4(1.0);
-    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f, 2500.0f);
+    uniforms.projectionMatrix = glm::perspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f, 5000.0f);
     uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(camera.zoom * PI / 180, 1280.0f / 720.0f, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
     uniforms.screenSize = glm::vec2(static_cast<float>(1280), static_cast<float>(720));
@@ -273,19 +273,28 @@ void Application::MainLoop() {
     }
 
     uniforms.highlightedVoxelPos = lookingAtBlockPos;
+
+    cameraOffset = vec3(
+        floor(camera.position.x / 32.0f) * 32.0f,
+        floor(camera.position.y / 32.0f) * 32.0f,
+        floor(camera.position.z / 62.0f) * 62.0f
+    );
+
+    const vec3 relCam = camera.position - cameraOffset;
+    const glm::mat4 viewGPU = glm::lookAt(relCam, relCam + camera.front, camera.up);
+    uniforms.viewMatrix = viewGPU;
+    uniforms.inverseViewMatrix = glm::inverse(viewGPU);
+
+    {
+        glm::vec3 sceneCenterGPU = relCam;     // relative center
+        float sceneRadius = getSceneRadius();
+        auto [sunDirGPU, sunPosGPU] = getSunInfo(uniforms.time, sceneCenterGPU, sceneRadius);
+        uniforms.lightDirection = sunDirGPU;
+        uniforms.lightPosition = sunPosGPU;
+    }
+
     uniforms.cameraWorldPos = camera.position;
-
-    // Calculate lighting
-    glm::vec3 sceneCenter = camera.position;
-    float sceneRadius = getSceneRadius();
-
-    auto [lightView, lightProj] = calculateLightMatrices(uniforms.time, sceneCenter, sceneRadius);
-    uniforms.lightViewMatrix = lightView;
-    uniforms.lightProjectionMatrix = lightProj;
-
-    auto [sunDirection, sunPosition] = getSunInfo(uniforms.time, sceneCenter, sceneRadius);
-    uniforms.lightDirection = sunDirection;
-    uniforms.lightPosition = sunPosition;
+    uniforms.cameraOffset = cameraOffset;
 
     // Update uniform buffers
     buf->writeBuffer("atmosphere_buffer", 0, &atmosphere, sizeof(Atmosphere));
@@ -296,9 +305,18 @@ void Application::MainLoop() {
     // Process GPU uploads from chunk thread
     processGPUUploads();
 
+    const glm::mat4 viewCPU = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
+
+    // For CPU shadow frustum culling, compute light matrices in world space
+    glm::vec3 sceneCenterCPU = camera.position;  // world center
+    auto [lightViewCPU, lightProjCPU] = calculateLightMatrices(uniforms.time, sceneCenterCPU, getSceneRadius());
+
+    uniforms.lightViewMatrix = lightViewCPU;
+    uniforms.lightProjectionMatrix = lightProjCPU;
+
     // Get render data and render
-    auto& renderData = chunkManager.getChunkDAICs(camera.position, uniforms.viewMatrix,
-        uniforms.projectionMatrix, lightView, lightProj, buf);
+    auto& renderData = chunkManager.getChunkDAICs(camera.position, viewCPU,
+        uniforms.projectionMatrix, lightViewCPU, lightProjCPU, buf);
 
     renderImGUI();
     gpu.renderFrame(uniforms, renderData);
@@ -320,8 +338,8 @@ void Application::MainLoop() {
     // Debug output every second
     static float lastDebugTime = 0.0f;
     if (frameEndTime - lastDebugTime >= 1.0f) {
-        //chunkManager.printChunkStates();
-        //chunkManager.printWorkerStatistics();
+        chunkManager.printChunkStates();
+        chunkManager.printWorkerStatistics();
 
         // Print frame budget and performance metrics
         float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
@@ -743,7 +761,7 @@ void Application::updateProjectionMatrix(int zoom) {
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
-    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 2500.0f);
+    uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 5000.0f);
     uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
     uniforms.screenSize = glm::vec2(static_cast<float>(screenWidth), static_cast<float>(screenHeight));
@@ -752,9 +770,13 @@ void Application::updateProjectionMatrix(int zoom) {
 }
 
 void Application::updateViewMatrix() {
-    uniforms.viewMatrix = glm::lookAt(camera.position, camera.position + camera.front, camera.up);
+    vec3 relativeCameraPos = camera.position - cameraOffset;
+    uniforms.viewMatrix = glm::lookAt(
+        relativeCameraPos,
+        relativeCameraPos + camera.front,
+        camera.up
+    );
     uniforms.inverseViewMatrix = glm::inverse(uniforms.viewMatrix);
-    buf->writeBuffer("uniform_buffer", offsetof(MyUniforms, viewMatrix), &uniforms.viewMatrix, sizeof(MyUniforms::viewMatrix));
 }
 
 void Application::onMouseMove(double xpos, double ypos) {

@@ -26,8 +26,10 @@ struct MyUniforms {
     float padding2;  // For 16-byte alignment
 
 	glm::vec2 screenSize;
+    float padding3[2];
 
-    float padding4[2];
+    glm::vec3 cameraOffset;  // ADD THIS: High-precision camera offset
+    float padding4;
 };
 
 static_assert(sizeof(MyUniforms) % 16 == 0);

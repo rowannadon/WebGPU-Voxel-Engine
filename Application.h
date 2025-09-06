@@ -168,6 +168,7 @@ private:
     int refreshRate = 60;
 
     FirstPersonCamera camera;
+    vec3 cameraOffset;
     std::mutex cameraMutex;
     MouseState mouseState;
     KeyStates keyStates;

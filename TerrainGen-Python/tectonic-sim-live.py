@@ -22,6 +22,7 @@ class TectonicSimulation:
         self.subcell_points = []
         self.subcell_voronoi = None
         self.subcell_plate_assignments = []  # Which plate each subcell belongs to
+        self.subcell_heights = []  # Height in km for each subcell
         
         # New parameters for plate properties
         self.oceanic_fraction = 0.3  # Fraction of interior plates that are oceanic
@@ -32,15 +33,34 @@ class TectonicSimulation:
         self.plate_densities = []  # g/cm³
         self.plate_thicknesses = []  # km
         self.plate_types = []  # 'oceanic' or 'continental'
+        self.plate_base_heights = []  # Base elevation in km
+        
+        # Boundary interaction parameters
+        self.boundary_influence_radius = 15.0  # World units
+        self.uplift_rate = 2.0  # Scaling factor for collision uplift
+        self.show_boundary_colors = True  # Toggle for colored boundary overlay
+        
+        # Volcanism parameters
+        self.volcanism_probability = 0.02  # Probability of volcano formation near convergent boundaries
+        self.volcanic_distance = 10.0  # Distance from convergent boundary for volcanoes (world units)
+        self.volcanic_height = 3.0  # Height of volcanic peaks (km)
+        self.volcanic_falloff = 3.0  # Falloff distance for volcanic peaks (world units)
+        self.volcanic_points = []  # List of volcanic centers (x, y, height)
         
         # Visualization mode
-        self.visualization_mode = 'boundaries'  # 'boundaries', 'density', 'thickness', 'type'
+        self.visualization_mode = 'type'  # 'density', 'thickness', 'type', 'height'
+        self.show_height_shading = True  # Toggle height-based shading
         
         # Reference values for plate types
         self.oceanic_density_base = 3.0  # g/cm³ (basalt/gabbro)
         self.continental_density_base = 2.7  # g/cm³ (granite)
         self.oceanic_thickness_base = 7.0  # km
         self.continental_thickness_base = 35.0  # km
+        
+        # Height reference values (physically based)
+        self.oceanic_depth_base = -4.5  # km below sea level
+        self.continental_elevation_base = 0.5  # km above sea level
+        self.sea_level = 0.0  # Reference point
         
         # Colors for different boundary types
         self.colors = {
@@ -168,6 +188,307 @@ class TectonicSimulation:
         
         return closest_plate
     
+    def classify_boundary_interaction(self, plate1_idx, plate2_idx):
+        """Classify the type of interaction between two plates based on density, height, and velocity"""
+        if plate1_idx >= self.num_plates or plate2_idx >= self.num_plates:
+            return 'transform', 0.0
+        
+        v1 = np.array(self.plate_velocities[plate1_idx])
+        v2 = np.array(self.plate_velocities[plate2_idx])
+        
+        # Calculate relative velocity
+        relative_v = v1 - v2
+        
+        # Get normal vector to the boundary
+        p1 = self.plates[plate1_idx]
+        p2 = self.plates[plate2_idx]
+        boundary_vector = p2 - p1
+        boundary_normal = np.array([-boundary_vector[1], boundary_vector[0]])
+        boundary_normal = boundary_normal / np.linalg.norm(boundary_normal)
+        
+        # Project relative velocity onto normal
+        normal_component = np.dot(relative_v, boundary_normal)
+        
+        # Get plate properties
+        density1 = self.plate_densities[plate1_idx]
+        density2 = self.plate_densities[plate2_idx]
+        height1 = self.plate_base_heights[plate1_idx]
+        height2 = self.plate_base_heights[plate2_idx]
+        type1 = self.plate_types[plate1_idx]
+        type2 = self.plate_types[plate2_idx]
+        
+        # Determine interaction type and height change
+        threshold = 0.3
+        height_change = 0.0
+        
+        if normal_component > threshold:
+            # Divergent boundary - plates moving apart
+            interaction_type = 'divergent'
+            if type1 == 'oceanic' and type2 == 'oceanic':
+                # Mid-ocean ridge
+                height_change = 1.5  # km uplift at ridge
+            else:
+                # Continental rift
+                height_change = -1.0  # km depression
+                
+        elif normal_component < -threshold:
+            # Convergent boundary - plates colliding
+            interaction_type = 'convergent'
+            
+            if type1 == 'oceanic' and type2 == 'oceanic':
+                # Oceanic-oceanic collision - one subducts
+                if density1 > density2:
+                    height_change = -6.0  # Trench on denser side
+                else:
+                    height_change = 2.0  # Island arc on lighter side
+                    
+            elif type1 == 'continental' and type2 == 'continental':
+                # Continental-continental collision - major mountains
+                height_change = 4.0 + abs(normal_component) * 2.0  # 4-6 km mountains
+                
+            else:
+                # Oceanic-continental collision - subduction
+                if type1 == 'oceanic':
+                    height_change = -5.0  # Deep trench on oceanic side
+                else:
+                    height_change = 2.5  # Coastal mountains on continental side
+        else:
+            # Transform boundary - plates sliding past
+            interaction_type = 'transform'
+            height_change = 0.2  # Small fault scarps
+        
+        return interaction_type, height_change
+    
+    def distance_to_line_segment(self, point, v1, v2):
+        """Calculate minimum distance from point to line segment defined by v1 and v2"""
+        # Vector from v1 to v2
+        line_vec = v2 - v1
+        line_len = np.linalg.norm(line_vec)
+        
+        if line_len < 0.001:  # Degenerate segment
+            return np.linalg.norm(point - v1)
+        
+        # Normalize line vector
+        line_unitvec = line_vec / line_len
+        
+        # Vector from v1 to point
+        point_vec = point - v1
+        
+        # Project point onto line (parameter t)
+        t = np.dot(point_vec, line_unitvec)
+        
+        # Clamp t to [0, line_len] to stay within segment
+        t = max(0.0, min(line_len, t))
+        
+        # Find nearest point on segment
+        nearest = v1 + t * line_unitvec
+        
+        # Return distance to nearest point
+        return np.linalg.norm(point - nearest)
+    
+    def generate_volcanic_points(self):
+        """Generate volcanic points near convergent boundaries"""
+        self.volcanic_points = []
+        
+        if self.voronoi is None or self.volcanism_probability <= 0:
+            return
+        
+        # Find all convergent boundaries
+        convergent_segments = []
+        for ridge_idx, (p1_idx, p2_idx) in enumerate(self.voronoi.ridge_points):
+            # Only consider boundaries between actual plates
+            if p1_idx >= self.num_plates or p2_idx >= self.num_plates:
+                continue
+            if p1_idx == p2_idx:
+                continue
+            
+            # Check if this is a convergent boundary
+            interaction_type, _ = self.classify_boundary_interaction(p1_idx, p2_idx)
+            if interaction_type == 'convergent':
+                # Get boundary vertices
+                ridge_vertices = self.voronoi.ridge_vertices[ridge_idx]
+                if -1 not in ridge_vertices and len(ridge_vertices) >= 2:
+                    valid_vertices = []
+                    for v_idx in ridge_vertices:
+                        vertex = self.voronoi.vertices[v_idx]
+                        if (-100 < vertex[0] < self.world_size + 100 and 
+                            -100 < vertex[1] < self.world_size + 100):
+                            valid_vertices.append(vertex)
+                    
+                    if len(valid_vertices) >= 2:
+                        # Store segment info with plate types
+                        type1 = self.plate_types[p1_idx] if p1_idx < len(self.plate_types) else 'oceanic'
+                        type2 = self.plate_types[p2_idx] if p2_idx < len(self.plate_types) else 'oceanic'
+                        convergent_segments.append((valid_vertices, type1, type2, p1_idx, p2_idx))
+        
+        # Generate volcanic points along convergent boundaries
+        for vertices, type1, type2, p1_idx, p2_idx in convergent_segments:
+            # Determine if volcanoes should form (more likely for subduction zones)
+            if type1 == 'oceanic' or type2 == 'oceanic':
+                volcano_chance = self.volcanism_probability * 2  # Higher chance for subduction
+            else:
+                volcano_chance = self.volcanism_probability  # Lower chance for continental collision
+            
+            # Sample points along the boundary
+            for i in range(len(vertices) - 1):
+                v1 = vertices[i]
+                v2 = vertices[i + 1]
+                segment_length = np.linalg.norm(v2 - v1)
+                
+                # Number of potential volcanic points based on segment length
+                num_samples = max(1, int(segment_length / 5.0))
+                
+                for j in range(num_samples):
+                    if random.random() < volcano_chance:
+                        # Interpolate point along segment
+                        t = (j + 0.5) / num_samples
+                        boundary_point = v1 + t * (v2 - v1)
+                        
+                        # Determine which side to place the volcano
+                        # For oceanic-continental, place on continental side
+                        # For oceanic-oceanic, place on lighter plate side
+                        p1_center = self.plates[p1_idx]
+                        p2_center = self.plates[p2_idx]
+                        
+                        # Vector from boundary to each plate center
+                        to_p1 = p1_center - boundary_point
+                        to_p2 = p2_center - boundary_point
+                        
+                        # Normalize directions
+                        to_p1 = to_p1 / np.linalg.norm(to_p1)
+                        to_p2 = to_p2 / np.linalg.norm(to_p2)
+                        
+                        # Choose direction based on plate types
+                        if type1 == 'continental' and type2 == 'oceanic':
+                            direction = to_p1
+                        elif type1 == 'oceanic' and type2 == 'continental':
+                            direction = to_p2
+                        elif type1 == 'oceanic' and type2 == 'oceanic':
+                            # Place on lighter (less dense) plate side
+                            if self.plate_densities[p1_idx] < self.plate_densities[p2_idx]:
+                                direction = to_p1
+                            else:
+                                direction = to_p2
+                        else:
+                            # Continental-continental, place randomly
+                            direction = to_p1 if random.random() < 0.5 else to_p2
+                        
+                        # Place volcano at specified distance from boundary
+                        volcanic_point = boundary_point + direction * self.volcanic_distance
+                        
+                        # Add some randomness to position
+                        volcanic_point[0] += random.uniform(-2, 2)
+                        volcanic_point[1] += random.uniform(-2, 2)
+                        
+                        # Check if within world bounds
+                        if (0 < volcanic_point[0] < self.world_size and 
+                            0 < volcanic_point[1] < self.world_size):
+                            # Random height variation for volcanic peaks
+                            height = self.volcanic_height * random.uniform(0.7, 1.3)
+                            self.volcanic_points.append((volcanic_point[0], volcanic_point[1], height))
+    
+    def calculate_volcanic_influence(self, point):
+        """Calculate height contribution from nearby volcanoes"""
+        total_influence = 0.0
+        
+        for vx, vy, vheight in self.volcanic_points:
+            volcanic_center = np.array([vx, vy])
+            dist = np.linalg.norm(point - volcanic_center)
+            
+            # Apply Gaussian falloff with volcanic-specific radius
+            if dist < self.volcanic_falloff * 3:  # 3 sigma cutoff
+                influence = np.exp(-dist**2 / (2 * self.volcanic_falloff**2))
+                total_influence += vheight * influence
+        
+        return total_influence
+    
+    def calculate_boundary_influence(self, point, subcell_idx):
+        """Calculate height contribution from ALL nearby plate boundaries"""
+        if self.voronoi is None:
+            return 0.0
+        
+        total_influence = 0.0
+        
+        # Check ALL plate boundaries, not just those involving our plate
+        for ridge_idx, (p1_idx, p2_idx) in enumerate(self.voronoi.ridge_points):
+            # Only consider boundaries between actual plates (not boundary points)
+            if p1_idx >= self.num_plates or p2_idx >= self.num_plates:
+                continue
+            if p1_idx == p2_idx:
+                continue
+            
+            # Get boundary vertices
+            ridge_vertices = self.voronoi.ridge_vertices[ridge_idx]
+            if -1 in ridge_vertices or len(ridge_vertices) < 2:
+                continue
+            
+            # Calculate distance to boundary LINE SEGMENTS, not just vertices
+            min_dist = float('inf')
+            valid_vertices = []
+            
+            # First collect valid vertices
+            for v_idx in ridge_vertices:
+                vertex = self.voronoi.vertices[v_idx]
+                if (-100 < vertex[0] < self.world_size + 100 and 
+                    -100 < vertex[1] < self.world_size + 100):
+                    valid_vertices.append(vertex)
+            
+            # Calculate distance to each line segment in the boundary
+            if len(valid_vertices) >= 2:
+                for i in range(len(valid_vertices) - 1):
+                    v1 = valid_vertices[i]
+                    v2 = valid_vertices[i + 1]
+                    dist = self.distance_to_line_segment(point, v1, v2)
+                    min_dist = min(min_dist, dist)
+                
+                # For closed boundaries, also check segment from last to first
+                if len(valid_vertices) > 2:
+                    dist = self.distance_to_line_segment(point, valid_vertices[-1], valid_vertices[0])
+                    min_dist = min(min_dist, dist)
+            
+            # If within influence radius (affects all nearby points regardless of plate)
+            if min_dist < self.boundary_influence_radius:
+                # Get interaction type and height change
+                interaction_type, height_change = self.classify_boundary_interaction(p1_idx, p2_idx)
+                
+                # Calculate influence with Gaussian falloff
+                # The characteristic length is 1/3 of the influence radius for smooth falloff
+                influence = np.exp(-min_dist**2 / (2 * (self.boundary_influence_radius/3)**2))
+                total_influence += height_change * influence * self.uplift_rate
+        
+        return total_influence
+    
+    def calculate_subcell_heights(self):
+        """Calculate height for each subcell based on plate properties, boundaries, and volcanism"""
+        self.subcell_heights = []
+        
+        for i, point in enumerate(self.subcell_points):
+            if i >= len(self.subcell_plate_assignments):
+                self.subcell_heights.append(0.0)
+                continue
+            
+            plate_idx = self.subcell_plate_assignments[i]
+            if plate_idx < 0 or plate_idx >= len(self.plate_base_heights):
+                self.subcell_heights.append(0.0)
+                continue
+            
+            # Start with base height from plate
+            base_height = self.plate_base_heights[plate_idx]
+            
+            # Add boundary influence
+            boundary_influence = self.calculate_boundary_influence(point, i)
+            
+            # Add volcanic influence
+            volcanic_influence = self.calculate_volcanic_influence(point)
+            
+            # Total height
+            total_height = base_height + boundary_influence + volcanic_influence
+            
+            # Clamp to reasonable range (-10 to +10 km)
+            total_height = max(-10.0, min(10.0, total_height))
+            
+            self.subcell_heights.append(total_height)
+    
     def generate_subcells(self):
         """Generate the high-resolution subcell layer"""
         if self.voronoi is None:
@@ -199,6 +520,12 @@ class TectonicSimulation:
         for point in all_points:
             plate_idx = self.find_plate_for_point(point)
             self.subcell_plate_assignments.append(plate_idx)
+        
+        # Generate volcanic points
+        self.generate_volcanic_points()
+        
+        # Calculate heights for subcells
+        self.calculate_subcell_heights()
     
     def is_border_plate(self, plate_center):
         """Check if a plate center is near the border of the world"""
@@ -214,10 +541,11 @@ class TectonicSimulation:
         return False
     
     def assign_plate_properties(self):
-        """Assign density, thickness, and type to each plate"""
+        """Assign density, thickness, type, and base height to each plate"""
         self.plate_densities = []
         self.plate_thicknesses = []
         self.plate_types = []
+        self.plate_base_heights = []
         
         # First identify which plates are border plates based on position
         border_plate_indices = set()
@@ -243,32 +571,39 @@ class TectonicSimulation:
                 plate_type = 'oceanic'
                 base_density = self.oceanic_density_base
                 base_thickness = self.oceanic_thickness_base
+                base_height = self.oceanic_depth_base
             elif i in border_plate_indices:
                 # Border plates - ALWAYS oceanic
                 plate_type = 'oceanic'
                 base_density = self.oceanic_density_base
                 base_thickness = self.oceanic_thickness_base
+                base_height = self.oceanic_depth_base
             elif i in oceanic_interior_indices:
                 # Interior oceanic plates
                 plate_type = 'oceanic'
                 base_density = self.oceanic_density_base
                 base_thickness = self.oceanic_thickness_base
+                base_height = self.oceanic_depth_base
             else:
                 # Interior continental plates
                 plate_type = 'continental'
                 base_density = self.continental_density_base
                 base_thickness = self.continental_thickness_base
+                base_height = self.continental_elevation_base
             
             # Apply random variation
             density_var = 1.0 + random.uniform(-self.density_variation, self.density_variation)
             thickness_var = 1.0 + random.uniform(-self.thickness_variation, self.thickness_variation)
+            height_var = 1.0 + random.uniform(-0.2, 0.2)  # 20% variation in base height
             
             final_density = base_density * density_var
             final_thickness = base_thickness * thickness_var
+            final_height = base_height * height_var
             
             self.plate_types.append(plate_type)
             self.plate_densities.append(final_density)
             self.plate_thicknesses.append(final_thickness)
+            self.plate_base_heights.append(final_height)
     
     def generate_plates(self):
         """Generate tectonic plates using Voronoi diagram"""
@@ -311,40 +646,34 @@ class TectonicSimulation:
         self.generate_subcells()
     
     def classify_boundary(self, plate1_idx, plate2_idx, edge_midpoint):
-        """Classify the boundary type between two plates"""
-        if plate1_idx >= self.num_plates or plate2_idx >= self.num_plates:
-            return 'transform'  # Boundary plates
-        
-        v1 = np.array(self.plate_velocities[plate1_idx])
-        v2 = np.array(self.plate_velocities[plate2_idx])
-        
-        # Calculate relative velocity
-        relative_v = v1 - v2
-        
-        # Get normal vector to the boundary
-        p1 = self.plates[plate1_idx]
-        p2 = self.plates[plate2_idx]
-        boundary_vector = p2 - p1
-        boundary_normal = np.array([-boundary_vector[1], boundary_vector[0]])
-        boundary_normal = boundary_normal / np.linalg.norm(boundary_normal)
-        
-        # Project relative velocity onto normal
-        normal_component = np.dot(relative_v, boundary_normal)
-        
-        # Classify based on normal component
-        threshold = 0.3
-        if normal_component > threshold:
-            return 'divergent'
-        elif normal_component < -threshold:
-            return 'convergent'
-        else:
-            return 'transform'
+        """Classify the boundary type between two plates (for visualization)"""
+        interaction_type, _ = self.classify_boundary_interaction(plate1_idx, plate2_idx)
+        return interaction_type
     
     def world_to_screen(self, x, y):
         """Convert world coordinates to screen coordinates"""
         sx = (x / self.world_size) * self.width
         sy = (y / self.world_size) * self.height
         return sx, sy
+    
+    def apply_height_shading(self, base_color, height):
+        """Apply shading to a color based on height"""
+        if not self.show_height_shading:
+            return base_color
+        
+        # Normalize height (-10 to +10 km range)
+        normalized_height = (height + 10.0) / 20.0  # 0 to 1
+        normalized_height = max(0, min(1, normalized_height))
+        
+        # Apply shading (darker for lower, lighter for higher)
+        # Use a non-linear curve for better visual effect
+        shading_factor = 0.5 + normalized_height * 0.8  # 0.5 to 1.3
+        
+        r = min(255, int(base_color[0] * shading_factor))
+        g = min(255, int(base_color[1] * shading_factor))
+        b = min(255, int(base_color[2] * shading_factor))
+        
+        return [r, g, b, base_color[3]]
     
     def get_color_for_value(self, value, min_val, max_val, colormap='viridis'):
         """Get color based on value using a colormap"""
@@ -370,6 +699,32 @@ class TectonicSimulation:
                 r = 253
                 g = 231
                 b = 37
+        elif colormap == 'terrain':
+            # Terrain colormap for height
+            if norm_val < 0.2:  # Deep ocean
+                r = int(0 + 50 * (norm_val / 0.2))
+                g = int(0 + 100 * (norm_val / 0.2))
+                b = int(100 + 100 * (norm_val / 0.2))
+            elif norm_val < 0.4:  # Shallow ocean
+                r = int(50 + 50 * ((norm_val - 0.2) / 0.2))
+                g = int(100 + 50 * ((norm_val - 0.2) / 0.2))
+                b = int(200 - 50 * ((norm_val - 0.2) / 0.2))
+            elif norm_val < 0.5:  # Coast
+                r = int(100 + 94 * ((norm_val - 0.4) / 0.1))
+                g = int(150 + 64 * ((norm_val - 0.4) / 0.1))
+                b = int(150 - 78 * ((norm_val - 0.4) / 0.1))
+            elif norm_val < 0.7:  # Lowlands
+                r = int(194 - 50 * ((norm_val - 0.5) / 0.2))
+                g = int(214 - 64 * ((norm_val - 0.5) / 0.2))
+                b = int(72 + 28 * ((norm_val - 0.5) / 0.2))
+            elif norm_val < 0.85:  # Highlands
+                r = int(144 + 40 * ((norm_val - 0.7) / 0.15))
+                g = int(150 - 50 * ((norm_val - 0.7) / 0.15))
+                b = int(100 - 30 * ((norm_val - 0.7) / 0.15))
+            else:  # Mountains
+                r = int(184 + 71 * ((norm_val - 0.85) / 0.15))
+                g = int(100 + 155 * ((norm_val - 0.85) / 0.15))
+                b = int(70 + 185 * ((norm_val - 0.85) / 0.15))
         else:  # 'coolwarm'
             if norm_val < 0.5:
                 r = int(59 + (247 - 59) * (norm_val * 2))
@@ -394,7 +749,6 @@ class TectonicSimulation:
         # Get color based on visualization mode
         if self.visualization_mode == 'density':
             if plate_idx < len(self.plate_densities):
-                # Use all plates for min/max calculation to get proper scale
                 min_d = min(self.plate_densities)
                 max_d = max(self.plate_densities)
                 color = self.get_color_for_value(self.plate_densities[plate_idx], min_d, max_d, 'coolwarm')
@@ -402,20 +756,30 @@ class TectonicSimulation:
                 color = [100, 100, 100, 100]
         elif self.visualization_mode == 'thickness':
             if plate_idx < len(self.plate_thicknesses):
-                # Use all plates for min/max calculation to get proper scale
                 min_t = min(self.plate_thicknesses)
                 max_t = max(self.plate_thicknesses)
                 color = self.get_color_for_value(self.plate_thicknesses[plate_idx], min_t, max_t, 'viridis')
+            else:
+                color = [100, 100, 100, 100]
+        elif self.visualization_mode == 'height':
+            if plate_idx < len(self.plate_base_heights):
+                # Use terrain colormap for height
+                min_h = -10.0  # km
+                max_h = 10.0   # km
+                color = self.get_color_for_value(self.plate_base_heights[plate_idx], min_h, max_h, 'terrain')
             else:
                 color = [100, 100, 100, 100]
         elif self.visualization_mode == 'type':
             if plate_idx < len(self.plate_types):
                 color = self.colors[self.plate_types[plate_idx]]
                 color = color[:3] + [150]  # Make semi-transparent
+                # Apply height shading for type view
+                if plate_idx < len(self.plate_base_heights):
+                    color = self.apply_height_shading(color, self.plate_base_heights[plate_idx])
             else:
                 color = [100, 100, 100, 100]
         else:
-            return  # No fill for boundaries mode
+            color = [100, 100, 100, 100]  # Default color
         
         # Convert vertices to screen coordinates
         polygon_points = []
@@ -430,7 +794,7 @@ class TectonicSimulation:
             dpg.draw_polygon(polygon_points, color=color, fill=color, parent=drawlist)
     
     def draw_subcell_fill(self, drawlist, subcell_idx):
-        """Fill a subcell with color based on its parent plate"""
+        """Fill a subcell with color based on its properties and height"""
         if self.subcell_voronoi is None or subcell_idx >= len(self.subcell_voronoi.regions):
             return
         
@@ -446,6 +810,9 @@ class TectonicSimulation:
         if plate_idx < 0 or plate_idx >= len(self.plate_densities):
             return
         
+        # Get subcell height
+        height = self.subcell_heights[subcell_idx] if subcell_idx < len(self.subcell_heights) else 0.0
+        
         # Get color based on visualization mode and parent plate
         if self.visualization_mode == 'density':
             min_d = min(self.plate_densities[:self.num_plates])
@@ -455,11 +822,20 @@ class TectonicSimulation:
             min_t = min(self.plate_thicknesses[:self.num_plates])
             max_t = max(self.plate_thicknesses[:self.num_plates])
             color = self.get_color_for_value(self.plate_thicknesses[plate_idx], min_t, max_t, 'viridis')
+        elif self.visualization_mode == 'height':
+            # Use actual subcell height
+            min_h = -10.0  # km
+            max_h = 10.0   # km
+            color = self.get_color_for_value(height, min_h, max_h, 'terrain')
         elif self.visualization_mode == 'type':
             color = self.colors[self.plate_types[plate_idx]]
             color = color[:3] + [150]
         else:
-            return
+            color = [100, 100, 100, 100]  # Default color
+        
+        # Apply height shading for non-height modes
+        if self.visualization_mode != 'height':
+            color = self.apply_height_shading(color, height)
         
         # Convert vertices to screen coordinates
         polygon_points = []
@@ -483,16 +859,15 @@ class TectonicSimulation:
                           color=[30, 30, 30, 255], fill=[30, 30, 30, 255],
                           parent=drawlist)
         
-        # Draw fills based on resolution mode
-        if self.visualization_mode != 'boundaries':
-            if self.show_high_resolution and self.subcell_voronoi is not None:
-                # Draw high-resolution subcells
-                for i in range(len(self.subcell_points)):
-                    self.draw_subcell_fill(drawlist, i)
-            else:
-                # Draw regular plate fills
-                for i in range(len(self.plates)):
-                    self.draw_plate_fill(drawlist, i)
+        # Always draw fills based on visualization mode
+        if self.show_high_resolution and self.subcell_voronoi is not None:
+            # Draw high-resolution subcells
+            for i in range(len(self.subcell_points)):
+                self.draw_subcell_fill(drawlist, i)
+        else:
+            # Draw regular plate fills
+            for i in range(len(self.plates)):
+                self.draw_plate_fill(drawlist, i)
         
         # Draw boundaries
         if self.show_high_resolution and self.subcell_voronoi is not None:
@@ -518,7 +893,7 @@ class TectonicSimulation:
                         if len(points) >= 2:
                             if plate1 != plate2:
                                 # This is a plate boundary
-                                if self.visualization_mode == 'boundaries':
+                                if self.show_boundary_colors:
                                     # Calculate midpoint for classification
                                     midpoint = np.mean([self.subcell_voronoi.vertices[v] for v in ridge_vertices], axis=0)
                                     boundary_type = self.classify_boundary(plate1, plate2, midpoint)
@@ -552,7 +927,7 @@ class TectonicSimulation:
                             points.append([sx, sy])
                     
                     if len(points) >= 2:
-                        if self.visualization_mode == 'boundaries':
+                        if self.show_boundary_colors:
                             # Calculate midpoint for classification
                             midpoint = np.mean([self.voronoi.vertices[v] for v in ridge_vertices], axis=0)
                             boundary_type = self.classify_boundary(p1_idx, p2_idx, midpoint)
@@ -586,13 +961,16 @@ class TectonicSimulation:
                     elif self.visualization_mode == 'thickness' and i < len(self.plate_thicknesses):
                         dpg.draw_text((sx - 15, sy + 10), f"{self.plate_thicknesses[i]:.1f}", 
                                     color=[255, 255, 255, 255], size=10, parent=drawlist)
+                    elif self.visualization_mode == 'height' and i < len(self.plate_base_heights):
+                        dpg.draw_text((sx - 15, sy + 10), f"{self.plate_base_heights[i]:.1f}", 
+                                    color=[255, 255, 255, 255], size=10, parent=drawlist)
                     elif self.visualization_mode == 'type' and i < len(self.plate_types):
                         label = 'O' if self.plate_types[i] == 'oceanic' else 'C'
                         dpg.draw_text((sx - 5, sy + 10), label, 
                                     color=[255, 255, 255, 255], size=12, parent=drawlist)
                     
-                    # Draw velocity vectors
-                    if self.show_velocities and self.visualization_mode == 'boundaries':
+                    # Draw velocity vectors (only when boundary colors are shown)
+                    if self.show_velocities and self.show_boundary_colors:
                         v = self.plate_velocities[i]
                         end_x = sx + v[0] * self.velocity_scale
                         end_y = sy + v[1] * self.velocity_scale
@@ -602,9 +980,10 @@ class TectonicSimulation:
         
         # Draw legend
         legend_x = 10
-        legend_y = self.height - 150
+        legend_y = self.height - 180
         
-        if self.visualization_mode == 'boundaries':
+        # Show boundary legend if colored boundaries are enabled
+        if self.show_boundary_colors:
             dpg.draw_text((legend_x, legend_y), "Boundary Types:", 
                          color=[255, 255, 255, 255], size=14, parent=drawlist)
             
@@ -620,8 +999,10 @@ class TectonicSimulation:
                             color=self.colors[btype], thickness=3, parent=drawlist)
                 dpg.draw_text((legend_x + 25, y_pos - 5), label,
                             color=[255, 255, 255, 255], size=12, parent=drawlist)
+            legend_y += 80
         
-        elif self.visualization_mode == 'density':
+        # Show mode-specific legend
+        if self.visualization_mode == 'density':
             dpg.draw_text((legend_x, legend_y), "Density (g/cm³):", 
                          color=[255, 255, 255, 255], size=14, parent=drawlist)
             if self.plate_densities:
@@ -643,6 +1024,18 @@ class TectonicSimulation:
             dpg.draw_text((legend_x, legend_y + 60), "Thin → Thick", 
                          color=[255, 255, 255, 255], size=12, parent=drawlist)
         
+        elif self.visualization_mode == 'height':
+            dpg.draw_text((legend_x, legend_y), "Elevation (km):", 
+                         color=[255, 255, 255, 255], size=14, parent=drawlist)
+            dpg.draw_text((legend_x, legend_y + 20), "Deep Ocean: -10 km", 
+                         color=[50, 100, 200, 255], size=12, parent=drawlist)
+            dpg.draw_text((legend_x, legend_y + 40), "Sea Level: 0 km", 
+                         color=[100, 150, 100, 255], size=12, parent=drawlist)
+            dpg.draw_text((legend_x, legend_y + 60), "Mountains: +10 km", 
+                         color=[255, 255, 255, 255], size=12, parent=drawlist)
+            dpg.draw_text((legend_x, legend_y + 80), f"Height shading: {'ON' if self.show_height_shading else 'OFF'}", 
+                         color=[255, 255, 100, 255], size=12, parent=drawlist)
+        
         elif self.visualization_mode == 'type':
             dpg.draw_text((legend_x, legend_y), "Plate Types:", 
                          color=[255, 255, 255, 255], size=14, parent=drawlist)
@@ -658,11 +1051,33 @@ class TectonicSimulation:
                              fill=self.colors['continental'][:3] + [150], parent=drawlist)
             dpg.draw_text((legend_x + 25, legend_y + 40), "Continental (C)",
                         color=[255, 255, 255, 255], size=12, parent=drawlist)
+            
+            if self.show_height_shading:
+                dpg.draw_text((legend_x, legend_y + 70), "Height shading: ON", 
+                             color=[255, 255, 100, 255], size=12, parent=drawlist)
         
         # Show resolution info
         if self.show_high_resolution:
             dpg.draw_text((legend_x, 10), f"High Resolution Mode ({self.resolution} subcells)", 
                          color=[255, 255, 100, 255], size=12, parent=drawlist)
+            if len(self.volcanic_points) > 0:
+                dpg.draw_text((legend_x, 30), f"Volcanic peaks: {len(self.volcanic_points)}", 
+                             color=[255, 100, 100, 255], size=12, parent=drawlist)
+        
+        # Draw volcanic peaks as markers in high-resolution mode
+        if self.show_high_resolution and len(self.volcanic_points) > 0:
+            for vx, vy, vheight in self.volcanic_points:
+                sx, sy = self.world_to_screen(vx, vy)
+                # Draw volcano as a red triangle
+                triangle_size = 4 + vheight  # Size based on height
+                points = [
+                    [sx, sy - triangle_size],
+                    [sx - triangle_size * 0.866, sy + triangle_size * 0.5],
+                    [sx + triangle_size * 0.866, sy + triangle_size * 0.5]
+                ]
+                dpg.draw_triangle(points[0], points[1], points[2],
+                                color=[255, 50, 50, 255], fill=[255, 100, 100, 200],
+                                parent=drawlist)
 
 # Initialize simulation
 sim = TectonicSimulation()
@@ -691,16 +1106,22 @@ def update_velocity_scale(sender, value):
 def update_oceanic_fraction(sender, value):
     sim.oceanic_fraction = value
     sim.assign_plate_properties()
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
     update_visualization()
 
 def update_density_variation(sender, value):
     sim.density_variation = value
     sim.assign_plate_properties()
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
     update_visualization()
 
 def update_thickness_variation(sender, value):
     sim.thickness_variation = value
     sim.assign_plate_properties()
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
     update_visualization()
 
 def update_visualization_mode(sender, value):
@@ -714,6 +1135,47 @@ def update_resolution(sender, value):
 
 def toggle_high_resolution(sender, value):
     sim.show_high_resolution = value
+    update_visualization()
+
+def toggle_height_shading(sender, value):
+    sim.show_height_shading = value
+    update_visualization()
+
+def toggle_boundary_colors(sender, value):
+    sim.show_boundary_colors = value
+    update_visualization()
+
+def update_uplift_rate(sender, value):
+    sim.uplift_rate = value
+    sim.calculate_subcell_heights()
+    update_visualization()
+
+def update_falloff_distance(sender, value):
+    sim.boundary_influence_radius = value
+    sim.calculate_subcell_heights()
+    update_visualization()
+
+def update_volcanism_probability(sender, value):
+    sim.volcanism_probability = value
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
+    update_visualization()
+
+def update_volcanic_distance(sender, value):
+    sim.volcanic_distance = value
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
+    update_visualization()
+
+def update_volcanic_height(sender, value):
+    sim.volcanic_height = value
+    sim.generate_volcanic_points()
+    sim.calculate_subcell_heights()
+    update_visualization()
+
+def update_volcanic_falloff(sender, value):
+    sim.volcanic_falloff = value
+    sim.calculate_subcell_heights()
     update_visualization()
 
 def regenerate_plates():
@@ -760,12 +1222,48 @@ with dpg.window(label="Tectonic Plate Simulation", tag="main_window",
                                callback=update_thickness_variation, width=200)
             
             dpg.add_separator()
+            dpg.add_text("Height Settings", color=[255, 255, 100])
+            
+            dpg.add_checkbox(label="Show Height Shading", default_value=sim.show_height_shading,
+                           callback=toggle_height_shading)
+            
+            dpg.add_slider_float(label="Uplift Rate", min_value=0.5, max_value=5.0,
+                               default_value=sim.uplift_rate,
+                               callback=update_uplift_rate, width=200)
+            
+            dpg.add_slider_float(label="Falloff Distance", min_value=5.0, max_value=30.0,
+                               default_value=sim.boundary_influence_radius,
+                               callback=update_falloff_distance, width=200)
+            
+            dpg.add_separator()
+            dpg.add_text("Volcanism Settings", color=[255, 255, 100])
+            
+            dpg.add_slider_float(label="Volcano Probability", min_value=0.0, max_value=0.1,
+                               default_value=sim.volcanism_probability,
+                               callback=update_volcanism_probability, width=200)
+            
+            dpg.add_slider_float(label="Volcano Distance", min_value=5.0, max_value=20.0,
+                               default_value=sim.volcanic_distance,
+                               callback=update_volcanic_distance, width=200)
+            
+            dpg.add_slider_float(label="Volcano Height", min_value=1.0, max_value=5.0,
+                               default_value=sim.volcanic_height,
+                               callback=update_volcanic_height, width=200)
+            
+            dpg.add_slider_float(label="Volcano Falloff", min_value=1.0, max_value=10.0,
+                               default_value=sim.volcanic_falloff,
+                               callback=update_volcanic_falloff, width=200)
+            
+            dpg.add_separator()
             dpg.add_text("Visualization", color=[255, 255, 100])
             
-            dpg.add_radio_button(["boundaries", "density", "thickness", "type"],
+            dpg.add_radio_button(["density", "thickness", "type", "height"],
                                label="Visualization Mode",
                                default_value=sim.visualization_mode,
                                callback=update_visualization_mode)
+            
+            dpg.add_checkbox(label="Show Boundary Colors", default_value=sim.show_boundary_colors,
+                           callback=toggle_boundary_colors)
             
             dpg.add_checkbox(label="Show Velocity Vectors", default_value=sim.show_velocities,
                            callback=toggle_velocities)
@@ -779,21 +1277,22 @@ with dpg.window(label="Tectonic Plate Simulation", tag="main_window",
                          width=200)
             
             dpg.add_separator()
-            dpg.add_text("Reference Values:", color=[100, 255, 100])
-            dpg.add_text("Oceanic plates:", wrap=300)
-            dpg.add_text("  • Density: ~3.0 g/cm³", wrap=300)
-            dpg.add_text("  • Thickness: ~7 km", wrap=300)
-            dpg.add_text("Continental plates:", wrap=300)
-            dpg.add_text("  • Density: ~2.7 g/cm³", wrap=300)
-            dpg.add_text("  • Thickness: ~35 km", wrap=300)
+            dpg.add_text("Height Reference:", color=[100, 255, 100])
+            dpg.add_text("Oceanic base: -4.5 km", wrap=300)
+            dpg.add_text("Continental base: +0.5 km", wrap=300)
+            dpg.add_text("Subduction trench: -6 km", wrap=300)
+            dpg.add_text("Mid-ocean ridge: +1.5 km", wrap=300)
+            dpg.add_text("Mountain range: +4-6 km", wrap=300)
+            dpg.add_text("Volcanic peaks: +1-5 km", wrap=300)
             
             dpg.add_separator()
-            dpg.add_text("Instructions:", color=[100, 255, 100])
-            dpg.add_text("• Toggle 'Show High Resolution' to see subcell divisions", wrap=300)
-            dpg.add_text("• Subcells inherit properties from their parent plates", wrap=300)
-            dpg.add_text("• In high-res mode, thick lines show plate boundaries", wrap=300)
-            dpg.add_text("• Thin gray lines show subcell divisions", wrap=300)
-            dpg.add_text("• Higher resolution allows for more detailed features", wrap=300)
+            dpg.add_text("Boundary Interactions:", color=[100, 255, 100])
+            dpg.add_text("• Convergent: Mountains/trenches", wrap=300)
+            dpg.add_text("• Divergent: Rifts/ridges", wrap=300)
+            dpg.add_text("• Transform: Fault scarps", wrap=300)
+            dpg.add_text("• Volcanoes form near convergent zones", wrap=300)
+            dpg.add_text("• Higher chance at subduction zones", wrap=300)
+            dpg.add_text("• Falloff controls feature width", wrap=300)
         
         # Visualization area
         with dpg.child_window(label="Visualization", width=980, height=980):
