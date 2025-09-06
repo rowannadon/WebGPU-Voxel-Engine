@@ -87,8 +87,7 @@ private:
     static constexpr int COLUMN_HEIGHT_BLOCKS = COLUMN_HEIGHT * CHUNK_HEIGHT;
     static constexpr int MAX_CHUNKS_PER_UPDATE = 1;
     static constexpr int MAX_CHUNKS_PER_ITERATION = 8;
-    static constexpr int MAX_ACTIVE_COLUMNS = 24000;
-    static constexpr int MAX_TOTAL_COLUMNS = 24000;
+    static constexpr int MAX_TOTAL_COLUMNS = 72000;
 
     struct CachedDAICData {
         // Per-Z optional DAICs (aligned to z = 0..COLUMN_HEIGHT-1)
@@ -712,9 +711,9 @@ private:
         std::priority_queue<ChunkPriority> empty_pq;
         pendingChunkCreation.swap(empty_pq);
 
-        if (columns.size() >= MAX_TOTAL_COLUMNS) {
+        /*if (columns.size() >= MAX_TOTAL_COLUMNS) {
             return;
-        }
+        }*/
 
         int chunksAdded = 0;
 

@@ -293,7 +293,7 @@ struct MaterialProperties {
     padding    : u32,
 };
 
-const NUM_TOTAL_SLOTS = 64000;
+const NUM_TOTAL_SLOTS = 256000;
 const NUM_TOTAL_QUADS = 10000;
 
 const CHUNK_SIZE: f32 = 32.0;
