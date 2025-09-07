@@ -80,7 +80,7 @@ private:
     int numActiveChunks = 0;
     int lastNumActiveChunks = 0;
 
-    int renderDistance = 128;
+    int renderDistance = 64;
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int CHUNK_HEIGHT = 62;
     static constexpr int COLUMN_HEIGHT = 10;
@@ -115,6 +115,7 @@ private:
 
     BufferManager* buf;
     TextureManager* tex;
+    TextureManagerCPU* texc;
 
     std::unordered_map<ivec2, std::unique_ptr<CachedDAICData>, IVec2Hash, IVec2Equal> daicCache;
     std::mutex cacheMutex;
@@ -153,13 +154,15 @@ private:
 public:
     ChunkColumnManager() = default;
 
-    void init(TextureManager* t, BufferManager* b, StructureManager * sm, ModelManager *m) {
+    void init(TextureManager* t, BufferManager* b, StructureManager * sm, TextureManagerCPU *tc, ModelManager *m) {
         workerSystem = std::make_unique<ChunkWorkerSystem>();
 
         tex = t;
+        texc = tc;
         buf = b;
         modelManager = m;
         structureManager = sm;
+
 
         columns.reserve(MAX_TOTAL_COLUMNS);
         
@@ -777,7 +780,7 @@ private:
                     delete chunk;
                     };
 
-                auto* newChunkRaw = new ChunkColumn(nextChunk.position, tex, structureManager, modelManager);
+                auto* newChunkRaw = new ChunkColumn(nextChunk.position, tex, structureManager, texc, modelManager);
                 auto newChunk = std::shared_ptr<ChunkColumn>(newChunkRaw, chunkDeleter);
 
                 columns[nextChunk.position] = newChunk;

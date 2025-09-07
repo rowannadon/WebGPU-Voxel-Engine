@@ -29,6 +29,7 @@
 #include "ChunkData.h"
 #include "RunLengthEncoder.h"
 #include "ColumnDAICs.h"
+#include "TextureManagerCPU.h"
 
 #include "Rendering/StructureManager.h"
 #include "Rendering/ModelManager.h"
@@ -120,6 +121,7 @@ private:
 
     StructureManager* structureManager;
     TextureManager* tex;
+    TextureManagerCPU* texc;
     ModelManager* modelManager;
 
     std::string resourceId;
@@ -385,8 +387,9 @@ private:
 public:
     ChunkColumn(const ivec2& i = ivec2(0), 
         TextureManager *tx = nullptr, 
-        StructureManager* sm = nullptr, 
-        ModelManager *mod = nullptr) : id(i), structureManager(sm), tex(tx), modelManager(mod) {
+        StructureManager* sm = nullptr,
+        TextureManagerCPU* txc = nullptr,
+        ModelManager *mod = nullptr) : id(i), structureManager(sm), tex(tx), modelManager(mod), texc(txc) {
 
         position = id * CHUNK_SIZE;
         worldGen.initialize(1234);
@@ -1805,7 +1808,7 @@ public:
 public:
 
     void generateTerrain() {
-        std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
+        /*std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
         worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
 
         int index = 0;
@@ -1818,19 +1821,30 @@ public:
                     }
                 }
             }
-        }
+        }*/
 
-        // generate 2d terrain
-        /*for (int y = 0; y < CHUNK_SIZE; y++) {
+        //// generate 2d terrain
+        //for (int y = 0; y < CHUNK_SIZE; y++) {
+        //    for (int x = 0; x < CHUNK_SIZE; x++) {
+        //        // Generate height for this column
+        //        float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+        //        int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
+        //        for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
+        //            setVoxelWholeColumn(ivec3(x, y, z), true);
+        //        }
+        //    }
+        //}
+
+        for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = worldGen.sample2D(vec2(x + position.x, y + position.y));
+                float height = texc->getTexelAtPosition("height", x + position.x, y + position.y).b;
                 int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
             }
-        }*/
+        }
 
         setState(ColumnState::TerrainReady);
     }
@@ -1855,15 +1869,15 @@ public:
                 faceIndex = 0; // Right neighbor
                 neighborPos.x = pos.x - CHUNK_SIZE;
             }
-            else if (pos.x < 0) {
+            if (pos.x < 0) {
                 faceIndex = 1; // Left neighbor
                 neighborPos.x = CHUNK_SIZE + pos.x;
             }
-            else if (pos.y >= CHUNK_SIZE) {
+            if (pos.y >= CHUNK_SIZE) {
                 faceIndex = 2; // Front neighbor
                 neighborPos.y = pos.y - CHUNK_SIZE;
             }
-            else if (pos.y < 0) {
+            if (pos.y < 0) {
                 faceIndex = 3; // Back neighbor
                 neighborPos.y = CHUNK_SIZE + pos.y;
             }
@@ -1886,6 +1900,29 @@ public:
             return false;
             };
 
+        // Lambda to check if a block is exposed to air in any of its 6 neighboring directions
+        auto isExposedToAir = [&](ivec3 pos) -> bool {
+            // Check all 6 face neighbors: +X, -X, +Y, -Y, +Z, -Z
+            const ivec3 offsets[6] = {
+                {1, 0, 0},   // +X (right)
+                {-1, 0, 0},  // -X (left)
+                {0, 1, 0},   // +Y (front)
+                {0, -1, 0},  // -Y (back)
+                {0, 0, 1},   // +Z (up)
+                {0, 0, -1}   // -Z (down)
+            };
+
+            // If any neighbor is air (not solid), the block is exposed
+            for (int i = 0; i < 6; i++) {
+                ivec3 neighborPos = pos + offsets[i];
+                if (!isVoxelSolid(neighborPos)) {
+                    return true; // Found air neighbor - block is exposed
+                }
+            }
+
+            return false; // All neighbors are solid - block is not exposed
+            };
+
         // Lambda to find the lowest block with air above it in a column
         auto findTopSolidBlock = [&](int x, int y) -> int {
             // Search from top to bottom for the highest solid block
@@ -1898,7 +1935,7 @@ public:
             };
 
         // Lambda to calculate steepness
-        auto calculateSteepness = [&](int x, int y, int z) -> int {
+        auto calculateSteepness = [&](int x, int y, int z) -> float {
             int currentHeight = z;
             int maxHeightDifference = 0;
 
@@ -1909,26 +1946,28 @@ public:
                 { 1, -1}, { 1, 0}, { 1, 1}
             };
 
+            int totalHeightDifference = 0;
+
             for (int i = 0; i < 8; i++) {
                 int neighborX = x + offsets[i][0];
                 int neighborY = y + offsets[i][1];
 
                 // Find the highest solid block in this neighboring column
                 int neighborHeight = findTopSolidBlock(neighborX, neighborY);
-
-                if (neighborHeight != -1) { // -1 means no solid blocks found
-                    int heightDifference = abs(currentHeight - neighborHeight);
-                    maxHeightDifference = std::max(maxHeightDifference, heightDifference);
+                if (neighborHeight == -1) {
+                    neighborHeight = currentHeight;
                 }
+
+                totalHeightDifference += abs(neighborHeight - currentHeight);
             }
 
-            return maxHeightDifference;
+            return static_cast<float>(totalHeightDifference) / 8.0f;
             };
 
         std::vector<TreeDataPoint> candidateTrees;
         std::vector<GrassDataPoint> grassPositions;
 
-		grassPositions.reserve(CHUNK_SIZE * CHUNK_SIZE / 2);
+        grassPositions.reserve(CHUNK_SIZE * CHUNK_SIZE / 2);
 
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
@@ -1939,7 +1978,7 @@ public:
                     if (getVoxelWholeColumn(ivec3(x, y, z))) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
                         float noiseValue = worldGen.sample3D2(pos);
-                         
+
                         if (noiseValue > -1 && noiseValue < -0.8) {
                             material.materialType = BlockType::RedRock;
                         }
@@ -1980,66 +2019,25 @@ public:
                         ivec3 positionAbove = ivec3(x, y, z + 1);
                         bool isAtSurface = !isVoxelSolid(positionAbove);
 
-                        if (isAtSurface && z > waterLevel + 2) {
+                        // NEW: Check if this voxel is exposed to air in any direction
+                        bool isExposed = isExposedToAir(ivec3(x, y, z));
+
+                        if (isExposed && z > waterLevel + 2) {
                             // Calculate steepness by checking the 8 surrounding columns
-                            int maxHeightDifference = calculateSteepness(x, y, z);
+                            float avgHeightDifference = calculateSteepness(x, y, z);
                             uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
-                            switch (maxHeightDifference) {
-                                case 0:
-                                case 1:
-                                    material.materialType = BlockType::Grass; // grass
+                            if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
+                                material.materialType = BlockType::GrassFlowers; // grass
 
-                                    ivec3 grassPos = ivec3(x, y, z + 1);
-
-                                    if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
-
-                                        static const std::array<ProbabilityConfig, 5> config = { {
-                                            { 0,     0.04f},
-                                            { 1,     0.33f},
-                                            { 2,     0.33f},
-                                            { 3,     0.15f},
-                                            { 4,     0.15f}
-                                        } };
-
-										GrassDataPoint gdp;
-										gdp.basePos = grassPos;
-                                        gdp.type = sampleFromDistribution(blockHash, config);;
-
-										grassPositions.push_back(gdp);
-                                    }
-
-                                    if (maxHeightDifference == 1 && pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
-                                        if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
-                                            positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
-
-                                            static const std::array<ProbabilityConfig, 11> config = { {
-                                                { 1,     0.38f},
-                                                { 2,     0.2f},
-                                                { 3,     0.2f},
-                                                { 4,     0.2f},
-                                                { 5,     0.02f}
-                                            } };
-
-                                            int size = sampleFromDistribution(blockHash, config);
-
-                                            candidateTrees.push_back({ positionAbove, size, size * 4.0f });
-                                        }
-                                    }
-
-                                    break;
-                            }
-
-                            // Apply materials to multiple layers
-                            if (material.materialType == BlockType::GrassFlowers || material.materialType == BlockType::Grass) { // grass terrain
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::Grass; // grass
-                                        
+                                        material.materialType = BlockType::GrassFlowers; // grass
+
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
@@ -2053,23 +2051,67 @@ public:
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
+
                             }
-                            else if (material.materialType == BlockType::Dirt) { // dirt terrain
-                                // Top 3 layers: dirt
+                            else if (avgHeightDifference >= 0.25f && avgHeightDifference < 1.0f) {
+                                material.materialType = BlockType::Grass; // grass
+
+                                for (int layer = 0; layer < 2; layer++) {
+                                    ivec3 layerPos = ivec3(x, y, z - layer);
+                                    if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
+                                        UnpackedVoxelMaterial material;
+                                        material.facing = FacingDirection::PlusX;
+
+                                        material.materialType = BlockType::Grass; // grass
+
+                                        setMaterialFast(layerPos, material);
+                                    }
+                                }
+                                // Next 3 layers: dirt
+                                for (int layer = 2; layer < 5; layer++) {
+                                    ivec3 layerPos = ivec3(x, y, z - layer);
+                                    if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
+                                        UnpackedVoxelMaterial material;
+                                        material.facing = FacingDirection::PlusX;
+                                        material.materialType = BlockType::Dirt; // dirt
+                                        setMaterialFast(layerPos, material);
+                                    }
+                                }
+
+                            }
+                            else if (avgHeightDifference >= 1.0f && avgHeightDifference < 1.5f) {
+                                material.materialType = BlockType::LimestoneGravel;
+
                                 for (int layer = 0; layer < 3; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
-                                        if (blockHash % 2 == 0) {
-                                            material.materialType = BlockType::Dirt; // dirt
-                                        }
-                                        else {
-                                            material.materialType = BlockType::Dirt; // dirt
-                                        }
+                                        material.materialType = BlockType::LimestoneGravel; // dirt
+
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
+                            }
+                            else if (avgHeightDifference >= 1.5f && avgHeightDifference < 2.0f) {
+                                material.materialType = BlockType::LimestoneGray;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 2.0f && avgHeightDifference < 3.0f) {
+                                material.materialType = BlockType::Limestone;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 3.0f && avgHeightDifference < 7.0f) {
+                                material.materialType = BlockType::LimestoneWhite;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 4.0f && avgHeightDifference < 11.0f) {
+                                material.materialType = BlockType::LimestoneYellow;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else {
+                                material.materialType = BlockType::LimestoneOrange;
+                                setMaterialFast(ivec3(x, y, z), material);
                             }
                         }
                         else if (isAtSurface && z > waterLevel - 2) {
