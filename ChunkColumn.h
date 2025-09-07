@@ -289,52 +289,74 @@ private:
     bool materialDataDecoded16 = false;
     bool materialDataDecoded32 = false;
 
+    struct SmallHist {
+        static constexpr int K = 8; // usually enough
+        uint16_t key[K]; uint16_t cnt[K]; uint8_t n = 0;
+        void add(uint16_t k) {
+            for (int i = 0; i < n; i++) if (key[i] == k) { cnt[i]++; return; }
+            if (n < K) { key[n] = k; cnt[n] = 1; n++; return; }
+            // fallback: bump smallest (or just drop); or make K=12 if paranoid
+            int m = 0; for (int i = 1; i < n; i++) if (cnt[i] < cnt[m]) m = i;
+            key[m] = k; cnt[m] = 1;
+        }
+        uint16_t dominant(float thr, int total) const {
+            int need = int(std::ceil(thr * total));
+            int best = -1, id = -1;
+            for (int i = 0; i < n; i++) { if (cnt[i] > best) { best = cnt[i]; id = i; } }
+            return (best >= need) ? key[id] : key[id];
+        }
+    };
+
     struct LODGroupCounts {
-        std::unordered_map<uint16_t, int> materialCounts;
+        SmallHist materialCounts;
         int solidCount = 0;
 
         void clear() {
-            materialCounts.clear();
+            //materialCounts.clear();
             solidCount = 0;
         }
 
+        //uint16_t getDominantMaterial(float threshold = 0.5f) const {
+        //    int totalVoxels = solidCount;
+        //    if (totalVoxels == 0) return 0;
+
+        //    int minCount = static_cast<int>(totalVoxels * threshold);
+        //    uint16_t dominant = 0;
+        //    int maxCount = 0;
+
+        //    for (const auto& [material, count] : materialCounts) {
+        //        if (count > maxCount) {
+        //            maxCount = count;
+        //            dominant = material;
+        //        }
+
+        //        if (material == BlockType::Grass) {
+        //            if (count > 4) {
+        //                return BlockType::Grass;
+        //            }
+        //        }
+
+        //        if (material == BlockType::Log) {
+        //            if (count > 2) {
+        //                return BlockType::Log;
+        //            }
+        //        }
+
+        //        if (material == BlockType::SpruceLog) {
+        //            if (count > 2) {
+        //                return BlockType::SpruceLog;
+        //            }
+        //        }
+        //    }
+
+
+        //    // If no material meets threshold, return the most common one anyway
+        //    // This prevents gaps in the LOD mesh
+        //    return (maxCount >= minCount) ? dominant : dominant;
+        //}
+
         uint16_t getDominantMaterial(float threshold = 0.5f) const {
-            int totalVoxels = solidCount;
-            if (totalVoxels == 0) return 0;
-
-            int minCount = static_cast<int>(totalVoxels * threshold);
-            uint16_t dominant = 0;
-            int maxCount = 0;
-
-            for (const auto& [material, count] : materialCounts) {
-                if (count > maxCount) {
-                    maxCount = count;
-                    dominant = material;
-                }
-
-                if (material == BlockType::Grass) {
-                    if (count > 4) {
-                        return BlockType::Grass;
-                    }
-                }
-
-                if (material == BlockType::Log) {
-                    if (count > 2) {
-                        return BlockType::Log;
-                    }
-                }
-
-                if (material == BlockType::SpruceLog) {
-                    if (count > 2) {
-                        return BlockType::SpruceLog;
-                    }
-                }
-            }
-
-
-            // If no material meets threshold, return the most common one anyway
-            // This prevents gaps in the LOD mesh
-            return (maxCount >= minCount) ? dominant : dominant;
+            return materialCounts.dominant(threshold, solidCount);
         }
     };
 
@@ -461,7 +483,7 @@ public:
                         int gx = x / 2, gy = y / 2, gz = z;
                         int idx = LODCountStorage::getIndex(gx, gy, gz, 16);
                         if (isSolid) counts.lod2[idx].solidCount++;
-                        counts.lod2[idx].materialCounts[packedMat]++;
+                        counts.lod2[idx].materialCounts.add(packedMat);
                     }
 
                     // Update LOD4 counts (4x4x1 groups)
@@ -469,7 +491,7 @@ public:
                         int gx = x / 4, gy = y / 4, gz = z;
                         int idx = LODCountStorage::getIndex(gx, gy, gz, 8);
                         if (isSolid) counts.lod4[idx].solidCount++;
-                        counts.lod4[idx].materialCounts[packedMat]++;
+                        counts.lod4[idx].materialCounts.add(packedMat);
                     }
 
                     // Update LOD8 counts (8x8x1 groups)
@@ -477,7 +499,7 @@ public:
                         int gx = x / 8, gy = y / 8, gz = z;
                         int idx = LODCountStorage::getIndex(gx, gy, gz, 4);
                         if (isSolid) counts.lod8[idx].solidCount++;
-                        counts.lod8[idx].materialCounts[packedMat]++;
+                        counts.lod8[idx].materialCounts.add(packedMat);
                     }
 
                     // Update LOD16 counts (16x16x1 groups)
@@ -485,7 +507,7 @@ public:
                         int gx = x / 16, gy = y / 16, gz = z;
                         int idx = LODCountStorage::getIndex(gx, gy, gz, 2);
                         if (isSolid) counts.lod16[idx].solidCount++;
-                        counts.lod16[idx].materialCounts[packedMat]++;
+                        counts.lod16[idx].materialCounts.add(packedMat);
                     }
 
                     // Update LOD32 counts (32x32x1 groups)
@@ -493,7 +515,7 @@ public:
                         int gx = 0, gy = 0, gz = z; // Only one group in XY
                         int idx = LODCountStorage::getIndex(gx, gy, gz, 1);
                         if (isSolid) counts.lod32[idx].solidCount++;
-                        counts.lod32[idx].materialCounts[packedMat]++;
+                        counts.lod32[idx].materialCounts.add(packedMat);
                     }
                 }
             }
@@ -520,8 +542,6 @@ public:
         generateLODFromCountsRaw<8 >(counts.lod8, voxelData8, *rawMaterialData8, 4);
         generateLODFromCountsRaw<16>(counts.lod16, voxelData16, *rawMaterialData16, 2);
         generateLODFromCountsRaw<32>(counts.lod32, voxelData32, *rawMaterialData32, 1);
-
-        // leave encoding to your existing encodeMaterialDataLOD* calls later
     }
 
     template<size_t N>
@@ -1052,7 +1072,7 @@ private:
 
         // keep thresholds identical to your previous logic
         const float threshold = 0.75f;
-        const int solidThreshold = static_cast<int>(threshold * static_cast<float>(CHUNK_SIZE));
+        const int voxelsInGroup = (LOD * LOD);
 
         for (int x = 0; x < xySize; ++x) {
             for (int y = 0; y < xySize; ++y) {
@@ -1061,7 +1081,7 @@ private:
                     const auto& group = lodCounts[idx];
 
                     const int voxelsInGroup = (LOD * LOD * 1);
-                    const bool makeSolid = group.solidCount > (voxelsInGroup / solidThreshold);
+                    const bool makeSolid = group.solidCount >= int(std::ceil(threshold * voxelsInGroup));
                     if (makeSolid) {
                         setVoxelBitDownscaled(solidData, x, y, z, LOD, true);
                     }
@@ -1879,11 +1899,21 @@ public:
         //    }
         //}
 
+        std::optional<TextureInfo> ti = texc->getTextureInfo("height");
+        int width = 1024;
+        int height = 1024;
+        if (ti.has_value()) {
+            width = ti.value().width;
+            height = ti.value().height;
+        }
+        int offsetx = width / 2;
+        int offsety = height / 2;
+
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = texc->getTexelAtPosition("height", x + position.x, y + position.y, 2.0f).b;
-                int targetHeight = static_cast<int>(height * 500.0f + 50.0f);
+                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 3.0f).b;
+                int targetHeight = static_cast<int>(height * 750.0f - 150.0f);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
