@@ -3099,6 +3099,12 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (lodLevel > 1) {
+                                if (isGrassBillboard(base.materialType)) {
+                                    continue;
+                                }
+                            }
+                            
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3170,6 +3176,12 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (lodLevel > 1) {
+                                if (isGrassBillboard(base.materialType)) {
+                                    continue;
+                                }
+                            }
+                            
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3241,6 +3253,12 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+                            if (lodLevel > 1) {
+                                if (isGrassBillboard(base.materialType)) {
+                                    continue;
+                                }
+                            }
+                            
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3307,6 +3325,12 @@ public:
                         if (!getVoxelDownscaledDirect(lodLevel, x, y, worldZ)) continue;
 
                         UnpackedVoxelMaterial baseMat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
+
+                        if (lodLevel > 1) {
+                            if (isGrassBillboard(baseMat.materialType)) {
+                                continue;
+                            }
+                        }
 
                         // Check material type matches the current pass
                         if (asWater && !isWaterBlock(baseMat.materialType)) continue;
