@@ -298,11 +298,11 @@ private:
             int m = 0; for (int i = 1; i < n; i++) if (cnt[i] < cnt[m]) m = i;
             key[m] = k; cnt[m] = 1;
         }
-        uint16_t dominant(float thr, int total) const {
+        std::pair<uint16_t, int> dominant(float thr, int total) const {
             int need = int(std::ceil(thr * total));
             int best = -1, id = -1;
             for (int i = 0; i < n; i++) { if (cnt[i] > best) { best = cnt[i]; id = i; } }
-            return (best >= need) ? key[id] : key[id];
+            return {key[id], id};
         }
     };
 
@@ -355,7 +355,29 @@ private:
         //}
 
         uint16_t getDominantMaterial(float threshold = 0.5f) const {
-            return materialCounts.dominant(threshold, solidCount);
+            auto m = materialCounts.dominant(threshold, solidCount);
+            int count = m.second;
+            uint16_t material = m.first;
+
+            if (material == BlockType::Grass) {
+                if (count > 4) {
+                    return BlockType::Grass;
+                }
+            }
+
+            if (material == BlockType::Log) {
+                if (count > 2) {
+                    return BlockType::Log;
+                }
+            }
+
+            if (material == BlockType::SpruceLog) {
+                if (count > 2) {
+                    return BlockType::SpruceLog;
+                }
+            }
+
+            return material;
         }
     };
 
@@ -1902,8 +1924,8 @@ public:
         int width = 1024;
         int height = 1024;
         if (ti.has_value()) {
-            width = ti.value().width;
-            height = ti.value().height;
+            width = ti.value().width / 2;
+            height = ti.value().height / 2;
         }
         int offsetx = width / 2;
         int offsety = height / 2;
@@ -1911,8 +1933,8 @@ public:
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 3.0f).b;
-                int targetHeight = static_cast<int>(height * 750.0f - 150.0f);
+                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 0.5f).b;
+                int targetHeight = static_cast<int>(height * 300.0f + 150.0f);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
@@ -3301,7 +3323,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 1) {
+                            if (lodLevel > 2) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3378,7 +3400,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 1) {
+                            if (lodLevel > 2) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3455,7 +3477,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 1) {
+                            if (lodLevel > 2) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3528,7 +3550,7 @@ public:
 
                         UnpackedVoxelMaterial baseMat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
 
-                        if (lodLevel > 1) {
+                        if (lodLevel > 2) {
                             if (isGrassBillboard(baseMat.materialType)) {
                                 continue;
                             }
