@@ -24,7 +24,7 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/height_blend1.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap6.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
@@ -322,6 +322,7 @@ void Application::MainLoop() {
         uniforms.projectionMatrix, lightViewCPU, lightProjCPU, buf);
 
     renderImGUI();
+    // this function writes the uniforms
     gpu.renderFrame(uniforms, renderData);
 
     // Calculate frame time

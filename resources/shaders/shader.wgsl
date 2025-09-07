@@ -1129,7 +1129,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
 
-    uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+    uv = clamp(uv, vec2f(0.02), vec2f(0.98));
 
     if (materialProps.textureType != LARGE_TILE) { // Large tile handles its own UV scaling
     // Determine which axes correspond to UV based on face normal
@@ -1178,6 +1178,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     }
 
     let world_position = uMyUniforms.modelMatrix * vec4f(relative_position, 1.0);
+    let world_position_abs = uMyUniforms.modelMatrix * vec4f(position, 1.0);
     let view_position = uMyUniforms.viewMatrix * world_position;
 
     out.highlighted = 0.0;
@@ -1204,7 +1205,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.position = uMyUniforms.projectionMatrix * view_position;
     out.normal = normalize((uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz);
     out.uv = uv;
-    out.world_position = relative_position.xyz;
+    out.world_position = world_position_abs.xyz;
     out.ao = ao;
     out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));       
     out.voxel_pos = voxel_pos;

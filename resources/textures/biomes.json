@@ -1,0 +1,17 @@
+{
+  "biomes": [
+    {
+      "id": 0,
+      "name": "Mountain Forest",
+      "heightmap": "heightmap3.png",
+      "textures": [
+        [[0, 0.1], ["Limestone"]],
+        [[0, 0.1], ["Limestone"]],
+        [[0, 0.1], ["Limestone"]],
+        [[0, 0.1], ["Limestone"]],
+        [[0, 0.1], ["Limestone"]],
+        
+      ]
+    }
+  ]
+}

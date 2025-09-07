@@ -812,7 +812,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // Calculate UV for alpha testing
     var uv = modelDataArray[materialProps.modelOffset + data.vertex_index].uvs[vertexInFace];
     
-    uv = clamp(uv, vec2f(0.01), vec2f(0.99));
+    uv = clamp(uv, vec2f(0.02), vec2f(0.98));
     
     if (materialProps.textureType != LARGE_TILE) { // Large tile handles its own UV scaling
     // Determine which axes correspond to UV based on face normal

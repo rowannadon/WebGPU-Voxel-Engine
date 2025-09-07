@@ -501,27 +501,28 @@ public:
     }
 
     void generateDownscaledFromCounts(const LODCountStorage& counts) {
-        // Generate LOD2 data
-        generateLODFromCounts<2>(counts.lod2, voxelData2,
-            encodedMaterialData2, 16);
+        // ensure raw arrays exist and mark them as decoded so *Fast() paths are used
+        if (!rawMaterialData2)   rawMaterialData2 = std::make_unique<std::array<uint16_t, (CHUNK_SIZE / 2)* (CHUNK_SIZE / 2)* COLUMN_HEIGHT_BLOCKS>>();
+        if (!rawMaterialData4)   rawMaterialData4 = std::make_unique<std::array<uint16_t, (CHUNK_SIZE / 4)* (CHUNK_SIZE / 4)* COLUMN_HEIGHT_BLOCKS>>();
+        if (!rawMaterialData8)   rawMaterialData8 = std::make_unique<std::array<uint16_t, (CHUNK_SIZE / 8)* (CHUNK_SIZE / 8)* COLUMN_HEIGHT_BLOCKS>>();
+        if (!rawMaterialData16)  rawMaterialData16 = std::make_unique<std::array<uint16_t, (CHUNK_SIZE / 16)* (CHUNK_SIZE / 16)* COLUMN_HEIGHT_BLOCKS>>();
+        if (!rawMaterialData32)  rawMaterialData32 = std::make_unique<std::array<uint16_t, (CHUNK_SIZE / 32)* (CHUNK_SIZE / 32)* COLUMN_HEIGHT_BLOCKS>>();
 
-        // Generate LOD4 data
-        generateLODFromCounts<4>(counts.lod4, voxelData4,
-            encodedMaterialData4, 8);
+        materialDataDecoded2 = true;
+        materialDataDecoded4 = true;
+        materialDataDecoded8 = true;
+        materialDataDecoded16 = true;
+        materialDataDecoded32 = true;
 
-        // Generate LOD8 data
-        generateLODFromCounts<8>(counts.lod8, voxelData8,
-            encodedMaterialData8, 4);
+        // fill solids + raw material data (no encoding)
+        generateLODFromCountsRaw<2 >(counts.lod2, voxelData2, *rawMaterialData2, 16);
+        generateLODFromCountsRaw<4 >(counts.lod4, voxelData4, *rawMaterialData4, 8);
+        generateLODFromCountsRaw<8 >(counts.lod8, voxelData8, *rawMaterialData8, 4);
+        generateLODFromCountsRaw<16>(counts.lod16, voxelData16, *rawMaterialData16, 2);
+        generateLODFromCountsRaw<32>(counts.lod32, voxelData32, *rawMaterialData32, 1);
 
-        // Generate LOD16 data
-        generateLODFromCounts<16>(counts.lod16, voxelData16,
-            encodedMaterialData16, 2);
-
-        // Generate LOD32 data
-        generateLODFromCounts<32>(counts.lod32, voxelData32,
-            encodedMaterialData32, 1);
+        // leave encoding to your existing encodeMaterialDataLOD* calls later
     }
-
 
     template<size_t N>
     int sampleFromDistribution(uint32_t hash, const std::array<ProbabilityConfig, N>& config) {
@@ -648,7 +649,7 @@ public:
         int scaledX = worldPos.x / lodLevel;
         int scaledY = worldPos.y / lodLevel;
 
-        return getMaterialDownscaled(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
+        return getMaterialDownscaledFast(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
     }
 
     bool getVoxelDownscaledPublicAtLOD(int lodLevel, ivec3 worldPos) const {
@@ -670,7 +671,7 @@ public:
         return getVoxelDownscaledDirect(lodLevel, scaledX, scaledY, z);
     }
 
-    UnpackedVoxelMaterial getMaterialDownscaledPublicAtLOD(int lodLevel, ivec3 worldPos) const {
+    UnpackedVoxelMaterial getMaterialDownscaledPublicAtLOD(int lodLevel, ivec3 worldPos) {
         // Handle LOD1 (full resolution) specially
         if (lodLevel == 1) {
             if (worldPos.x < 0 || worldPos.x >= CHUNK_SIZE ||
@@ -678,14 +679,14 @@ public:
                 worldPos.z < 0 || worldPos.z >= COLUMN_HEIGHT_BLOCKS) {
                 return UnpackedVoxelMaterial{ BlockType::Air, FacingDirection::PlusX };
             }
-            return getMaterialWholeColumnCompressed(worldPos);
+            return getMaterialFast(worldPos);
         }
 
         // For downscaled LODs
         int scaledX = worldPos.x / lodLevel;
         int scaledY = worldPos.y / lodLevel;
 
-        return getMaterialDownscaled(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
+        return getMaterialDownscaledFast(lodLevel, ivec3(scaledX, scaledY, worldPos.z));
     }
 
 private:
@@ -814,7 +815,7 @@ private:
     void decodeMaterialDataLOD(int lodLevel) {
         switch (lodLevel) {
         case 1:
-            decodeAllMaterialData();
+            decodeMaterialDataBase();
             break;
         case 2:
             decodeMaterialDataLOD2();
@@ -1037,6 +1038,40 @@ private:
         materialDataDecoded32 = false;
     }
 
+
+    template<int LOD>
+    void generateLODFromCountsRaw(
+        const std::vector<LODGroupCounts>& lodCounts,
+        uint64_t* solidData,
+        std::array<uint16_t, (CHUNK_SIZE / LOD)* (CHUNK_SIZE / LOD)* COLUMN_HEIGHT_BLOCKS>& outRaw,
+        int xySize)
+    {
+        // clear solid bitfield for this LOD
+        const int totalUint64s = xySize * xySize * UINT64S_PER_COLUMN;
+        std::memset(solidData, 0, totalUint64s * sizeof(uint64_t));
+
+        // keep thresholds identical to your previous logic
+        const float threshold = 0.75f;
+        const int solidThreshold = static_cast<int>(threshold * static_cast<float>(CHUNK_SIZE));
+
+        for (int x = 0; x < xySize; ++x) {
+            for (int y = 0; y < xySize; ++y) {
+                for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; ++z) {
+                    const int idx = LODCountStorage::getIndex(x, y, z, xySize);
+                    const auto& group = lodCounts[idx];
+
+                    const int voxelsInGroup = (LOD * LOD * 1);
+                    const bool makeSolid = group.solidCount > (voxelsInGroup / solidThreshold);
+                    if (makeSolid) {
+                        setVoxelBitDownscaled(solidData, x, y, z, LOD, true);
+                    }
+
+                    const uint16_t mat = group.getDominantMaterial(threshold);
+                    outRaw[getMaterialIndexLOD(x, y, z, LOD)] = mat;
+                }
+            }
+        }
+    }
 
     template<int LOD>
     void generateLODFromCounts(const std::vector<LODGroupCounts>& lodCounts,
@@ -1349,6 +1384,13 @@ private:
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             uploadMesh(i, buf);
         }
+
+        for (int i = 0; i < COLUMN_HEIGHT; i++) {
+            for (int lodLevel = 0; lodLevel < 12; lodLevel++) {
+                faceData[lodLevel][i].clear();
+                faceData[lodLevel][i].shrink_to_fit();
+            }
+        }
     }
 
     void initializeChunkDataBuffer(const int zPos, BufferManager* buf) {
@@ -1532,7 +1574,7 @@ public:
     }
 
     // Method to decode all material data at once
-    void decodeAllMaterialData() {
+    void decodeMaterialDataBase() {
         if (materialDataDecoded) return; // Already decoded
 
         //std::lock_guard<std::mutex> lock(materialDataMutex);
@@ -1561,7 +1603,7 @@ public:
     }
 
     // Method to encode all material data at once
-    void encodeAllMaterialData() {
+    void encodeMaterialDataBase() {
         if (!materialDataDecoded || !rawMaterialData) return; // Nothing to encode
 
         //std::lock_guard<std::mutex> lock(materialDataMutex);
@@ -1613,7 +1655,9 @@ public:
         }
 
         if (!materialDataDecoded || !rawMaterialData) {
-            decodeAllMaterialData(); // allocate & populate if needed
+            std::cout << "material data not decoded, trying to access\n";
+
+            decodeMaterialDataBase(); // allocate & populate if needed
         }
 
         const PackedVoxelMaterial packed = packMaterialData(material);
@@ -1705,15 +1749,15 @@ public:
     }
 
     void beginMaterialEditing() {
-        decodeAllMaterialData();      // LOD1
+        decodeMaterialDataBase();      // LOD1
     }
 
     void finishMaterialEditing() {
-        encodeAllMaterialData();       // LOD1
+        encodeMaterialDataBase();       // LOD1
     }
 
     void beginAllMaterialEditing() {
-        decodeAllMaterialData();      // LOD1
+        decodeMaterialDataBase();      // LOD1
         decodeMaterialDataLOD2();      // LOD2
         decodeMaterialDataLOD4();      // LOD4
         decodeMaterialDataLOD8();      // LOD8
@@ -1722,7 +1766,7 @@ public:
     }
 
     void finishAllMaterialEditing() {
-        encodeAllMaterialData();      // Always call these
+        encodeMaterialDataBase();      // Always call these
         encodeMaterialDataLOD2();
         encodeMaterialDataLOD4();
         encodeMaterialDataLOD8();
@@ -1838,8 +1882,8 @@ public:
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = texc->getTexelAtPosition("height", x + position.x, y + position.y).b;
-                int targetHeight = static_cast<int>(height * 200.0f + 250.0f);
+                float height = texc->getTexelAtPosition("height", x + position.x, y + position.y, 2.0f).b;
+                int targetHeight = static_cast<int>(height * 500.0f + 50.0f);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
@@ -1869,21 +1913,41 @@ public:
                 faceIndex = 0; // Right neighbor
                 neighborPos.x = pos.x - CHUNK_SIZE;
             }
-            if (pos.x < 0) {
+            else if (pos.x < 0) {
                 faceIndex = 1; // Left neighbor
                 neighborPos.x = CHUNK_SIZE + pos.x;
             }
-            if (pos.y >= CHUNK_SIZE) {
+            else if (pos.y >= CHUNK_SIZE) {
                 faceIndex = 2; // Front neighbor
                 neighborPos.y = pos.y - CHUNK_SIZE;
             }
-            if (pos.y < 0) {
+            else if (pos.y < 0) {
                 faceIndex = 3; // Back neighbor
                 neighborPos.y = CHUNK_SIZE + pos.y;
             }
+            else if (pos.x < 0 && pos.y < 0) {
+                faceIndex = 7;
+                neighborPos.x = CHUNK_SIZE + pos.x;
+                neighborPos.y = CHUNK_SIZE + pos.y;
+            }
+            else if (pos.x < 0 && pos.y >= CHUNK_SIZE) {
+                faceIndex = 6;
+                neighborPos.x = CHUNK_SIZE + pos.x;
+                neighborPos.y = pos.y - CHUNK_SIZE;
+            }
+            else if (pos.x >= CHUNK_SIZE && pos.y < 0) {
+                faceIndex = 5;
+                neighborPos.x = pos.x - CHUNK_SIZE;
+                neighborPos.y = CHUNK_SIZE + pos.y;
+            }
+            else if (pos.x >= CHUNK_SIZE && pos.y >= CHUNK_SIZE) {
+                faceIndex = 4;
+                neighborPos.x = pos.x - CHUNK_SIZE;
+                neighborPos.y = pos.y - CHUNK_SIZE;
+            }
 
             // Check neighbor chunk if available
-            if (faceIndex >= 0 && faceIndex < 6 && neighbors[faceIndex] != nullptr) {
+            if (faceIndex >= 0 && faceIndex < 8 && neighbors[faceIndex] != nullptr) {
                 // Check if neighbor is still valid
                 if (neighbors[faceIndex]->getState() == ColumnState::Unloading) {
                     return false; // Treat as empty if neighbor is being unloaded
@@ -1972,15 +2036,15 @@ public:
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
-                    int waterLevel = 255;
+                    int waterLevel = 100;
                     UnpackedVoxelMaterial material;
                     material.facing = FacingDirection::PlusZ;
                     if (getVoxelWholeColumn(ivec3(x, y, z))) {
                         ivec3 pos = ivec3(position.x, position.y, 0) + ivec3(x, y, z);
-                        float noiseValue = worldGen.sample3D2(pos);
+                        float noiseValue = -0.9;// worldGen.sample3D2(pos);
 
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = BlockType::RedRock;
+                            material.materialType = BlockType::LimestoneWhite;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
                             material.materialType = BlockType::RedRock;
@@ -2016,8 +2080,8 @@ public:
                         setMaterialFast(ivec3(x, y, z), material);
 
                         // Check if this voxel has air above it (surface detection)
-                        ivec3 positionAbove = ivec3(x, y, z + 1);
-                        bool isAtSurface = !isVoxelSolid(positionAbove);
+                        //ivec3 positionAbove = ivec3(x, y, z + 1);
+                        //bool isAtSurface = !isVoxelSolid(positionAbove);
 
                         // NEW: Check if this voxel is exposed to air in any direction
                         bool isExposed = isExposedToAir(ivec3(x, y, z));
@@ -2113,8 +2177,30 @@ public:
                                 material.materialType = BlockType::LimestoneOrange;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
+
+                            if (material.materialType == BlockType::Grass || material.materialType == BlockType::GrassFlowers) {
+                                ivec3 grassPos = ivec3(x, y, z + 1);
+
+                                if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+
+                                    static const std::array<ProbabilityConfig, 5> config = { {
+                                        { 0,     0.04f},
+                                        { 1,     0.33f},
+                                        { 2,     0.33f},
+                                        { 3,     0.15f},
+                                        { 4,     0.15f}
+                                    } };
+
+                                    GrassDataPoint gdp;
+                                    gdp.basePos = grassPos;
+                                    gdp.type = sampleFromDistribution(blockHash, config);;
+
+                                    grassPositions.push_back(gdp);
+                                }
+                            }
+
                         }
-                        else if (isAtSurface && z > waterLevel - 2) {
+                        else if (isExposed && z > waterLevel - 2) {
                             UnpackedVoxelMaterial material;
                             material.facing = FacingDirection::PlusZ;
                             material.materialType = BlockType::Sand;
@@ -3821,8 +3907,6 @@ public:
         bool success = true;
         std::array<std::shared_ptr<ChunkColumn>, 4> neighbors = { nullptr };
         std::copy(neighbors8.begin(), neighbors8.begin() + 4, neighbors.begin());
-
-        beginAllMaterialEditing();
 
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             if (getChunkState(i) == ChunkState::NoMesh) {
