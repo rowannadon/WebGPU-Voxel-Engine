@@ -1,4 +1,3 @@
-// Updated ChunkColumn.h with Variable Size Class Support
 #ifndef CHUNK_COL
 #define CHUNK_COL
 
@@ -407,11 +406,11 @@ private:
     int currentLODLevel = 0;
 
 public:
-    ChunkColumn(const ivec2& i = ivec2(0), 
-        TextureManager *tx = nullptr, 
+    ChunkColumn(const ivec2& i = ivec2(0),
+        TextureManager* tx = nullptr,
         StructureManager* sm = nullptr,
         TextureManagerCPU* txc = nullptr,
-        ModelManager *mod = nullptr) : id(i), structureManager(sm), tex(tx), modelManager(mod), texc(txc) {
+        ModelManager* mod = nullptr) : id(i), structureManager(sm), tex(tx), modelManager(mod), texc(txc) {
 
         position = id * CHUNK_SIZE;
         worldGen.initialize(1234);
@@ -732,7 +731,7 @@ private:
             t == BlockType::Grass4 ||
             t == BlockType::Bush ||
             t == BlockType::Grass5;
-        }
+    }
 
     // Material classification helpers
     bool isSolidBlock(BlockType type) const {
@@ -1292,7 +1291,7 @@ private:
         // Create a vector of indices paired with distances for sorting
         std::vector<std::pair<float, int>> daicDistances;
         daicDistances.reserve(COLUMN_HEIGHT);
-        
+
         // Collect valid DAICs and calculate distances
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
             if (daics[i].has_value()) {
@@ -1302,16 +1301,16 @@ private:
                 daicDistances.emplace_back(distanceSquared, i);
             }
         }
-        
+
         // Sort by distance in descending order (furthest first for back-to-front rendering)
         std::sort(daicDistances.begin(), daicDistances.end(),
-                  [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
-                      return a.first > b.first; // Descending order
-                  });
-        
+            [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                return a.first > b.first; // Descending order
+            });
+
         // Clear the sorted array and repopulate in sorted order
         sortedDaics.fill(std::nullopt);
-        
+
         // Place sorted DAICs back into the array maintaining original indices for rendering order
         for (size_t sortedIdx = 0; sortedIdx < daicDistances.size(); sortedIdx++) {
             int originalIdx = daicDistances[sortedIdx].second;
@@ -1575,7 +1574,7 @@ public:
         int zPos = z / CHUNK_HEIGHT;  // Which chunk in the column
         if (zPos >= COLUMN_HEIGHT) return;
 
-        
+
 
         bool currentValue = getVoxelBit(voxelData, x, y, z);
 
@@ -2324,7 +2323,7 @@ public:
             }
 
             Structure s = structureManager->getStructure(name, rotation);
-            if (s.empty()) { 
+            if (s.empty()) {
                 std::cerr << "No structure data to place";
                 return;
             };
@@ -2341,7 +2340,7 @@ public:
                 setVoxelWholeColumn(p, true);
                 setMaterialFast(p, UnpackedVoxelMaterial{ v.mappedMaterial, FacingDirection::PlusZ });
             }
-        };
+            };
 
         // 1. Generate trees that are rooted in THIS chunk.
         for (const auto tree : treeData) {
@@ -2653,109 +2652,154 @@ public:
         }
     }
 
-    void generateFaceMasks(int zPos, ChunkBitCaches& cache) {
-        // Clear face masks
+    void generateFaceMasks(int /*zPos*/, ChunkBitCaches& cache) {
+        // Clear output masks
         std::memset(cache.solidFaceMasks, 0, sizeof(cache.solidFaceMasks));
         std::memset(cache.waterFaceMasks, 0, sizeof(cache.waterFaceMasks));
         std::memset(cache.foliageFaceMasks, 0, sizeof(cache.foliageFaceMasks));
 
-        // Generate masks with proper material-based culling
-        for (int x = 0; x < CHUNK_SIZE; x++) {
-            for (int y = 0; y < CHUNK_SIZE; y++) {
-                for (int z = 0; z < CHUNK_HEIGHT; z++) {
-                    // Check current voxel in bit cache (offset by 1 for padding)
-                    int cacheX = x + 1;
-                    int cacheY = y + 1;
-                    int cacheZ = z + 1;
+        // Strip Z-padding (bit 0 and 63) when we create column-based masks.
+        constexpr uint64_t P_MASK = ~(1ull << 63 | 1ull);
 
-                    int idx = cacheX + cacheY * BC_SIZE;
-                    bool currentSolid = (cache.solid[idx] >> cacheZ) & 1;
-                    bool currentWater = (cache.water[idx] >> cacheZ) & 1;
-                    bool currentFoliage = (cache.foliage[idx] >> cacheZ) & 1;
+        // We only keep 32 inner X/Y bits (positions 1..32 in the padded row become 0..31 here)
+        constexpr uint64_t XY32_MASK = (CHUNK_SIZE == 32) ? 0xFFFFFFFFull : ((1ull << CHUNK_SIZE) - 1);
 
-                    // Skip if no voxel here
-                    if (!currentSolid && !currentWater && !currentFoliage) continue;
+        // Helpers for portable ctz on 64-bit
+        auto ctz64 = [](uint64_t v) -> int {
+#ifdef _MSC_VER
+            unsigned long idx;
+            _BitScanForward64(&idx, v);
+            return (int)idx;
+#else
+            return __builtin_ctzll(v);
+#endif
+            };
 
-                    // Check each face for visibility
-                    for (int face = 0; face < 6; face++) {
-                        int neighCacheX = cacheX;
-                        int neighCacheY = cacheY;
-                        int neighCacheZ = cacheZ;
+        // ------------------------------------------------------------
+        // X faces (face 0:+X, face 1:-X) — process whole (y,z) rows at once
+        // Row format for these faces in your masks: one 64-bit per (y,z), bits across X
+        // index: row = y*CHUNK_HEIGHT + z, bitPos=x
+        // ------------------------------------------------------------
+        for (int y = 1; y <= CHUNK_SIZE; ++y) {
+            for (int z = 1; z <= CHUNK_HEIGHT; ++z) {
+                const int rowIdx = (y - 1) * CHUNK_HEIGHT + (z - 1);
 
-                        // Adjust cache position based on face
-                        switch (face) {
-                        case 0: neighCacheX++; break; // +X
-                        case 1: neighCacheX--; break; // -X
-                        case 2: neighCacheY++; break; // +Y
-                        case 3: neighCacheY--; break; // -Y
-                        case 4: neighCacheZ++; break; // +Z
-                        case 5: neighCacheZ--; break; // -Z
-                        }
+                // Swizzled rows across X for this (y,z). Each bit position is an x index in [0..BC_SIZE-1].
+                const uint64_t sRow = cache.solidY[y * BC_HEIGHT + z];
+                const uint64_t wRow = cache.waterY[y * BC_HEIGHT + z];
+                const uint64_t fRow = cache.foliageY[y * BC_HEIGHT + z];
 
-                        bool shouldRenderFace = false;
+                // +X : current & ~neighbor(x+1)
+                uint64_t s_px = (sRow & ~(sRow >> 1)) >> 1;                          // map x in [1..32] -> [0..31]
+                uint64_t w_px = (wRow & ~((wRow >> 1) | (cache.solidY[y * BC_HEIGHT + z] >> 1))) >> 1;
+                uint64_t f_px = (fRow >> 1);                                         // foliage: no culling, always draw
 
-                        // Check neighbor in bit cache
-                        if (neighCacheX >= 0 && neighCacheX < BC_SIZE &&
-                            neighCacheY >= 0 && neighCacheY < BC_SIZE &&
-                            neighCacheZ >= 0 && neighCacheZ < BC_HEIGHT) {
+                // -X : current & ~neighbor(x-1)
+                uint64_t s_mx = (sRow & ~(sRow << 1)) >> 1;
+                uint64_t w_mx = (wRow & ~((wRow << 1) | (cache.solidY[y * BC_HEIGHT + z] << 1))) >> 1;
+                uint64_t f_mx = (fRow >> 1);
 
-                            int neighIdx = neighCacheX + neighCacheY * BC_SIZE;
-                            bool neighborSolid = (cache.solid[neighIdx] >> neighCacheZ) & 1;
-                            bool neighborWater = (cache.water[neighIdx] >> neighCacheZ) & 1;
-                            bool neighborFoliage = (cache.foliage[neighIdx] >> neighCacheZ) & 1;
+                s_px &= XY32_MASK; w_px &= XY32_MASK; f_px &= XY32_MASK;
+                s_mx &= XY32_MASK; w_mx &= XY32_MASK; f_mx &= XY32_MASK;
 
-                            if (currentSolid) {
-                                // Solid blocks only render faces against non-solid blocks
-                                shouldRenderFace = !neighborSolid || neighborFoliage;
-                            }
-                            else if (currentWater) {
-                                // Water only renders against non-water
-                                shouldRenderFace = !neighborWater && !neighborSolid;
-                            }
-                            else if (currentFoliage) {
-                                // Foliage always renders (or against non-foliage/solid)
-                                shouldRenderFace = !neighborSolid || !neighborFoliage;
-                            }
-                        }
-                        else {
-                            // Out of bounds = render face
-                            shouldRenderFace = true;
-                        }
+                cache.solidFaceMasks[0 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = s_px;
+                cache.waterFaceMasks[0 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = w_px;
+                cache.foliageFaceMasks[0 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = f_px;
 
-                        // Set the appropriate face mask bit
-                        if (shouldRenderFace) {
-                            uint64_t* targetMasks = nullptr;
-                            if (currentSolid) targetMasks = cache.solidFaceMasks;
-                            else if (currentWater) targetMasks = cache.waterFaceMasks;
-                            else if (currentFoliage) targetMasks = cache.foliageFaceMasks;
+                cache.solidFaceMasks[1 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = s_mx;
+                cache.waterFaceMasks[1 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = w_mx;
+                cache.foliageFaceMasks[1 * CHUNK_SIZE * CHUNK_HEIGHT + rowIdx] = f_mx;
+            }
+        }
 
-                            if (targetMasks) {
-                                if (face < 4) {
-                                    // X/Y faces - unchanged
-                                    int faceIdx;
-                                    int bitPos;
+        // ------------------------------------------------------------
+        // Y faces (face 2:+Y, face 3:-Y)
+        // Mask layout for these faces is transposed: one 64-bit per (x,z), bits across Y.
+        // We'll still compute entire (y,z) rows across X using the swizzle, then
+        // deposit the set bits into the (x,z)-rows by setting bit (y-1).
+        // ------------------------------------------------------------
+        for (int y = 1; y <= CHUNK_SIZE; ++y) {
+            const int yPrev = y - 1;       // padded line
+            const int yNext = y + 1;       // padded line
+            for (int z = 1; z <= CHUNK_HEIGHT; ++z) {
+                const uint64_t s_here = cache.solidY[y * BC_HEIGHT + z];
+                const uint64_t s_prev = cache.solidY[yPrev * BC_HEIGHT + z];
+                const uint64_t s_next = cache.solidY[yNext * BC_HEIGHT + z];
 
-                                    if (face == 0 || face == 1) { // X faces
-                                        faceIdx = y * CHUNK_HEIGHT + z;
-                                        bitPos = x;
-                                    }
-                                    else { // Y faces
-                                        faceIdx = x * CHUNK_HEIGHT + z;
-                                        bitPos = y;
-                                    }
+                const uint64_t w_here = cache.waterY[y * BC_HEIGHT + z];
+                const uint64_t w_prev = cache.waterY[yPrev * BC_HEIGHT + z];
+                const uint64_t w_next = cache.waterY[yNext * BC_HEIGHT + z];
 
-                                    targetMasks[face * CHUNK_SIZE * CHUNK_HEIGHT + faceIdx] |= (1ULL << bitPos);
-                                }
-                                else {
-                                    // Z faces - FIXED indexing
-                                    int faceIdx = x * CHUNK_SIZE + y;
-                                    int baseOffset = 4 * CHUNK_SIZE * CHUNK_HEIGHT + (face - 4) * CHUNK_SIZE * CHUNK_SIZE;
-                                    targetMasks[baseOffset + faceIdx] |= (1ULL << z);
-                                }
-                            }
-                        }
+                const uint64_t f_here = cache.foliageY[y * BC_HEIGHT + z];
+
+                // Across X, mark all positions that need a +Y face (neighbor at y+1 is empty for that material)
+                uint64_t s_py_bits = (s_here & ~s_next) >> 1;                                     // -> x in [0..31]
+                uint64_t w_py_bits = (w_here & ~(w_next | s_next)) >> 1;                          // water culled by water OR solid
+                uint64_t f_py_bits = (f_here >> 1);                                               // foliage: always draw
+
+                // Similarly for -Y faces (neighbor at y-1)
+                uint64_t s_my_bits = (s_here & ~s_prev) >> 1;
+                uint64_t w_my_bits = (w_here & ~(w_prev | s_prev)) >> 1;
+                uint64_t f_my_bits = (f_here >> 1);
+
+                s_py_bits &= XY32_MASK; w_py_bits &= XY32_MASK; f_py_bits &= XY32_MASK;
+                s_my_bits &= XY32_MASK; w_my_bits &= XY32_MASK; f_my_bits &= XY32_MASK;
+
+                // Deposit into (x,z)-rows: row index = x*CHUNK_HEIGHT + (z-1), bit position = (y-1)
+                auto deposit = [&](uint64_t bits, uint64_t* dstBase, int face) {
+                    while (bits) {
+                        int xb = ctz64(bits);
+                        bits &= bits - 1;
+                        const int row = xb * CHUNK_HEIGHT + (z - 1);
+                        dstBase[face * CHUNK_SIZE * CHUNK_HEIGHT + row] |= (1ull << (y - 1));
                     }
-                }
+                    };
+
+                deposit(s_py_bits, cache.solidFaceMasks, 2);
+                deposit(w_py_bits, cache.waterFaceMasks, 2);
+                deposit(f_py_bits, cache.foliageFaceMasks, 2);
+
+                deposit(s_my_bits, cache.solidFaceMasks, 3);
+                deposit(w_my_bits, cache.waterFaceMasks, 3);
+                deposit(f_my_bits, cache.foliageFaceMasks, 3);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // Z faces (face 4:+Z, face 5:-Z) — per (x,y) column, all z-bits at once
+        // Mask layout for these faces: one 64-bit per (x,y), bits across Z (0..61)
+        // ------------------------------------------------------------
+        const int base4 = 4 * CHUNK_SIZE * CHUNK_HEIGHT; // start of Z faces
+        for (int x = 1; x <= CHUNK_SIZE; ++x) {
+            for (int y = 1; y <= CHUNK_SIZE; ++y) {
+                const int colIdx = x + y * BC_SIZE; // padded XY index
+
+                const uint64_t sCol_raw = cache.solid[colIdx];
+                const uint64_t wCol_raw = cache.water[colIdx];
+                const uint64_t fCol_raw = cache.foliage[colIdx];
+
+                const uint64_t sCol = sCol_raw & P_MASK; // strip end-caps, but keep raw for shifts
+                const uint64_t wCol = wCol_raw & P_MASK;
+                const uint64_t fCol = fCol_raw & P_MASK;
+
+                // Align interior bits [1..62] -> [0..61] so z-bit matches z-index (0..61)
+                const uint64_t s_pz = (sCol & ~(sCol_raw >> 1)) >> 1;
+                const uint64_t w_pz = (wCol & ~((wCol_raw >> 1) | (sCol_raw >> 1))) >> 1;
+                const uint64_t f_pz = (fCol) >> 1;
+
+                const uint64_t s_mz = (sCol & ~(sCol_raw << 1)) >> 1;
+                const uint64_t w_mz = (wCol & ~((wCol_raw << 1) | (sCol_raw << 1))) >> 1;
+                const uint64_t f_mz = (fCol) >> 1;
+
+                const int xy = (x - 1) * CHUNK_SIZE + (y - 1);
+
+                cache.solidFaceMasks[base4 + 0 * CHUNK_SIZE * CHUNK_SIZE + xy] = s_pz;
+                cache.waterFaceMasks[base4 + 0 * CHUNK_SIZE * CHUNK_SIZE + xy] = w_pz;
+                cache.foliageFaceMasks[base4 + 0 * CHUNK_SIZE * CHUNK_SIZE + xy] = f_pz;
+
+                cache.solidFaceMasks[base4 + 1 * CHUNK_SIZE * CHUNK_SIZE + xy] = s_mz;
+                cache.waterFaceMasks[base4 + 1 * CHUNK_SIZE * CHUNK_SIZE + xy] = w_mz;
+                cache.foliageFaceMasks[base4 + 1 * CHUNK_SIZE * CHUNK_SIZE + xy] = f_mz;
             }
         }
     }
@@ -2810,10 +2854,10 @@ public:
         uint64_t* foliageCache = nullptr;
 
         switch (lodLevel) {
-            case 2:  solidCache = lodCache.solid2;  waterCache = lodCache.water2;  foliageCache = lodCache.foliage2;  break;
-            case 4:  solidCache = lodCache.solid4;  waterCache = lodCache.water4;  foliageCache = lodCache.foliage4;  break;
-            case 8:  solidCache = lodCache.solid8;  waterCache = lodCache.water8;  foliageCache = lodCache.foliage8;  break;
-            default: return;
+        case 2:  solidCache = lodCache.solid2;  waterCache = lodCache.water2;  foliageCache = lodCache.foliage2;  break;
+        case 4:  solidCache = lodCache.solid4;  waterCache = lodCache.water4;  foliageCache = lodCache.foliage4;  break;
+        case 8:  solidCache = lodCache.solid8;  waterCache = lodCache.water8;  foliageCache = lodCache.foliage8;  break;
+        default: return;
         }
 
         std::memset(solidCache, 0, paddedSize * paddedSize * sizeof(uint64_t));
@@ -3262,7 +3306,7 @@ public:
                                     continue;
                                 }
                             }
-                            
+
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3339,7 +3383,7 @@ public:
                                     continue;
                                 }
                             }
-                            
+
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3416,7 +3460,7 @@ public:
                                     continue;
                                 }
                             }
-                            
+
                             if (asWater && !isWaterBlock(base.materialType)) continue;
                             if (!asWater && isWaterBlock(base.materialType)) continue;
 
@@ -3661,7 +3705,7 @@ public:
                             // If we get here, it's a regular voxel face, check for greedy meshing
                             bool greedy = blockIsGreedy(baseMat.materialType);
                             if (!greedy) {
-                               // emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
+                                // emitFaceNotGreedy(meshSlot, isWater, x, y, z, face, baseMat);
                                 continue;
                             }
 
@@ -3925,7 +3969,7 @@ public:
                     }
                 }
             }
-        };
+            };
 
         // Solid, Water (transparent)
         processSet(cache.solidFaceMasks,   /*isWater*/false, 0);
