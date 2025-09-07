@@ -22,6 +22,9 @@ bool Application::Initialize() {
     window = gpu.getWindow();
 
     structureManager = std::make_shared<StructureManager>();
+    textureManagerCPU = std::make_shared<TextureManagerCPU>();
+
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/height_blend1.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
@@ -35,7 +38,7 @@ bool Application::Initialize() {
     structureManager->loadStructure("rock4", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));
     //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
 
-    chunkManager.init(tex, buf, structureManager.get(), modelManager);
+    chunkManager.init(tex, buf, structureManager.get(), textureManagerCPU.get(), modelManager);
     registerMovementCallbacks();
 
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();

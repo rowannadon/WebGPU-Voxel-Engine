@@ -9,6 +9,7 @@
 #include "Rendering/WebGPURenderer.h"
 #include "Rendering/StructureManager.h"
 #include "Ray.h"
+#include "TextureManagerCPU.h"
 
 //#include "magic_enum.hpp"
 
@@ -214,6 +215,7 @@ private:
     std::mutex gpuUploadMutex;
 
     std::shared_ptr<StructureManager> structureManager;
+    std::shared_ptr<TextureManagerCPU> textureManagerCPU;
 
     MyUniforms uniforms; 
     Noise noise;
