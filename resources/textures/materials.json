@@ -4,10 +4,10 @@
       "id": 0,
       "name": "Dirt",
       "texture": [
-        "dirt/dirt_tiled.png"
+        "dirt/dirt_light.png"
       ],
       "normal": [],
-      "roughness": ["dirt/dirt_tiled.png"],
+      "roughness": ["dirt/dirt_light.png"],
       "modelType": "SINGLE",
       "model": "VOXEL_MODEL",
       "textureType": "LARGE_TILE",
@@ -36,7 +36,7 @@
       "id": 1,
       "name": "Grass",
       "texture": [
-        "grass.png"
+        "grass/grass_dry.png"
       ],
       "normal": [],
       "roughness": ["grass_r.png"],
@@ -323,7 +323,7 @@
       "id": 10,
       "name": "Tall Grass",
       "texture": [
-        "better_grass_long.png"
+        "grass/grass_plane_dry.png"
       ],
       "normal": [],
       "roughness": [],
@@ -391,7 +391,7 @@
       "id": 12,
       "name": "Grass0",
       "texture": [
-        "better_grass_0.png"
+        "grass/grass_plane_dry.png"
       ],
       "normal": [],
       "roughness": [],
@@ -425,7 +425,7 @@
       "id": 13,
       "name": "Grass1",
       "texture": [
-        "better_grass_1.png"
+        "grass/grass_plane_dry.png"
       ],
       "normal": [],
       "roughness": [],
@@ -459,7 +459,7 @@
       "id": 14,
       "name": "Better Grass 2",
       "texture": [
-        "grass_low.png"
+        "grass/grass_plane_dry.png"
       ],
       "normal": [],
       "roughness": [],
@@ -787,7 +787,7 @@
       "id": 24,
       "name": "Bush",
       "texture": [
-        "red_berry_bush.png"
+        "bushes/bush_dry.png"
       ],
       "normal": ["leaves3_normal.png"],
       "model": "BUSH_MODEL",
@@ -1122,6 +1122,257 @@
         "normal": 1.0,
         "AO": 1.0,
         "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 35,
+      "name": "Sandstone",
+      "texture": [
+        "sandstone/sandstone.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 36,
+      "name": "Red Sandstone",
+      "texture": [
+        "sandstone/sandstone_red.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_red.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 37,
+      "name": "Brown Sandstone",
+      "texture": [
+        "sandstone/sandstone_brown.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_brown.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 38,
+      "name": "Gray Sandstone",
+      "texture": [
+        "sandstone/sandstone_gray.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_gray.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 39,
+      "name": "Orange Sandstone",
+      "texture": [
+        "sandstone/sandstone_orange.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_orange.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 40,
+      "name": "Yellow Sandstone",
+      "texture": [
+        "sandstone/sandstone_yellow.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_yellow.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 41,
+      "name": "White Sandstone",
+      "texture": [
+        "sandstone/sandstone_white.png"
+      ],
+      "normal": [],
+      "roughness": ["sandstone/sandstone_white.png"],
+      "model": "VOXEL_MODEL",
+      "textureType": "RANDOM_ROTATION",
+      "orientation": "NONE",
+      "tileCount": 8,
+      "randomOffset": 0.0,
+      "randomOffsetDirections": [],
+      "windStrength": 0.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.6,
+        "specular": 0.04,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.0,
+        "clearcoat": 0.0,
+        "clearcoatRoughness": 0.0
+      }
+    },
+    {
+      "id": 42,
+      "name": "Dry Grass",
+      "texture": [
+        "grass/grass_plane_dry.png"
+      ],
+      "normal": [],
+      "roughness": [],
+      "model": "GRASS_MODEL",
+      "textureType": "RANDOM_VARIANT",
+      "orientation": "NONE",
+      "tileCount": 4,
+      "randomOffset": 0.1,
+      "randomOffsetDirections": [
+        "X",
+        "Y"
+      ],
+      "windStrength": 1.0,
+      "pbr": {
+        "metallic": 0.0,
+        "roughness": 0.8,
+        "specular": 0.005,
+        "emission": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "normal": 1.0,
+        "AO": 1.0,
+        "subsurface": 0.5,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }

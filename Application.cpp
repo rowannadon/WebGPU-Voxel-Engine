@@ -24,7 +24,7 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap5.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap14.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
@@ -37,6 +37,9 @@ bool Application::Initialize() {
     structureManager->loadStructure("rock3", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
     structureManager->loadStructure("rock4", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));
     //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
+
+    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4));
+    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4));
 
     chunkManager.init(tex, buf, structureManager.get(), textureManagerCPU.get(), modelManager);
     registerMovementCallbacks();

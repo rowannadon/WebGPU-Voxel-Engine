@@ -29,12 +29,12 @@ bool WebGPURenderer::initialize() {
 		{ 1024,   85577 },
 		{ 2048,   57118 },
 		{ 4096,   13135 },
-		{ 16384,    191 },
+		{ 16384,    2800 },
 		{ 65536,      15 },
 	} };
 
 
-	float capacityScale = 1.5f;
+	float capacityScale = 1.0f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());

@@ -11,7 +11,9 @@ enum BlockType : uint16_t {
     Air, Dirt, Grass, Limestone, Glowstone, Brick, Slate, Andesite, Gneiss,
     Log, Leaf, TallGrass, Fern, Grass0, Grass1, Grass2, Grass3, Grass4, Grass5,
     Water, WaterSurface, Sand, SpruceLeaf, SpruceLog, Loam, Bush, Granite, Fence, GrassFlowers, RedRock,
-    Moss, LimestoneGravel, LimestoneGray, LimestoneYellow, LimestoneOrange, LimestoneWhite
+    Moss, LimestoneGravel, LimestoneGray, LimestoneYellow, LimestoneOrange, LimestoneWhite,
+    Sandstone, SandstoneRed, SandstoneBrown, SandstoneGray, SandstoneOrange, SandstoneYellow, SandstoneWhite, 
+    GrassDry
 };
 
 enum FacingDirection : uint16_t {

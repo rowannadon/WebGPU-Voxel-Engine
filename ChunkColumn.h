@@ -315,45 +315,6 @@ private:
             solidCount = 0;
         }
 
-        //uint16_t getDominantMaterial(float threshold = 0.5f) const {
-        //    int totalVoxels = solidCount;
-        //    if (totalVoxels == 0) return 0;
-
-        //    int minCount = static_cast<int>(totalVoxels * threshold);
-        //    uint16_t dominant = 0;
-        //    int maxCount = 0;
-
-        //    for (const auto& [material, count] : materialCounts) {
-        //        if (count > maxCount) {
-        //            maxCount = count;
-        //            dominant = material;
-        //        }
-
-        //        if (material == BlockType::Grass) {
-        //            if (count > 4) {
-        //                return BlockType::Grass;
-        //            }
-        //        }
-
-        //        if (material == BlockType::Log) {
-        //            if (count > 2) {
-        //                return BlockType::Log;
-        //            }
-        //        }
-
-        //        if (material == BlockType::SpruceLog) {
-        //            if (count > 2) {
-        //                return BlockType::SpruceLog;
-        //            }
-        //        }
-        //    }
-
-
-        //    // If no material meets threshold, return the most common one anyway
-        //    // This prevents gaps in the LOD mesh
-        //    return (maxCount >= minCount) ? dominant : dominant;
-        //}
-
         uint16_t getDominantMaterial(float threshold = 0.5f) const {
             auto m = materialCounts.dominant(threshold, solidCount);
             int count = m.second;
@@ -365,14 +326,26 @@ private:
                 }
             }
 
+            if (material == BlockType::Limestone) {
+                if (count > 4) {
+                    return BlockType::Limestone;
+                }
+            }
+
+            if (material == BlockType::LimestoneGray) {
+                if (count > 4) {
+                    return BlockType::LimestoneGray;
+                }
+            }
+
             if (material == BlockType::Log) {
-                if (count > 2) {
+                if (count > 1) {
                     return BlockType::Log;
                 }
             }
 
             if (material == BlockType::SpruceLog) {
-                if (count > 2) {
+                if (count > 1) {
                     return BlockType::SpruceLog;
                 }
             }
@@ -1924,8 +1897,8 @@ public:
         int width = 1024;
         int height = 1024;
         if (ti.has_value()) {
-            width = ti.value().width / 2;
-            height = ti.value().height / 2;
+            width = ti.value().width;
+            height = ti.value().height;
         }
         int offsetx = width / 2;
         int offsety = height / 2;
@@ -1933,8 +1906,8 @@ public:
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 0.5f).b;
-                int targetHeight = static_cast<int>(height * 300.0f + 150.0f);
+                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 1.111f).b;
+                int targetHeight = static_cast<int>(height * 400.0);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
@@ -2087,7 +2060,7 @@ public:
         for (int x = 0; x < CHUNK_SIZE; x++) {
             for (int y = 0; y < CHUNK_SIZE; y++) {
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS; z++) {
-                    int waterLevel = 100;
+                    int waterLevel = 25;
                     UnpackedVoxelMaterial material;
                     material.facing = FacingDirection::PlusZ;
                     if (getVoxelWholeColumn(ivec3(x, y, z))) {
@@ -2143,7 +2116,7 @@ public:
                             uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
                             if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
-                                material.materialType = BlockType::GrassFlowers; // grass
+                                material.materialType = BlockType::Grass; // grass
 
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
@@ -2151,7 +2124,7 @@ public:
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::GrassFlowers; // grass
+                                        material.materialType = BlockType::Grass; // grass
 
                                         setMaterialFast(layerPos, material);
                                     }
@@ -2188,46 +2161,60 @@ public:
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
-                                        material.materialType = BlockType::Dirt; // dirt
+                                        material.materialType = BlockType::Dirt;
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
 
                             }
                             else if (avgHeightDifference >= 1.0f && avgHeightDifference < 1.5f) {
-                                material.materialType = BlockType::LimestoneGravel;
+                                material.materialType = BlockType::Dirt;
 
                                 for (int layer = 0; layer < 3; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
                                     if (layerPos.z >= 0 && getVoxelWholeColumn(layerPos)) {
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
-                                        material.materialType = BlockType::LimestoneGravel; // dirt
+                                        material.materialType = BlockType::Dirt;
 
                                         setMaterialFast(layerPos, material);
                                     }
                                 }
                             }
                             else if (avgHeightDifference >= 1.5f && avgHeightDifference < 2.0f) {
-                                material.materialType = BlockType::LimestoneGray;
+                                material.materialType = BlockType::Sandstone;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
-                            else if (avgHeightDifference >= 2.0f && avgHeightDifference < 3.0f) {
-                                material.materialType = BlockType::Limestone;
+                            else if (avgHeightDifference >= 2.0f && avgHeightDifference < 2.5f) {
+                                material.materialType = BlockType::SandstoneRed;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
-                            else if (avgHeightDifference >= 3.0f && avgHeightDifference < 7.0f) {
-                                material.materialType = BlockType::LimestoneWhite;
+                            else if (avgHeightDifference >= 2.5f && avgHeightDifference < 3.0f) {
+                                material.materialType = BlockType::SandstoneBrown;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
-                            else if (avgHeightDifference >= 4.0f && avgHeightDifference < 11.0f) {
-                                material.materialType = BlockType::LimestoneYellow;
+                            else if (avgHeightDifference >= 3.0f && avgHeightDifference < 4.0f) {
+                                material.materialType = BlockType::SandstoneGray;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 4.0f && avgHeightDifference < 6.0f) {
+                                material.materialType = BlockType::Sandstone;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 6.0f && avgHeightDifference < 8.0f) {
+                                material.materialType = BlockType::SandstoneOrange;
+                                setMaterialFast(ivec3(x, y, z), material);
+                            }
+                            else if (avgHeightDifference >= 8.0f && avgHeightDifference < 12.0f) {
+                                material.materialType = BlockType::SandstoneYellow;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
                             else {
-                                material.materialType = BlockType::LimestoneOrange;
+                                material.materialType = BlockType::SandstoneWhite;
                                 setMaterialFast(ivec3(x, y, z), material);
                             }
+
+
 
                             if (material.materialType == BlockType::Grass || material.materialType == BlockType::GrassFlowers) {
                                 ivec3 grassPos = ivec3(x, y, z + 1);
@@ -2249,6 +2236,25 @@ public:
                                     grassPositions.push_back(gdp);
                                 }
                             }
+
+                            if (material.materialType == BlockType::GrassFlowers) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 4 == 0) {
+                                    ivec3 positionAbove = ivec3(x, y, z + 1);
+                                    if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+                                        positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+
+                                        static const std::array<ProbabilityConfig, 2> config = { {
+                                            { 1,     0.5f},
+                                            { 2,     0.5f},
+                                        } };
+
+                                        int size = sampleFromDistribution(blockHash, config);
+
+                                        candidateTrees.push_back({ positionAbove, size, 10 });
+                                    }
+                                }
+                            }
+                            
 
                         }
                         else if (isExposed && z > waterLevel - 2) {
@@ -2368,7 +2374,7 @@ public:
         for (const auto tree : treeData) {
             ivec3 localTreePos = tree.basePos;
 
-            std::string treeName = "rock" + std::to_string(tree.index);
+            std::string treeName = "tree" + std::to_string(tree.index);
             stampStructureAt(treeName, localTreePos);
         }
 
@@ -2404,7 +2410,7 @@ public:
                     ivec3 transformedBasePos = neighborTreeLocalPos +
                         ivec3(transformOffset.x, transformOffset.y, 0);
 
-                    std::string treeName = "rock" + std::to_string(tree.index);
+                    std::string treeName = "tree" + std::to_string(tree.index);
                     stampStructureAt(treeName, transformedBasePos);
                 }
             }
