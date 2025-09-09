@@ -298,11 +298,16 @@ private:
             int m = 0; for (int i = 1; i < n; i++) if (cnt[i] < cnt[m]) m = i;
             key[m] = k; cnt[m] = 1;
         }
-        std::pair<uint16_t, int> dominant(float thr, int total) const {
+        uint16_t dominant(float thr, int total) const {
             int need = int(std::ceil(thr * total));
             int best = -1, id = -1;
-            for (int i = 0; i < n; i++) { if (cnt[i] > best) { best = cnt[i]; id = i; } }
-            return {key[id], id};
+            for (int i = 0; i < n; i++) {
+                if (cnt[i] > best) { 
+                    best = cnt[i]; 
+                    id = i; 
+                } 
+            }
+            return key[id];
         }
     };
 
@@ -316,41 +321,7 @@ private:
         }
 
         uint16_t getDominantMaterial(float threshold = 0.5f) const {
-            auto m = materialCounts.dominant(threshold, solidCount);
-            int count = m.second;
-            uint16_t material = m.first;
-
-            if (material == BlockType::Grass) {
-                if (count > 4) {
-                    return BlockType::Grass;
-                }
-            }
-
-            if (material == BlockType::Limestone) {
-                if (count > 4) {
-                    return BlockType::Limestone;
-                }
-            }
-
-            if (material == BlockType::LimestoneGray) {
-                if (count > 4) {
-                    return BlockType::LimestoneGray;
-                }
-            }
-
-            if (material == BlockType::Log) {
-                if (count > 1) {
-                    return BlockType::Log;
-                }
-            }
-
-            if (material == BlockType::SpruceLog) {
-                if (count > 1) {
-                    return BlockType::SpruceLog;
-                }
-            }
-
-            return material;
+            return materialCounts.dominant(threshold, solidCount);
         }
     };
 
@@ -1065,7 +1036,7 @@ private:
         std::memset(solidData, 0, totalUint64s * sizeof(uint64_t));
 
         // keep thresholds identical to your previous logic
-        const float threshold = 0.75f;
+        const float threshold = 0.33f;
         const int voxelsInGroup = (LOD * LOD);
 
         for (int x = 0; x < xySize; ++x) {
@@ -2023,7 +1994,7 @@ public:
             };
 
         // Lambda to calculate steepness
-        auto calculateSteepness = [&](int x, int y, int z) -> float {
+        auto calculateSteepness = [&](int x, int y, int z) -> std::pair<float, float> {
             int currentHeight = z;
             int maxHeightDifference = 0;
 
@@ -2034,7 +2005,8 @@ public:
                 { 1, -1}, { 1, 0}, { 1, 1}
             };
 
-            int totalHeightDifference = 0;
+            int totalHeightDifferencePos = 0;
+            int totalHeightDifferenceNeg = 0;
 
             for (int i = 0; i < 8; i++) {
                 int neighborX = x + offsets[i][0];
@@ -2046,10 +2018,16 @@ public:
                     neighborHeight = currentHeight;
                 }
 
-                totalHeightDifference += abs(neighborHeight - currentHeight);
+                int heightDifference = neighborHeight - currentHeight;
+                if (heightDifference < 0) {
+                    totalHeightDifferenceNeg += abs(heightDifference);
+                } else {
+                    totalHeightDifferencePos += heightDifference;
+                }
             }
 
-            return static_cast<float>(totalHeightDifference) / 8.0f;
+            return { static_cast<float>(totalHeightDifferencePos) / 8.0f, 
+                    static_cast<float>(totalHeightDifferenceNeg) / 8.0f };
             };
 
         std::vector<TreeDataPoint> candidateTrees;
@@ -2068,7 +2046,7 @@ public:
                         float noiseValue = -0.9;// worldGen.sample3D2(pos);
 
                         if (noiseValue > -1 && noiseValue < -0.8) {
-                            material.materialType = BlockType::LimestoneWhite;
+                            material.materialType = BlockType::SandstoneRed;
                         }
                         else if (noiseValue > -0.8 && noiseValue < -0.6) {
                             material.materialType = BlockType::RedRock;
@@ -2112,9 +2090,10 @@ public:
 
                         if (isExposed && z > waterLevel + 2) {
                             // Calculate steepness by checking the 8 surrounding columns
-                            float avgHeightDifference = calculateSteepness(x, y, z);
+                            auto [avgHeightDifferencePos, avgHeightDifferenceNeg] = calculateSteepness(x, y, z);
                             uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
+                            int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
                             if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
                                 material.materialType = BlockType::Grass; // grass
 
@@ -2219,7 +2198,8 @@ public:
                             if (material.materialType == BlockType::Grass || material.materialType == BlockType::GrassFlowers) {
                                 ivec3 grassPos = ivec3(x, y, z + 1);
 
-                                if (blockHash % 2 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                                if (blockHash % 6 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+
 
                                     static const std::array<ProbabilityConfig, 5> config = { {
                                         { 0,     0.04f},
@@ -2237,8 +2217,8 @@ public:
                                 }
                             }
 
-                            if (material.materialType == BlockType::GrassFlowers) {
-                                if (pos.z > (-10 + blockHash % 20) && blockHash % 4 == 0) {
+                            if (material.materialType == BlockType::Grass) {
+                                if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
                                     ivec3 positionAbove = ivec3(x, y, z + 1);
                                     if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                         positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
@@ -2250,7 +2230,7 @@ public:
 
                                         int size = sampleFromDistribution(blockHash, config);
 
-                                        candidateTrees.push_back({ positionAbove, size, 10 });
+                                        candidateTrees.push_back({ positionAbove, size, 24 });
                                     }
                                 }
                             }
@@ -2278,7 +2258,7 @@ public:
             }
         }
 
-        treeData = filterTreesWithPoissonDisk(candidateTrees);
+        treeData = filterTrees(candidateTrees);
 
         for (auto gdp : grassPositions) {
             static const std::array<BlockType, 5> grassTypes = {
@@ -2300,7 +2280,7 @@ public:
         setState(ColumnState::TopsoilReady);
     }
 
-    std::vector<TreeDataPoint> filterTreesWithPoissonDisk(
+    std::vector<TreeDataPoint> filterTrees(
         const std::vector<TreeDataPoint>& candidateTrees) {
 
         std::vector<TreeDataPoint> filteredTrees;
@@ -3329,7 +3309,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 2) {
+                            if (lodLevel > 3) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3406,7 +3386,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 2) {
+                            if (lodLevel > 3) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3483,7 +3463,7 @@ public:
 
                             const int worldZ = zPos * CHUNK_HEIGHT + z;
                             UnpackedVoxelMaterial base = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
-                            if (lodLevel > 2) {
+                            if (lodLevel > 3) {
                                 if (isGrassBillboard(base.materialType)) {
                                     continue;
                                 }
@@ -3556,7 +3536,7 @@ public:
 
                         UnpackedVoxelMaterial baseMat = getMaterialDownscaledFast(lodLevel, ivec3(x, y, worldZ));
 
-                        if (lodLevel > 2) {
+                        if (lodLevel > 3) {
                             if (isGrassBillboard(baseMat.materialType)) {
                                 continue;
                             }

@@ -4,7 +4,7 @@
       "id": 0,
       "name": "Dirt",
       "texture": [
-        "dirt/dirt_light.png"
+        "dirt/dirt_tiled.png"
       ],
       "normal": [],
       "roughness": ["dirt/dirt_light.png"],
@@ -716,7 +716,7 @@
         ],
         "normal": 1.0,
         "AO": 0.0,
-        "subsurface": 0.3,
+        "subsurface": 0.02,
         "clearcoat": 0.0,
         "clearcoatRoughness": 0.0
       }
@@ -882,7 +882,7 @@
       "id": 27,
       "name": "GrassFlowers",
       "texture": [
-        "grass_flowers.png"
+        "grass/grass_flowers.png"
       ],
       "normal": [],
       "roughness": ["grass_r.png"],
