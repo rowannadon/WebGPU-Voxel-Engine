@@ -1871,14 +1871,14 @@ public:
             width = ti.value().width;
             height = ti.value().height;
         }
-        int offsetx = width / 2;
-        int offsety = height / 2;
+        int offsetx = width * 4;
+        int offsety = height * 4;
 
         for (int y = 0; y < CHUNK_SIZE; y++) {
             for (int x = 0; x < CHUNK_SIZE; x++) {
                 // Generate height for this column
-                float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 1.111f).b;
-                int targetHeight = static_cast<int>(height * 400.0);
+                float height = texc->getTexelAtPosition("height", x + position.x, y + position.y, 2.0f).b;
+                int targetHeight = static_cast<int>(height * 350.0f);
                 for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                     setVoxelWholeColumn(ivec3(x, y, z), true);
                 }
@@ -2093,9 +2093,11 @@ public:
                             auto [avgHeightDifferencePos, avgHeightDifferenceNeg] = calculateSteepness(x, y, z);
                             uint32_t blockHash = hash_ivec3(pos);
                             // Determine material type based on steepness
-                            int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
+                            // int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
+                            int avgHeightDifference = (avgHeightDifferenceNeg + avgHeightDifferencePos) / 2;
                             if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
                                 material.materialType = BlockType::Grass; // grass
+                                float flow = texc->getTexelAtPosition("flow", x + position.x, y + position.y, 2.0f).b;
 
                                 for (int layer = 0; layer < 2; layer++) {
                                     ivec3 layerPos = ivec3(x, y, z - layer);
@@ -2103,7 +2105,13 @@ public:
                                         UnpackedVoxelMaterial material;
                                         material.facing = FacingDirection::PlusX;
 
-                                        material.materialType = BlockType::Grass; // grass
+                                        if (flow < 0.3) {
+                                            material.materialType = BlockType::Grass; // grass
+                                        }
+                                        else {
+                                            material.materialType = BlockType::Sand; // grass
+
+                                        }
 
                                         setMaterialFast(layerPos, material);
                                     }

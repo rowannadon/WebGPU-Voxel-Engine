@@ -24,7 +24,8 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap14.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap16.png");
+    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask16.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
