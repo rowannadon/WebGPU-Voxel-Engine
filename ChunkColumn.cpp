@@ -1275,6 +1275,26 @@ void ChunkColumn::initializeMaterialData() {
     }
 }
 
+inline glm::vec3 decodeNormal(const glm::vec4& texel,
+    bool flipGreen = false,
+    bool flipBlue = false)
+{
+    // Map RGB from [0,1] -> [-1,1]; ignore A
+    glm::vec3 n = glm::clamp(glm::vec3(texel), 0.0f, 1.0f) * 2.0f - 1.0f;
+
+    if (flipGreen) n.y = -n.y;
+    if (flipBlue)  n.z = -n.z;
+
+    // Normalize safely (avoid NaNs on degenerate input)
+    float len = glm::length(n);
+    if (len > 1e-6f)
+        n /= len;
+    else
+        n = glm::vec3(0.0f, 0.0f, 1.0f); // sensible fallback
+
+    return n;
+}
+
 void ChunkColumn::generateTerrain() {
     /*std::vector<float> noiseData(CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS);
     worldGen.sampleArea3D(noiseData.data(), CHUNK_SIZE, COLUMN_HEIGHT_BLOCKS, ivec3(position.x, position.y, 0));
@@ -1312,35 +1332,51 @@ void ChunkColumn::generateTerrain() {
         width = ti.value().width;
         height = ti.value().height;
     }
-    int offsetx = width * 4;
-    int offsety = height * 4;
+    int offsetx = width * 0;
+    int offsety = height * 0;
 
     for (int y = 0; y < CHUNK_SIZE; y++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             // Generate height for this column
-            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 8.0f).b;
-            float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
-            float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
-            float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
-            int targetHeight = static_cast<int>(height * 475.0f);
+            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 2.0f).b;
+            //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
+            int targetHeight = static_cast<int>(height * 620.0f);
 
             ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
             uint32_t blockHash = hash_ivec3(positionAbove);
 
-            if (curvature > 0.99) {
-                if (positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
-                    positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+            if (blockHash % 4 == 0 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+                positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+                if (curvature > 0.98) {
+                
+                        static const std::array<ProbabilityConfig, 3> config = { {
+                            { 1,     0.33f},
+                            { 2,     0.33f},
+                            { 3,     0.34f},
+                        } };
 
-                    static const std::array<ProbabilityConfig, 2> config = { {
-                        { 1,     0.5f},
-                        { 2,     0.5f},
-                    } };
+                        int size = sampleFromDistribution(blockHash, config);
+
+                        glm::vec3 normal = decodeNormal(texc->getTexelAtPosition("normal", x + position.x + offsetx, y + position.y + offsety, 4.0f));
+
+                        candidateStructs.push_back({ positionAbove - ivec3(5.0f * normal), size, 7.0f});
+                }
+                else if (curvature > 0.92){
+                    static const std::array<ProbabilityConfig, 4> config = { {
+                            { 4,     0.3f},
+                            { 5,     0.3f},
+                            { 6,     0.3f},
+                            { 7,     0.1f},
+                        } };
 
                     int size = sampleFromDistribution(blockHash, config);
 
-                    candidateStructs.push_back({ positionAbove, size, 10.0f });
+                    candidateStructs.push_back({ positionAbove, size, 3.0f });
                 }
             }
+
 
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                 setVoxelWholeColumn(ivec3(x, y, z), true);
@@ -1450,8 +1486,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
         width = ti.value().width;
         height = ti.value().height;
     }
-    int offsetx = width * 4;
-    int offsety = height * 4;
+    int offsetx = width * 0;
+    int offsety = height * 0;
 
     decodeMaterialDataBase();
     // Lambda to safely check voxels including cross-chunk positions
@@ -1661,8 +1697,9 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         uint32_t blockHash = hash_ivec3(pos);
                         // Determine material type based on steepness
                         // int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
-                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
-                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
+                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
+                        float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
                         
                         int avgHeightDifference = (avgHeightDifferenceNeg + avgHeightDifferencePos) / 2;
                         if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
@@ -1676,20 +1713,13 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                     UnpackedVoxelMaterial m;
                                     m.facing = FacingDirection::PlusX;
 
-                                    if (tpi < 0.01 || flow > 0.14) {
-                                        if (flow > 0.14) {
-                                            material.materialType = BlockType::Sand; // grass
-                                        }
-                                        else {
-                                            material.materialType = rockMaterial.materialType;
-                                        }
+                                    if (flow > 0.05) {
+                                        material.materialType = BlockType::Grass;
                                         m.materialType = material.materialType;
                                     }
                                     else {
-                                        material.materialType = BlockType::Grass; // grass
+                                        material.materialType = BlockType::Sand;
                                         m.materialType = material.materialType;
-
-
                                     }
 
                                     setMaterialFast(layerPos, material);
@@ -1785,7 +1815,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
                             ivec3 grassPos = ivec3(x, y, z + 1);
 
-                            if (blockHash % 6 == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                            if (blockHash % (material.materialType == BlockType::Grass ? 5 : 15) == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
 
 
                                 static const std::array<ProbabilityConfig, 5> config = { {
@@ -1804,7 +1834,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                             }
                         }
 
-                        if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
+                        if (material.materialType == BlockType::Grass) {
                             if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
                                 ivec3 positionAbove = ivec3(x, y, z + 1);
                                 if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
@@ -1817,7 +1847,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
 
                                     int size = sampleFromDistribution(blockHash, config);
 
-                                    candidateTrees.push_back({ positionAbove, size, 12.0f + 6.0f * (1.0f - flow) });
+                                    candidateTrees.push_back({ positionAbove, size, 28.0f });
                                 }
                             }
                         }

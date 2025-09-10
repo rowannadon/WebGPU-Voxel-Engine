@@ -121,6 +121,7 @@ struct VertexOutput {
     @location(15) @interpolate(flat) tile_rotation: u32,
     @location(16) @interpolate(flat) face_index: u32,
     @location(17) @interpolate(flat) facing_dir: u32,
+    @location(18) @interpolate(flat) world_voxel_pos: vec3i,
 };
 
 struct FragmentInput {
@@ -144,6 +145,7 @@ struct FragmentInput {
     @location(15) @interpolate(flat) tile_rotation: u32,
     @location(16) @interpolate(flat) face_index: u32,
     @location(17) @interpolate(flat) facing_dir: u32,
+    @location(18) @interpolate(flat) world_voxel_pos: vec3i,
 
 };
 
@@ -303,6 +305,9 @@ const SHADING_FADE_START: f32 = 300.0;
 const SHADING_FADE_END: f32 = 600.0;
 const MIN_SHADING_CONTRAST: f32 = 0.1;
 
+const TERRAIN_FADE_START: f32 = 400.0;
+const TERRAIN_FADE_END: f32 = 800.0;
+
 // Chunk edge highlighting constants
 const CHUNK_EDGE_WIDTH: f32 = 2.0;
 const CHUNK_EDGE_INTENSITY: f32 = 0.3;
@@ -322,7 +327,7 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(11) var transmittance_lut: texture_2d<f32>;
 @group(0) @binding(12) var sky_view_lut: texture_2d<f32>;
 @group(0) @binding(13) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(14) var noise_2d_small_texture: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(14) var terrainNormal: texture_2d<f32>; // 64x64 random rgba
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -985,6 +990,56 @@ fn stable_world_voxel(chunk_origin: vec3i, voxel_pos: vec3f, lod_scale: f32) -> 
     );
 }
 
+fn sampleNormalToVec3(
+    normalTex: texture_2d<f32>,
+    normalSmp: sampler,
+    uv: vec2f,
+    flipGreen: bool,
+    flipBlue: bool
+) -> vec3f {
+    let texel = textureSample(normalTex, normalSmp, uv);       // RGBA in [0,1]
+    let rgb   = clamp(texel.xyz, vec3f(0.0), vec3f(1.0));      // safety clamp
+    var n     = rgb * 2.0 - 1.0;                               // map to [-1,1]
+
+    if (flipGreen) { n.y = -n.y; }
+    if (flipBlue)  { n.z = -n.z; }
+
+    // Safe normalize (avoid divide-by-zero/NaNs on degenerate input)
+    let len2 = max(dot(n, n), 1e-12);
+    return n * inverseSqrt(len2);
+}
+
+fn worldToUV(
+    normalTex: texture_2d<f32>,
+    worldPos: vec3f,
+    unitsPerPixel: f32,
+    axis: u32,
+    offsetUnits: vec2f,
+    rotationRadians: f32
+) -> vec2f {
+    // Pick the 2D plane from worldPos
+    var p = vec2f(0.0);
+    if (axis == 0u) { p = worldPos.xy; }
+    if (axis == 1u) { p = worldPos.xz; }
+    if (axis == 2u) { p = worldPos.yz; }
+
+    // Optional 2D rotation and offset in world units
+    let c = cos(rotationRadians);
+    let s = sin(rotationRadians);
+    let rot = mat2x2f(c, -s, s, c);
+    let pWorld = rot * (p + offsetUnits);
+
+    // World units → texel indices
+    let texel = pWorld / unitsPerPixel;
+
+    // Texel indices → normalized UVs
+    let size = vec2f(textureDimensions(normalTex, 0)); // base mip size in texels
+    let uv = texel / size;
+
+    // Wrap to [0,1) so it tiles (use REPEAT addressing on the sampler).
+    return fract(uv);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -1203,12 +1258,16 @@ fn vs_main(in: VertexInput) -> VertexOutput {
         vec4f(world_for_shadow, 1.0);
     
     out.position = uMyUniforms.projectionMatrix * view_position;
+
+
+
     out.normal = normalize((uMyUniforms.modelMatrix * vec4f(normal, 0.0)).xyz);
     out.uv = uv;
     out.world_position = world_position_abs.xyz;
     out.ao = ao;
-    out.fog_distance = length(vec3f(world_position.xyz - uMyUniforms.cameraWorldPos));       
+    out.fog_distance = length(vec3f(world_position_abs.xyz - uMyUniforms.cameraWorldPos));       
     out.voxel_pos = voxel_pos;
+    out.world_voxel_pos = world_voxel_pos;
 
     return out;
 }
@@ -1625,6 +1684,12 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         normal = -normal;
     }
 
+    let worldUv = worldToUV(terrainNormal, vec3f(f32(in.world_voxel_pos.x), f32(in.world_voxel_pos.y), f32(in.world_voxel_pos.z)), 4.0, 0u, vec2f(0.0), 0.0);
+    let tNorm = sampleNormalToVec3(terrainNormal, lut_sampler, worldUv, false, false);
+    //let normalTex = textureSampleLevel(terrainNormal, lut_sampler, worldUv, 0.0);
+    //return normalTex;
+
+
     var blendState = 1.0;
     // if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL) {
     //     let viewAlignment = dot(viewDir, normal);
@@ -1654,7 +1719,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     // }
     let unbent_normal = normal;
     if (materialProps.modelId == GRASS_MODEL || materialProps.modelId == TALLGRASS_MODEL || materialProps.modelId == BUSH_MODEL) {
-        normal = normalize(normal + vec3f(0.0, 0.0, 2.0));
+        normal = normalize(normal + vec3f(0.0, 0.0, 1.25));
     }
 
     var uv = in.uv;
@@ -1753,9 +1818,14 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     
     let shadow_factor = calculate_shadow_factor(in.shadow_pos, normal, sunDirection);
 
-    var leaf_wrap: f32 = 0.1;
+    var leaf_wrap: f32 = 0.0;
     if (materialProps.modelId == LEAF_MODEL) {
         leaf_wrap = 0.35; // 0..0.35 is a good range
+    }
+
+    let terrainNormalFadeFactor = 1.0 - smoothstep(TERRAIN_FADE_START, TERRAIN_FADE_END, in.fog_distance);
+    if (materialProps.modelId == VOXEL_MODEL) {
+        normal = mix(tNorm, normal, terrainNormalFadeFactor);
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
@@ -1788,6 +1858,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let aoFactor = (1.0 - clamp((in.fog_distance - aoFadeNear) / (aoFadeFar - aoFadeNear), 0.0, 1.0));
     let aoFadeFactor = 1.0 - smoothstep(SHADING_FADE_START, SHADING_FADE_END, in.fog_distance);
     let distanceAdjustedAoFactor = mix(0.0, aoFactor, aoFadeFactor);
+
+
     
     // Surface normal fade for AO
     let normalFadeStart = 75.0;

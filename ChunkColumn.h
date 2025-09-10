@@ -115,7 +115,7 @@ enum class ColumnState {
 
 class ChunkColumn {
 public:
-    std::atomic<ColumnState> state{ ColumnState::Empty };
+    alignas(64) std::atomic<ColumnState> state{ ColumnState::Empty };
 private:
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int CHUNK_HEIGHT = 62;
@@ -157,7 +157,7 @@ private:
     static constexpr int DOUBLE_SIDED_OFFSET = 8;
 
     struct ChunkMetaData {
-        std::atomic<ChunkState> state{ ChunkState::NoMesh };
+        alignas(64) std::atomic<ChunkState> state{ ChunkState::NoMesh };
         int solidVoxels = 0;
 
         ivec3 position;

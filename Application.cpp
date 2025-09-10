@@ -24,22 +24,23 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap16.png");
-    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask16.png");
-    textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/flowacc_log.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap14.png");
+    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
+    textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r25m.png");
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
     textureManagerCPU->loadTexture("curvature", RESOURCE_DIR "/terrain/curvature.png");
+    textureManagerCPU->loadTexture("normal", RESOURCE_DIR "/terrain/normal.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
     //structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/treegen3.vox", ivec3(12, 14, 3));
     //structureManager->loadStructure("tree4", RESOURCE_DIR "/structures/pine2.vox", ivec3(13, 13, 3));
-    structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/pine.vox", ivec3(9, 13, 3));
+    //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/pine.vox", ivec3(9, 13, 3));
 
-    /*structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 3));
-    structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/rock2.vox", ivec3(4, 5, 3));
-    structureManager->loadStructure("struct5", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
-    structureManager->loadStructure("struct6", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));*/
+    structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 3));
+    structureManager->loadStructure("struct5", RESOURCE_DIR "/structures/rock2.vox", ivec3(4, 5, 3));
+    structureManager->loadStructure("struct6", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
+    structureManager->loadStructure("struct7", RESOURCE_DIR "/structures/rocks/rock_1.vox", ivec3(6, 7, 6));
     //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
 
     /*structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/rocks/rock_1.vox", ivec3(4, 4, 6));
@@ -49,6 +50,10 @@ bool Application::Initialize() {
 
     structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 8));
     structureManager->loadStructure("struct2", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 8));
+    structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/cliffs/cliff_3.vox", ivec3(12, 10, 12));
+
+    //structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 8));
+    //structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 8));
 
     //structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/test.vox", ivec3(0, 0, 1));
 
@@ -359,8 +364,8 @@ void Application::MainLoop() {
     // Debug output every second
     static float lastDebugTime = 0.0f;
     if (frameEndTime - lastDebugTime >= 1.0f) {
-        chunkManager.printChunkStates();
-        chunkManager.printWorkerStatistics();
+        //chunkManager.printChunkStates();
+        //chunkManager.printWorkerStatistics();
 
         // Print frame budget and performance metrics
         float frameBudgetMs = TARGET_FRAME_TIME * 1000.0f;
