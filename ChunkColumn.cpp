@@ -131,8 +131,7 @@ int ChunkColumn::sampleFromDistribution(uint32_t hash, const std::array<Probabil
     return config.back().value;
 }
 
-const std::array<std::optional<std::pair<ivec3, DAIC>>, ChunkColumn::COLUMN_HEIGHT>&
-ChunkColumn::getDAICs(int lodLevel, int passType, BufferManager* buf, vec3 cameraPos)
+const std::array<std::optional<std::pair<ivec3, DAIC>>, ChunkColumn::COLUMN_HEIGHT>& ChunkColumn::getDAICs(int lodLevel, int passType, BufferManager* buf, vec3 cameraPos)
 {
     // Early out if the column isn't ready
     if (state.load() != ColumnState::Active) {
@@ -1304,6 +1303,8 @@ void ChunkColumn::generateTerrain() {
     //    }
     //}
 
+    std::vector<TreeDataPoint> candidateStructs;
+
     std::optional<TextureInfo> ti = texc->getTextureInfo("height");
     int width = 1024;
     int height = 1024;
@@ -1311,21 +1312,134 @@ void ChunkColumn::generateTerrain() {
         width = ti.value().width;
         height = ti.value().height;
     }
-    int offsetx = width * 2;
-    int offsety = height * 2;
+    int offsetx = width * 4;
+    int offsety = height * 4;
 
     for (int y = 0; y < CHUNK_SIZE; y++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             // Generate height for this column
-            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 6.0f).b;
-            int targetHeight = static_cast<int>(height * 420.0f);
+            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 8.0f).b;
+            float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            int targetHeight = static_cast<int>(height * 475.0f);
+
+            ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
+            uint32_t blockHash = hash_ivec3(positionAbove);
+
+            if (curvature > 0.99) {
+                if (positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+                    positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
+
+                    static const std::array<ProbabilityConfig, 2> config = { {
+                        { 1,     0.5f},
+                        { 2,     0.5f},
+                    } };
+
+                    int size = sampleFromDistribution(blockHash, config);
+
+                    candidateStructs.push_back({ positionAbove, size, 10.0f });
+                }
+            }
+
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {
                 setVoxelWholeColumn(ivec3(x, y, z), true);
             }
         }
     }
 
+    structureData = filterTrees(candidateStructs);
+
     setState(ColumnState::TerrainReady);
+}
+
+void ChunkColumn::generateStructure(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors) {
+    auto stampStructureAt = [&](const std::string& name, const ivec3& basePos, const bool erase) {
+        if (!structureManager) return;
+
+        uint32_t blockHash = hash_ivec3(ivec3(position.x, position.y, 0) + basePos);
+        StructureRotation rotation = StructureRotation::Degrees_0;
+        if (blockHash % 4 == 0) {
+            rotation = StructureRotation::Degrees_90;
+        }
+        else if (blockHash % 4 == 1) {
+            rotation = StructureRotation::Degrees_180;
+        }
+        else if (blockHash % 4 == 2) {
+            rotation = StructureRotation::Degrees_270;
+        }
+
+        Structure s = structureManager->getStructure(name, rotation);
+        if (s.empty()) {
+            std::cerr << "No structure data to place";
+            return;
+        };
+
+        // We’re in a worker context—StructureManager is thread-safe for reads.
+        for (const LoadedVoxel& v : s.voxels) {
+            ivec3 p = basePos + v.offsetFromOrigin;
+
+            // Clip to this column’s 32x32x512 bounds
+            if (p.x < 0 || p.x >= CHUNK_SIZE ||
+                p.y < 0 || p.y >= CHUNK_SIZE ||
+                p.z < 0 || p.z >= COLUMN_HEIGHT_BLOCKS) continue;
+
+            if (erase) {
+                setVoxelWholeColumn(p, false);
+            }
+            else {
+                setVoxelWholeColumn(p, true);
+            }
+        }
+    };
+
+    // 1. Generate trees that are rooted in THIS chunk.
+    for (const auto structure : structureData) {
+        ivec3 localPos = structure.basePos;
+
+        std::string structName = "struct" + std::to_string(structure.index);
+        stampStructureAt(structName, localPos, false);
+    }
+
+    // 2. Generate parts of trees rooted in NEIGHBORING chunks.
+    const ivec3 neighborChunkOffsets[8] = {
+        ivec3(-CHUNK_SIZE, 0, 0),           // Right (0)
+        ivec3(CHUNK_SIZE, 0, 0),            // Left (1)
+        ivec3(0, -CHUNK_SIZE, 0),           // Front (2)
+        ivec3(0, CHUNK_SIZE, 0),            // Back (3)
+        ivec3(-CHUNK_SIZE, -CHUNK_SIZE, 0), // Right-Front (4)
+        ivec3(-CHUNK_SIZE, CHUNK_SIZE, 0),  // Right-Back (5)
+        ivec3(CHUNK_SIZE, -CHUNK_SIZE, 0),  // Left-Front (6)
+        ivec3(CHUNK_SIZE, CHUNK_SIZE, 0),   // Left-Back (7)
+    };
+
+    // NOTE: The offsets seem reversed but are correct for transforming a point from
+    // the neighbor's coordinate system to the current chunk's coordinate system.
+    // For example, a point at local x=0 in the RIGHT (+X) neighbor is at local x=32
+    // in this chunk. That's outside our bounds. A point at local x=31 in the LEFT (-X)
+    // neighbor is at local x=-1 in this chunk.
+    const ivec3 neighborDirection[4] = {
+        ivec3(1,0,0), ivec3(-1,0,0), ivec3(0,1,0), ivec3(0,-1,0)
+    };
+
+    for (int i = 0; i < 8; ++i) {
+        const auto& neighbor = neighbors[i];
+        if (neighbor) {
+            const ivec2 neighborWorldOrigin = neighbor->getColumnPosition();
+            const ivec2 transformOffset = (neighborWorldOrigin - this->position);
+
+            for (const auto structure : neighbor->getStructureData()) {
+                ivec3 neighborTreeLocalPos = structure.basePos;
+                ivec3 transformedBasePos = neighborTreeLocalPos +
+                    ivec3(transformOffset.x, transformOffset.y, 0);
+
+                std::string treeName = "struct" + std::to_string(structure.index);
+                stampStructureAt(treeName, transformedBasePos, false);
+            }
+        }
+    }
+
+    setState(ColumnState::StructureReady);
 }
 
 void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors) {
@@ -1336,8 +1450,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
         width = ti.value().width;
         height = ti.value().height;
     }
-    int offsetx = width * 2;
-    int offsety = height * 2;
+    int offsetx = width * 4;
+    int offsety = height * 4;
 
     decodeMaterialDataBase();
     // Lambda to safely check voxels including cross-chunk positions
@@ -1547,8 +1661,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         uint32_t blockHash = hash_ivec3(pos);
                         // Determine material type based on steepness
                         // int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
-                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 6.0f).r;
-                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 6.0f).r;
+                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
                         
                         int avgHeightDifference = (avgHeightDifferenceNeg + avgHeightDifferencePos) / 2;
                         if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
@@ -1562,7 +1676,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                     UnpackedVoxelMaterial m;
                                     m.facing = FacingDirection::PlusX;
 
-                                    if (tpi > 0.5 || flow > 0.14) {
+                                    if (tpi < 0.01 || flow > 0.14) {
                                         if (flow > 0.14) {
                                             material.materialType = BlockType::Sand; // grass
                                         }
@@ -1707,6 +1821,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                 }
                             }
                         }
+
+                        
 
 
                     }

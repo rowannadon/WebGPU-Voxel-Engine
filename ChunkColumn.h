@@ -97,7 +97,9 @@ enum class ChunkState {
 enum class ColumnState {
     Empty,              // Just created, no data
     GeneratingTerrain,  // Background thread generating voxel data
-    TerrainReady,       // Voxel data ready, needs meshing
+    TerrainReady,       // Voxel data ready
+    GeneratingStructure,       // Voxel data ready
+    StructureReady,
     GeneratingTopsoil,  // Background thread generating topsoil data
     TopsoilReady,       // Topsoil data ready, tree data ready
     GeneratingTrees,    // placing trees
@@ -197,6 +199,7 @@ private:
     };
 
     std::vector<TreeDataPoint> treeData;
+    std::vector<TreeDataPoint> structureData;
 
     // Bit caches for each chunk in the column
     struct ChunkBitCaches {
@@ -403,6 +406,7 @@ public:
     const ivec2& getColumnChunkPosition() const { return id; }
 
     std::vector<TreeDataPoint> getTreeData() { return treeData; }
+    std::vector<TreeDataPoint> getStructureData() { return structureData; }
 
     void generateDownscaledLODData();
 
@@ -546,6 +550,8 @@ public:
         const std::vector<TreeDataPoint>& candidateTrees);
 
     void generateTrees(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors = {});
+
+    void generateStructure(const std::array<std::shared_ptr<ChunkColumn>, 8>& neighbors = {});
 
     void populateBitCaches(int zPos, ChunkBitCaches& cache,
         const std::array<std::shared_ptr<ChunkColumn>, 4>& neighbors);

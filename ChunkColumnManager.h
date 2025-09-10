@@ -806,7 +806,6 @@ private:
 
             // Only transition if ALL dependencies are met
             // This prevents chunks from getting stuck in generating states
-
             if (currentState == ColumnState::TerrainReady) {
                 // Check if all neighbors are TerrainReady or better before transitioning
                 auto neighbors = getNeighbors(chunkPos);
@@ -822,6 +821,27 @@ private:
 
                 if (allNeighborsReady) {
                     ColumnState expected = ColumnState::TerrainReady;
+                    auto freshNeighbors = getNeighbors(chunkPos);
+                    if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingStructure)) {
+                        workerSystem->queueStructureGeneration(column, chunkPos, freshNeighbors);
+                    }
+                }
+            }
+            if (currentState == ColumnState::StructureReady) {
+                // Check if all neighbors are TerrainReady or better before transitioning
+                auto neighbors = getNeighbors(chunkPos);
+                bool allNeighborsReady = true;
+
+                for (int i = 0; i < 8; ++i) {
+                    auto neighbor = neighbors[i];
+                    if (!neighbor || neighbor->getState() < ColumnState::StructureReady) {
+                        allNeighborsReady = false;
+                        break;
+                    }
+                }
+
+                if (allNeighborsReady) {
+                    ColumnState expected = ColumnState::StructureReady;
                     auto freshNeighbors = getNeighbors(chunkPos);
                     if (column->state.compare_exchange_strong(expected, ColumnState::GeneratingTopsoil)) {
                         workerSystem->queueTopsoilGeneration(column, chunkPos, freshNeighbors);
@@ -976,6 +996,8 @@ public:
         std::cout << "Empty=" << stateCounts[ColumnState::Empty] << " ";
         std::cout << "GenTerrain=" << stateCounts[ColumnState::GeneratingTerrain] << " ";
         std::cout << "TerrainReady=" << stateCounts[ColumnState::TerrainReady] << " ";
+        std::cout << "GenStruct=" << stateCounts[ColumnState::GeneratingStructure] << " ";
+        std::cout << "StructReady=" << stateCounts[ColumnState::StructureReady] << " ";
         std::cout << "GenTopsoil=" << stateCounts[ColumnState::GeneratingTopsoil] << " ";
         std::cout << "TopsoilReady=" << stateCounts[ColumnState::TopsoilReady] << " ";
         std::cout << "GenTrees=" << stateCounts[ColumnState::GeneratingTrees] << " ";

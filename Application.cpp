@@ -28,6 +28,7 @@ bool Application::Initialize() {
     textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask16.png");
     textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/flowacc_log.png");
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
+    textureManagerCPU->loadTexture("curvature", RESOURCE_DIR "/terrain/curvature.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
@@ -35,11 +36,21 @@ bool Application::Initialize() {
     //structureManager->loadStructure("tree4", RESOURCE_DIR "/structures/pine2.vox", ivec3(13, 13, 3));
     structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/pine.vox", ivec3(9, 13, 3));
 
-    structureManager->loadStructure("rock1", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 3));
-    structureManager->loadStructure("rock2", RESOURCE_DIR "/structures/rock2.vox", ivec3(4, 5, 3));
-    structureManager->loadStructure("rock3", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
-    structureManager->loadStructure("rock4", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));
+    /*structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 3));
+    structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/rock2.vox", ivec3(4, 5, 3));
+    structureManager->loadStructure("struct5", RESOURCE_DIR "/structures/rock3.vox", ivec3(3, 4, 2));
+    structureManager->loadStructure("struct6", RESOURCE_DIR "/structures/rock4.vox", ivec3(6, 7, 6));*/
     //structureManager->loadStructure("rock5", RESOURCE_DIR "/structures/rock1.vox", ivec3(3, 3, 2));
+
+    /*structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/rocks/rock_1.vox", ivec3(4, 4, 6));
+    structureManager->loadStructure("struct2", RESOURCE_DIR "/structures/rocks/rock_2.vox", ivec3(5, 3, 5));
+    structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/rocks/rock_3.vox", ivec3(8, 8, 3));
+    structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/rocks/rock_4.vox", ivec3(5, 4, 9));*/
+
+    structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 8));
+    structureManager->loadStructure("struct2", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 8));
+
+    //structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/test.vox", ivec3(0, 0, 1));
 
     structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4));
     structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4));

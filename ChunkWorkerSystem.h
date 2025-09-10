@@ -21,6 +21,7 @@ public:
     enum Type {
         GenerateTerrain,
         GenerateTopsoil,
+        GenerateStructure,
         GenerateMesh,
         GenerateTrees,
         GenerateLODData,
@@ -238,13 +239,14 @@ private:
     std::atomic<size_t> total_work_items_processed{ 0 };
 
     // Configuration
-    static constexpr int DEFAULT_WORKER_COUNT = 4;
+    static constexpr int DEFAULT_WORKER_COUNT = 6;
     static constexpr size_t MAX_QUEUE_SIZE = 100;
     static constexpr auto CLEANUP_INTERVAL = std::chrono::seconds(60);
 
     // Statistics
     std::atomic<size_t> terrain_generated{ 0 };
     std::atomic<size_t> topsoil_generated{ 0 };
+    std::atomic<size_t> structure_generated{ 0 };
     std::atomic<size_t> meshes_generated{ 0 };
     std::atomic<size_t> trees_generated{ 0 };
     std::atomic<size_t> lod_data_generated{ 0 };
@@ -252,6 +254,7 @@ private:
 
     // Profiling data for each stage
     ProfilingData terrainProfiling;
+    ProfilingData structureProfiling;
     ProfilingData topsoilProfiling;
     ProfilingData treesProfiling;
     ProfilingData lodDataProfiling;
@@ -300,6 +303,18 @@ public:
         }
 
         ChunkWorkItem item(ChunkWorkItem::GenerateTerrain, chunk, position, ChunkWorkItem::LOW);
+        return work_queue.push(item);
+    }
+
+    bool queueStructureGeneration(std::shared_ptr<ChunkColumn> chunk, ivec2 position,
+        std::array<std::shared_ptr<ChunkColumn>, 8> neighbors) {
+        if (!chunk || !validateChunkForWork(chunk)) return false;
+
+        if (work_queue.size() >= MAX_QUEUE_SIZE) {
+            return false;
+        }
+
+        ChunkWorkItem item(ChunkWorkItem::GenerateStructure, chunk, position, neighbors, ChunkWorkItem::NORMAL);
         return work_queue.push(item);
     }
 
@@ -422,6 +437,7 @@ public:
 
         // Print each stage
         printProfilingRow("Terrain Gen", terrainProfiling);
+        printProfilingRow("Struct Gen", structureProfiling);
         printProfilingRow("Topsoil Gen", topsoilProfiling);
         printProfilingRow("Trees Gen", treesProfiling);
         printProfilingRow("LOD Data Gen", lodDataProfiling);
@@ -552,7 +568,14 @@ private:
                 terrainProfiling.record(duration);
             }
             break;
-
+        case ChunkWorkItem::GenerateStructure:
+            result = processStructureGeneration(workItem, error_message);
+            if (result) {
+                auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::high_resolution_clock::now() - start).count();
+                structureProfiling.record(duration);
+            }
+            break;
         case ChunkWorkItem::GenerateTopsoil:
             result = processTopsoilGeneration(workItem, error_message);
             if (result) {
@@ -639,6 +662,24 @@ private:
 
         chunk->generateTopsoil(workItem.getNeighbors());
         topsoil_generated++;
+        return true;
+    }
+
+    bool processStructureGeneration(const ChunkWorkItem& workItem, std::string& error_message) {
+        auto chunk = workItem.getChunk();
+        if (!chunk) {
+            error_message = "Null chunk";
+            return false;
+        }
+
+        ColumnState currentState = chunk->getState();
+        if (currentState != ColumnState::GeneratingStructure) {
+            error_message = "Chunk not in GeneratingTopsoil state";
+            return false;
+        }
+
+        chunk->generateStructure(workItem.getNeighbors());
+        structure_generated++;
         return true;
     }
 
