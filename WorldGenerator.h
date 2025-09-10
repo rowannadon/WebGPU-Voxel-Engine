@@ -44,8 +44,5 @@ public:
 		float result = fnGenerator2d->GenSingle2D(position.x * noiseScale3, position.y * noiseScale3, 1234);
 		return result;
 	}
-
-
-
     
 };

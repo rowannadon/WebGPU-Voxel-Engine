@@ -123,7 +123,7 @@ inline Atmosphere getDefaultAtmosphere() {
 
 	atmosphere.sky_sun_lum = 7.5f;
 	atmosphere.ap_sun_lum = 10.0f;
-	atmosphere.ap_slice_scale = 0.05f;
+	atmosphere.ap_slice_scale = 0.010f;
 
 	return atmosphere;
 }

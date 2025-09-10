@@ -20,21 +20,21 @@ bool WebGPURenderer::initialize() {
 	struct SizeClassCfg { int faces; int baseCount; };
 
 	static const std::array<SizeClassCfg, 11> kBaseline = { {
-		{ 16,     50313 },
-		{ 32,     35041 },
-		{ 64,     62547 },
-		{ 128,    52013 },
-		{ 256,    72069 },
-		{ 512,    69805 },
-		{ 1024,   85577 },
-		{ 2048,   57118 },
-		{ 4096,   13135 },
-		{ 16384,    2800 },
-		{ 65536,      15 },
+		{ 16,     53996 },
+		{ 32,     27348 },
+		{ 64,     75628 },
+		{ 128,    37228 }, 
+		{ 256,    88836 }, 
+		{ 512,    70278 },
+		{ 1024,   83913 }, 
+		{ 2048,   64481 }, 
+		{ 4096,   32714 }, 
+		{ 16384,  10200 }, 
+		{ 65536,       0 }, 
 	} };
 
 
-	float capacityScale = 1.0f;
+	float capacityScale = 0.9f;
 
 	std::vector<std::pair<int, int>> sizeClasses;
 	sizeClasses.reserve(kBaseline.size());
@@ -389,7 +389,6 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 
 	bufferManager->nextFrame();
 
-	// CRITICAL FIX: Tick the device to process async operations
 #ifdef WEBGPU_BACKEND_DAWN
 	context->getDevice().tick();
 #endif
@@ -400,7 +399,6 @@ void WebGPURenderer::renderFrame(MyUniforms& uniforms, ColumnDAICs chunkRenderDa
 	targetView.release();
 	context->getSurface().present();
 
-	// Additional tick for good measure (especially important for Dawn)
 #ifdef WEBGPU_BACKEND_DAWN
 	context->getDevice().tick();
 #endif
@@ -458,7 +456,6 @@ bool WebGPURenderer::initSharedUniformBuffers() {
 		if (!ubo) return false;
 	}
 
-	// Atmosphere (unchanged)
 	{
 		BufferDescriptor desc{};
 		desc.label = StringView("atmosphere buffer");
