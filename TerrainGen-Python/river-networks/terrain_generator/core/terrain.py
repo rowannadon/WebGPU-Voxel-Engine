@@ -321,8 +321,10 @@ class TerrainGenerator:
         # The edge falloff modulates the threshold - making it harder to be land near edges
         effective_threshold = self.params.land_mask_threshold - (1.0 - edge_falloff) * 2.0
         
+        continent_bias = 0.5 * bump(shape, 0.2 * self.params.dimension)
+
         # Create land mask
-        land_mask = land_noise > effective_threshold
+        land_mask = (land_noise - continent_bias) > effective_threshold
         
         # Remove isolated water bodies (lakes)
         land_mask = remove_lakes(land_mask)
