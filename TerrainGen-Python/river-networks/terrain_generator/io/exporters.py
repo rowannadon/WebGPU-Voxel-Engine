@@ -1,0 +1,66 @@
+"""Export functionality for terrain data."""
+
+import numpy as np
+from PIL import Image
+from pathlib import Path
+from typing import Optional
+
+from ..core.utils import normalize
+
+class TerrainExporter:
+    """Handles terrain data export."""
+    
+    @staticmethod
+    def export_heightmap(heightmap: np.ndarray, filepath: str, 
+                        format: str = "PNG_8"):
+        """Export heightmap to image file."""
+        exporters = {
+            "PNG_8": TerrainExporter._export_png_8bit,
+            "PNG_16": TerrainExporter._export_png_16bit,
+            "TIFF_32": TerrainExporter._export_tiff_32bit
+        }
+        
+        if format in exporters:
+            exporters[format](heightmap, Path(filepath))
+        else:
+            raise ValueError(f"Unknown export format: {format}")
+    
+    @staticmethod
+    def export_flow_mask(river_volume: np.ndarray, land_mask: np.ndarray,
+                        filepath: str, format: str = "PNG_8"):
+        """Export flow mask to image file."""
+        # Prepare flow data
+        flow_data = river_volume.copy()
+        
+        # Set non-land areas to 0
+        if land_mask is not None:
+            flow_data[~land_mask] = 0
+        
+        # Normalize to 0-1 range
+        if flow_data.max() > 0:
+            flow_data = flow_data / flow_data.max()
+        
+        # Export using same methods as heightmap
+        TerrainExporter.export_heightmap(flow_data, filepath, format)
+    
+    @staticmethod
+    def _export_png_8bit(data: np.ndarray, filepath: Path):
+        """Export as 8-bit PNG."""
+        normalized = normalize(data, (0, 255))
+        img_data = normalized.astype(np.uint8)
+        img = Image.fromarray(img_data, mode='L')
+        img.save(filepath)
+    
+    @staticmethod
+    def _export_png_16bit(data: np.ndarray, filepath: Path):
+        """Export as 16-bit PNG."""
+        normalized = normalize(data, (0, 65535))
+        img_data = normalized.astype(np.uint16)
+        img = Image.fromarray(img_data, mode='I;16')
+        img.save(filepath)
+    
+    @staticmethod
+    def _export_tiff_32bit(data: np.ndarray, filepath: Path):
+        """Export as 32-bit float TIFF."""
+        img = Image.fromarray(data.astype(np.float32), mode='F')
+        img.save(filepath)

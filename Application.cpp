@@ -24,7 +24,7 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap14.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap18.png");
     textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
     textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r25m.png");
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
@@ -48,9 +48,9 @@ bool Application::Initialize() {
     structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/rocks/rock_3.vox", ivec3(8, 8, 3));
     structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/rocks/rock_4.vox", ivec3(5, 4, 9));*/
 
-    structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 8));
-    structureManager->loadStructure("struct2", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 8));
-    structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/cliffs/cliff_3.vox", ivec3(12, 10, 12));
+    structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 14));
+    structureManager->loadStructure("struct2", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 14));
+    structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/cliffs/cliff_3.vox", ivec3(12, 10, 17));
 
     //structureManager->loadStructure("struct3", RESOURCE_DIR "/structures/cliffs/cliff_1.vox", ivec3(10, 10, 8));
     //structureManager->loadStructure("struct4", RESOURCE_DIR "/structures/cliffs/cliff_2.vox", ivec3(12, 10, 8));

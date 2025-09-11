@@ -1338,11 +1338,11 @@ void ChunkColumn::generateTerrain() {
     for (int y = 0; y < CHUNK_SIZE; y++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             // Generate height for this column
-            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 2.0f).b;
+            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, 8.0f).b;
             //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
-            float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
-            int targetHeight = static_cast<int>(height * 620.0f);
+            float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+            int targetHeight = static_cast<int>(height * 350.0f);
 
             ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
             uint32_t blockHash = hash_ivec3(positionAbove);
@@ -1359,7 +1359,7 @@ void ChunkColumn::generateTerrain() {
 
                         int size = sampleFromDistribution(blockHash, config);
 
-                        glm::vec3 normal = decodeNormal(texc->getTexelAtPosition("normal", x + position.x + offsetx, y + position.y + offsety, 4.0f));
+                        glm::vec3 normal = decodeNormal(texc->getTexelAtPosition("normal", x + position.x + offsetx, y + position.y + offsety, 8.0f));
 
                         candidateStructs.push_back({ positionAbove - ivec3(5.0f * normal), size, 7.0f});
                 }
@@ -1697,9 +1697,9 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         uint32_t blockHash = hash_ivec3(pos);
                         // Determine material type based on steepness
                         // int avgHeightDifference = avgHeightDifferenceNeg < avgHeightDifferencePos ? avgHeightDifferencePos : avgHeightDifferenceNeg;
-                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
-                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
-                        float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 4.0f).r;
+                        float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+                        float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
+                        float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
                         
                         int avgHeightDifference = (avgHeightDifferenceNeg + avgHeightDifferencePos) / 2;
                         if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {

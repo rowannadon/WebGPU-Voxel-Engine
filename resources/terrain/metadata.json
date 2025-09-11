@@ -1,5 +1,5 @@
 {
-  "input": "C:\\Users\\rowan\\WebGPU-Voxel-Engine\\resources\\heightmap14small.png",
+  "input": "C:\\Users\\alder\\WebGPU-Voxel-Engine\\resources\\heightmap18.png",
   "cellsize_m": 1.0,
   "z_min_m": 0.0,
   "z_max_m": 255.0,
