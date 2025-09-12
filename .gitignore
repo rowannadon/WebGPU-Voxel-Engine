@@ -3,3 +3,4 @@ build
 build/_deps/dawn-build
 build/_deps/dawn-subbuild
 .vs
+*__pycache__*
