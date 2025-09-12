@@ -16,6 +16,14 @@ enum BlockType : uint16_t {
     GrassDry
 };
 
+enum BiomeType : uint16_t {
+    Ocean, IceSheet, PolarDesert, ArticTundra, AlpineTundra, AlpineMeadow, MontaneForest,
+    BorealForest, MixedBoreal, TemperateConiferous, TemperateRainforest, TemperateDeciduous,
+    TemperateMixed, TemperateGrassland, Prairie, Steppe, MedWoodland, Chaparral, ColdDesert, 
+    HotDesert, SemiAridScrubland, DrySavanna, MoistSavanna, TropicalDryForest, TropicalSeasonalForest,
+    TropicalRainforest, CloudForest, Mangrove, FreshwaterWetland, SaltMarsh
+};
+
 enum FacingDirection : uint16_t {
     PlusX = 0, MinusX = 1, PlusY = 2, MinusY = 3, PlusZ = 4, MinusZ = 5
 };

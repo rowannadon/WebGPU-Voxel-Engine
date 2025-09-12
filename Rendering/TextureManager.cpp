@@ -74,14 +74,14 @@ uint32_t TextureManager::bit_width(uint32_t m) {
 }
 
 // ---------- single texture ----------
-Texture TextureManager::loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path) {
+Texture TextureManager::loadTexture(const std::string name, const std::string textureViewName, const std::filesystem::path& path, bool srgb) {
     int width, height, channels;
     unsigned char* pixelData = stbi_load(path.string().c_str(), &width, &height, &channels, 4 /* force 4 */);
     if (!pixelData) return nullptr;
 
     TextureDescriptor textureDesc{};
     textureDesc.dimension = TextureDimension::_2D;
-    textureDesc.format = TextureFormat::RGBA8UnormSrgb;
+    textureDesc.format = srgb ? TextureFormat::RGBA8UnormSrgb : TextureFormat::RGBA8Unorm;
     textureDesc.sampleCount = 1;
     textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
     textureDesc.mipLevelCount = bit_width(std::max(textureDesc.size.width, textureDesc.size.height));

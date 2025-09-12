@@ -24,12 +24,15 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap18.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap16.png");
+    textureManagerCPU->loadTexture("biome", RESOURCE_DIR "/terrain/biome_id.png");
     textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
+    textureManagerCPU->loadTexture("svf", RESOURCE_DIR "/terrain/svf.png");
     textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r25m.png");
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
     textureManagerCPU->loadTexture("curvature", RESOURCE_DIR "/terrain/curvature.png");
     textureManagerCPU->loadTexture("normal", RESOURCE_DIR "/terrain/normal.png");
+    textureManagerCPU->loadTexture("noise", RESOURCE_DIR "/heightmap_noise.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));
@@ -125,13 +128,13 @@ bool Application::Initialize() {
 }
 
 void Application::saveHeightTexture() {
-    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EACkcB1AGwAXAAAAgL8AAIA/AAAAAAAAgD8TAIXrkT8PAAMAAAAAAABABwAAKVwPPwC4HoU/ARcAAACAvwAAgD8AAAAAAACAPyEADQAGAAAAFK4HQAcAAOF6FD8AAAAAAAAAAACAvwEbACAABQABAAAAAAAAAAAAAAAAAAAAAAAAAAEAAMP1KD8AAAAAPwAfhWu/AArXIz0=");
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EwDD9UhADgACAAAAAAAAQA0ABgAAAAAAAEAHAAAAAAA/AAAAAAAAexQuPwAAAAAAAClcL0A=");
 
-    int width = 512;
-    int height = 512;
+    int width = 4096;
+    int height = 4096;
 
     std::vector<float> noiseData(width * height);
-    fnGenerator->GenUniformGrid2D(noiseData.data(), -256, -256, width, height, 0.008f, 0);
+    fnGenerator->GenUniformGrid2D(noiseData.data(), -2048, -2048, width, height, 0.022f, 0);
 
 
 
@@ -150,7 +153,7 @@ void Application::saveHeightTexture() {
     }
 
     // Save as PNG
-    const char* filename = "../../../resources/heightmap.png";
+    const char* filename = "../../../resources/heightmap_noise.png";
     int result = stbi_write_png(filename, width, height, 3, imageData.data(), width * 3);
 
     if (result) {

@@ -17,6 +17,8 @@ const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const TO_KM_SCALE = 1.0/3280.0;
 
+const TERRAIN_UPSCALE = 16.0;
+
 // Wind effect constants
 const WIND_STRENGTH: f32 = 0.15;        // Overall wind intensity
 const WIND_FREQUENCY: f32 = 6.0;       // Wind wave frequency
@@ -1684,7 +1686,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         normal = -normal;
     }
 
-    let worldUv = worldToUV(terrainNormal, vec3f(f32(in.world_voxel_pos.x), f32(in.world_voxel_pos.y), f32(in.world_voxel_pos.z)), 4.0, 0u, vec2f(0.0), 0.0);
+    let h = textureDimensions(terrainNormal).x;
+    let worldUv = worldToUV(terrainNormal, vec3f(f32(in.world_voxel_pos.x), f32(in.world_voxel_pos.y), f32(in.world_voxel_pos.z)), TERRAIN_UPSCALE, 0u, vec2f(0.0), 0.0);
     let tNorm = sampleNormalToVec3(terrainNormal, lut_sampler, worldUv, false, false);
     //let normalTex = textureSampleLevel(terrainNormal, lut_sampler, worldUv, 0.0);
     //return normalTex;

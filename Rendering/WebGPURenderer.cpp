@@ -517,11 +517,11 @@ bool WebGPURenderer::initTextures() {
 
 	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", "roughness_array", "roughness_array_view", RESOURCE_DIR "/textures/");
 	
-	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_textures/noise_texture.png");
+	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_textures/noise_texture.png", false);
 
-	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png");
+	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png", false);
 
-	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png");
+	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png", true);
 
 	return textureManager->getTextureView("block_array_view") != nullptr;
 }

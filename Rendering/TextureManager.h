@@ -74,7 +74,7 @@ public:
     Sampler createSampler(const std::string& samplerName, const SamplerDescriptor& config);
 
     Texture loadTexture(const std::string name, const std::string textureViewName,
-        const std::filesystem::path& path);
+        const std::filesystem::path& path, bool srgb);
 
     void buildMaterialTablesWithNormalMapping(
         const std::vector<MaterialJsonEntry>& entries,
