@@ -1,0 +1,30 @@
+"""Application settings and constants."""
+
+# Canvas settings
+DEFAULT_GRID_SIZE = 8
+DEFAULT_TILES_X = 8
+DEFAULT_TILES_Y = 8
+MIN_GRID_SIZE = 1
+MAX_GRID_SIZE = 64
+MIN_TILES = 1
+MAX_TILES = 10
+
+# Rendering settings
+CANVAS_SIZE = 1.6
+MIN_ZOOM = 0.0625
+MAX_ZOOM = 16.0
+DEFAULT_ZOOM = 0.125
+
+# Colors
+DEFAULT_BACKGROUND_COLOR = (0.234375, 0.234375, 0.234375, 1.0)
+CHECKER_COLOR_LIGHT = (0.55, 0.55, 0.55)
+CHECKER_COLOR_DARK = (0.45, 0.45, 0.54)
+GRID_COLOR = (0.6, 0.6, 0.6, 1.0)
+GRID_BORDER_COLOR = (0.7, 0.7, 0.7, 1.0)
+
+# UI Settings
+PANEL_WIDTH = 350
+PANEL_MIN_WIDTH = 350
+
+# File settings
+SUPPORTED_IMAGE_FORMATS = "PNG Images (*.png);;All Files (*.*)"
