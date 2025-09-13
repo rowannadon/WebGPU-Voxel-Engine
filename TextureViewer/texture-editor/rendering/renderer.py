@@ -25,6 +25,9 @@ class PixelRenderer:
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         
+        # Create checker texture for transparency
+        self.texture_manager.create_checker_texture()
+        
         self.initialized = True
     
     def setup_projection(self, width: int, height: int, zoom: float, 
@@ -55,10 +58,35 @@ class PixelRenderer:
         glClear(GL_COLOR_BUFFER_BIT)
         glLoadIdentity()
     
-    def render_checkerboard(self):
-        """Render the checkerboard background."""
-        if self.vbo_manager and self.vbo_manager.checker_vbo:
-            self.vbo_manager.render_checker()
+    def render_canvas_checkerboard(self, tiles_x: int, tiles_y: int):
+        """Render checkerboard background for the canvas area."""
+        if not self.texture_manager or not self.texture_manager.checker_texture_id:
+            return
+        
+        total_width = CANVAS_SIZE * tiles_x
+        total_height = CANVAS_SIZE * tiles_y
+        offset_x = -total_width / 2
+        offset_y = -total_height / 2
+        
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, self.texture_manager.checker_texture_id)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+        
+        # Calculate texture coordinates to tile the checker pattern
+        tex_scale = 8.0  # Adjust this to control checker size
+        
+        glBegin(GL_QUADS)
+        glTexCoord2f(0, 0)
+        glVertex2f(offset_x, offset_y)
+        glTexCoord2f(tiles_x * tex_scale, 0)
+        glVertex2f(offset_x + total_width, offset_y)
+        glTexCoord2f(tiles_x * tex_scale, tiles_y * tex_scale)
+        glVertex2f(offset_x + total_width, offset_y + total_height)
+        glTexCoord2f(0, tiles_y * tex_scale)
+        glVertex2f(offset_x, offset_y + total_height)
+        glEnd()
+        
+        glDisable(GL_TEXTURE_2D)
     
     def render_tiles(self, use_variants: bool, variant_manager=None, 
                     tile_manager=None, grid_size: int = 8):
@@ -78,7 +106,7 @@ class PixelRenderer:
         
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, self.texture_manager.texture_id)
-        glColor3f(1.0, 1.0, 1.0)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
         
         self.vbo_manager.render_tiles()
         
@@ -87,7 +115,7 @@ class PixelRenderer:
     def render_tiles_with_variants(self, variant_manager, tile_manager, grid_size):
         """Render tiles with different variant textures."""
         glEnable(GL_TEXTURE_2D)
-        glColor3f(1.0, 1.0, 1.0)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
         
         tiles_x = tile_manager.tiles_x if tile_manager else 8
         tiles_y = tile_manager.tiles_y if tile_manager else 8

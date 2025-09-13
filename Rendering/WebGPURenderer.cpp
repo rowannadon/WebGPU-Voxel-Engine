@@ -521,7 +521,7 @@ bool WebGPURenderer::initTextures() {
 
 	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png", false);
 
-	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png", true);
+	Texture rgba64Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/biome_map.png", true);
 
 	return textureManager->getTextureView("block_array_view") != nullptr;
 }

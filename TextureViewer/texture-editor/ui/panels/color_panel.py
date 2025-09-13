@@ -355,21 +355,25 @@ class ColorPanel(QWidget):
         )
         
         if filename:
-            success, message, data = self.importer.import_image(
-                filename,
-                self.canvas.pixel_data.grid_size
-            )
+            # First try to import with auto-detection
+            success, message, data = self.importer.import_image(filename)
             
             if success:
                 # Update canvas with imported data
-                variants, tiles_x, tiles_y, tile_assignments, variant_counts = data
+                variants, tiles_x, tiles_y, tile_assignments, variant_counts, tile_resolution = data
                 
+                # Update tile resolution if different
+                if tile_resolution != self.canvas.pixel_data.grid_size:
+                    self.canvas.texture_manager.grid_size = tile_resolution
+                    
                 self.canvas.variant_manager.variants = variants
-                self.canvas.variant_manager.tile_counts = variant_counts
+                self.canvas.variant_manager.tile_counts = variant_counts  # Keep imported counts
                 self.canvas.variant_manager.current_variant_index = 0
                 self.canvas.variant_manager.tile_assignments = tile_assignments
                 
                 self.canvas.pixel_data = variants[0]
+                
+                # Set canvas dimensions to match imported texture
                 self.canvas.tile_manager.tiles_x = tiles_x
                 self.canvas.tile_manager.tiles_y = tiles_y
                 self.canvas.tile_manager.random_rotation = False
@@ -380,13 +384,19 @@ class ColorPanel(QWidget):
                 self.canvas.texture_manager.update_texture(self.canvas.pixel_data.to_numpy())
                 self.canvas.update()
                 
-                # Update variants panel if we can access it
-                if hasattr(self.parent(), 'parent'):
-                    main_window = self.parent().parent()
-                    if hasattr(main_window, 'variants_panel'):
-                        main_window.variants_panel.update_variant_grid()
-                    if hasattr(main_window, 'random_rotation_action'):
-                        main_window.random_rotation_action.setChecked(False)
+                # Update variants panel - use the stored reference in canvas
+                if hasattr(self.canvas, 'variants_panel') and self.canvas.variants_panel:
+                    self.canvas.variants_panel.on_tiles_changed()  # Use this to notify of dimension change
+                    
+                # Also update via main window if we can find it
+                main_window = self.window()  # Use window() to get the top-level window
+                if main_window and hasattr(main_window, 'variants_panel'):
+                    main_window.variants_panel.on_tiles_changed()
+                if main_window and hasattr(main_window, 'random_rotation_action'):
+                    main_window.random_rotation_action.setChecked(False)
+                
+                # Refresh swatches to show new colors
+                self.swatches_panel.refresh_swatches()
                 
                 QMessageBox.information(self, "Import Successful", message)
             else:

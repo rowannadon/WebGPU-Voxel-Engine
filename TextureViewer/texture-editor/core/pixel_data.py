@@ -11,20 +11,25 @@ class PixelData:
         if data is not None:
             self.data = data.copy()
         else:
-            self.data = np.ones((grid_size, grid_size, 3), dtype=np.float32)
+            # Initialize with RGBA (4 channels) - white with full opacity
+            self.data = np.ones((grid_size, grid_size, 4), dtype=np.float32)
     
-    def set_pixel(self, row: int, col: int, color: Tuple[float, float, float]):
-        """Set a pixel color."""
+    def set_pixel(self, row: int, col: int, color: Tuple[float, float, float, float]):
+        """Set a pixel color with alpha."""
         if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
-            self.data[row, col] = color
+            # Ensure we have 4 components
+            if len(color) == 3:
+                self.data[row, col] = (*color, 1.0)
+            else:
+                self.data[row, col] = color
     
-    def get_pixel(self, row: int, col: int) -> Tuple[float, float, float]:
-        """Get a pixel color."""
+    def get_pixel(self, row: int, col: int) -> Tuple[float, float, float, float]:
+        """Get a pixel color with alpha."""
         if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
             return tuple(self.data[row, col])
-        return (0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 1.0)
     
-    def clear(self, color: Tuple[float, float, float] = (1.0, 1.0, 1.0)):
+    def clear(self, color: Tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)):
         """Clear the pixel data with a specific color."""
         self.data[:, :, :] = color
     
@@ -34,7 +39,7 @@ class PixelData:
     
     def resize(self, new_size: int):
         """Resize the pixel grid, preserving data where possible."""
-        new_data = np.ones((new_size, new_size, 3), dtype=np.float32)
+        new_data = np.ones((new_size, new_size, 4), dtype=np.float32)
         
         # Copy existing data
         min_size = min(new_size, self.grid_size)

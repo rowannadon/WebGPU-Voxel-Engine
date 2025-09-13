@@ -15,8 +15,8 @@ class ImageExporter:
             total_width = tile_manager.tiles_x * grid_size
             total_height = tile_manager.tiles_y * grid_size
             
-            # Create output array
-            output_image = np.zeros((total_height, total_width, 3), dtype=np.float32)
+            # Create output array with RGBA channels
+            output_image = np.ones((total_height, total_width, 4), dtype=np.float32)
             
             # Fill in each tile
             for tile_x in range(tile_manager.tiles_x):
@@ -46,9 +46,18 @@ class ImageExporter:
                     output_image[start_y:start_y + grid_size,
                                 start_x:start_x + grid_size] = tile_data
             
-            # Convert to 8-bit RGB and save
+            # Convert to 8-bit RGBA and save
             output_image = (output_image * 255).astype(np.uint8)
-            img = Image.fromarray(output_image, 'RGB')
+            
+            # Check if image has any transparency
+            has_transparency = np.any(output_image[:, :, 3] < 255)
+            
+            if has_transparency:
+                # Save as RGBA
+                img = Image.fromarray(output_image, 'RGBA')
+            else:
+                # Save as RGB (no alpha channel needed)
+                img = Image.fromarray(output_image[:, :, :3], 'RGB')
             
             # Ensure .png extension
             if not filename.lower().endswith('.png'):

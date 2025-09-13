@@ -10,6 +10,7 @@ class VariantManager:
     def __init__(self):
         self.variants: List[PixelData] = []
         self.tile_counts: List[int] = []  # Number of tiles for each variant
+        self.variant_visibility: List[bool] = []  # Visibility state for each variant
         self.current_variant_index = 0
         self.tile_assignments: Optional[np.ndarray] = None
         
@@ -20,6 +21,7 @@ class VariantManager:
     def add_variant(self, pixel_data: PixelData, initial_count: Optional[int] = None) -> int:
         """Add a new variant with an initial tile count."""
         self.variants.append(pixel_data)
+        self.variant_visibility.append(True)  # New variants are visible by default
         
         # If no initial count provided, calculate a balanced distribution
         if initial_count is None:
@@ -56,6 +58,7 @@ class VariantManager:
             
             self.variants.pop(index)
             self.tile_counts.pop(index)
+            self.variant_visibility.pop(index)  # Remove visibility state too
             
             # Redistribute the removed variant's tiles to remaining variants
             if self.tile_counts and removed_count > 0:
@@ -88,11 +91,21 @@ class VariantManager:
             new_count = max(1, total_tiles // (len(self.variants) + 1))
             new_index = self.add_variant(new_variant, new_count)
             
+            # Copy visibility state from original
+            self.variant_visibility[new_index] = self.variant_visibility[index]
+            
             # Rebalance if needed
             self.rebalance_tile_counts(total_tiles)
             return new_index
         return -1
     
+    def get_effective_tile_count(self, index: int) -> int:
+        """Get the effective tile count (0 if not visible)."""
+        if 0 <= index < len(self.tile_counts):
+            if self.get_variant_visibility(index):
+                return self.tile_counts[index]
+        return 0
+
     def set_tile_count(self, index: int, count: int, total_tiles: int):
         """Set the tile count for a variant."""
         if 0 <= index < len(self.tile_counts):
@@ -136,17 +149,39 @@ class VariantManager:
             self.tile_counts[i] = max(0, self.tile_counts[i] - adjustment)
     
     def rebalance_tile_counts(self, total_tiles: int):
-        """Rebalance tile counts to match total tiles."""
+        """Rebalance tile counts to match total tiles while preserving percentages."""
         if not self.tile_counts:
             return
         
-        num_variants = len(self.tile_counts)
-        base_count = total_tiles // num_variants
-        remainder = total_tiles % num_variants
-        
-        self.tile_counts = [base_count] * num_variants
-        for i in range(remainder):
-            self.tile_counts[i] += 1
+        # Calculate current percentages
+        current_total = sum(self.tile_counts)
+        if current_total == 0:
+            # If no tiles assigned, distribute evenly
+            num_variants = len(self.tile_counts)
+            base_count = total_tiles // num_variants
+            remainder = total_tiles % num_variants
+            
+            self.tile_counts = [base_count] * num_variants
+            for i in range(remainder):
+                self.tile_counts[i] += 1
+        else:
+            # Preserve existing percentages
+            percentages = [count / current_total for count in self.tile_counts]
+            
+            # Calculate new counts based on percentages
+            new_counts = []
+            allocated = 0
+            
+            for i, percentage in enumerate(percentages):
+                if i == len(percentages) - 1:
+                    # Last variant gets remaining tiles to avoid rounding errors
+                    count = total_tiles - allocated
+                else:
+                    count = round(percentage * total_tiles)
+                    allocated += count
+                new_counts.append(count)
+            
+            self.tile_counts = new_counts
     
     def get_current_variant(self) -> PixelData:
         """Get the currently selected variant."""
@@ -159,18 +194,39 @@ class VariantManager:
         if 0 <= index < len(self.variants):
             self.current_variant_index = index
     
+    def get_variant_visibility(self, index: int) -> bool:
+        """Get the visibility of a variant."""
+        if 0 <= index < len(self.variant_visibility):
+            return self.variant_visibility[index]
+        return True
+
+    def set_variant_visibility(self, index: int, visible: bool):
+        """Set the visibility of a variant."""
+        if 0 <= index < len(self.variant_visibility):
+            self.variant_visibility[index] = visible
+    
     def assign_variants_to_tiles(self, tiles_x: int, tiles_y: int) -> np.ndarray:
-        """Assign variants to tiles based on tile counts."""
+        """Assign variants to tiles based on tile counts and visibility."""
         total_tiles = tiles_x * tiles_y
         
-        # Build assignment array based on tile counts
+        # Build assignment array based on tile counts and visibility
         indices = []
         for variant_idx, count in enumerate(self.tile_counts):
-            indices.extend([variant_idx] * min(count, total_tiles - len(indices)))
+            # Only include visible variants
+            if self.get_variant_visibility(variant_idx):
+                indices.extend([variant_idx] * min(count, total_tiles - len(indices)))
         
-        # If we have fewer assignments than tiles, fill with first variant
-        while len(indices) < total_tiles:
-            indices.append(0)
+        # If we have fewer assignments than tiles, fill with first visible variant
+        if len(indices) < total_tiles:
+            # Find first visible variant
+            first_visible = 0
+            for i in range(len(self.variants)):
+                if self.get_variant_visibility(i):
+                    first_visible = i
+                    break
+            
+            while len(indices) < total_tiles:
+                indices.append(first_visible)
         
         # If we have more assignments than tiles, truncate
         indices = indices[:total_tiles]
@@ -208,11 +264,20 @@ class VariantManager:
         
         def tiles_match(tile1, tile2):
             """Check if two tiles match within tolerance."""
+            # Ensure both tiles have same number of channels
+            if tile1.shape != tile2.shape:
+                return False
             return np.allclose(tile1, tile2, atol=tolerance)
         
         for tile in tiles:
             found_match = False
             variant_idx = -1
+            
+            # Ensure tile has 4 channels (RGBA)
+            if tile.shape[2] == 3:
+                # Add alpha channel if missing
+                alpha_channel = np.ones((tile.shape[0], tile.shape[1], 1), dtype=tile.dtype)
+                tile = np.concatenate([tile, alpha_channel], axis=2)
             
             # Check against existing variants (comparing numpy arrays)
             for v_idx, variant in enumerate(unique_variants):

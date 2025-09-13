@@ -24,7 +24,7 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap16.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap18.png");
     textureManagerCPU->loadTexture("biome", RESOURCE_DIR "/terrain/biome_id.png");
     textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
     textureManagerCPU->loadTexture("svf", RESOURCE_DIR "/terrain/svf.png");

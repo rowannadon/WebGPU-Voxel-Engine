@@ -368,11 +368,127 @@ def precipitation_lat_bands(lat_deg: np.ndarray, base_mm: float = 1200.0) -> np.
     return P.astype(np.float32)
 
 
-def precipitation_orographic(P_lat: np.ndarray, dir_s: np.ndarray, dist_coast_m: np.ndarray, alpha: float, beta: float, coast_decay_m: float, coast_min_frac: float = 0.35) -> np.ndarray:
-    lift = 1.0 + alpha * np.maximum(0.0, dir_s)
-    shadow = 1.0 / (1.0 + beta * np.maximum(0.0, -dir_s))
+def compute_rain_shadow_advanced(elev: np.ndarray, wind_u: np.ndarray, wind_v: np.ndarray, 
+                                 cellsize: float, max_distance_km: float = 50.0,
+                                 shadow_decay_km: float = 20.0, 
+                                 height_threshold_m: float = 100.0) -> np.ndarray:
+    """
+    Compute rain shadow effect using vectorized operations.
+    Much faster than pixel-by-pixel tracing.
+    """
+    h, w = elev.shape
+    
+    # Normalize wind vectors
+    u = wind_u[:, 0] if wind_u.shape[1] == 1 else wind_u.mean(axis=1)
+    v = wind_v[:, 0] if wind_v.shape[1] == 1 else wind_v.mean(axis=1)
+    
+    # Average wind direction for the map
+    avg_u = np.mean(u)
+    avg_v = np.mean(v)
+    wind_mag = np.sqrt(avg_u**2 + avg_v**2)
+    
+    if wind_mag < 1e-6:
+        return np.ones((h, w), dtype=np.float32)
+    
+    avg_u /= wind_mag
+    avg_v /= wind_mag
+    
+    # Number of steps to trace
+    n_steps = min(20, int(max_distance_km * 1000 / cellsize))
+    step_size = max(1, int(cellsize / 1000))  # Adaptive step size
+    
+    # Initialize shadow accumulator
+    shadow_acc = np.zeros((h, w), dtype=np.float32)
+    
+    # Vectorized tracing - shift the entire elevation field
+    for step in range(1, n_steps + 1):
+        # Calculate shift in pixels
+        shift_x = int(round(step * step_size * avg_u))
+        shift_y = int(round(step * step_size * avg_v))
+        
+        # Create shifted elevation (what's upwind)
+        upwind_elev = np.full_like(elev, -9999.0)
+        
+        # Determine valid source region
+        src_x_start = max(0, -shift_x)
+        src_x_end = min(w, w - shift_x)
+        src_y_start = max(0, -shift_y)
+        src_y_end = min(h, h - shift_y)
+        
+        # Determine destination region
+        dst_x_start = max(0, shift_x)
+        dst_x_end = min(w, w + shift_x)
+        dst_y_start = max(0, shift_y)
+        dst_y_end = min(h, h + shift_y)
+        
+        if (src_x_end > src_x_start and src_y_end > src_y_start and
+            dst_x_end > dst_x_start and dst_y_end > dst_y_start):
+            upwind_elev[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = \
+                elev[src_y_start:src_y_end, src_x_start:src_x_end]
+        
+        # Calculate blocking where upwind is higher
+        valid = upwind_elev > -9999.0
+        height_diff = np.zeros_like(elev)
+        height_diff[valid] = np.maximum(0, upwind_elev[valid] - elev[valid])
+        
+        # Only significant height differences create shadows
+        significant = height_diff > height_threshold_m
+        
+        # Distance decay
+        dist_km = step * step_size * cellsize / 1000.0
+        decay = np.exp(-dist_km / shadow_decay_km)
+        
+        # Accumulate shadow (with diminishing returns)
+        shadow_contrib = significant * np.minimum(0.3, height_diff / 1000.0) * decay
+        shadow_acc = np.minimum(0.8, shadow_acc + shadow_contrib)
+    
+    # Convert to multiplier and smooth
+    shadow_mult = 1.0 - shadow_acc
+    
+    # Light smoothing to reduce artifacts
+    from scipy.ndimage import gaussian_filter
+    shadow_mult = gaussian_filter(shadow_mult, sigma=1.0)
+    
+    return np.clip(shadow_mult, 0.2, 1.0).astype(np.float32)
+
+
+def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
+                                     wind_u: np.ndarray, wind_v: np.ndarray,
+                                     dzdx: np.ndarray, dzdy: np.ndarray,
+                                     dist_coast_m: np.ndarray, cellsize: float,
+                                     alpha: float = 2.0, beta: float = 0.15,  # Added beta parameter
+                                     coast_decay_m: float = 150000.0,
+                                     coast_min_frac: float = 0.35,
+                                     use_advanced_shadow: bool = True) -> np.ndarray:
+    """
+    Enhanced orographic precipitation with optional advanced rain shadow.
+    Beta parameter is used for simple shadow mode, ignored in advanced mode.
+    """
+    # Calculate directional slope for orographic lift
+    dir_slope = (dzdx * wind_u + dzdy * wind_v).astype(np.float32)
+    
+    # Orographic lift on windward slopes
+    lift = 1.0 + alpha * np.maximum(0.0, dir_slope)
+    
+    if use_advanced_shadow:
+        # Advanced rain shadow calculation (vectorized)
+        print("    Computing advanced rain shadow effect (vectorized)...")
+        shadow_multiplier = compute_rain_shadow_advanced(
+            elev, wind_u, wind_v, cellsize,
+            max_distance_km=0.5,    # Reduced for speed
+            shadow_decay_km=0.15,     # Faster decay
+            height_threshold_m=50.0  # Only mountains >100m difference matter
+        )
+    else:
+        # Simple directional slope shadow (original method) - uses beta
+        shadow_multiplier = 1.0 / (1.0 + beta * np.maximum(0.0, -dir_slope))
+    
+    # Coastal moisture decay
     coast = coast_min_frac + (1.0 - coast_min_frac) * np.exp(-dist_coast_m / max(1.0, coast_decay_m))
-    P = P_lat * lift * shadow * coast
+    
+    # Combine all effects
+    P = P_lat * lift * shadow_multiplier * coast
+    
     return np.clip(P, 0.0, None).astype(np.float32)
 
 
@@ -1133,8 +1249,16 @@ def main():
         P = try_load_npy(os.path.join(masks_dir, "precip_mm.npy"), "precip_mm", args.load_from_previous)
         if P is None:
             P_lat = precipitation_lat_bands(lat1d)
-            P = precipitation_orographic(P_lat, dir_s, d2coast, alpha=args.orographic_alpha, beta=args.shadow_beta,
-                                         coast_decay_m=args.coast_decay_km*1000.0, coast_min_frac=0.35)
+            if dzdx is None or dzdy is None:
+                dzdx, dzdy = compute_gradients(elev, args.cellsize)
+            
+            # Use advanced orographic precipitation with better rain shadow
+            P = precipitation_orographic_advanced(
+                P_lat, elev, u, v, dzdx, dzdy, d2coast,
+                args.cellsize, alpha=args.orographic_alpha,
+                beta=args.shadow_beta, coast_decay_m=args.coast_decay_km*1000.0,
+                coast_min_frac=0.35
+            )
             if args.write_raw_npy:
                 np.save(os.path.join(masks_dir, "precip_mm.npy"), P)
         save_png_scalar(P, os.path.join(masks_dir, "precip_mm.png"), bit_depth=args.bit_depth, clip_lo=0.0, clip_hi=3000.0)

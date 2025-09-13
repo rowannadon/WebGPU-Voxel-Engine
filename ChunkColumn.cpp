@@ -1338,7 +1338,7 @@ void ChunkColumn::generateTerrain() {
     for (int y = 0; y < CHUNK_SIZE; y++) {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             // Generate height for this column
-            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE / 2.0f).b + 
+            float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).b + 
                 0.015*texc->getTexelAtPosition("noise", x + position.x + offsetx, y + position.y + offsety, 5.0f).b;
             //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;

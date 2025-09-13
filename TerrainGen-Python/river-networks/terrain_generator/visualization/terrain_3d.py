@@ -35,12 +35,12 @@ class Camera:
     def zoom_in(self, factor: float = 0.9):
         """Zoom in by factor."""
         self.zoom *= factor
-        self.zoom = max(5.0, min(200.0, self.zoom))
+        self.zoom = max(5.0, min(1000.0, self.zoom))
     
     def zoom_out(self, factor: float = 1.1):
         """Zoom out by factor."""
         self.zoom *= factor
-        self.zoom = max(5.0, min(500.0, self.zoom))
+        self.zoom = max(5.0, min(1000.0, self.zoom))
 
 class Terrain3DRenderer:
     """Handles 3D rendering logic for terrain."""
@@ -163,8 +163,12 @@ class Terrain3DRenderer:
         # Get colormap
         colormap = self.colormaps[self.color_scheme]
         
-        # Normalize heightmap
-        norm_height = normalize(heightmap)
+        # Normalize heightmap to [0,1] for colormap lookup
+        # This handles heightmaps with values > 1.0
+        if heightmap.max() > heightmap.min():
+            norm_height = (heightmap - heightmap.min()) / (heightmap.max() - heightmap.min())
+        else:
+            norm_height = np.zeros_like(heightmap)
         
         # Compute lighting direction
         sun_altitude_rad = np.radians(self.sun_altitude)
@@ -316,7 +320,7 @@ class TerrainViewport(QOpenGLWidget):
         self.camera = Camera()
         self.last_pos = None
         self.widget_width = 800
-        self.widget_height = 800
+        self.widget_height = 600
     
     def set_terrain(self, terrain_data: TerrainData):
         """Set terrain data to visualize."""
@@ -379,9 +383,9 @@ class TerrainViewport(QOpenGLWidget):
         zoom = self.camera.zoom
         
         if aspect >= 1:
-            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -1500, 1500)
+            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -500, 500)
         else:
-            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -1500, 1500)
+            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -500, 500)
         
         # Set modelview
         glMatrixMode(GL_MODELVIEW)

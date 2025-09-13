@@ -31,6 +31,11 @@ class PixelCanvas(QGLWidget):
         self.tile_manager = TileManager(DEFAULT_TILES_X, DEFAULT_TILES_Y)
         self.undo_manager = UndoManager()  # Add undo manager
         
+        # Initialize tile assignments right away
+        self.variant_manager.assign_variants_to_tiles(
+            DEFAULT_TILES_X, DEFAULT_TILES_Y
+        )
+        
         # Rendering components
         self.renderer = PixelRenderer()
         self.vbo_manager = VBOManager()
@@ -106,7 +111,10 @@ class PixelCanvas(QGLWidget):
         
         # Clear and render
         self.renderer.clear()
-        self.renderer.render_checkerboard()
+        self.renderer.render_canvas_checkerboard(
+        self.tile_manager.tiles_x,
+        self.tile_manager.tiles_y
+        )
         self.renderer.render_tiles(
             self.use_variants,
             self.variant_manager,
@@ -333,16 +341,21 @@ class PixelCanvas(QGLWidget):
                 row, col, rotation, self.pixel_data.grid_size
             )
         
-            # Always use variants now
-        if self.variant_manager.tile_assignments is not None:
-            variant = self.variant_manager.get_variant_for_tile(tile_x, tile_y)
-            variant.set_pixel(row, col, self.brush.color)
-            if variant == self.variant_manager.get_current_variant():
-                self.texture_manager.update_texture(variant.to_numpy())
-        else:
-            # Fallback to current variant if assignments not set yet
-            self.pixel_data.set_pixel(row, col, self.brush.color)
-            self.texture_manager.update_texture(self.pixel_data.to_numpy())
+        # Ensure tile assignments exist
+        if self.variant_manager.tile_assignments is None:
+            # Initialize tile assignments on first paint
+            self.variant_manager.assign_variants_to_tiles(
+                self.tile_manager.tiles_x,
+                self.tile_manager.tiles_y
+            )
+        
+        # Now always use variants
+        variant = self.variant_manager.get_variant_for_tile(tile_x, tile_y)
+        variant.set_pixel(row, col, self.brush.color)
+        
+        # Update texture for current variant
+        if variant == self.variant_manager.get_current_variant():
+            self.texture_manager.update_texture(variant.to_numpy())
         
         # Mark that changes have been made
         self.undo_manager.mark_changed()
@@ -397,7 +410,7 @@ class PixelCanvas(QGLWidget):
     
     def set_color(self, color):
         """Set the current painting color."""
-        self.brush.color = Color.qcolor_to_float(color)
+        self.brush.color = (color.redF(), color.greenF(), color.blueF(), color.alphaF())
     
     def set_grid_visible(self, visible: bool):
         """Toggle grid visibility."""
@@ -408,9 +421,14 @@ class PixelCanvas(QGLWidget):
     
     def set_tiles_x(self, tiles: int):
         """Set horizontal tile count."""
+        old_total = self.tile_manager.tiles_x * self.tile_manager.tiles_y
         self.tile_manager.set_tiles(tiles, self.tile_manager.tiles_y)
-        total_tiles = tiles * self.tile_manager.tiles_y
-        self.variant_manager.rebalance_tile_counts(total_tiles)
+        new_total = tiles * self.tile_manager.tiles_y
+        
+        # Preserve variant percentages when changing tile counts
+        if old_total != new_total:
+            self.variant_manager.rebalance_tile_counts(new_total)
+        
         if self.use_variants:
             self.variant_manager.assign_variants_to_tiles(tiles, self.tile_manager.tiles_y)
         self.needs_tile_rebuild = True
@@ -419,9 +437,14 @@ class PixelCanvas(QGLWidget):
 
     def set_tiles_y(self, tiles: int):
         """Set vertical tile count."""
+        old_total = self.tile_manager.tiles_x * self.tile_manager.tiles_y
         self.tile_manager.set_tiles(self.tile_manager.tiles_x, tiles)
-        total_tiles = self.tile_manager.tiles_x * tiles
-        self.variant_manager.rebalance_tile_counts(total_tiles)
+        new_total = self.tile_manager.tiles_x * tiles
+        
+        # Preserve variant percentages when changing tile counts
+        if old_total != new_total:
+            self.variant_manager.rebalance_tile_counts(new_total)
+        
         if self.use_variants:
             self.variant_manager.assign_variants_to_tiles(self.tile_manager.tiles_x, tiles)
         self.needs_tile_rebuild = True
@@ -491,4 +514,51 @@ class PixelCanvas(QGLWidget):
         """Reset viewport to default."""
         self.viewport.reset()
         self.update_projection()
+        self.update()
+
+    def update_tile_resolution(self, new_resolution: int):
+        """Update the resolution of all tile variants."""
+        if new_resolution == self.pixel_data.grid_size:
+            return
+        
+        # Begin undo operation
+        self.undo_manager.begin_operation(self.variant_manager)
+        self.undo_manager.mark_changed()
+        
+        # Update all variants
+        for i, variant in enumerate(self.variant_manager.variants):
+            # Create new pixel data with new resolution
+            new_data = PixelData(new_resolution)
+            
+            # Copy pixels from old data (with scaling/sampling as needed)
+            old_size = variant.grid_size
+            for new_row in range(new_resolution):
+                for new_col in range(new_resolution):
+                    # Map new coordinates to old coordinates
+                    old_row = int(new_row * old_size / new_resolution)
+                    old_col = int(new_col * old_size / new_resolution)
+                    
+                    # Get color from old data
+                    color = variant.get_pixel(old_row, old_col)
+                    new_data.set_pixel(new_row, new_col, color)
+            
+            # Replace variant with resized version
+            self.variant_manager.variants[i] = new_data
+        
+        # Update current pixel data reference
+        self.pixel_data = self.variant_manager.get_current_variant()
+        
+        # Update texture manager grid size
+        self.texture_manager.grid_size = new_resolution
+        
+        # Recreate texture with new resolution
+        self.texture_manager.create_texture(self.pixel_data.to_numpy())
+        
+        # Mark for rebuilding
+        self.needs_tile_rebuild = True
+        self.needs_grid_rebuild = True
+        
+        # End undo operation
+        self.undo_manager.end_operation(self.variant_manager)
+        
         self.update()

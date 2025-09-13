@@ -9,13 +9,19 @@ class ColorManager:
     
     def __init__(self):
         # Maps original_color -> current_color for active swatches
-        self.swatch_colors: Dict[Tuple[float, float, float], Tuple[float, float, float]] = {}
+        self.swatch_colors: Dict[Tuple, Tuple] = {}
         # Maps original_color -> set of (variant_idx, row, col)
-        self.color_positions: Dict[Tuple[float, float, float], Set[Tuple[int, int, int]]] = {}
+        self.color_positions: Dict[Tuple, Set[Tuple[int, int, int]]] = {}
         # Currently editing swatch
-        self.active_swatch_original: Optional[Tuple[float, float, float]] = None
+        self.active_swatch_original: Optional[Tuple] = None
         
-    def analyze_variants(self, variants: List) -> List[Tuple[Tuple[float, float, float], int]]:
+    def _normalize_color(self, color: Tuple) -> Tuple:
+        """Normalize color to always have 4 components (RGBA)."""
+        if len(color) == 3:
+            return (*color, 1.0)
+        return color
+        
+    def analyze_variants(self, variants: List) -> List[Tuple[Tuple, int]]:
         """Analyze all variants and return list of (color, count) tuples."""
         # First, build a map of actual current colors to their positions
         current_color_positions = defaultdict(set)
@@ -24,7 +30,8 @@ class ColorManager:
             data = variant.to_numpy()
             for row in range(data.shape[0]):
                 for col in range(data.shape[1]):
-                    color = tuple(data[row, col])
+                    # Normalize color to RGBA
+                    color = self._normalize_color(tuple(data[row, col]))
                     current_color_positions[color].add((variant_idx, row, col))
         
         # Check if we need to update existing swatches
@@ -66,18 +73,21 @@ class ColorManager:
         
         return result
     
-    def _colors_match(self, color1: Tuple[float, float, float], 
-                     color2: Tuple[float, float, float], tolerance: float = 0.001) -> bool:
+    def _colors_match(self, color1: Tuple, color2: Tuple, tolerance: float = 0.001) -> bool:
         """Check if two colors match within tolerance."""
-        return all(abs(c1 - c2) < tolerance for c1, c2 in zip(color1, color2))
+        c1 = self._normalize_color(color1)
+        c2 = self._normalize_color(color2)
+        return all(abs(a - b) < tolerance for a, b in zip(c1, c2))
     
-    def start_color_edit(self, original_color: Tuple[float, float, float]):
+    def start_color_edit(self, original_color: Tuple):
         """Start editing a color swatch."""
-        self.active_swatch_original = original_color
+        self.active_swatch_original = self._normalize_color(original_color)
     
-    def update_color(self, original_color: Tuple[float, float, float], 
-                     new_color: Tuple[float, float, float], variants: List):
+    def update_color(self, original_color: Tuple, new_color: Tuple, variants: List):
         """Update all pixels of a swatch to new color."""
+        original_color = self._normalize_color(original_color)
+        new_color = self._normalize_color(new_color)
+        
         # Update the swatch's current color
         self.swatch_colors[original_color] = new_color
         
@@ -91,9 +101,10 @@ class ColorManager:
         """End the current color edit session."""
         self.active_swatch_original = None
     
-    def add_new_color(self, color: Tuple[float, float, float], 
-                     variant_idx: int, row: int, col: int):
+    def add_new_color(self, color: Tuple, variant_idx: int, row: int, col: int):
         """Add a newly painted pixel to tracking."""
+        color = self._normalize_color(color)
+        
         # Check if this pixel was already part of a swatch
         for original_color, positions in self.color_positions.items():
             if (variant_idx, row, col) in positions:
@@ -124,6 +135,7 @@ class ColorManager:
                 self.color_positions[color] = set()
             self.color_positions[color].add((variant_idx, row, col))
     
-    def get_current_color(self, original_color: Tuple[float, float, float]) -> Tuple[float, float, float]:
+    def get_current_color(self, original_color: Tuple) -> Tuple:
         """Get the current color for a swatch."""
+        original_color = self._normalize_color(original_color)
         return self.swatch_colors.get(original_color, original_color)

@@ -1,6 +1,7 @@
 """Variants management panel."""
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-                            QPushButton, QGridLayout, QScrollArea, QLabel)
+                            QPushButton, QGridLayout, QScrollArea, QLabel,
+                            QApplication)  # Add QApplication here
 from PyQt5.QtCore import Qt, QTimer
 
 from ui.widgets import TilePreview
@@ -15,13 +16,14 @@ class VariantsPanel(QWidget):
         self.canvas.use_variants = True  # Always use variants
         self.preview_widgets = []
         self.selected_index = 0
-        self.init_ui()
         
         # Set up refresh timer for live updates
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_previews)
         self.refresh_timer.start(200)  # Refresh previews every 200ms
-
+        
+        self.init_ui()
+        
         # Connect to canvas variants changed signal for undo/redo
         self.canvas.variantsChanged.connect(self.on_variants_changed)
     
@@ -191,15 +193,20 @@ class VariantsPanel(QWidget):
     
     def update_variant_grid(self):
         """Update the variant grid display."""
-        # Clear existing widgets
-        for widget in self.preview_widgets:
-            widget.deleteLater()
-        self.preview_widgets = []
+        # Stop the refresh timer temporarily to avoid conflicts
+        self.refresh_timer.stop()
         
-        # Clear grid layout
+        # Clear existing widgets completely
+        for widget in self.preview_widgets:
+            widget.setParent(None)  # Remove parent to ensure deletion
+            widget.deleteLater()
+        self.preview_widgets.clear()  # Clear the list
+        
+        # Clear grid layout completely
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             if item.widget():
+                item.widget().setParent(None)
                 item.widget().deleteLater()
         
         total_tiles = self.get_total_tiles()
@@ -216,7 +223,7 @@ class VariantsPanel(QWidget):
             
             # Get the actual variant data
             variant_data = self.canvas.variant_manager.variants[i]
-            tile_count = self.canvas.variant_manager.tile_counts[i]
+            tile_count = self.canvas.variant_manager.tile_counts[i] if i < len(self.canvas.variant_manager.tile_counts) else 0
             percentage = int((tile_count / total_tiles * 100)) if total_tiles > 0 else 0
             
             # Create preview widget
@@ -224,31 +231,52 @@ class VariantsPanel(QWidget):
             preview.set_pixel_data(variant_data)
             preview.set_percentage(percentage)
             preview.set_selected(i == self.selected_index)
+            preview.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
             
             # Connect signals
             preview.clicked.connect(lambda idx=i: self.on_variant_selected(idx))
             preview.percentageChanged.connect(lambda change, idx=i: self.on_percentage_changed(idx, change))
+            preview.visibilityToggled.connect(lambda visible, idx=i: self.on_visibility_toggled(idx, visible))
             
             self.preview_widgets.append(preview)
             self.grid_layout.addWidget(preview, row, col)
         
         self.update_button_states()
+        
+        # Restart the refresh timer
+        self.refresh_timer.start(200)
+        
+        # Force immediate refresh of all previews
+        QApplication.processEvents()  # Process any pending deletions
+        self.refresh_previews()
     
     def on_variants_changed(self):
-        """Handle variants changed from undo/redo."""
+        """Handle variants changed from undo/redo or import."""
+        # Store the current selection
+        current_selection = self.selected_index
+        
         # Update the variant grid to get new references
         self.update_variant_grid()
+        
+        # Restore selection if valid
+        if current_selection < len(self.canvas.variant_manager.variants):
+            self.selected_index = current_selection
+            self.on_variant_selected(current_selection)
 
     def refresh_previews(self):
         """Refresh all variant previews."""
         total_tiles = self.get_total_tiles()
         for i, widget in enumerate(self.preview_widgets):
             if i < len(self.canvas.variant_manager.variants):
-                widget.set_pixel_data(self.canvas.variant_manager.variants[i])
+                # Always pass the original unrotated variant data
+                variant_data = self.canvas.variant_manager.variants[i]
+                widget.set_pixel_data(variant_data)
                 if i < len(self.canvas.variant_manager.tile_counts):
                     tile_count = self.canvas.variant_manager.tile_counts[i]
                     percentage = int((tile_count / total_tiles * 100)) if total_tiles > 0 else 0
                     widget.set_percentage(percentage)
+                # Update visibility state
+                widget.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
     
     def update_button_states(self):
         """Update button enabled states."""
@@ -343,3 +371,16 @@ class VariantsPanel(QWidget):
     def on_tiles_changed(self):
         """Called when tile dimensions change."""
         self.update_variant_grid()
+
+    def on_visibility_toggled(self, index, visible):
+        """Handle visibility toggle for a variant."""
+        self.canvas.variant_manager.set_variant_visibility(index, visible)
+        
+        # Reassign tiles with new visibility settings
+        self.canvas.variant_manager.assign_variants_to_tiles(
+            self.canvas.tile_manager.tiles_x,
+            self.canvas.tile_manager.tiles_y
+        )
+        
+        # Update canvas
+        self.canvas.update()

@@ -28,13 +28,16 @@ class ColorDisplay(QWidget):
             for j in range(0, self.height(), checker_size):
                 if (i // checker_size + j // checker_size) % 2 == 0:
                     painter.fillRect(i, j, checker_size, checker_size, 
-                                   QColor(180, 180, 180))
+                                QColor(180, 180, 180))
                 else:
                     painter.fillRect(i, j, checker_size, checker_size, 
-                                   QColor(220, 220, 220))
+                                QColor(220, 220, 220))
         
-        # Draw the actual color on top
-        qcolor = QColor.fromRgbF(*self.color)
+        # Draw the actual color on top (now with alpha support)
+        if len(self.color) == 3:
+            qcolor = QColor.fromRgbF(*self.color, 1.0)
+        else:
+            qcolor = QColor.fromRgbF(*self.color)
         painter.fillRect(self.rect(), qcolor)
         
         # Draw border

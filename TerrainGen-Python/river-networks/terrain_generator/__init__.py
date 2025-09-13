@@ -4,7 +4,7 @@ from .core import (
     TerrainGenerator, 
     TerrainParameters, 
     TerrainData,
-    FBMNoise,
+    ConsistentFBMNoise,
     RiverGenerator
 )
 from .gui.main_window import TerrainGeneratorWindow

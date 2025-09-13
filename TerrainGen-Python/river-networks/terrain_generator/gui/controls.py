@@ -67,7 +67,7 @@ class NoiseParameterWidget(QWidget):
             base_params['upper'] = ("Upper Bound", -10.0, 10.0, 10.0, 0.5, 1)
         elif self.noise_type == "mountain":
             base_params['threshold'] = ("Mountain Threshold", 0.0, 1.0, 0.3, 0.01, 2)
-            base_params['amplitude'] = ("Mountain Amplitude", 0.1, 10.0, 2.0, 0.1, 1)
+            base_params['amplitude'] = ("Mountain Amplitude", 0.1, 2.0, 1.0, 0.1, 1)
             base_params['lower'] = ("Lower Frequency", 0.0, 10.0, 2.0, 0.5, 1)
             base_params['upper'] = ("Upper Frequency", 0.0, 10.0, 10.0, 0.5, 1)
         elif self.noise_type == "plains":
@@ -243,7 +243,7 @@ class ControlPanel(QWidget):
         
         # Disc radius control
         disc_control = ParameterControl(
-            "Point Spacing", 0.25, 8.0, 1.0, step=0.1, decimals=1
+            "Point Spacing", 0.5, 3.0, 1.0, step=0.1, decimals=1
         )
         self.controls['disc_radius'] = disc_control
         layout.addWidget(disc_control)
@@ -298,7 +298,7 @@ class ControlPanel(QWidget):
 
         layout.addWidget(self.noise_tabs)
 
-        # Preset selector
+        # Preset selector with save button
         preset_layout = QHBoxLayout()
         preset_label = QLabel("Preset:")
         preset_layout.addWidget(preset_label)
@@ -314,6 +314,13 @@ class ControlPanel(QWidget):
         ])
         self.preset_combo.currentTextChanged.connect(self.apply_preset)
         preset_layout.addWidget(self.preset_combo)
+        
+        # Add save preset button
+        self.save_preset_button = QPushButton("Save to Preset")
+        self.save_preset_button.setToolTip("Override selected preset with current settings")
+        self.save_preset_button.clicked.connect(self.save_current_to_preset)
+        preset_layout.addWidget(self.save_preset_button)
+        
         layout.addLayout(preset_layout)
 
         # Preview checkbox and button in same layout
@@ -676,10 +683,71 @@ class ControlPanel(QWidget):
         self.controls['river_threshold'].setEnabled(show_rivers)
         self.visualization_changed.emit({'show_rivers': show_rivers})
     
+    def save_current_to_preset(self):
+        """Save current settings to the selected preset."""
+        current_preset = self.preset_combo.currentText()
+        
+        if current_preset == "Custom":
+            QMessageBox.information(
+                self, 
+                "Cannot Save", 
+                "Cannot save to 'Custom'. Please select a specific preset to override."
+            )
+            return
+        
+        # Confirm overwrite
+        reply = QMessageBox.question(
+            self,
+            "Confirm Override",
+            f"Are you sure you want to override the '{current_preset}' preset with current settings?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Extract current parameters
+        current_params = self.preset_manager.extract_from_controls(
+            self.controls,
+            self.noise_widgets
+        )
+        
+        # Update the preset
+        success = self.preset_manager.update_preset(current_preset, current_params)
+        
+        if success:
+            QMessageBox.information(
+                self,
+                "Preset Saved",
+                f"Successfully saved current settings to '{current_preset}' preset."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Save Failed",
+                f"Failed to save preset '{current_preset}'."
+            )
+
     def apply_preset(self, preset_name: str):
         """Apply a terrain preset."""
-        # Add preset logic here if needed
-        pass
+        if preset_name == "Custom":
+            # When switching to Custom, disable the save button
+            self.save_preset_button.setEnabled(False)
+            return
+        
+        # Enable save button for non-custom presets
+        self.save_preset_button.setEnabled(True)
+        
+        # Use the preset manager to apply the preset
+        success = self.preset_manager.apply_to_controls(
+            preset_name, 
+            self.controls, 
+            self.noise_widgets
+        )
+        
+        if not success:
+            print(f"Failed to apply preset: {preset_name}")
     
     def get_parameters(self) -> TerrainParameters:
         """Get current parameters as TerrainParameters object."""
@@ -823,3 +891,11 @@ class ControlPanel(QWidget):
         """Enable/disable export controls."""
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
+
+    def on_dimension_changed(self, new_dimension):
+        """Auto-adjust disc_radius based on dimension."""
+        # Scale disc_radius to maintain consistent terrain steepness
+        # This is critical for proper max_delta scaling
+        base_radius = 1.0  # radius at dimension 256
+        scaled_radius = base_radius * (new_dimension / 256.0)
+        self.controls['disc_radius'].set_value(scaled_radius)

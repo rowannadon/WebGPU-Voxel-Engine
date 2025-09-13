@@ -117,7 +117,7 @@ class ChunkColumn {
 public:
     alignas(64) std::atomic<ColumnState> state{ ColumnState::Empty };
 private:
-    static constexpr float TERRAIN_UPSCALE = 16.0f;
+    static constexpr float TERRAIN_UPSCALE = 4.0f;
 
 
     static constexpr int CHUNK_SIZE = 32;

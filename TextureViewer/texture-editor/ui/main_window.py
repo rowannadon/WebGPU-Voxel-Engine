@@ -177,11 +177,19 @@ class PixelArtEditor(QMainWindow):
         dialog = TileDimensionsDialog(
             self.canvas.tile_manager.tiles_x,
             self.canvas.tile_manager.tiles_y,
+            self.canvas.pixel_data.grid_size,  # Pass current tile resolution
             self
         )
         
         if dialog.exec_():
-            new_x, new_y = dialog.get_dimensions()
+            new_x, new_y, new_resolution = dialog.get_dimensions()
+            
+            # Check if resolution changed
+            resolution_changed = new_resolution != self.canvas.pixel_data.grid_size
+            
+            if resolution_changed:
+                # Update all variants with new resolution
+                self.canvas.update_tile_resolution(new_resolution)
             
             # Update canvas tile dimensions
             self.canvas.set_tiles_x(new_x)
@@ -211,6 +219,13 @@ class PixelArtEditor(QMainWindow):
         self.canvas.pixel_data.clear()
         self.canvas.variant_manager = VariantManager()
         self.canvas.tile_manager = TileManager()
+        
+        # Initialize tile assignments for the new project
+        self.canvas.variant_manager.assign_variants_to_tiles(
+            self.canvas.tile_manager.tiles_x,
+            self.canvas.tile_manager.tiles_y
+        )
+        
         self.canvas.undo_manager.clear()  # Clear undo history
         self.canvas.reset_view()
         self.canvas.update()

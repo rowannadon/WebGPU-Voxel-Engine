@@ -2,23 +2,24 @@
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                             QSpinBox, QPushButton, QDialogButtonBox)
 from PyQt5.QtCore import Qt
-from config.settings import MIN_TILES, MAX_TILES
+from config.settings import MIN_TILES, MAX_TILES, MIN_GRID_SIZE, MAX_GRID_SIZE
 
 
 class TileDimensionsDialog(QDialog):
-    """Dialog for setting tile dimensions."""
+    """Dialog for setting tile dimensions and resolution."""
     
-    def __init__(self, current_x, current_y, parent=None):
+    def __init__(self, current_x, current_y, current_resolution=8, parent=None):
         super().__init__(parent)
         self.tiles_x = current_x
         self.tiles_y = current_y
+        self.tile_resolution = current_resolution
         self.init_ui()
         
     def init_ui(self):
         """Initialize the UI."""
         self.setWindowTitle("Set Tile Dimensions")
         self.setModal(True)
-        self.setFixedSize(250, 150)
+        self.setFixedSize(280, 200)
         
         # Apply dark theme styling
         self.setStyleSheet("""
@@ -57,7 +58,7 @@ class TileDimensionsDialog(QDialog):
         # Tiles X
         tiles_x_layout = QHBoxLayout()
         tiles_x_label = QLabel("Horizontal Tiles:")
-        tiles_x_label.setMinimumWidth(100)
+        tiles_x_label.setMinimumWidth(120)
         self.tiles_x_spin = QSpinBox()
         self.tiles_x_spin.setMinimum(MIN_TILES)
         self.tiles_x_spin.setMaximum(MAX_TILES)
@@ -69,7 +70,7 @@ class TileDimensionsDialog(QDialog):
         # Tiles Y
         tiles_y_layout = QHBoxLayout()
         tiles_y_label = QLabel("Vertical Tiles:")
-        tiles_y_label.setMinimumWidth(100)
+        tiles_y_label.setMinimumWidth(120)
         self.tiles_y_spin = QSpinBox()
         self.tiles_y_spin.setMinimum(MIN_TILES)
         self.tiles_y_spin.setMaximum(MAX_TILES)
@@ -78,8 +79,22 @@ class TileDimensionsDialog(QDialog):
         tiles_y_layout.addWidget(self.tiles_y_spin)
         tiles_y_layout.addStretch()
         
+        # Tile Resolution
+        resolution_layout = QHBoxLayout()
+        resolution_label = QLabel("Tile Resolution:")
+        resolution_label.setMinimumWidth(120)
+        self.resolution_spin = QSpinBox()
+        self.resolution_spin.setMinimum(MIN_GRID_SIZE)
+        self.resolution_spin.setMaximum(MAX_GRID_SIZE)
+        self.resolution_spin.setValue(self.tile_resolution)
+        self.resolution_spin.setSuffix(" px")
+        resolution_layout.addWidget(resolution_label)
+        resolution_layout.addWidget(self.resolution_spin)
+        resolution_layout.addStretch()
+        
         layout.addLayout(tiles_x_layout)
         layout.addLayout(tiles_y_layout)
+        layout.addLayout(resolution_layout)
         
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -108,5 +123,7 @@ class TileDimensionsDialog(QDialog):
         self.setLayout(layout)
     
     def get_dimensions(self):
-        """Get the selected dimensions."""
-        return self.tiles_x_spin.value(), self.tiles_y_spin.value()
+        """Get the selected dimensions and resolution."""
+        return (self.tiles_x_spin.value(), 
+                self.tiles_y_spin.value(),
+                self.resolution_spin.value())
