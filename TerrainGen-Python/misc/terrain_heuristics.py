@@ -300,7 +300,7 @@ def _smoothstep(lo: float, hi: float, x: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
-def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
+def prevailing_wind_3cell(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
     """Smooth 3-cell model with cosine-like transitions.
 
     Weights (sum≈1):
@@ -340,6 +340,27 @@ def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.
     mag = np.sqrt(u*u + v*v)
     mag[mag == 0] = 1.0
     u /= mag; v /= mag
+    return u.astype(np.float32), v.astype(np.float32)
+
+def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
+    """Returns a constant north-to-south wind.
+
+    The wind blows in a simple north-to-south direction with no variation.
+    """
+    # Initialize the latitude array
+    h = lat_deg.shape[0]
+    lat = lat_deg.reshape(h, 1).astype(np.float32)
+
+    # North-to-South wind: u component is negative (wind from north to south), v component is zero
+    u = np.zeros_like(lat)  # Wind from North to South
+    v = np.ones_like(lat)  # No East-West component
+
+    # Normalize the wind vector (in this case, it's already constant, so no real change)
+    mag = np.sqrt(u*u + v*v)
+    mag[mag == 0] = 1.0  # Avoid division by zero
+    u /= mag
+    v /= mag
+
     return u.astype(np.float32), v.astype(np.float32)
 
 
@@ -458,7 +479,7 @@ def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
                                      dist_coast_m: np.ndarray, cellsize: float,
                                      alpha: float = 2.0, beta: float = 0.15,  # Added beta parameter
                                      coast_decay_m: float = 150000.0,
-                                     coast_min_frac: float = 0.35,
+                                     coast_min_frac: float = 0.75,
                                      use_advanced_shadow: bool = True) -> np.ndarray:
     """
     Enhanced orographic precipitation with optional advanced rain shadow.
@@ -475,9 +496,9 @@ def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
         print("    Computing advanced rain shadow effect (vectorized)...")
         shadow_multiplier = compute_rain_shadow_advanced(
             elev, wind_u, wind_v, cellsize,
-            max_distance_km=0.5,    # Reduced for speed
-            shadow_decay_km=0.15,     # Faster decay
-            height_threshold_m=50.0  # Only mountains >100m difference matter
+            max_distance_km=50.0,    # Reduced for speed
+            shadow_decay_km=15.0,     # Faster decay
+            height_threshold_m=60.0  # Only mountains >100m difference matter
         )
     else:
         # Simple directional slope shadow (original method) - uses beta
@@ -1014,12 +1035,12 @@ def parse_args():
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
     ap.add_argument('--lapse-rate-c-per-km', type=float, default=6.5, help="Lapse rate (°C/km).")
-    ap.add_argument('--t-equator-c', type=float, default=35.0, help="Sea-level annual mean temperature at equator (°C).")
-    ap.add_argument('--t-pole-c', type=float, default=-65.0, help="Sea-level annual mean temperature at poles (°C).")
+    ap.add_argument('--t-equator-c', type=float, default=40.0, help="Sea-level annual mean temperature at equator (°C).")
+    ap.add_argument('--t-pole-c', type=float, default=-15.0, help="Sea-level annual mean temperature at poles (°C).")
     ap.add_argument('--coast-decay-km', type=float, default=1.75, help="e-folding distance for moisture decay from coasts (km).")
-    ap.add_argument('--orographic-alpha', type=float, default=2.0, help="Orographic lift multiplier for positive directional slope.")
+    ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
-    ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Rain shadow strength for negative directional slope.")
+    ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Biome mixing amount")
     ap.add_argument('--use-random-biomes', default=False, action='store_true', help="Use randomized biome sampling")
 
     return ap.parse_args()

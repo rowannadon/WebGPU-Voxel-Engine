@@ -261,11 +261,9 @@ class TerrainGenerator:
         initial_height, deltas = self._generate_initial_height(shape, land_mask)
         
         if progress_callback:
-            progress_callback(80, "Preparing preview...")
+            progress_callback(90, "Preparing preview...")
         
-        # Create simplified terrain data for preview WITH EDGE WEIGHTS
-        points, tri, neighbors, edge_weights = self._create_triangulation(shape)
-        
+        # For preview, skip costly triangulation entirely; not needed for grid mesh
         if progress_callback:
             progress_callback(100, "Preview complete!")
         
@@ -273,9 +271,9 @@ class TerrainGenerator:
             heightmap=initial_height,
             land_mask=land_mask,
             river_volume=np.zeros_like(initial_height),
-            triangulation=tri,
-            points=points,
-            neighbors=neighbors
+            triangulation=None,
+            points=None,
+            neighbors=None
         )
     
     def _load_imported_heightmap(self):
