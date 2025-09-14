@@ -1812,7 +1812,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
 
 
 
-                        if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
+                        /*if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
                             ivec3 grassPos = ivec3(x, y, z + 1);
 
                             if (blockHash % (static_cast<int>((1.0f - svf) * 16.0) + 1) == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
@@ -1832,7 +1832,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
 
                                 grassPositions.push_back(gdp);
                             }
-                        }
+                        }*/
 
                         if (svf > 0.05 && material.materialType == BlockType::Grass) {
                             if (pos.z > (-10 + blockHash % 20) && blockHash % 16 == 0) {
@@ -1840,14 +1840,15 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                 if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                     positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
-                                    static const std::array<ProbabilityConfig, 2> config = { {
-                                        { 1,     0.5f},
-                                        { 2,     0.5f},
+                                    static const std::array<ProbabilityConfig, 3> config = { {
+                                        { 1,     0.3f},
+                                        { 2,     0.3f},
+                                        { 3,     0.4f},
                                     } };
 
                                     int size = sampleFromDistribution(blockHash, config);
 
-                                    candidateTrees.push_back({ positionAbove, size, 16.0f + svf * 32.0f });
+                                    candidateTrees.push_back({ positionAbove, size, 6.0f });
                                 }
                             }
                         }

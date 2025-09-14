@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    //saveHeightTexture();
+    saveHeightTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -24,7 +24,7 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap18.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap19.png");
     textureManagerCPU->loadTexture("biome", RESOURCE_DIR "/terrain/biome_id.png");
     textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
     textureManagerCPU->loadTexture("svf", RESOURCE_DIR "/terrain/svf.png");
@@ -60,8 +60,12 @@ bool Application::Initialize() {
 
     //structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/test.vox", ivec3(0, 0, 1));
 
-    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4));
-    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4));
+    //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4));
+    //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4));
+
+    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/aspens/aspen_1.vox", ivec3(5, 5, 3));
+    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/aspens/aspen_2.vox", ivec3(4, 5, 3));
+    structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/aspens/aspen_3.vox", ivec3(4, 3, 3));
 
     chunkManager.init(tex, buf, structureManager.get(), textureManagerCPU.get(), modelManager);
     registerMovementCallbacks();
@@ -128,13 +132,13 @@ bool Application::Initialize() {
 }
 
 void Application::saveHeightTexture() {
-    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("EwDD9UhADgACAAAAAAAAQA0ABgAAAAAAAEAHAAAAAAA/AAAAAAAAexQuPwAAAAAAAClcL0A=");
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("HwAbABkAFwAAAIC/AACAPwAAAAAAAIA/DwACAAAA9ig8QBMAj8L1Pg0ABgAAAAAAAEAHAAAK16M+AI/C9b4Aj8L1PgAUruNBARsAFwAAAIC/AACAPwAAAAAAAIA/EQAJAAAAAAAAQBAAuB4FPw0ACAAAAAAAAEAHAACamRk/AAAAAAAAAAAAAACPwnU+AGZm5j8BFwApXI8+j8J1PwAAAAAAAIA/GwAFAAEAAAAAAAAAAAAAAAAAAAAAAAAAAK5HYb4BFwAAAIC/AACAPwAAgD8AAAAA//8NAAEgABcAAACAvwAAgD8pXL/AH4W7QA0ABwAAAAAAAEAHAACPwvU+AAAAAAABFwAAAIC/AACAP4/Cdb9xPQq/EwAzM7M/DQADAAAAAAAAQAcAAAAAAD8AAAAAAAAAAMA/AAAAAD8=");
 
-    int width = 4096;
-    int height = 4096;
+    int width = 1024;
+    int height = 1024;
 
     std::vector<float> noiseData(width * height);
-    fnGenerator->GenUniformGrid2D(noiseData.data(), -2048, -2048, width, height, 0.022f, 0);
+    fnGenerator->GenUniformGrid2D(noiseData.data(), -512, -512, width, height, 0.008f, 0);
 
 
 
@@ -153,7 +157,7 @@ void Application::saveHeightTexture() {
     }
 
     // Save as PNG
-    const char* filename = "../../../resources/heightmap_noise.png";
+    const char* filename = "../../../resources/heightmap_file.png";
     int result = stbi_write_png(filename, width, height, 3, imageData.data(), width * 3);
 
     if (result) {

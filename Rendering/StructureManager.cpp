@@ -35,10 +35,9 @@ struct ColorMapEntry {
 // A simple, deterministic palette -> BlockType mapping.
 // Tweak colors or add entries to fit your game's look.
 static const std::vector<ColorMapEntry> kBlockColorLUT = {
-    { {88.0f/255.0f, 104.0f/255.0f, 8.0f/255.0f}, BlockType::SpruceLog       }, // leafy green
-    { {88.0f / 255.0f, 104.0f / 255.0f, 65.0f / 255.0f}, BlockType::SpruceLeaf       }, // leafy green
+    { {102.0f/255.0f, 51.0f/255.0f, 0.0f/255.0f}, BlockType::Log       }, // leafy green
+    { {0.0f / 255.0f, 68.0f / 255.0f, 0.0f / 255.0f}, BlockType::Leaf       }, // leafy green
     { {110.0f/255.0f, 94.0f/255.0f, 78.0f/255.0f}, BlockType::Limestone        }, // trunk brown
-    { {64.0f / 255.0f, 39.0f / 255.0f, 45.0f / 255.0f}, BlockType::SpruceLeaf        }, // trunk brown
     //{ {0.55f, 0.38f, 0.25f}, BlockType::Log       }, // dirt
     //{ {0.35f, 0.55f, 0.30f}, BlockType::Grass      }, // grass block top-ish
     //{ {0.75f, 0.75f, 0.70f}, BlockType::Limestone  }, // light rock

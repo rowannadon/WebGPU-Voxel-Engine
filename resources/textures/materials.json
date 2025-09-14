@@ -36,7 +36,7 @@
       "id": 1,
       "name": "Grass",
       "texture": [
-        "grass/grass_dry.png"
+        "grass/grass.png"
       ],
       "normal": [],
       "roughness": ["grass_r.png"],
@@ -286,12 +286,12 @@
       "id": 9,
       "name": "Leaves",
       "texture": [
-        "leaves3.png"
+        "aspen_leaves.png"
       ],
       "normal": [
         "leaves3_normal.png"
       ],
-      "roughness": ["leaves3_r.png"],
+      "roughness": [ "leaves3.png" ],
       "model": "LEAF_MODEL",
       "textureType": "RANDOM_ROTATION",
       "orientation": "NONE",

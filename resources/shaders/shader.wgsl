@@ -1689,7 +1689,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let h = textureDimensions(terrainNormal).x;
     let worldUv = worldToUV(terrainNormal, vec3f(f32(in.world_voxel_pos.x), f32(in.world_voxel_pos.y), f32(in.world_voxel_pos.z)), TERRAIN_UPSCALE, 0u, vec2f(0.0), 0.0);
     let tNorm = sampleNormalToVec3(terrainNormal, lut_sampler, worldUv, false, false);
-    let normalTex = textureSampleLevel(terrainNormal, lut_sampler, worldUv, 0.0);
+    //let normalTex = textureSampleLevel(terrainNormal, lut_sampler, worldUv, 0.0);
     //return normalTex;
 
 
@@ -1828,7 +1828,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     let terrainNormalFadeFactor = 1.0 - smoothstep(TERRAIN_FADE_START, TERRAIN_FADE_END, in.fog_distance);
     if (materialProps.modelId == VOXEL_MODEL) {
-        //normal = mix(tNorm, normal, terrainNormalFadeFactor);
+        normal = mix(tNorm, normal, terrainNormalFadeFactor);
     }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
@@ -1881,7 +1881,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         materialProps.pbr.AO == 0.0
     );
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted * normalTex.xyz;
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
     
     // Add emission if present
     finalColor += materialProps.pbr.emission;
