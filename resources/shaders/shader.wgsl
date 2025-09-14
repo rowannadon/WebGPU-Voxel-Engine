@@ -17,7 +17,7 @@ const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const TO_KM_SCALE = 1.0/3280.0;
 
-const TERRAIN_UPSCALE = 4.0;
+const TERRAIN_UPSCALE = 8.0;
 
 // Wind effect constants
 const WIND_STRENGTH: f32 = 0.15;        // Overall wind intensity
@@ -329,7 +329,8 @@ const CHUNK_EDGE_INTENSITY: f32 = 0.3;
 @group(0) @binding(11) var transmittance_lut: texture_2d<f32>;
 @group(0) @binding(12) var sky_view_lut: texture_2d<f32>;
 @group(0) @binding(13) var aerial_perspective_lut: texture_3d<f32>;
-@group(0) @binding(14) var terrainNormal: texture_2d<f32>; // 64x64 random rgba
+@group(0) @binding(14) var terrainNormal: texture_2d<f32>;
+@group(0) @binding(15) var terrainBiome: texture_2d<f32>;
 
 @group(1) @binding(0) var<storage, read> modelDataArray: array<Quad, NUM_TOTAL_QUADS>;
 
@@ -1689,7 +1690,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     let h = textureDimensions(terrainNormal).x;
     let worldUv = worldToUV(terrainNormal, vec3f(f32(in.world_voxel_pos.x), f32(in.world_voxel_pos.y), f32(in.world_voxel_pos.z)), TERRAIN_UPSCALE, 0u, vec2f(0.0), 0.0);
     let tNorm = sampleNormalToVec3(terrainNormal, lut_sampler, worldUv, false, false);
-    //let normalTex = textureSampleLevel(terrainNormal, lut_sampler, worldUv, 0.0);
+    let biomeColor = textureSampleLevel(terrainBiome, lut_sampler, worldUv, 0.0);
     //return normalTex;
 
 
@@ -1827,9 +1828,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     let terrainNormalFadeFactor = 1.0 - smoothstep(TERRAIN_FADE_START, TERRAIN_FADE_END, in.fog_distance);
-    if (materialProps.modelId == VOXEL_MODEL) {
+    //if (materialProps.modelId == VOXEL_MODEL) {
         normal = mix(tNorm, normal, terrainNormalFadeFactor);
-    }
+    //}
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 3.75; // Boost sun intensity for PBR
@@ -1881,7 +1882,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         materialProps.pbr.AO == 0.0
     );
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted * biomeColor.xyz;
     
     // Add emission if present
     finalColor += materialProps.pbr.emission;

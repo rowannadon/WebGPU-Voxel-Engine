@@ -498,7 +498,7 @@ def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
             elev, wind_u, wind_v, cellsize,
             max_distance_km=50.0,    # Reduced for speed
             shadow_decay_km=15.0,     # Faster decay
-            height_threshold_m=60.0  # Only mountains >100m difference matter
+            height_threshold_m=150.0  # Only mountains >100m difference matter
         )
     else:
         # Simple directional slope shadow (original method) - uses beta
@@ -1035,8 +1035,8 @@ def parse_args():
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
     ap.add_argument('--lapse-rate-c-per-km', type=float, default=6.5, help="Lapse rate (°C/km).")
-    ap.add_argument('--t-equator-c', type=float, default=40.0, help="Sea-level annual mean temperature at equator (°C).")
-    ap.add_argument('--t-pole-c', type=float, default=-15.0, help="Sea-level annual mean temperature at poles (°C).")
+    ap.add_argument('--t-equator-c', type=float, default=30.0, help="Sea-level annual mean temperature at equator (°C).")
+    ap.add_argument('--t-pole-c', type=float, default=0.0, help="Sea-level annual mean temperature at poles (°C).")
     ap.add_argument('--coast-decay-km', type=float, default=1.75, help="e-folding distance for moisture decay from coasts (km).")
     ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
@@ -1226,7 +1226,7 @@ def main():
         v = try_load_npy(os.path.join(masks_dir, "wind_v.npy"), "wind_v", args.load_from_previous)
         
         if u is None or v is None:
-            u, v = prevailing_wind(lat1d)
+            u, v = prevailing_wind_3cell(lat1d)
             if args.write_raw_npy:
                 np.save(os.path.join(masks_dir, "wind_u.npy"), u)
                 np.save(os.path.join(masks_dir, "wind_v.npy"), v)

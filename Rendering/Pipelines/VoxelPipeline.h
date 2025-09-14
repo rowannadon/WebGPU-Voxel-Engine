@@ -69,7 +69,7 @@ public:
 
 		// uniforms binding
 		int i = 0;
-		std::vector<BindGroupLayoutEntry> globalUniforms(15, Default);
+		std::vector<BindGroupLayoutEntry> globalUniforms(16, Default);
 		globalUniforms[i].binding = i;
 		globalUniforms[i].visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 		globalUniforms[i].buffer.type = BufferBindingType::Uniform;
@@ -160,6 +160,12 @@ public:
 		globalUniforms[i].visibility = ShaderStage::Fragment;
 		globalUniforms[i].texture.sampleType = TextureSampleType::Float;
 		globalUniforms[i].texture.viewDimension = TextureViewDimension::_2D;
+		i++;
+
+		globalUniforms[i].binding = i;
+		globalUniforms[i].visibility = ShaderStage::Fragment;
+		globalUniforms[i].texture.sampleType = TextureSampleType::Float;
+		globalUniforms[i].texture.viewDimension = TextureViewDimension::_2D;
 
 		config.bindGroupLayouts.push_back(
 			pip->createBindGroupLayout("global_uniforms", globalUniforms)
@@ -182,7 +188,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(15);
+		std::vector<BindGroupEntry> bindings(16);
 
 		int i = 0;
 		bindings[i].binding = i;
@@ -248,7 +254,11 @@ public:
 		i++;
 
 		bindings[i].binding = i;
-		bindings[i].textureView = tex->getTextureView("cloud_noise_64_view");
+		bindings[i].textureView = tex->getTextureView("normal_map_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("biome_map_view");
 
 		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_opaque", "global_uniforms", bindings);
 

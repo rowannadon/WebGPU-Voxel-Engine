@@ -20,7 +20,7 @@ public:
 	}
 
 	bool createBindGroup() {
-		std::vector<BindGroupEntry> bindings(15);
+		std::vector<BindGroupEntry> bindings(16);
 
 		int i = 0;
 		bindings[i].binding = i;
@@ -86,7 +86,11 @@ public:
 		i++;
 
 		bindings[i].binding = i;
-		bindings[i].textureView = tex->getTextureView("cloud_noise_64_view");
+		bindings[i].textureView = tex->getTextureView("normal_map_view");
+		i++;
+
+		bindings[i].binding = i;
+		bindings[i].textureView = tex->getTextureView("biome_map_view");
 
 		BindGroup bindGroup = pip->createBindGroup("global_uniforms_group_doublesided", "global_uniforms", bindings);
 

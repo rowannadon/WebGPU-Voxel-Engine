@@ -1,0 +1,38 @@
+{
+  "input": "C:\\Users\\rowan\\WebGPU-Voxel-Engine\\resources\\heightmap19.png",
+  "cellsize_m": 10.0,
+  "z_min_m": 0.0,
+  "z_max_m": 4400.0,
+  "bit_depth": 16,
+  "compute": [
+    "slope",
+    "aspect",
+    "normal",
+    "curvature",
+    "tpi",
+    "flowacc",
+    "twi",
+    "svf",
+    "climate",
+    "biome"
+  ],
+  "tpi_radii_m": [
+    25.0,
+    100.0
+  ],
+  "stream_threshold_cells": 1000,
+  "stream_quantile": 97.0,
+  "resolve_pits": "carve",
+  "svf_dirs": 16,
+  "svf_radius_m": 100.0,
+  "sea_level_m": 0.0,
+  "lapse_rate_c_per_km": 6.5,
+  "t_equator_c": 30.0,
+  "t_pole_c": 0.0,
+  "coast_decay_km": 1.0,
+  "orographic_alpha": 2.0,
+  "shadow_beta": 0.15,
+  "biome_mixing_factor": 1,
+  "load_from_previous": true,
+  "use_random_biomes": false
+}

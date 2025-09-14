@@ -614,7 +614,7 @@ void ChunkColumn::generateLODFromCountsRaw(
     std::memset(solidData, 0, totalUint64s * sizeof(uint64_t));
 
     // keep thresholds identical to your previous logic
-    const float threshold = 0.33f;
+    const float threshold = 0.15f;
     const int voxelsInGroup = (LOD * LOD);
 
     for (int x = 0; x < xySize; ++x) {
@@ -1343,12 +1343,12 @@ void ChunkColumn::generateTerrain() {
             //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
-            int targetHeight = static_cast<int>(height * 620.0f);
+            int targetHeight = static_cast<int>(height * 610.0f);
 
             ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
             uint32_t blockHash = hash_ivec3(positionAbove);
 
-            if (blockHash % 4 == 0 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
+            /*if (blockHash % 4 == 0 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                 positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
                 if (curvature > 0.98) {
                 
@@ -1376,7 +1376,7 @@ void ChunkColumn::generateTerrain() {
 
                     candidateStructs.push_back({ positionAbove, size, 3.0f });
                 }
-            }
+            }*/
 
 
             for (int z = 0; z < COLUMN_HEIGHT_BLOCKS && z < targetHeight; z++) {

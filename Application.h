@@ -75,7 +75,7 @@ private:
 
 private:
     struct FirstPersonCamera {
-        vec3 position = vec3(4096.0f, 4096.0f, 297.0f);  // Camera position in world space
+        vec3 position = vec3(8192.0f, 8192.0f, 297.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
         vec3 up = vec3(0.0f, 0.0f, 1.0f);        // Up vector
         vec3 right = vec3(0.0f, 1.0f, 0.0f);     // Right vector (corrected)

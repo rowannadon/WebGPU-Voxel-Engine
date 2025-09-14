@@ -1,0 +1,242 @@
+{
+  "0": {
+    "name": "ocean",
+    "color_rgb": [
+      30,
+      60,
+      150
+    ]
+  },
+  "1": {
+    "name": "ice sheet",
+    "color_rgb": [
+      230,
+      245,
+      255
+    ]
+  },
+  "2": {
+    "name": "polar desert",
+    "color_rgb": [
+      210,
+      220,
+      230
+    ]
+  },
+  "3": {
+    "name": "arctic tundra",
+    "color_rgb": [
+      185,
+      200,
+      205
+    ]
+  },
+  "4": {
+    "name": "alpine tundra",
+    "color_rgb": [
+      170,
+      185,
+      190
+    ]
+  },
+  "5": {
+    "name": "alpine meadow",
+    "color_rgb": [
+      140,
+      170,
+      140
+    ]
+  },
+  "6": {
+    "name": "montane forest",
+    "color_rgb": [
+      70,
+      110,
+      70
+    ]
+  },
+  "7": {
+    "name": "boreal forest",
+    "color_rgb": [
+      50,
+      90,
+      60
+    ]
+  },
+  "8": {
+    "name": "mixed boreal",
+    "color_rgb": [
+      65,
+      105,
+      75
+    ]
+  },
+  "9": {
+    "name": "temperate coniferous",
+    "color_rgb": [
+      40,
+      100,
+      55
+    ]
+  },
+  "10": {
+    "name": "temperate rainforest",
+    "color_rgb": [
+      25,
+      85,
+      45
+    ]
+  },
+  "11": {
+    "name": "temperate deciduous",
+    "color_rgb": [
+      80,
+      140,
+      70
+    ]
+  },
+  "12": {
+    "name": "temperate mixed",
+    "color_rgb": [
+      70,
+      125,
+      65
+    ]
+  },
+  "13": {
+    "name": "temperate grassland",
+    "color_rgb": [
+      160,
+      180,
+      90
+    ]
+  },
+  "14": {
+    "name": "prairie",
+    "color_rgb": [
+      180,
+      190,
+      100
+    ]
+  },
+  "15": {
+    "name": "steppe",
+    "color_rgb": [
+      190,
+      180,
+      110
+    ]
+  },
+  "16": {
+    "name": "mediterranean woodland",
+    "color_rgb": [
+      140,
+      150,
+      80
+    ]
+  },
+  "17": {
+    "name": "chaparral",
+    "color_rgb": [
+      150,
+      140,
+      70
+    ]
+  },
+  "18": {
+    "name": "cold desert",
+    "color_rgb": [
+      200,
+      190,
+      150
+    ]
+  },
+  "19": {
+    "name": "hot desert",
+    "color_rgb": [
+      230,
+      210,
+      130
+    ]
+  },
+  "20": {
+    "name": "semi-arid scrubland",
+    "color_rgb": [
+      210,
+      190,
+      120
+    ]
+  },
+  "21": {
+    "name": "dry savanna",
+    "color_rgb": [
+      220,
+      195,
+      100
+    ]
+  },
+  "22": {
+    "name": "moist savanna",
+    "color_rgb": [
+      200,
+      180,
+      90
+    ]
+  },
+  "23": {
+    "name": "tropical dry forest",
+    "color_rgb": [
+      110,
+      150,
+      70
+    ]
+  },
+  "24": {
+    "name": "tropical seasonal forest",
+    "color_rgb": [
+      70,
+      140,
+      60
+    ]
+  },
+  "25": {
+    "name": "tropical rainforest",
+    "color_rgb": [
+      20,
+      110,
+      40
+    ]
+  },
+  "26": {
+    "name": "cloud forest",
+    "color_rgb": [
+      30,
+      100,
+      50
+    ]
+  },
+  "27": {
+    "name": "mangrove",
+    "color_rgb": [
+      60,
+      120,
+      100
+    ]
+  },
+  "28": {
+    "name": "freshwater wetland",
+    "color_rgb": [
+      80,
+      180,
+      170
+    ]
+  },
+  "29": {
+    "name": "salt marsh",
+    "color_rgb": [
+      120,
+      160,
+      140
+    ]
+  }
+}

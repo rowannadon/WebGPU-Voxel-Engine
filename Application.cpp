@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    saveHeightTexture();
+    //saveHeightTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
