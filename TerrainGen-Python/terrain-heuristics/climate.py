@@ -2,7 +2,7 @@ import math
 from typing import Tuple
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 __all__ = [
     "latitude_degrees",
@@ -143,49 +143,51 @@ def compute_rain_shadow_advanced(
     avg_u /= wind_mag
     avg_v /= wind_mag
 
-    n_steps = min(20, int(max_distance_km * 1000 / cellsize))
-    step_size = max(1, int(cellsize / 1000))
+    cellsize = max(float(cellsize), 1e-6)
+    strength = max(0.0, float(strength))
+    if strength == 0.0 or max_distance_km <= 0.0:
+        return np.ones((h, w), dtype=np.float32)
+
+    min_step_km = cellsize / 1000.0
+    max_samples = 256
+    if max_distance_km <= min_step_km:
+        distances = np.array([max_distance_km], dtype=np.float32)
+    else:
+        est_steps = int(np.ceil(max_distance_km / min_step_km))
+        n_steps = max(1, min(max_samples, est_steps))
+        distances = np.linspace(min_step_km, max_distance_km, n_steps, dtype=np.float32)
+
+    base_y, base_x = np.indices((h, w), dtype=np.float32)
+    cval = float(np.min(elev))
+    decay_den = max(shadow_decay_km, 1e-6)
     shadow_acc = np.zeros((h, w), dtype=np.float32)
 
-    for step in range(1, n_steps + 1):
-        shift_x = int(round(step * step_size * avg_u))
-        shift_y = int(round(step * step_size * avg_v))
-        upwind_elev = np.full_like(elev, -9999.0)
+    for dist_km in distances:
+        dist_cells = (dist_km * 1000.0) / cellsize
+        coords_y = base_y - dist_cells * avg_v
+        coords_x = base_x - dist_cells * avg_u
+        upwind = map_coordinates(
+            elev,
+            [coords_y, coords_x],
+            order=1,
+            mode="constant",
+            cval=cval,
+        ).astype(np.float32)
 
-        src_x_start = max(0, -shift_x)
-        src_x_end = min(w, w - shift_x)
-        src_y_start = max(0, -shift_y)
-        src_y_end = min(h, h - shift_y)
+        height_diff = np.maximum(0.0, upwind - elev)
+        if height_threshold_m > 0.0:
+            mask = height_diff > height_threshold_m
+            if not np.any(mask):
+                continue
+            height_diff = np.where(mask, height_diff, 0.0)
+        elif not np.any(height_diff > 0.0):
+            continue
 
-        dst_x_start = max(0, shift_x)
-        dst_x_end = min(w, w + shift_x)
-        dst_y_start = max(0, shift_y)
-        dst_y_end = min(h, h + shift_y)
-
-        if (
-            src_x_end > src_x_start
-            and src_y_end > src_y_start
-            and dst_x_end > dst_x_start
-            and dst_y_end > dst_y_start
-        ):
-            upwind_elev[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = elev[
-                src_y_start:src_y_end, src_x_start:src_x_end
-            ]
-
-        valid = upwind_elev > -9999.0
-        height_diff = np.zeros_like(elev)
-        height_diff[valid] = np.maximum(0.0, upwind_elev[valid] - elev[valid])
-
-        significant = height_diff > height_threshold_m
-        dist_km = step * step_size * cellsize / 1000.0
-        decay = np.exp(-dist_km / shadow_decay_km)
-        shadow_contrib = (
-            significant
-            * np.minimum(0.3, height_diff / 1000.0)
-            * decay
-            * max(0.0, strength)
-        )
-        shadow_acc = np.minimum(0.8, shadow_acc + shadow_contrib)
+        decay = math.exp(-dist_km / decay_den)
+        contrib = np.minimum(0.3, height_diff / 1000.0) * decay * strength
+        if not np.any(contrib > 0.0):
+            continue
+        shadow_acc = np.minimum(0.8, shadow_acc + contrib.astype(np.float32))
 
     shadow_mult = 1.0 - shadow_acc
     shadow_mult = gaussian_filter(shadow_mult, sigma=1.0)
