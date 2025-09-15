@@ -34,6 +34,7 @@ from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 from PIL import Image
+import sys
 from scipy.ndimage import (
     uniform_filter,
     convolve,
@@ -53,22 +54,33 @@ def load_heightmap(path: str, z_min: float, z_max: float) -> Tuple[np.ndarray, i
     Returns (elev_m, bit_depth), where bit_depth is 8 or 16.
     """
     img = Image.open(path)
-    # Don't force-convert yet; inspect dtype
+    # Don't force-convert yet; inspect mode and dtype
     arr = np.array(img)
     # If someone accidentally passes RGB(A), take the first channel
     if arr.ndim == 3:
         arr = arr[..., 0]
 
-    if arr.dtype == np.uint16:
+    # Detect 16-bit robustly: any unsigned 2-byte dtype (handles '>u2'/'<u2')
+    if arr.dtype.kind == 'u' and arr.dtype.itemsize == 2:
+        # Ensure native endianness for consistency
+        if arr.dtype.byteorder == '>' or (arr.dtype.byteorder == '=' and sys.byteorder == 'big'):
+            arr = arr.byteswap().newbyteorder()
         bit_depth = 16
         maxv = 65535.0
     else:
-        # Normalize all other cases to 8-bit grayscale
-        if img.mode != 'L':
-            img = img.convert('L')
-            arr = np.array(img)
-        bit_depth = 8
-        maxv = 255.0
+        # Some PIL versions load 16-bit grayscale as 32-bit 'I'. If so, and
+        # the value range fits in 16 bits, treat as 16-bit instead of clipping.
+        if (arr.dtype.kind in ('i', 'u') and arr.dtype.itemsize >= 4 and np.max(arr) <= 65535):
+            arr = arr.astype(np.uint16, copy=False)
+            bit_depth = 16
+            maxv = 65535.0
+        else:
+            # Normalize all other cases to 8-bit grayscale
+            if img.mode != 'L':
+                img = img.convert('L')
+                arr = np.array(img)
+            bit_depth = 8
+            maxv = 255.0
 
     elev = z_min + (arr.astype(np.float32) / maxv) * (z_max - z_min)
     return elev, bit_depth
@@ -88,8 +100,11 @@ def load_scalar_texture(path: str, target_shape: Optional[Tuple[int, int]] = Non
     arr = np.array(img)
     if arr.ndim == 3:
         arr = arr[..., 0]
-    # If not grayscale integer, try converting to 8-bit L to avoid surprises
-    if arr.dtype == np.uint16:
+    # Accept 8/16-bit grayscale robustly; if other, convert to 8-bit L
+    if arr.dtype.kind == 'u' and arr.dtype.itemsize == 2:
+        # Normalize endianness
+        if arr.dtype.byteorder == '>' or (arr.dtype.byteorder == '=' and sys.byteorder == 'big'):
+            arr = arr.byteswap().newbyteorder()
         data = arr.astype(np.float32)
     elif arr.dtype == np.uint8:
         data = arr.astype(np.float32)
@@ -99,11 +114,14 @@ def load_scalar_texture(path: str, target_shape: Optional[Tuple[int, int]] = Non
         data = np.array(img).astype(np.float32)
 
     if target_shape is not None and tuple(data.shape) != tuple(target_shape):
-        # PIL expects (width, height)
-        h, w = target_shape
-        pil_img = Image.fromarray(data.astype(np.float32))
-        pil_img = pil_img.resize((w, h), resample=Image.NEAREST)
-        data = np.array(pil_img).astype(np.float32)
+        # Resize with pure NumPy nearest-neighbor to preserve value range exactly
+        src_h, src_w = data.shape
+        dst_h, dst_w = target_shape
+        y_idx = np.floor(np.arange(dst_h, dtype=np.float64) * src_h / dst_h).astype(np.int64)
+        x_idx = np.floor(np.arange(dst_w, dtype=np.float64) * src_w / dst_w).astype(np.int64)
+        y_idx = np.clip(y_idx, 0, src_h - 1)
+        x_idx = np.clip(x_idx, 0, src_w - 1)
+        data = data[y_idx][:, x_idx].astype(np.float32)
 
     return data.astype(np.float32)
 
@@ -1231,13 +1249,13 @@ def classify_biomes_advanced(elev: np.ndarray, sea_level_m: float, temp_c: np.nd
 # -------------------------
 def parse_args():
     p = argparse.ArgumentDefaultsHelpFormatter
-    ap = argparse.ArgumentParser(description="Compute terrain heuristics and simple climate/biome maps from an 8-bit PNG heightmap.", formatter_class=p)
-    ap.add_argument('--input', required=True, help="Input heightmap PNG (8-bit grayscale).")
+    ap = argparse.ArgumentParser(description="Compute terrain heuristics and simple climate/biome maps from a PNG heightmap (8- or 16-bit grayscale).", formatter_class=p)
+    ap.add_argument('--input', required=True, help="Input heightmap PNG (8- or 16-bit grayscale).")
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
-    ap.add_argument('--cellsize', type=float, default=50.0, help="Meters per pixel.")
+    ap.add_argument('--cellsize', type=float, default=10.0, help="Meters per pixel.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
-    ap.add_argument('--z-max', type=float, default=3000.0, help="Elevation (m) at heightmap value 255.")
-    ap.add_argument('--bit-depth', type=int, default=16, choices=[8,16], help="Output PNG bit depth (normals and biome map saved as 8-bit RGB for compatibility).")
+    ap.add_argument('--z-max', type=float, default=4000.0, help="Elevation (m) at heightmap value 255.")
+    ap.add_argument('--bit-depth', type=int, default=0, choices=[0,8,16], help="Output PNG bit depth: 0=auto (match input), or 8/16. Normals and biome map are saved as 8-bit RGB.")
     ap.add_argument(
         '--compute',
         nargs='+',
@@ -1258,14 +1276,14 @@ def parse_args():
 
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
-    ap.add_argument('--lapse-rate-c-per-km', type=float, default=9.5, help="Lapse rate (°C/km).")
+    ap.add_argument('--lapse-rate-c-per-km', type=float, default=8.5, help="Lapse rate (°C/km).")
     ap.add_argument('--t-equator-c', type=float, default=30.0, help="Sea-level annual mean temperature at equator (°C).")
     ap.add_argument('--t-pole-c', type=float, default=-15.0, help="Sea-level annual mean temperature at poles (°C).")
-    ap.add_argument('--coast-decay-km', type=float, default=1.75, help="e-folding distance for moisture decay from coasts (km).")
+    ap.add_argument('--coast-decay-km', type=float, default=0.4, help="e-folding distance for moisture decay from coasts (km).")
     ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
     ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Biome mixing amount")
-    ap.add_argument('--use-random-biomes', default=True, action='store_true', help="Use randomized biome sampling")
+    ap.add_argument('--use-random-biomes', default=False, action='store_true', help="Use randomized biome sampling")
 
     return ap.parse_args()
 
@@ -1316,6 +1334,9 @@ def main():
 
     print("[1/10] Loading heightmap…")
     elev, in_bit_depth = load_heightmap(args.input, args.z_min, args.z_max)
+    # Auto-select output bit depth if requested
+    if args.bit_depth == 0:
+        args.bit_depth = in_bit_depth
     h, w = elev.shape
     print_stats("elev_m", elev)
 

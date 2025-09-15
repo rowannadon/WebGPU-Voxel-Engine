@@ -700,7 +700,7 @@ class MainWindow(QMainWindow):
         return sel
 
     def on_load(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open heightmap (8-bit PNG)", "", "PNG Images (*.png);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open heightmap PNG (8/16-bit)", "", "PNG Images (*.png);;All Files (*)")
         if not path: return
         try:
             self.engine.load_heightmap_path(path)
