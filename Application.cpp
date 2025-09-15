@@ -33,6 +33,8 @@ bool Application::Initialize() {
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
     textureManagerCPU->loadTexture("curvature", RESOURCE_DIR "/terrain/curvature.png");
     textureManagerCPU->loadTexture("normal", RESOURCE_DIR "/terrain/normal.png");
+    textureManagerCPU->loadTexture("tDens", RESOURCE_DIR "/terrain/forest_density.png");
+    textureManagerCPU->loadTexture("gDens", RESOURCE_DIR "/terrain/groundcover_density.png");
     textureManagerCPU->loadTexture("noise", RESOURCE_DIR "/heightmap_noise.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));

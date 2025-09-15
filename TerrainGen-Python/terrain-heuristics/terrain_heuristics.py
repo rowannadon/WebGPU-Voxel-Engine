@@ -284,6 +284,144 @@ def compute_foliage_color_rgb(
     return (np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
 
+def compute_foliage_densities(
+    elev: np.ndarray,
+    ocean: np.ndarray,
+    temp_c: np.ndarray,
+    precip_mm: np.ndarray,
+    pet_mm: np.ndarray,
+    twi: Optional[np.ndarray],
+    slope_deg: np.ndarray,
+    aspect_deg: np.ndarray,
+    dist_coast_m: np.ndarray,
+    lat_deg_1d: np.ndarray,
+    svf: Optional[np.ndarray],
+    tpi_small: Optional[np.ndarray],
+    cellsize: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute two foliage density maps in [0,1]:
+    - forest_density: trees and large flora
+    - groundcover_density: grasses and small plants
+
+    Uses climate (P, PET, temp), terrain (TWI, TPI, SVF, slope, aspect),
+    elevation zones and distance to coast.
+    """
+    h, w = elev.shape
+
+    # Moisture/aridity
+    ai = precip_mm / (pet_mm + 1e-6)  # aridity index; >1 is humid
+    ai01 = _saturate(ai / 2.0)        # rough normalization
+    twi_norm = np.zeros_like(ai01) if twi is None else _saturate((twi - 3.0) / 12.0)
+    moisture01 = _saturate(0.7 * ai01 + 0.3 * twi_norm)
+
+    # Temperature suitability
+    # Helper: trapezoid membership
+    def trap(x, a, b, c, d):
+        # 0..1 with 0 below a, 1 between b..c, back to 0 above d
+        with np.errstate(divide='ignore', invalid='ignore'):
+            left = np.clip((x - a) / max(1e-6, (b - a)), 0.0, 1.0)
+            right = np.clip((d - x) / max(1e-6, (d - c)), 0.0, 1.0)
+        return np.minimum(left, right)
+
+    # Trees prefer ~5–25C, tolerate -5..32C
+    t_tree = trap(temp_c, -5.0, 5.0, 25.0, 32.0)
+    # Groundcover tolerates wider range -20..45C, optimal -5..30C
+    t_ground = trap(temp_c, -20.0, -5.0, 30.0, 45.0)
+
+    # Elevation zones and tree line
+    elev_z = compute_elevation_zones(elev)
+    # Penalize trees above subalpine zones
+    tree_elev_factor = np.ones_like(elev, dtype=np.float32)
+    tree_elev_factor[elev_z == 5] = 0.35  # Alpine
+    tree_elev_factor[elev_z >= 6] = 0.05  # Nival
+
+    # Slope effects
+    # Trees reduced significantly on very steep slopes; grasses less so
+    def smoothstep(lo, hi, x):
+        t = np.clip((x - lo) / max(1e-6, (hi - lo)), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+
+    slope_tree = 1.0 - 0.6 * smoothstep(20.0, 55.0, slope_deg)
+    slope_ground = 1.0 - 0.4 * smoothstep(35.0, 80.0, slope_deg)
+
+    # Aspect dryness modulation: equator-facing is drier/warmer; reduce trees more when dry
+    aspect_eff = compute_aspect_effect(aspect_deg, lat_deg_1d)  # -1..1 (equator-facing positive)
+    dryness = 1.0 - moisture01
+    aspect_tree = _saturate(1.0 - 0.15 * aspect_eff * dryness)
+    aspect_ground = _saturate(1.0 - 0.05 * aspect_eff * dryness)
+
+    # TPI micro-topography: trees prefer concave (valleys), groundcover likes open/ridges
+    tpi_term = np.zeros_like(elev, dtype=np.float32) if tpi_small is None else tpi_small
+    # Scale TPI by a small length to get into ~[-1,1] range using tanh
+    tpi_norm = np.tanh(tpi_term / (3.0 * max(cellsize, 1e-3)))
+    valley = _saturate(-tpi_norm)  # 0..1 for valleys
+    ridge = _saturate(tpi_norm)
+    tpi_tree = _saturate(1.0 + 0.20 * valley - 0.10 * ridge)
+    tpi_ground = _saturate(1.0 + 0.15 * ridge - 0.05 * valley)
+
+    # SVF: moderate SVF benefits trees; high SVF/open areas benefit groundcover
+    if svf is None:
+        svf = np.full((h, w), 0.5, dtype=np.float32)
+    # Trees best near ~0.55; mild bell factor
+    tree_svf = np.exp(-0.5 * ((svf - 0.55) / 0.25) ** 2)
+    tree_svf = _lerp(0.85, 1.10, _saturate(tree_svf))
+    # Groundcover slightly prefers openness (higher SVF)
+    ground_svf = _saturate(0.9 + 0.25 * (svf - 0.5))
+
+    # Continentality desaturation proxy: farther inland can reduce tree density slightly
+    cont = compute_continentality((dist_coast_m / 1000.0), lat_deg_1d)
+    cont01 = _saturate(cont / 1.2)
+    cont_tree = _saturate(1.0 - 0.10 * cont01)
+    cont_ground = _saturate(1.0 - 0.03 * cont01)
+
+    # Hyper-arid suppression (AI << 0.2) stronger for trees than grasses
+    arid_gate = _saturate((ai - 0.05) / 0.20)  # 0 at 0.05, 1 by 0.25
+    arid_tree = arid_gate
+    arid_ground = _saturate((ai - 0.02) / 0.15)
+
+    # Cold suppression (permafrost/ice) stronger for trees
+    cold_tree = _saturate((temp_c + 15.0) / 15.0)  # 0 at -15C, 1 by 0C
+    cold_ground = _saturate((temp_c + 25.0) / 25.0)  # allow some groundcover colder
+
+    # Combine
+    forest_density = (
+        (moisture01 ** 0.8)
+        * t_tree
+        * tree_elev_factor
+        * slope_tree
+        * aspect_tree
+        * tpi_tree
+        * tree_svf
+        * cont_tree
+        * arid_tree
+        * cold_tree
+    ).astype(np.float32)
+
+    groundcover_density = (
+        (0.6 * moisture01 + 0.4 * _saturate(ai / 1.5))
+        * t_ground
+        * slope_ground
+        * aspect_ground
+        * tpi_ground
+        * ground_svf
+        * cont_ground
+        * arid_ground
+        * cold_ground
+    ).astype(np.float32)
+
+    # Mask ocean and clamp
+    forest_density[ocean] = 0.0
+    groundcover_density[ocean] = 0.0
+    forest_density = _saturate(forest_density)
+    groundcover_density = _saturate(groundcover_density)
+
+    # Light smoothing for aesthetics
+    forest_density = gaussian_filter(forest_density, sigma=0.7)
+    groundcover_density = gaussian_filter(groundcover_density, sigma=0.7)
+
+    return forest_density.astype(np.float32), groundcover_density.astype(np.float32)
+
 
 # -------------------------
 # Core terrain ops
@@ -588,10 +726,16 @@ def precipitation_lat_bands(lat_deg: np.ndarray, base_mm: float = 1200.0) -> np.
     return P.astype(np.float32)
 
 
-def compute_rain_shadow_advanced(elev: np.ndarray, wind_u: np.ndarray, wind_v: np.ndarray, 
-                                 cellsize: float, max_distance_km: float = 50.0,
-                                 shadow_decay_km: float = 20.0, 
-                                 height_threshold_m: float = 100.0) -> np.ndarray:
+def compute_rain_shadow_advanced(
+    elev: np.ndarray,
+    wind_u: np.ndarray,
+    wind_v: np.ndarray,
+    cellsize: float,
+    max_distance_km: float = 50.0,
+    shadow_decay_km: float = 20.0,
+    height_threshold_m: float = 100.0,
+    strength: float = 1.0,
+) -> np.ndarray:
     """
     Compute rain shadow effect using vectorized operations.
     Much faster than pixel-by-pixel tracing.
@@ -658,8 +802,8 @@ def compute_rain_shadow_advanced(elev: np.ndarray, wind_u: np.ndarray, wind_v: n
         dist_km = step * step_size * cellsize / 1000.0
         decay = np.exp(-dist_km / shadow_decay_km)
         
-        # Accumulate shadow (with diminishing returns)
-        shadow_contrib = significant * np.minimum(0.3, height_diff / 1000.0) * decay
+        # Accumulate shadow (with diminishing returns). Scale by strength.
+        shadow_contrib = significant * np.minimum(0.3, height_diff / 1000.0) * decay * max(0.0, strength)
         shadow_acc = np.minimum(0.8, shadow_acc + shadow_contrib)
     
     # Convert to multiplier and smooth
@@ -672,14 +816,26 @@ def compute_rain_shadow_advanced(elev: np.ndarray, wind_u: np.ndarray, wind_v: n
     return np.clip(shadow_mult, 0.2, 1.0).astype(np.float32)
 
 
-def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
-                                     wind_u: np.ndarray, wind_v: np.ndarray,
-                                     dzdx: np.ndarray, dzdy: np.ndarray,
-                                     dist_coast_m: np.ndarray, cellsize: float,
-                                     alpha: float = 2.0, beta: float = 0.15,  # Added beta parameter
-                                     coast_decay_m: float = 150000.0,
-                                     coast_min_frac: float = 0.75,
-                                     use_advanced_shadow: bool = True) -> np.ndarray:
+def precipitation_orographic_advanced(
+    P_lat: np.ndarray,
+    elev: np.ndarray,
+    wind_u: np.ndarray,
+    wind_v: np.ndarray,
+    dzdx: np.ndarray,
+    dzdy: np.ndarray,
+    dist_coast_m: np.ndarray,
+    cellsize: float,
+    alpha: float = 2.0,
+    beta: float = 0.15,  # Used in simple shadow mode
+    coast_decay_m: float = 150000.0,
+    coast_min_frac: float = 0.75,
+    use_advanced_shadow: bool = True,
+    # Advanced rain-shadow tuning (defaults keep previous behavior)
+    shadow_max_distance_km: float = 400.0,
+    shadow_decay_km: float = 150.0,
+    shadow_height_threshold_m: float = 150.0,
+    shadow_strength: float = 1.0,
+) -> np.ndarray:
     """
     Enhanced orographic precipitation with optional advanced rain shadow.
     Beta parameter is used for simple shadow mode, ignored in advanced mode.
@@ -694,10 +850,14 @@ def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
         # Advanced rain shadow calculation (vectorized)
         print("    Computing advanced rain shadow effect (vectorized)...")
         shadow_multiplier = compute_rain_shadow_advanced(
-            elev, wind_u, wind_v, cellsize,
-            max_distance_km=400.0,    # Reduced for speed
-            shadow_decay_km=150.0,     # Faster decay
-            height_threshold_m=150.0  # Only mountains >100m difference matter
+            elev,
+            wind_u,
+            wind_v,
+            cellsize,
+            max_distance_km=shadow_max_distance_km,
+            shadow_decay_km=shadow_decay_km,
+            height_threshold_m=shadow_height_threshold_m,
+            strength=shadow_strength,
         )
     else:
         # Simple directional slope shadow (original method) - uses beta
@@ -1259,8 +1419,11 @@ def parse_args():
     ap.add_argument(
         '--compute',
         nargs='+',
-        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','foliage','biome'],
-        help="Which layers to compute. Include 'climate', 'foliage', and/or 'biome'."
+        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','foliage','biome', 'forest_density', 'groundcover_density'],
+        help=(
+            "Which layers to compute. Core: slope, aspect, normal, curvature, tpi, flowacc, twi, svf, climate, biome, foliage. "
+            "New: 'forest_density' (trees), 'groundcover_density' (grass/low flora)."
+        )
     )
     ap.add_argument('--tpi-radii', nargs='*', type=float, default=[25.0, 100.0], help="TPI radii in METERS (convert to pixels using --cellsize).")
     ap.add_argument('--stream-threshold', type=int, default=1000, help="Flow accumulation cell-count threshold to define streams.")
@@ -1282,6 +1445,15 @@ def parse_args():
     ap.add_argument('--coast-decay-km', type=float, default=0.4, help="e-folding distance for moisture decay from coasts (km).")
     ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
+    # Advanced rain shadow controls (used when advanced shadow is enabled)
+    ap.add_argument('--shadow-max-distance-km', type=float, default=400.0,
+                    help="Maximum upwind tracing distance for rain shadow (km). Controls shadow size/extent.")
+    ap.add_argument('--shadow-decay-km', type=float, default=150.0,
+                    help="Exponential decay length for shadow with distance (km). Larger = longer shadows.")
+    ap.add_argument('--shadow-height-threshold-m', type=float, default=150.0,
+                    help="Minimum upwind-over-downwind elevation difference (m) to cast a shadow.")
+    ap.add_argument('--shadow-strength', type=float, default=1.0,
+                    help="Shadow strength multiplier (>1 stronger, <1 weaker).")
     ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Biome mixing amount")
     ap.add_argument('--use-random-biomes', default=False, action='store_true', help="Use randomized biome sampling")
 
@@ -1327,6 +1499,10 @@ def main():
         "coast_decay_km": args.coast_decay_km,
         "orographic_alpha": args.orographic_alpha,
         "shadow_beta": args.shadow_beta,
+        "shadow_max_distance_km": args.shadow_max_distance_km,
+        "shadow_decay_km": args.shadow_decay_km,
+        "shadow_height_threshold_m": args.shadow_height_threshold_m,
+        "shadow_strength": args.shadow_strength,
         "biome_mixing_factor": args.biome_mixing_factor,
         "load_from_previous": args.load_from_previous,
         "use_random_biomes": args.use_random_biomes,
@@ -1525,9 +1701,16 @@ def main():
             # Use advanced orographic precipitation with better rain shadow
             P = precipitation_orographic_advanced(
                 P_lat, elev, u, v, dzdx, dzdy, d2coast,
-                args.cellsize, alpha=args.orographic_alpha,
-                beta=args.shadow_beta, coast_decay_m=args.coast_decay_km*1000.0,
-                coast_min_frac=0.35
+                args.cellsize,
+                alpha=args.orographic_alpha,
+                beta=args.shadow_beta,
+                coast_decay_m=args.coast_decay_km*1000.0,
+                coast_min_frac=0.35,
+                use_advanced_shadow=True,
+                shadow_max_distance_km=args.shadow_max_distance_km,
+                shadow_decay_km=args.shadow_decay_km,
+                shadow_height_threshold_m=args.shadow_height_threshold_m,
+                shadow_strength=args.shadow_strength,
             )
             if args.write_raw_npy:
                 np.save(os.path.join(masks_dir, "precip_mm.npy"), P)
@@ -1664,6 +1847,60 @@ def main():
         save_png_rgb(foliage_rgb, os.path.join(args.outdir, "foliage_color.png"))
         if args.write_raw_npy:
             np.save(os.path.join(args.outdir, "foliage_color.npy"), foliage_rgb)
+
+    # Additional foliage density maps
+    if any(k in args.compute for k in ['forest_density', 'groundcover_density', 'foliage_density']):
+        print("[9/10] Foliage density (forest/groundcover)…")
+
+        # Ensure TWI exists (optional but helpful)
+        if twi is None:
+            twi = try_load_npy(os.path.join(args.outdir, "twi.npy"), "twi", args.load_from_previous)
+            if twi is None:
+                if acc is None:
+                    acc = try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
+                    if acc is None:
+                        acc = d8_flow_accumulation(elev, args.cellsize, resolve_pits=args.resolve_pits)
+                        if args.write_raw_npy:
+                            np.save(os.path.join(args.outdir, "flowacc.npy"), acc)
+                twi = compute_twi(acc, slope_deg, args.cellsize)
+                if args.write_raw_npy:
+                    np.save(os.path.join(args.outdir, "twi.npy"), twi)
+
+        # SVF (optional, load if present)
+        svf_opt = try_load_npy(os.path.join(args.outdir, "svf.npy"), "svf", args.load_from_previous)
+
+        # Small-radius TPI for micro detail (25 m)
+        tpi_small = try_load_npy(os.path.join(args.outdir, "tpi_r25m.npy"), "tpi_r25m", args.load_from_previous)
+        if tpi_small is None:
+            r_px = max(1, int(round(25.0 / args.cellsize)))
+            tpi_small = compute_tpi(elev, r_px)
+            if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "tpi_r25m.npy"), tpi_small)
+
+        forest_den, ground_den = compute_foliage_densities(
+            elev=elev,
+            ocean=ocean,
+            temp_c=temp_c,
+            precip_mm=P,
+            pet_mm=PET,
+            twi=twi,
+            slope_deg=slope_deg,
+            aspect_deg=aspect_deg,
+            dist_coast_m=d2coast,
+            lat_deg_1d=lat1d,
+            svf=svf_opt,
+            tpi_small=tpi_small,
+            cellsize=args.cellsize,
+        )
+
+        if 'forest_density' in args.compute or 'foliage_density' in args.compute:
+            save_png_scalar(forest_den, os.path.join(args.outdir, "forest_density.png"), bit_depth=args.bit_depth, clip_lo=0.0, clip_hi=1.0)
+            if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "forest_density.npy"), forest_den)
+        if 'groundcover_density' in args.compute or 'foliage_density' in args.compute:
+            save_png_scalar(ground_den, os.path.join(args.outdir, "groundcover_density.png"), bit_depth=args.bit_depth, clip_lo=0.0, clip_hi=1.0)
+            if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "groundcover_density.npy"), ground_den)
 
     print("[10/10] Writing metadata…")
     with open(os.path.join(args.outdir, "metadata.json"), "w") as f:

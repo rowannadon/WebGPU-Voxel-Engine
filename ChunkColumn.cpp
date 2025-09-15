@@ -1704,6 +1704,11 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         float svf = texc->getTexelAtPosition("svf", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         
+                        float gDens = texc->getTexelAtPosition("gDens", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
+                        float tDens = texc->getTexelAtPosition("tDens", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
+
+
+
                         int avgHeightDifference = (avgHeightDifferenceNeg + avgHeightDifferencePos) / 2;
                         if (avgHeightDifference >= 0.0f && avgHeightDifference < 0.25f) {
                             //material.materialType = BlockType::Grass; // grass
@@ -1815,7 +1820,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
                             ivec3 grassPos = ivec3(x, y, z + 1);
 
-                            if (blockHash % (static_cast<int>((1.0f - svf) * 16.0) + 1) == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
+                            if (blockHash % (static_cast<int>(2.0f + ((1.0f - gDens) * 16.0f)) + 1) == 0 && grassPos.z > waterLevel + 1 && grassPos.z < COLUMN_HEIGHT_BLOCKS - 1) {
 
 
                                 static const std::array<ProbabilityConfig, 5> config = { {
@@ -1834,22 +1839,15 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                             }
                         }
 
-                        /*if (tpi > 0.1 && tpi < 0.9 && material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
-                            int density = static_cast<int>(svf * 32.0f);
+                        if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
+                            int density = static_cast<int>(4.0 + ((1.0f - tDens) * 128.0f));
                             if (pos.z > (-10 + blockHash % 20) && blockHash % density == 0) {
                                 ivec3 positionAbove = ivec3(x, y, z + 1);
                                 if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                     positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
-                                    float aspenChance = 0.5;
-
-                                    if (tpi > 0.4 && tpi < 0.6) {
-                                        aspenChance = 0.0;
-                                    }
-
+                                    float aspenChance = 0.25;
                                     float pineChance = 1.0f - aspenChance;
-
-
 
                                     int numAspens = 3;
                                     int numPines = 2;
@@ -1857,8 +1855,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                     float normAspenChance = aspenChance * (static_cast<float>(numPines) / static_cast<float>(numAspens));
                                     float normPineChance = pineChance * (static_cast<float>(numAspens) / static_cast<float>(numPines));
 
-                                    float aC = normAspenChance * (numAspens * 1.0 / 5.0);
-                                    float pC = normPineChance * (numPines * 1.0 / 5.0);
+                                    float aC = normAspenChance * (numAspens * 1.0f / 5.0f);
+                                    float pC = normPineChance * (numPines * 1.0f / 5.0f);
 
                                     static const std::array<ProbabilityConfig, 5> config = { {
                                         { 1,     aC},
@@ -1870,10 +1868,10 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
 
                                     int size = sampleFromDistribution(blockHash, config);
 
-                                    candidateTrees.push_back({ positionAbove, size, 6.0f});
+                                    candidateTrees.push_back({ positionAbove, size, 8.0f});
                                 }
                             }
-                        }*/
+                        }
 
                         
 

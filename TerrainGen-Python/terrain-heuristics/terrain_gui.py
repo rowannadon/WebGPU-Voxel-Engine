@@ -30,7 +30,7 @@ from terrain_heuristics import (
     latitude_degrees, prevailing_wind_3cell, directional_slope,
     temperature_from_lat_elev, precipitation_lat_bands, precipitation_orographic_advanced,
     potential_evapotranspiration, actual_evapotranspiration,
-    classify_biomes_advanced, compute_foliage_color_rgb, BIOME_TABLE
+    classify_biomes_advanced, compute_foliage_color_rgb, compute_foliage_densities, BIOME_TABLE
 )
 
 # -----------------------
@@ -293,6 +293,25 @@ class TerrainEngine(QObject):
             dist_coast_m=cl["d2coast"], lat_deg_1d=self.lat1d, svf=svf,
             tpi_small=tpi_small, cellsize=p["cellsize"]
         ))
+
+    def get_foliage_densities(self):
+        cl = self.get_climate()
+        svf = self.cache.get("svf", None)
+        tpi_small = self.get_tpi(25.0)
+        p = self.params
+        key_f = "forest_density"
+        key_g = "groundcover_density"
+        if key_f in self.cache and key_g in self.cache:
+            return self.cache[key_f], self.cache[key_g]
+        fden, gden = compute_foliage_densities(
+            elev=self.elev, ocean=cl["ocean"], temp_c=cl["temp_c"], precip_mm=cl["precip_mm"],
+            pet_mm=cl["PET"], twi=self.cache.get("twi", None), slope_deg=cl["slope_deg"],
+            aspect_deg=cl["aspect_deg"], dist_coast_m=cl["d2coast"], lat_deg_1d=self.lat1d,
+            svf=svf, tpi_small=tpi_small, cellsize=p["cellsize"]
+        )
+        self.cache[key_f] = fden
+        self.cache[key_g] = gden
+        return fden, gden
 
     # ---- main entry used by Worker ----
     def compute_selected(self, selections):
@@ -634,8 +653,11 @@ class MainWindow(QMainWindow):
         self.chk_climate = QCheckBox("Climate (Temp, Precip, PET, AET, AI)"); self.chk_climate.setChecked(True)
         self.chk_biome = QCheckBox("Biome"); self.chk_biome.setChecked(True)
         self.chk_foliage = QCheckBox("Foliage color"); self.chk_foliage.setChecked(True)
+        self.chk_forest = QCheckBox("Forest density")
+        self.chk_ground = QCheckBox("Groundcover density")
         for w in [self.chk_elev,self.chk_ocean,self.chk_slope,self.chk_aspect,self.chk_normal,self.chk_curv,
-                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,self.chk_foliage]:
+                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,
+                  self.chk_foliage,self.chk_forest,self.chk_ground]:
             lay_sel.addWidget(w)
         outer.addWidget(sel_box)
 

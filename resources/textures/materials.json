@@ -708,7 +708,7 @@
       "pbr": {
         "metallic": 0.0,
         "roughness": 0.45,
-        "specular": 0.08,
+        "specular": 0.02,
         "emission": [
           0.0,
           0.0,
