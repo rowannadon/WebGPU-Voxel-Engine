@@ -1543,7 +1543,7 @@ def main():
     slope_deg = aspect_deg = normals = None
     dzdx = dzdy = None
 
-    if any(k in args.compute for k in ['slope','aspect','normal','twi','climate','biome', 'foliage']):
+    if any(k in args.compute for k in ['slope','aspect','normal','twi','climate','biome','foliage','forest_density','groundcover_density','foliage_density']):
         print("[3/10] Computing gradients, slope/aspect…")
         
         # Try to load slope and aspect
@@ -1641,7 +1641,7 @@ def main():
     # Climate
     # -------------------------
     
-    if any(k in args.compute for k in ['climate','foliage','biome']):
+    if any(k in args.compute for k in ['climate','foliage','biome','forest_density','groundcover_density','foliage_density']):
         print("[8/10] Climate fields…")
         lat1d = latitude_degrees(h)
         save_png_scalar(lat1d[:,None], os.path.join(masks_dir, "latitude_deg.png"), bit_depth=16, clip_lo=-90.0, clip_hi=90.0)

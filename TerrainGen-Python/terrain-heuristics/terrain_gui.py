@@ -403,6 +403,16 @@ class TerrainEngine(QObject):
                 out_arrays["foliage_rgb"] = frgb
                 out_images["foliage_color"] = rgb_to_qimage(frgb)
 
+            elif sel == "forest_density":
+                fden, gden = self.get_foliage_densities()
+                out_arrays["forest_density"] = fden
+                out_images["forest_density"] = scalar_to_qimage(fden, lo=0, hi=1)
+
+            elif sel == "groundcover_density":
+                fden, gden = self.get_foliage_densities()
+                out_arrays["groundcover_density"] = gden
+                out_images["groundcover_density"] = scalar_to_qimage(gden, lo=0, hi=1)
+
         self.finished.emit(out_images, out_arrays)
 
 # -----------------------
@@ -511,6 +521,17 @@ class ZoomPanView(QGraphicsView):
         self.resetTransform()
         self._fit_on_set = False
 
+    # Keep auto-fit when view is shown or resized, until user zooms.
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._fit_on_set and not self.pix.pixmap().isNull():
+            QTimer.singleShot(0, self.fit_to_window)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._fit_on_set and not self.pix.pixmap().isNull():
+            QTimer.singleShot(0, self.fit_to_window)
+
 
 class ImageTab(QWidget):
     def __init__(self, title: str, qimg: QImage):
@@ -563,6 +584,8 @@ class MainWindow(QMainWindow):
         # Center: tabs with images
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
+        # Auto-fit when switching tabs if user hasn't overridden zoom
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
         # Status
         self.status = self.statusBar()
@@ -719,6 +742,8 @@ class MainWindow(QMainWindow):
         if self.chk_climate.isChecked(): sel.append("climate")
         if self.chk_biome.isChecked(): sel.append("biome")
         if self.chk_foliage.isChecked(): sel.append("foliage")
+        if self.chk_forest.isChecked(): sel.append("forest_density")
+        if self.chk_ground.isChecked(): sel.append("groundcover_density")
         return sel
 
     def on_load(self):
@@ -763,6 +788,8 @@ class MainWindow(QMainWindow):
             self.tabs.addTab(tab, name)
         if not images:
             QMessageBox.information(self, "Nothing generated", "No outputs were selected.")
+        # Ensure the currently shown tab is fitted to the view
+        self._on_tab_changed(self.tabs.currentIndex())
 
     def on_failed(self, txt):
         self.progress.setValue(0)
@@ -786,6 +813,13 @@ class MainWindow(QMainWindow):
     def on_clear_cache(self):
         self.engine._dirty_all()
         QMessageBox.information(self, "Cache cleared", "In-memory cache has been cleared.")
+
+    def _on_tab_changed(self, idx: int):
+        w = self.tabs.widget(idx)
+        if isinstance(w, ImageTab):
+            # If still in auto-fit mode and image is present, fit now
+            if w.view._fit_on_set and not w.view.pix.pixmap().isNull():
+                QTimer.singleShot(0, w.view.fit_to_window)
 
 def main():
     app = QApplication(sys.argv)
