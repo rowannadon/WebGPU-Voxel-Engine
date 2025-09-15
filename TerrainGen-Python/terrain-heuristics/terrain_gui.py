@@ -98,6 +98,11 @@ class TerrainEngine(QObject):
             sea_level_m=0.0,
             lapse_rate_c_per_km=6.5, t_equator_c=30.0, t_pole_c=0.0,
             coast_decay_km=1.75, orographic_alpha=4.0, shadow_beta=0.15,
+            # Advanced rain shadow controls (match CLI defaults)
+            shadow_max_distance_km=400.0,
+            shadow_decay_km=150.0,
+            shadow_height_threshold_m=150.0,
+            shadow_strength=1.0,
             svf_dirs=16, svf_radius=100.0,
             tpi_radii=[25.0, 100.0],
             biome_mixing=1, use_random_biomes=False,
@@ -158,7 +163,9 @@ class TerrainEngine(QObject):
         ocean_changed = (prev["sea_level_m"] != self.params["sea_level_m"])
         climate_changed = any(prev[k] != self.params[k] for k in
                               ["lapse_rate_c_per_km","t_equator_c","t_pole_c",
-                               "coast_decay_km","orographic_alpha","shadow_beta"])
+                               "coast_decay_km","orographic_alpha","shadow_beta",
+                               "shadow_max_distance_km","shadow_decay_km",
+                               "shadow_height_threshold_m","shadow_strength"])
         svf_changed = any(prev[k] != self.params[k] for k in ["svf_dirs","svf_radius"])
         tpi_changed = (prev["tpi_radii"] != self.params["tpi_radii"])
         biome_changed = any(prev[k] != self.params[k] for k in ["biome_mixing","use_random_biomes"])
@@ -270,7 +277,12 @@ class TerrainEngine(QObject):
         P = self._need("P_mm", lambda: precipitation_orographic_advanced(
             precipitation_lat_bands(self.lat1d), self.elev, u, v, dzdx, dzdy,
             d2coast, p["cellsize"], alpha=p["orographic_alpha"], beta=p["shadow_beta"],
-            coast_decay_m=p["coast_decay_km"]*1000.0, coast_min_frac=0.35
+            coast_decay_m=p["coast_decay_km"]*1000.0, coast_min_frac=0.35,
+            # Advanced rain shadow tuning
+            shadow_max_distance_km=p["shadow_max_distance_km"],
+            shadow_decay_km=p["shadow_decay_km"],
+            shadow_height_threshold_m=p["shadow_height_threshold_m"],
+            shadow_strength=p["shadow_strength"]
         ))
         PET = self._need("PET", lambda: potential_evapotranspiration(temp, self.lat1d, k=20.0))
         AET = self._need("AET", lambda: actual_evapotranspiration(P, PET))
@@ -341,7 +353,7 @@ class TerrainEngine(QObject):
 
         tot = len(selections)
         for idx, sel in enumerate(selections, 1):
-            self.progress.emit(f"Computing {sel}â€¦", int(100*idx/tot))
+            self.progress.emit(f"Computing {sel}...", int(100*idx/tot))
 
             if sel == "elevation":
                 out_arrays["elevation"] = self.elev
@@ -607,6 +619,9 @@ class MainWindow(QMainWindow):
 
         # Status
         self.status = self.statusBar()
+        self.progress_label = QLabel("Idle")
+        self.progress_label.setMinimumWidth(180)
+        self.status.addPermanentWidget(self.progress_label, 0)
         self.progress = QProgressBar()
         self.progress.setMaximum(100)
         self.progress.setValue(0)
@@ -663,13 +678,23 @@ class MainWindow(QMainWindow):
         self.coast_decay = QDoubleSpinBox(); self.coast_decay.setRange(0.1, 100); self.coast_decay.setValue(1.75); self.coast_decay.setSuffix(" km")
         self.alpha = QDoubleSpinBox(); self.alpha.setRange(0.0, 20.0); self.alpha.setValue(4.0)
         self.beta = QDoubleSpinBox(); self.beta.setRange(0.0, 5.0); self.beta.setValue(0.15)
+        # Advanced rain shadow controls
+        self.shadow_max_distance = QDoubleSpinBox(); self.shadow_max_distance.setRange(1.0, 10000.0); self.shadow_max_distance.setValue(400.0); self.shadow_max_distance.setSuffix(" km")
+        self.shadow_decay = QDoubleSpinBox(); self.shadow_decay.setRange(1.0, 1000.0); self.shadow_decay.setValue(150.0); self.shadow_decay.setSuffix(" km")
+        self.shadow_height_threshold = QDoubleSpinBox(); self.shadow_height_threshold.setRange(0.0, 5000.0); self.shadow_height_threshold.setValue(150.0); self.shadow_height_threshold.setSuffix(" m")
+        self.shadow_strength = QDoubleSpinBox(); self.shadow_strength.setRange(0.0, 5.0); self.shadow_strength.setDecimals(2); self.shadow_strength.setSingleStep(0.05); self.shadow_strength.setValue(1.0)
 
         cf.addRow("Lapse rate:", self.lapse)
         cf.addRow("T@equator:", self.teq)
         cf.addRow("T@poles:", self.tpole)
         cf.addRow("Coast decay:", self.coast_decay)
         cf.addRow("Orographic:", self.alpha)
-        cf.addRow("Shadow:", self.beta)
+        cf.addRow("Shadow (beta, simple):", self.beta)
+        # Advanced rain shadow tuning rows
+        cf.addRow("Shadow max distance:", self.shadow_max_distance)
+        cf.addRow("Shadow decay:", self.shadow_decay)
+        cf.addRow("Shadow height threshold:", self.shadow_height_threshold)
+        cf.addRow("Shadow strength:", self.shadow_strength)
         outer.addWidget(clim_box)
 
         # SVF / TPI
@@ -754,6 +779,10 @@ class MainWindow(QMainWindow):
             coast_decay_km=self.coast_decay.value(),
             orographic_alpha=self.alpha.value(),
             shadow_beta=self.beta.value(),
+            shadow_max_distance_km=self.shadow_max_distance.value(),
+            shadow_decay_km=self.shadow_decay.value(),
+            shadow_height_threshold_m=self.shadow_height_threshold.value(),
+            shadow_strength=self.shadow_strength.value(),
             svf_dirs=self.svf_dirs.value(),
             svf_radius=self.svf_radius.value(),
             tpi_radii=tpi_list,
@@ -804,6 +833,7 @@ class MainWindow(QMainWindow):
         self.tabs.clear()
         self.progress.setValue(0)
         self.status.showMessage("Starting")
+        self.progress_label.setText("Starting...")
 
         worker = ComputeWorker(self.engine, selections)
         worker.signals.progress.connect(self.on_progress)
@@ -815,10 +845,12 @@ class MainWindow(QMainWindow):
     def on_progress(self, msg, pct):
         self.status.showMessage(msg)
         self.progress.setValue(pct)
+        self.progress_label.setText(msg)
 
     def on_finished(self, images: dict, arrays: dict):
         self.progress.setValue(100)
         self.status.showMessage("Done.", 3000)
+        self.progress_label.setText("Idle")
         # populate tabs
         for name, qimg in images.items():
             tab = ImageTab(name, qimg)
@@ -830,6 +862,7 @@ class MainWindow(QMainWindow):
 
     def on_failed(self, txt):
         self.progress.setValue(0)
+        self.progress_label.setText("Failed")
         QMessageBox.critical(self, "Computation failed", txt)
 
     def on_export(self):
