@@ -1,4 +1,4 @@
-# terrain_gui.py
+﻿# terrain_gui.py
 # PyQt5 GUI wrapper for terrain_heuristics.py (your compute module).
 # Place next to terrain_heuristics.py and run:  python terrain_gui.py
 
@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 # Make sure terrain_heuristics.py (your long script) sits alongside this file.
 from terrain_heuristics import (
     load_heightmap,
+    load_scalar_texture,
     compute_slope_aspect, compute_normals, compute_laplacian_curvature, compute_tpi,
     d8_flow_accumulation, compute_twi, compute_svf,
     compute_ocean_mask, compute_coastline_mask, distance_to_mask,
@@ -99,7 +100,8 @@ class TerrainEngine(QObject):
             coast_decay_km=1.75, orographic_alpha=4.0, shadow_beta=0.15,
             svf_dirs=16, svf_radius=100.0,
             tpi_radii=[25.0, 100.0],
-            biome_mixing=1, use_random_biomes=False
+            biome_mixing=1, use_random_biomes=False,
+            flowacc_texture=None
         )
         # caches
         self.cache = {}
@@ -140,6 +142,12 @@ class TerrainEngine(QObject):
         for k in ["biome_id","biome_rgb"]:
             self.cache.pop(k, None)
 
+    def _dirty_flowacc(self):
+        # Anything depending on flow accumulation or TWI
+        for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb",
+                  "forest_density", "groundcover_density"]:
+            self.cache.pop(k, None)
+
     # -------- Public API --------
     def set_settings(self, **kwargs):
         prev = self.params.copy()
@@ -154,6 +162,7 @@ class TerrainEngine(QObject):
         svf_changed = any(prev[k] != self.params[k] for k in ["svf_dirs","svf_radius"])
         tpi_changed = (prev["tpi_radii"] != self.params["tpi_radii"])
         biome_changed = any(prev[k] != self.params[k] for k in ["biome_mixing","use_random_biomes"])
+        flowacc_changed = (prev.get("flowacc_texture") != self.params.get("flowacc_texture"))
 
         if core_changed:
             self._dirty_core()
@@ -167,6 +176,8 @@ class TerrainEngine(QObject):
             self._dirty_tpi()
         if biome_changed:
             self._dirty_biome_only()
+        if flowacc_changed:
+            self._dirty_flowacc()
 
     def load_heightmap_path(self, path):
         p = self.params
@@ -225,7 +236,14 @@ class TerrainEngine(QObject):
         return t
 
     def get_flowacc(self):
-        return self._need("acc", lambda: d8_flow_accumulation(self.elev, self.params["cellsize"], resolve_pits='carve'))
+        def _acc():
+            tex = self.params.get("flowacc_texture")
+            if tex and os.path.exists(tex):
+                # Load external texture as raw values, resize to elevation shape
+                arr = load_scalar_texture(tex, target_shape=self.elev.shape)
+                return arr.astype(np.float32)
+            return d8_flow_accumulation(self.elev, self.params["cellsize"], resolve_pits='carve')
+        return self._need("acc", _acc)
 
     def get_twi(self):
         slope_deg, _, _ = self.get_slope_aspect_normals()
@@ -323,7 +341,7 @@ class TerrainEngine(QObject):
 
         tot = len(selections)
         for idx, sel in enumerate(selections, 1):
-            self.progress.emit(f"Computing {sel}…", int(100*idx/tot))
+            self.progress.emit(f"Computing {sel}â€¦", int(100*idx/tot))
 
             if sel == "elevation":
                 out_arrays["elevation"] = self.elev
@@ -544,7 +562,7 @@ class ImageTab(QWidget):
         tb = QHBoxLayout()
         self.btn_fit = QPushButton("Fit")
         self.btn_100 = QPushButton("100%")
-        self.btn_minus = QPushButton("−")
+        self.btn_minus = QPushButton("-")
         self.btn_plus = QPushButton("+")
         tb.addWidget(self.btn_fit)
         tb.addWidget(self.btn_100)
@@ -573,7 +591,7 @@ class ImageTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Terrain Heuristics — GUI")
+        self.setWindowTitle("Terrain Heuristics GUI")
         self.resize(1280, 800)
 
         self.engine = TerrainEngine()
@@ -594,21 +612,36 @@ class MainWindow(QMainWindow):
         self.progress.setValue(0)
         self.status.addPermanentWidget(self.progress, 1)
 
-        # Left dock: settings
+        # Left dock: settings (scrollable)
         dock = QDockWidget("Settings", self)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea)
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        dock.setWidget(scroll)
         dockw = QWidget()
-        dock.setWidget(dockw)
+        scroll.setWidget(dockw)
         outer = QVBoxLayout(dockw)
 
         # Load + general
         load_box = QGroupBox("Input & General")
         f = QFormLayout(load_box)
         self.path_label = QLabel("<i>No heightmap loaded</i>")
-        btn_load = QPushButton("Load Heightmap…")
+        btn_load = QPushButton("Load Heightmap")
         btn_load.clicked.connect(self.on_load)
         f.addRow(btn_load, self.path_label)
+
+        # Optional external flow accumulation texture
+        self.flowacc_path = QLineEdit("")
+        self.flowacc_path.setPlaceholderText("Optional: use image instead of computing D8 flowacc")
+        btn_flowacc = QPushButton("Browse…")
+        btn_flowacc.clicked.connect(self.on_choose_flowacc)
+        flowacc_row = QHBoxLayout()
+        flowacc_row.addWidget(self.flowacc_path, 1)
+        flowacc_row.addWidget(btn_flowacc)
+        flowacc_row_w = QWidget()
+        flowacc_row_w.setLayout(flowacc_row)
+        f.addRow("Flowacc texture:", flowacc_row_w)
 
         self.cellsize = QDoubleSpinBox(); self.cellsize.setRange(0.1, 10000); self.cellsize.setValue(10.0); self.cellsize.setSuffix(" m/px")
         self.zmin = QDoubleSpinBox(); self.zmin.setRange(-10000, 10000); self.zmin.setValue(0.0); self.zmin.setSuffix(" m")
@@ -635,8 +668,8 @@ class MainWindow(QMainWindow):
         cf.addRow("T@equator:", self.teq)
         cf.addRow("T@poles:", self.tpole)
         cf.addRow("Coast decay:", self.coast_decay)
-        cf.addRow("Orographic α:", self.alpha)
-        cf.addRow("Shadow β:", self.beta)
+        cf.addRow("Orographic:", self.alpha)
+        cf.addRow("Shadow:", self.beta)
         outer.addWidget(clim_box)
 
         # SVF / TPI
@@ -688,7 +721,7 @@ class MainWindow(QMainWindow):
         btns = QHBoxLayout()
         self.btn_run = QPushButton("Generate")
         self.btn_run.clicked.connect(self.on_generate)
-        self.btn_export = QPushButton("Export visible tabs to PNGs…")
+        self.btn_export = QPushButton("Export visible tabs to PNGs")
         self.btn_export.clicked.connect(self.on_export)
         self.btn_clear = QPushButton("Clear in-memory cache")
         self.btn_clear.clicked.connect(self.on_clear_cache)
@@ -707,6 +740,9 @@ class MainWindow(QMainWindow):
             tpi_list = [float(x) for x in tpistr.replace(" ", "").split(",") if x]
         except:
             tpi_list = [25.0, 100.0]
+        flowacc_tex = self.flowacc_path.text().strip() if hasattr(self, 'flowacc_path') else ''
+        if flowacc_tex == "":
+            flowacc_tex = None
         self.engine.set_settings(
             cellsize=self.cellsize.value(),
             z_min=self.zmin.value(),
@@ -723,6 +759,7 @@ class MainWindow(QMainWindow):
             tpi_radii=tpi_list,
             biome_mixing=self.biome_mix.value(),
             use_random_biomes=self.biome_rand.isChecked(),
+            flowacc_texture=flowacc_tex,
         )
 
     def _collect_selections(self):
@@ -755,7 +792,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Load failed", str(e))
             return
         self.path_label.setText(os.path.basename(path))
-        self.status.showMessage(f"Loaded {path}  [{self.engine.w}×{self.engine.h}]", 5000)
+        self.status.showMessage(f"Loaded {path}  [{self.engine.w}-{self.engine.h}]", 5000)
 
     def on_generate(self):
         if self.engine.elev is None:
@@ -766,7 +803,7 @@ class MainWindow(QMainWindow):
 
         self.tabs.clear()
         self.progress.setValue(0)
-        self.status.showMessage("Starting…")
+        self.status.showMessage("Starting")
 
         worker = ComputeWorker(self.engine, selections)
         worker.signals.progress.connect(self.on_progress)
@@ -814,6 +851,16 @@ class MainWindow(QMainWindow):
         self.engine._dirty_all()
         QMessageBox.information(self, "Cache cleared", "In-memory cache has been cleared.")
 
+    def on_choose_flowacc(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choose flow accumulation texture",
+            "",
+            "Images (*.png *.jpg *.jpeg *.tif *.tiff);;All Files (*)"
+        )
+        if path:
+            self.flowacc_path.setText(path)
+
     def _on_tab_changed(self, idx: int):
         w = self.tabs.widget(idx)
         if isinstance(w, ImageTab):
@@ -829,3 +876,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
