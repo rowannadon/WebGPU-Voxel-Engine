@@ -834,7 +834,7 @@ void Application::updateProjectionMatrix(int zoom) {
     glfwGetFramebufferSize(window, &width, &height);
     float ratio = width / (float)height;
     uniforms.projectionMatrix = glm::perspective(zoom * PI / 180, ratio, 0.1f, 5000.0f);
-    uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
+    //uniforms.infiniteProjectionMatrix = glm::tweakedInfinitePerspective(zoom * PI / 180, ratio, 0.1f);
     uniforms.inverseProjectionMatrix = glm::inverse(uniforms.projectionMatrix);
     uniforms.screenSize = glm::vec2(static_cast<float>(screenWidth), static_cast<float>(screenHeight));
 

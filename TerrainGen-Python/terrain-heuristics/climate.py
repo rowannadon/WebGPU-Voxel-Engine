@@ -69,8 +69,12 @@ def prevailing_wind_3cell(
         v[mask] = (ferrel_tilt - polar_tilt) * 0.5 * s[mask]
         mag[mask] = np.sqrt(u[mask] * u[mask] + v[mask] * v[mask])
 
-    u /= mag
-    v /= mag
+    # Preserve the native magnitude so transitional bands naturally weaken the
+    # wind-driven effects instead of flipping abruptly when cells change.
+    strength = np.clip(mag, 0.0, 1.0)
+    mag = np.maximum(mag, tiny)
+    u = (u / mag) * strength
+    v = (v / mag) * strength
     return u.astype(np.float32), v.astype(np.float32)
 
 
@@ -79,11 +83,14 @@ def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.
     h = lat_deg.shape[0]
     lat_deg.reshape(h, 1)  # shape alignment only
     u = np.ones((h, 1), dtype=np.float32)
-    v = np.ones_like(u)
+    v = np.zeros_like(u)
     mag = np.sqrt(u * u + v * v)
     mag[mag == 0] = 1.0
-    u /= mag
-    v /= mag
+    strength = np.clip(mag, 0.0, 1.0)
+    tiny = 1e-8
+    mag = np.maximum(mag, tiny)
+    u = (u / mag) * strength
+    v = (v / mag) * strength
     return u.astype(np.float32), v.astype(np.float32)
 
 

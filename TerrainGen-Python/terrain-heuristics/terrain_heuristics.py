@@ -203,7 +203,7 @@ def parse_args():
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
     ap.add_argument('--cellsize', type=float, default=10.0, help="Meters per pixel.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
-    ap.add_argument('--z-max', type=float, default=3400.0, help="Elevation (m) at heightmap value 255.")
+    ap.add_argument('--z-max', type=float, default=3100.0, help="Elevation (m) at heightmap value 255.")
     ap.add_argument('--bit-depth', type=int, default=0, choices=[0,8,16], help="Output PNG bit depth: 0=auto (match input), or 8/16. Normals and biome map are saved as 8-bit RGB.")
     ap.add_argument(
         '--compute',
@@ -235,11 +235,11 @@ def parse_args():
     ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
     # Advanced rain shadow controls (used when advanced shadow is enabled)
-    ap.add_argument('--shadow-max-distance-km', type=float, default=400.0,
+    ap.add_argument('--shadow-max-distance-km', type=float, default=2.0,
                     help="Maximum upwind tracing distance for rain shadow (km). Controls shadow size/extent.")
-    ap.add_argument('--shadow-decay-km', type=float, default=150.0,
+    ap.add_argument('--shadow-decay-km', type=float, default=1.0,
                     help="Exponential decay length for shadow with distance (km). Larger = longer shadows.")
-    ap.add_argument('--shadow-height-threshold-m', type=float, default=150.0,
+    ap.add_argument('--shadow-height-threshold-m', type=float, default=200.0,
                     help="Minimum upwind-over-downwind elevation difference (m) to cast a shadow.")
     ap.add_argument('--shadow-strength', type=float, default=1.0,
                     help="Shadow strength multiplier (>1 stronger, <1 weaker).")

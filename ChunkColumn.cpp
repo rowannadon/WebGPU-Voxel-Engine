@@ -1839,6 +1839,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                             }
                         }
 
+                        float aspenChance = tDens;
+
                         if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
                             int density = static_cast<int>(4.0 + ((1.0f - tDens) * 128.0f));
                             if (pos.z > (-10 + blockHash % 20) && blockHash % density == 0) {
@@ -1846,7 +1848,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                 if (positionAbove.z > waterLevel + 1 && positionAbove.z < COLUMN_HEIGHT_BLOCKS && positionAbove.x > 1 && positionAbove.y > 1 &&
                                     positionAbove.x < CHUNK_SIZE - 2 && positionAbove.y < CHUNK_SIZE - 2) {
 
-                                    float aspenChance = 0.25;
+                                    
+
                                     float pineChance = 1.0f - aspenChance;
 
                                     int numAspens = 3;
@@ -1855,8 +1858,8 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                     float normAspenChance = aspenChance * (static_cast<float>(numPines) / static_cast<float>(numAspens));
                                     float normPineChance = pineChance * (static_cast<float>(numAspens) / static_cast<float>(numPines));
 
-                                    float aC = normAspenChance * (numAspens * 1.0f / 5.0f);
-                                    float pC = normPineChance * (numPines * 1.0f / 5.0f);
+                                    float aC = normAspenChance * (static_cast<float>(numAspens) * (1.0f / static_cast<float>(numAspens + numPines)));
+                                    float pC = normPineChance * (static_cast<float>(numPines) * (1.0f / static_cast<float>(numAspens + numPines)));
 
                                     static const std::array<ProbabilityConfig, 5> config = { {
                                         { 1,     aC},
