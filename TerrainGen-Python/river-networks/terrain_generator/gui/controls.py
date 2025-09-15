@@ -229,7 +229,7 @@ class ControlPanel(QWidget):
         
         # Dimension control
         dim_control = ParameterControl(
-            "Dimension", 64, 2048, 256, step=64, decimals=0
+            "Dimension", 64, 4096, 256, step=64, decimals=0
         )
         self.controls['dimension'] = dim_control
         layout.addWidget(dim_control)

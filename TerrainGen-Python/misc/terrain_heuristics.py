@@ -47,11 +47,31 @@ from scipy.ndimage import (
 # -------------------------
 # I/O
 # -------------------------
-def load_heightmap(path: str, z_min: float, z_max: float) -> np.ndarray:
-    img = Image.open(path).convert('L')  # 8-bit grayscale
-    arr = np.asarray(img, dtype=np.float32)
-    elev = z_min + (arr / 255.0) * (z_max - z_min)
-    return elev
+def load_heightmap(path: str, z_min: float, z_max: float) -> Tuple[np.ndarray, int]:
+    """
+    Load a grayscale PNG heightmap as float elevations, and detect input bit depth.
+    Returns (elev_m, bit_depth), where bit_depth is 8 or 16.
+    """
+    img = Image.open(path)
+    # Don't force-convert yet; inspect dtype
+    arr = np.array(img)
+    # If someone accidentally passes RGB(A), take the first channel
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+
+    if arr.dtype == np.uint16:
+        bit_depth = 16
+        maxv = 65535.0
+    else:
+        # Normalize all other cases to 8-bit grayscale
+        if img.mode != 'L':
+            img = img.convert('L')
+            arr = np.array(img)
+        bit_depth = 8
+        maxv = 255.0
+
+    elev = z_min + (arr.astype(np.float32) / maxv) * (z_max - z_min)
+    return elev, bit_depth
 
 def ensure_outdir(path: str):
     os.makedirs(path, exist_ok=True)
@@ -107,6 +127,113 @@ def save_png_normal(normal: np.ndarray, path: str, bit_depth: int):
 def save_png_rgb(arr_rgb: np.ndarray, path: str):
     arr_rgb = np.asarray(arr_rgb, dtype=np.uint8)
     Image.fromarray(arr_rgb, mode='RGB').save(path)
+
+def _lerp(a, b, t):
+    return a * (1.0 - t) + b * t
+
+def _saturate(x):
+    return np.clip(x, 0.0, 1.0)
+
+def _rgb_mix(rgb, target, amt):
+    """Linear mix toward target color (each in 0..1)."""
+    return _lerp(rgb, target, amt[..., None])
+
+def _rgb_to_gray(rgb):
+    # Perceptual luma
+    return 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
+
+def _sample_wetness_colormap(wet01: np.ndarray) -> np.ndarray:
+    """
+    5-stop green/tan ramp, continuous. Input wet01 in [0,1].
+    Stops (dry -> lush): sand, semi-arid, grass, temperate, rainforest.
+    """
+    stops = np.array([
+        [0.76, 0.70, 0.49],  # dry scrub  (#c2b37d)
+        [0.71, 0.63, 0.37],  # semi-arid  (#b5a05e)
+        [0.66, 0.79, 0.41],  # grass      (#a8c969)
+        [0.42, 0.75, 0.29],  # temperate  (#6cbf4a)
+        [0.12, 0.48, 0.22],  # rainforest (#1f7a38)
+    ], dtype=np.float32)
+    tpos = np.array([0.00, 0.25, 0.50, 0.75, 1.00], dtype=np.float32)
+    t = _saturate(wet01)
+    idx = np.clip(np.searchsorted(tpos, t, side="right") - 1, 0, len(tpos) - 2)
+    t0 = tpos[idx]; t1 = tpos[idx + 1]
+    local = np.where((t1 - t0) > 1e-6, (t - t0) / (t1 - t0), 0.0)
+    c0 = stops[idx]; c1 = stops[idx + 1]
+    return _lerp(c0, c1, local[..., None])
+
+def compute_foliage_color_rgb(
+    elev: np.ndarray,
+    ocean: np.ndarray,
+    temp_c: np.ndarray,
+    precip_mm: np.ndarray,
+    pet_mm: np.ndarray,
+    twi: Optional[np.ndarray],
+    slope_deg: np.ndarray,
+    aspect_deg: np.ndarray,
+    dist_coast_m: np.ndarray,
+    lat_deg_1d: np.ndarray,
+    svf: Optional[np.ndarray],
+    tpi_small: Optional[np.ndarray],
+    cellsize: float,
+) -> np.ndarray:
+    """
+    Continuous foliage coloration driven by climate, with terrain nuance.
+    Returns uint8 RGB array.
+    """
+    h, w = elev.shape
+
+    # Wetness: AI + TWI
+    ai = precip_mm / (pet_mm + 1e-6)
+    ai_norm = _saturate(ai / 2.0)
+    twi_term = np.zeros_like(ai_norm) if twi is None else _saturate((twi - 3.0) / 12.0)
+    wet = _saturate(0.7 * ai_norm + 0.3 * twi_term)
+    wet = 1.0 - np.exp(-1.4 * wet)  # expand midtones
+
+    # Base palette
+    base = _sample_wetness_colormap(wet)
+
+    # Temperature toning
+    t01 = _saturate((temp_c + 10.0) / 45.0)  # ~[-10,35]C → [0,1]
+    warm_tint = np.array([1.00, 0.96, 0.70], dtype=np.float32)
+    cool_tint = np.array([0.55, 0.80, 0.80], dtype=np.float32)
+    tone_amt = 0.10
+    toned = _rgb_mix(_rgb_mix(base, warm_tint, tone_amt * t01),
+                     cool_tint, tone_amt * (1.0 - t01))
+
+    # Continentality desaturation
+    cont = compute_continentality(dist_coast_m / 1000.0, lat_deg_1d)
+    cont01 = _saturate(cont / 1.2)
+    gray = _rgb_to_gray(toned)[..., None]
+    toned = _lerp(toned, gray, 0.20 * cont01[..., None])
+
+    # High elevation tweak
+    elev_z = compute_elevation_zones(elev)
+    high = (elev_z >= 4).astype(np.float32)
+    toned = _lerp(toned, _rgb_to_gray(toned)[..., None], 0.15 * high[..., None])
+    toned = _saturate(toned + 0.06 * high[..., None])
+
+    # Micro-contrast: aspect/slope/SVF/TPI
+    aspect_eff = compute_aspect_effect(aspect_deg, lat_deg_1d)  # -1..1
+    slope01 = _saturate(slope_deg / 45.0)
+    brightness = 1.0 + 0.05 * aspect_eff - 0.05 * slope01
+    if svf is not None:
+        brightness += 0.05 * (svf - 0.5)
+    if tpi_small is not None:
+        brightness += 0.06 * np.tanh(tpi_small / (3.0 * cellsize))
+    brightness = np.clip(brightness, 0.85, 1.15)
+    out = _saturate(toned * brightness[..., None])
+
+    # Riparian pop
+    riparian = _saturate(wet * (twi_term if twi is not None else 0.0))
+    out = _rgb_mix(out, np.array([0.10, 0.45, 0.18], dtype=np.float32), 0.15 * riparian)
+
+    # Oceans (same as biome ocean blue)
+    ocean_rgb = np.array(BIOME_TABLE[0][1], dtype=np.float32) / 255.0
+    out[ocean] = ocean_rgb
+
+    return (np.clip(out, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
 
 
 # -------------------------
@@ -300,8 +427,13 @@ def _smoothstep(lo: float, hi: float, x: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
-def prevailing_wind_3cell(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
-    """Smooth 3-cell model with cosine-like transitions.
+def prevailing_wind_3cell(
+    lat_deg: np.ndarray,
+    eq_blend_deg: float = 5.0,
+    ferrel_tilt: float = 0.12,  # small poleward v in Ferrel cell
+    polar_tilt: float  = 0.08   # small equatorward v in Polar cell
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Smooth 3-cell model with cosine-like transitions and no mid-cell seam.
 
     Weights (sum≈1):
       w_trades:  0–30° with soft edge 25–35°
@@ -309,37 +441,55 @@ def prevailing_wind_3cell(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tup
       w_polar:   60–90° soft edge 55–65°
 
     Trades vector reverses across equator with a smooth sign via tanh.
+    Ferrel/Polar get tiny meridional tilts to avoid exact cancellation.
     """
     h = lat_deg.shape[0]
     lat = lat_deg.reshape(h, 1).astype(np.float32)
     a = np.abs(lat)
 
+    # Smoothstep helpers (expects a <= b)
+    def _smoothstep(a0, a1, x):
+        t = np.clip((x - a0) / (a1 - a0), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+
     w_tr = 1.0 - _smoothstep(25.0, 35.0, a)
     w_po = _smoothstep(55.0, 65.0, a)
-    w_we = 1.0 - w_tr - w_po
-    w_we = np.clip(w_we, 0.0, 1.0)
+    w_we = np.clip(1.0 - w_tr - w_po, 0.0, 1.0)
 
     # Smooth sign across equator
     s = np.tanh(np.radians(lat) / np.radians(eq_blend_deg))  # [-1,1]
 
     # Basis vectors
-    # Trades: NE->SW in NH, SE->NW in SH
+    # Trades: NE->SW in NH, SE->NW in SH (sign via s)
     u_tr = -s
     v_tr = s
-    # Westerlies: +u, 0v ; Polar easterlies: -u, 0v
+
+    # Westerlies (eastward) with a tiny poleward tilt
     u_we = np.ones_like(lat)
-    v_we = np.zeros_like(lat)
+    v_we = ferrel_tilt * s
+
+    # Polar easterlies (westward) with a tiny equatorward tilt
     u_po = -np.ones_like(lat)
-    v_po = np.zeros_like(lat)
+    v_po = -polar_tilt * s
 
     # Blend
     u = w_tr * u_tr + w_we * u_we + w_po * u_po
     v = w_tr * v_tr + w_we * v_we + w_po * v_po
 
-    # Normalize to unit vectors for directional slope
+    # Normalize, avoiding rare near-zero magnitudes
     mag = np.sqrt(u*u + v*v)
-    mag[mag == 0] = 1.0
-    u /= mag; v /= mag
+    tiny = 1e-8
+    mask = mag < tiny
+    if np.any(mask):
+        # Prefer direction of whichever weight is larger; bias to westerlies on exact tie
+        pref = np.sign(w_we - w_po)
+        pref = np.where(pref == 0, 1.0, pref)
+        u[mask] = pref[mask]
+        v[mask] = (ferrel_tilt - polar_tilt) * 0.5 * s[mask]
+        mag[mask] = np.sqrt(u[mask]*u[mask] + v[mask]*v[mask])
+
+    u /= mag
+    v /= mag
     return u.astype(np.float32), v.astype(np.float32)
 
 def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
@@ -352,7 +502,7 @@ def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.
     lat = lat_deg.reshape(h, 1).astype(np.float32)
 
     # North-to-South wind: u component is negative (wind from north to south), v component is zero
-    u = np.zeros_like(lat)  # Wind from North to South
+    u = np.ones_like(lat)  # Wind from North to South
     v = np.ones_like(lat)  # No East-West component
 
     # Normalize the wind vector (in this case, it's already constant, so no real change)
@@ -496,8 +646,8 @@ def precipitation_orographic_advanced(P_lat: np.ndarray, elev: np.ndarray,
         print("    Computing advanced rain shadow effect (vectorized)...")
         shadow_multiplier = compute_rain_shadow_advanced(
             elev, wind_u, wind_v, cellsize,
-            max_distance_km=50.0,    # Reduced for speed
-            shadow_decay_km=15.0,     # Faster decay
+            max_distance_km=400.0,    # Reduced for speed
+            shadow_decay_km=150.0,     # Faster decay
             height_threshold_m=150.0  # Only mountains >100m difference matter
         )
     else:
@@ -915,28 +1065,59 @@ def assign_biomes_from_scores(scores: np.ndarray, ocean: np.ndarray,
     """
     Assign final biome IDs from probability scores.
     Can use deterministic (max score) or probabilistic assignment.
+    When probabilistic is True, creates weighted color blend instead of random sampling.
     """
     h, w, n_biomes = scores.shape
     biome_id = np.zeros((h, w), dtype=np.uint8)
+    rgb = np.zeros((h, w, 3), dtype=np.float32)
     
     # First, handle ocean explicitly
     biome_id[ocean] = 0
+    ocean_color = np.array(BIOME_TABLE[0][1], dtype=np.float32)
+    rgb[ocean] = ocean_color
     
     # For land pixels, ensure they get a valid biome
     land = ~ocean
     
     if use_probabilistic:
-        np.random.seed(random_seed)
+        # Weighted color blending mode
+        print("    Using weighted biome color blending...")
+        
+        # Pre-compute biome colors array for vectorization
+        biome_colors = np.zeros((n_biomes, 3), dtype=np.float32)
+        for k in range(n_biomes):
+            if k in BIOME_TABLE:
+                biome_colors[k] = np.array(BIOME_TABLE[k][1], dtype=np.float32)
+        
         land_indices = np.where(land)
         for i, j in zip(land_indices[0], land_indices[1]):
-            # Get scores for non-ocean biomes only
-            pixel_scores = scores[i, j, 1:]  # Exclude ocean
-            pixel_scores = np.maximum(pixel_scores, 0)
-            total = pixel_scores.sum()
+            # Get scores for all biomes at this pixel
+            pixel_scores = scores[i, j, :]
+            
+            # Skip ocean biome (index 0) for land pixels
+            land_scores = pixel_scores[1:].copy()
+            land_scores = np.maximum(land_scores, 0)
+            
+            total = land_scores.sum()
             if total > 0:
-                probs = pixel_scores / total
-                biome_id[i, j] = np.random.choice(range(1, n_biomes), p=probs)
-            # Leave as 0 if no scores - will be filled by nearest neighbor
+                # Normalize to get weights
+                weights = land_scores / total
+                
+                # Compute weighted average of colors (excluding ocean at index 0)
+                weighted_color = np.zeros(3, dtype=np.float32)
+                for biome_idx in range(1, n_biomes):
+                    weight = weights[biome_idx - 1]
+                    if weight > 0:
+                        weighted_color += weight * biome_colors[biome_idx]
+                
+                rgb[i, j] = weighted_color
+                
+                # For biome_id, still assign the highest scoring biome for compatibility
+                biome_id[i, j] = np.argmax(land_scores) + 1
+            else:
+                # No valid scores - will be filled by nearest neighbor
+                biome_id[i, j] = 0
+                rgb[i, j] = [0, 0, 0]  # Temporary, will be filled
     else:
         # Deterministic: assign biome with highest score
         max_biome = np.argmax(scores, axis=2)
@@ -944,39 +1125,44 @@ def assign_biomes_from_scores(scores: np.ndarray, ocean: np.ndarray,
         
         # Assign biomes where scores exist
         biome_id = max_biome.astype(np.uint8)
-    
+        
+        # Assign colors based on biome IDs
+        for k, (_, color) in BIOME_TABLE.items():
+            mask = biome_id == k
+            rgb[mask] = np.array(color, dtype=np.float32)
     
     # Fill unassigned land pixels using nearest neighbor from assigned land pixels
-    unassigned_land = land & (biome_id == 0)
+    unassigned_land = land & ((biome_id == 0) | (np.all(rgb == 0, axis=2)))
     if np.any(unassigned_land):
-        # Get mask of assigned land pixels (not ocean, not unassigned)
-        assigned_land = land & (biome_id != 0)
+        # Get mask of assigned land pixels
+        assigned_land = land & (biome_id != 0) & np.any(rgb > 0, axis=2)
         
         if np.any(assigned_land):
             # Use distance transform to find nearest assigned land pixel
-            # Get indices of nearest assigned pixel for each unassigned pixel
             _, (nearest_i, nearest_j) = distance_transform_edt(
                 ~assigned_land, 
                 return_indices=True
             )
             
-            # Fill unassigned pixels with biome from nearest assigned pixel
+            # Fill unassigned pixels with biome and color from nearest assigned pixel
             unassigned_indices = np.where(unassigned_land)
             for i, j in zip(unassigned_indices[0], unassigned_indices[1]):
-                biome_id[i, j] = biome_id[nearest_i[i, j], nearest_j[i, j]]
+                ni, nj = nearest_i[i, j], nearest_j[i, j]
+                biome_id[i, j] = biome_id[ni, nj]
+                rgb[i, j] = rgb[ni, nj]
         else:
-            # Fallback if no assigned land pixels (shouldn't happen)
+            # Fallback if no assigned land pixels
             biome_id[unassigned_land] = 13  # Default to temperate grassland
+            rgb[unassigned_land] = np.array(BIOME_TABLE[13][1], dtype=np.float32)
     
-    # # Final safety: ensure ocean pixels are still ocean
+    # Final safety: ensure ocean pixels are still ocean
     biome_id[ocean] = 0
+    rgb[ocean] = ocean_color
     
-    # Create RGB visualization
-    rgb = np.zeros((h, w, 3), dtype=np.uint8)
-    for k, (_, color) in BIOME_TABLE.items():
-        rgb[biome_id == k] = color
+    # Convert RGB to uint8
+    rgb_uint8 = np.clip(rgb, 0, 255).astype(np.uint8)
     
-    return biome_id, rgb
+    return biome_id, rgb_uint8
 
 def classify_biomes_advanced(elev: np.ndarray, sea_level_m: float, temp_c: np.ndarray, 
                             precip_mm: np.ndarray, pet_mm: np.ndarray, twi: np.ndarray,
@@ -1017,11 +1203,16 @@ def parse_args():
     ap = argparse.ArgumentParser(description="Compute terrain heuristics and simple climate/biome maps from an 8-bit PNG heightmap.", formatter_class=p)
     ap.add_argument('--input', required=True, help="Input heightmap PNG (8-bit grayscale).")
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
-    ap.add_argument('--cellsize', type=float, default=10.0, help="Meters per pixel.")
+    ap.add_argument('--cellsize', type=float, default=50.0, help="Meters per pixel.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
-    ap.add_argument('--z-max', type=float, default=4000.0, help="Elevation (m) at heightmap value 255.")
+    ap.add_argument('--z-max', type=float, default=3000.0, help="Elevation (m) at heightmap value 255.")
     ap.add_argument('--bit-depth', type=int, default=16, choices=[8,16], help="Output PNG bit depth (normals and biome map saved as 8-bit RGB for compatibility).")
-    ap.add_argument('--compute', nargs='+', default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','biome'], help="Which layers to compute. Include 'climate' and/or 'biome' for new outputs.")
+    ap.add_argument(
+        '--compute',
+        nargs='+',
+        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','foliage','biome'],
+        help="Which layers to compute. Include 'climate', 'foliage', and/or 'biome'."
+    )
     ap.add_argument('--tpi-radii', nargs='*', type=float, default=[25.0, 100.0], help="TPI radii in METERS (convert to pixels using --cellsize).")
     ap.add_argument('--stream-threshold', type=int, default=1000, help="Flow accumulation cell-count threshold to define streams.")
     ap.add_argument('--stream-quantile', type=float, default=97.0, help="Adaptive stream mask: use top Qth percentile of accumulation (0–100).")
@@ -1034,14 +1225,14 @@ def parse_args():
 
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
-    ap.add_argument('--lapse-rate-c-per-km', type=float, default=6.5, help="Lapse rate (°C/km).")
+    ap.add_argument('--lapse-rate-c-per-km', type=float, default=9.5, help="Lapse rate (°C/km).")
     ap.add_argument('--t-equator-c', type=float, default=30.0, help="Sea-level annual mean temperature at equator (°C).")
-    ap.add_argument('--t-pole-c', type=float, default=0.0, help="Sea-level annual mean temperature at poles (°C).")
+    ap.add_argument('--t-pole-c', type=float, default=-15.0, help="Sea-level annual mean temperature at poles (°C).")
     ap.add_argument('--coast-decay-km', type=float, default=1.75, help="e-folding distance for moisture decay from coasts (km).")
     ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
     ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Biome mixing amount")
-    ap.add_argument('--use-random-biomes', default=False, action='store_true', help="Use randomized biome sampling")
+    ap.add_argument('--use-random-biomes', default=True, action='store_true', help="Use randomized biome sampling")
 
     return ap.parse_args()
 
@@ -1091,7 +1282,7 @@ def main():
     }
 
     print("[1/10] Loading heightmap…")
-    elev = load_heightmap(args.input, args.z_min, args.z_max)
+    elev, in_bit_depth = load_heightmap(args.input, args.z_min, args.z_max)
     h, w = elev.shape
     print_stats("elev_m", elev)
 
@@ -1122,7 +1313,7 @@ def main():
     slope_deg = aspect_deg = normals = None
     dzdx = dzdy = None
 
-    if any(k in args.compute for k in ['slope','aspect','normal','twi','climate','biome']):
+    if any(k in args.compute for k in ['slope','aspect','normal','twi','climate','biome', 'foliage']):
         print("[3/10] Computing gradients, slope/aspect…")
         
         # Try to load slope and aspect
@@ -1180,7 +1371,7 @@ def main():
                             clip_lo=(args.clip[0] if args.clip else None), clip_hi=(args.clip[1] if args.clip else None))
 
     acc = None
-    if any(k in args.compute for k in ['flowacc','twi','climate','biome']):
+    if any(k in args.compute for k in ['flowacc','twi','climate','biome', 'foliage']):
         print("[6/10] Flow accumulation (D8)…")
         acc = try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
         if acc is None:
@@ -1216,7 +1407,7 @@ def main():
     # Climate
     # -------------------------
     
-    if 'climate' in args.compute or 'biome' in args.compute:
+    if any(k in args.compute for k in ['climate','foliage','biome']):
         print("[8/10] Climate fields…")
         lat1d = latitude_degrees(h)
         save_png_scalar(lat1d[:,None], os.path.join(masks_dir, "latitude_deg.png"), bit_depth=16, clip_lo=-90.0, clip_hi=90.0)
@@ -1226,7 +1417,7 @@ def main():
         v = try_load_npy(os.path.join(masks_dir, "wind_v.npy"), "wind_v", args.load_from_previous)
         
         if u is None or v is None:
-            u, v = prevailing_wind_3cell(lat1d)
+            u, v = prevailing_wind(lat1d)
             if args.write_raw_npy:
                 np.save(os.path.join(masks_dir, "wind_u.npy"), u)
                 np.save(os.path.join(masks_dir, "wind_v.npy"), v)
@@ -1368,6 +1559,53 @@ def main():
                       for k, v in BIOME_TABLE.items()}, f, indent=2)
         
         print(f"  Assigned {len(np.unique(biome_id[~ocean]))} different land biome types")
+
+    if 'foliage' in args.compute:
+        print("[9/10] Foliage color mask…")
+
+        # Ensure TWI exists (optional but helpful)
+        if 'twi' not in args.compute and twi is None:
+            twi = try_load_npy(os.path.join(args.outdir, "twi.npy"), "twi", args.load_from_previous)
+            if twi is None:
+                if acc is None:
+                    acc = try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
+                    if acc is None:
+                        acc = d8_flow_accumulation(elev, args.cellsize, resolve_pits=args.resolve_pits)
+                        if args.write_raw_npy:
+                            np.save(os.path.join(args.outdir, "flowacc.npy"), acc)
+                twi = compute_twi(acc, slope_deg, args.cellsize)
+                if args.write_raw_npy:
+                    np.save(os.path.join(args.outdir, "twi.npy"), twi)
+
+        # Optional SVF detail (load if present)
+        svf_opt = try_load_npy(os.path.join(args.outdir, "svf.npy"), "svf", args.load_from_previous)
+
+        # Small-radius TPI for micro detail (25 m)
+        tpi_small = try_load_npy(os.path.join(args.outdir, "tpi_r25m.npy"), "tpi_r25m", args.load_from_previous)
+        if tpi_small is None:
+            r_px = max(1, int(round(25.0 / args.cellsize)))
+            tpi_small = compute_tpi(elev, r_px)
+            if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "tpi_r25m.npy"), tpi_small)
+
+        foliage_rgb = compute_foliage_color_rgb(
+            elev=elev,
+            ocean=ocean,
+            temp_c=temp_c,
+            precip_mm=P,
+            pet_mm=PET,
+            twi=twi,
+            slope_deg=slope_deg,
+            aspect_deg=aspect_deg,
+            dist_coast_m=d2coast,
+            lat_deg_1d=lat1d,
+            svf=svf_opt,
+            tpi_small=tpi_small,
+            cellsize=args.cellsize,
+        )
+        save_png_rgb(foliage_rgb, os.path.join(args.outdir, "foliage_color.png"))
+        if args.write_raw_npy:
+            np.save(os.path.join(args.outdir, "foliage_color.npy"), foliage_rgb)
 
     print("[10/10] Writing metadata…")
     with open(os.path.join(args.outdir, "metadata.json"), "w") as f:

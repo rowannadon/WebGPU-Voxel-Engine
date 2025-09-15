@@ -37,6 +37,11 @@ struct Structure {
     bool  empty() const { return voxels.empty(); }
 };
 
+struct ColorMapEntry {
+    glm::vec3 color;  // sRGB [0..1]
+    BlockType type;
+};
+
 class StructureManager {
 public:
     StructureManager() = default;
@@ -48,7 +53,8 @@ public:
     // Thread-safe. Returns a copy of the cached Structure (0° rotation).
     Structure loadStructure(const std::string& structureName,
         const std::filesystem::path& directoryPath,
-        const ivec3& origin = ivec3(0, 0, 0));
+        const ivec3& origin = ivec3(0, 0, 0),
+        const std::vector<ColorMapEntry> blockColorLUT = {});
 
     Structure loadStructureWithDebug(const std::string& structureName,
         const std::filesystem::path& directoryPath,

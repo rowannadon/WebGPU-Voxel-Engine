@@ -1793,8 +1793,6 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         discard;
     }
 
-    var normalSample = textureSample(normalTextureArray, textureSampler, uv, layer);
-
     let roughnessSample = textureSample(roughnessTextureArray, textureSampler, uv, layer).r;
 
     normal = transformNormalScreenSpace(
@@ -1808,6 +1806,10 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
 
     // Combine material albedo with texture
     var albedo = textureColor.rgb;
+
+    if (material_id == 2u || materialProps.modelId != VOXEL_MODEL) {
+        albedo = albedo * biomeColor.xyz;
+    }
 
     if (material_id == 20u || material_id == 19u) {
         let transmitted = textureColor.rgb * waterTint;
@@ -1828,9 +1830,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
     }
 
     let terrainNormalFadeFactor = 1.0 - smoothstep(TERRAIN_FADE_START, TERRAIN_FADE_END, in.fog_distance);
-    //if (materialProps.modelId == VOXEL_MODEL) {
+    if (materialProps.modelId != LEAF_MODEL) {
         normal = mix(tNorm, normal, terrainNormalFadeFactor);
-    //}
+    }
     
     // Calculate PBR lighting for direct sunlight with boosted intensity
     let boosted_sun_intensity = sun_intensity * 3.75; // Boost sun intensity for PBR
@@ -1882,7 +1884,9 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4f {
         materialProps.pbr.AO == 0.0
     );
     // Combine all lighting
-    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted * biomeColor.xyz;
+    var finalColor = (direct_lighting + ambient_lighting) * ao_adjusted;
+
+
     
     // Add emission if present
     finalColor += materialProps.pbr.emission;

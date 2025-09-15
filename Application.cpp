@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    //saveHeightTexture();
+    saveHeightTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -24,11 +24,12 @@ bool Application::Initialize() {
     structureManager = std::make_shared<StructureManager>();
     textureManagerCPU = std::make_shared<TextureManagerCPU>();
 
-    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap19.png");
+    textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap19_16bit.png");
     textureManagerCPU->loadTexture("biome", RESOURCE_DIR "/terrain/biome_id.png");
-    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/terrain/flowacc_log.png");
+    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask19.png");
     textureManagerCPU->loadTexture("svf", RESOURCE_DIR "/terrain/svf.png");
-    textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r25m.png");
+    textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r100m.png");
+    textureManagerCPU->loadTexture("twi", RESOURCE_DIR "/terrain/twi.png");
     textureManagerCPU->loadTexture("slope", RESOURCE_DIR "/terrain/slope_deg.png");
     textureManagerCPU->loadTexture("curvature", RESOURCE_DIR "/terrain/curvature.png");
     textureManagerCPU->loadTexture("normal", RESOURCE_DIR "/terrain/normal.png");
@@ -60,12 +61,22 @@ bool Application::Initialize() {
 
     //structureManager->loadStructure("struct1", RESOURCE_DIR "/structures/cliffs/test.vox", ivec3(0, 0, 1));
 
-    //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4));
-    //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4));
+    static const std::vector<ColorMapEntry> aspenBlockColorLut = {
+        { {102.0f / 255.0f, 51.0f / 255.0f, 0.0f / 255.0f}, BlockType::Log       }, // leafy green
+        { {0.0f / 255.0f, 68.0f / 255.0f, 0.0f / 255.0f}, BlockType::Leaf       }, // leafy green
+    };
 
-    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/aspens/aspen_1.vox", ivec3(5, 5, 3));
-    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/aspens/aspen_2.vox", ivec3(4, 5, 3));
-    structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/aspens/aspen_3.vox", ivec3(4, 3, 3));
+    static const std::vector<ColorMapEntry> spruceBlockColorLut = {
+        { {102.0f / 255.0f, 51.0f / 255.0f, 0.0f / 255.0f}, BlockType::SpruceLog       }, // leafy green
+        { {0.0f / 255.0f, 68.0f / 255.0f, 0.0f / 255.0f}, BlockType::SpruceLeaf       }, // leafy green
+    };
+
+    structureManager->loadStructure("tree4", RESOURCE_DIR "/structures/pines/pine_1.vox", ivec3(6, 5, 4), spruceBlockColorLut);
+    structureManager->loadStructure("tree5", RESOURCE_DIR "/structures/pines/pine_2.vox", ivec3(4, 3, 4), spruceBlockColorLut);
+
+    structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/aspens/aspen_1.vox", ivec3(5, 5, 3), aspenBlockColorLut);
+    structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/aspens/aspen_2.vox", ivec3(4, 5, 3), aspenBlockColorLut);
+    structureManager->loadStructure("tree3", RESOURCE_DIR "/structures/aspens/aspen_3.vox", ivec3(4, 3, 3), aspenBlockColorLut);
 
     chunkManager.init(tex, buf, structureManager.get(), textureManagerCPU.get(), modelManager);
     registerMovementCallbacks();
@@ -132,13 +143,13 @@ bool Application::Initialize() {
 }
 
 void Application::saveHeightTexture() {
-    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("HwAbABkAFwAAAIC/AACAPwAAAAAAAIA/DwACAAAA9ig8QBMAj8L1Pg0ABgAAAAAAAEAHAAAK16M+AI/C9b4Aj8L1PgAUruNBARsAFwAAAIC/AACAPwAAAAAAAIA/EQAJAAAAAAAAQBAAuB4FPw0ACAAAAAAAAEAHAACamRk/AAAAAAAAAAAAAACPwnU+AGZm5j8BFwApXI8+j8J1PwAAAAAAAIA/GwAFAAEAAAAAAAAAAAAAAAAAAAAAAAAAAK5HYb4BFwAAAIC/AACAPwAAgD8AAAAA//8NAAEgABcAAACAvwAAgD8pXL/AH4W7QA0ABwAAAAAAAEAHAACPwvU+AAAAAAABFwAAAIC/AACAP4/Cdb9xPQq/EwAzM7M/DQADAAAAAAAAQAcAAAAAAD8AAAAAAAAAAMA/AAAAAD8=");
+    FastNoise::SmartNode<> fnGenerator = FastNoise::NewFromEncodedNodeTree("HwAfABsAGQAXAAAAgL8AAIA/AAAAAD0KVz8PAAIAAAC4HoU/EwBcj4I/DQAGAAAAAAAAQAcAAArXoz4Aj8L1vgAAAMA/APYoPEABGwAXAAAAgL8AAIA/AAAAAAAAgD8RAAkAAAAAAABAEAC4HgU/DQAIAAAAAAAAQAcAAJqZGT8AAAAAAAAAAAAAAI/CdT4AZmbmPwEXAClcjz6PwnU/AAAAAAAAgD8bAAUAAQAAAAAAAAAAAAAAAAAAAAAAAAAAcT0KPwEXAAAAgL8AAIA/AACAPwAAAAD//w0AASAAEwCkcD0/FwAAAIC/AACAPylcv8AfhbtADQAHAAAAAAAAQAcAAI/C9T4AAAAAAAEXAAAAgL8AAIA/pHA9v8P1KL8TAI/C9T4NAAMAAAAAAABABwAAAAAAPwAAAAAAAGZmRkAACtcjPwEgABcAAACAvwAAgD8pXL/AH4W7QA0ABwAAAAAAAEAHAACPwvU+AAAAAAABFwAAAIC/AACAP+F6lL8zMzO/EwAzM/M/DQADAAAAAAAAQAcAAAAAAD8AAAAAAACkcL1AAClcDz8=");
 
-    int width = 1024;
-    int height = 1024;
+    int width = 4096;
+    int height = 4096;
 
     std::vector<float> noiseData(width * height);
-    fnGenerator->GenUniformGrid2D(noiseData.data(), -512, -512, width, height, 0.008f, 0);
+    fnGenerator->GenUniformGrid2D(noiseData.data(), -2048, -2048, width, height, 0.0017f, 0);
 
 
 

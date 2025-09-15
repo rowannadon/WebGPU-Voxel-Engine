@@ -306,9 +306,9 @@ class TerrainViewport(QOpenGLWidget):
         zoom = self.camera.zoom
         
         if aspect >= 1:
-            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -500, 500)
+            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -3000, 3000)
         else:
-            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -500, 500)
+            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -3000, 3000)
         
         # Set modelview
         glMatrixMode(GL_MODELVIEW)
