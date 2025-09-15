@@ -285,7 +285,8 @@ class TerrainViewport(QOpenGLWidget):
         glClearColor(0.0, 0.0, 0.0, 1.0)
         glEnable(GL_DEPTH_TEST)
         glDisable(GL_LIGHTING)
-        glShadeModel(GL_FLAT)
+        # Use smooth shading to reduce visible banding across triangles
+        glShadeModel(GL_SMOOTH)
         glDisable(GL_CULL_FACE)
     
     def resizeGL(self, width: int, height: int):

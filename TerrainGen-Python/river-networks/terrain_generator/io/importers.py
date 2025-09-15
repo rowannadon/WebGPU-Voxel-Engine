@@ -32,12 +32,33 @@ class HeightmapImporter:
         except Exception as e:
             raise ValueError(f"Failed to load image: {e}")
         
-        # Convert to grayscale if necessary
-        if img.mode != 'L':
-            img = img.convert('L')
-        
-        # Convert to numpy array
-        img_array = np.array(img, dtype=np.float32)
+        # Convert to a numpy array while preserving source precision
+        # - If the image is 16-bit (mode 'I;16' or info), keep uint16 and scale later
+        # - If the image is 32-bit float ('F') or 32-bit int ('I'), keep precision
+        # - Otherwise, convert to 8-bit grayscale
+        if img.mode in ('I;16', 'I', 'F'):
+            img_array_raw = np.array(img)
+        else:
+            img_gray = img.convert('L')
+            img_array_raw = np.array(img_gray)
+
+        # Normalize raw array to float32 in [0,1] without quantizing unnecessarily
+        if img_array_raw.dtype == np.uint16:
+            img_array = (img_array_raw.astype(np.float32) / 65535.0)
+        elif img_array_raw.dtype == np.uint8:
+            img_array = (img_array_raw.astype(np.float32) / 255.0)
+        elif img_array_raw.dtype in (np.int32, np.uint32, np.float32, np.float64):
+            # Dynamic normalization for generic numeric inputs
+            arr = img_array_raw.astype(np.float32, copy=False)
+            amax = float(arr.max())
+            amin = float(arr.min())
+            if amax > amin:
+                img_array = (arr - amin) / (amax - amin)
+            else:
+                img_array = np.zeros_like(arr, dtype=np.float32)
+        else:
+            # Fallback: ensure float32
+            img_array = img_array_raw.astype(np.float32)
         
         # Resize to target dimensions if necessary
         if img_array.shape != target_shape:
@@ -45,8 +66,8 @@ class HeightmapImporter:
                           target_shape[1] / img_array.shape[1])
             img_array = zoom(img_array, zoom_factors, order=1)
         
-        # Normalize to 0-1 range
-        heightmap = normalize(img_array, bounds=(0, 1))
+        # Ensure final 0-1 range (preserves relative precision)
+        heightmap = normalize(img_array.astype(np.float32), bounds=(0, 1))
         
         # Create land mask (anything not pure black is considered land)
         # Using a small threshold to account for compression artifacts

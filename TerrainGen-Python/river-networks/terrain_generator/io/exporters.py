@@ -46,16 +46,18 @@ class TerrainExporter:
     @staticmethod
     def _export_png_8bit(data: np.ndarray, filepath: Path):
         """Export as 8-bit PNG."""
-        normalized = normalize(data, (0, 255))
-        img_data = normalized.astype(np.uint8)
+        normalized = normalize(data.astype(np.float32), (0, 255))
+        # Round to nearest to minimize banding from truncation
+        img_data = np.clip(np.rint(normalized), 0, 255).astype(np.uint8)
         img = Image.fromarray(img_data, mode='L')
         img.save(filepath)
     
     @staticmethod
     def _export_png_16bit(data: np.ndarray, filepath: Path):
         """Export as 16-bit PNG."""
-        normalized = normalize(data, (0, 65535))
-        img_data = normalized.astype(np.uint16)
+        # Normalize to full 16-bit range using float math, then round
+        normalized = normalize(data.astype(np.float32), (0, 65535))
+        img_data = np.clip(np.rint(normalized), 0, 65535).astype(np.uint16)
         img = Image.fromarray(img_data, mode='I;16')
         img.save(filepath)
     
