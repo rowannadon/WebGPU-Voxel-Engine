@@ -630,7 +630,9 @@ class MainWindow(QMainWindow):
         # Left dock: settings (scrollable)
         dock = QDockWidget("Settings", self)
         dock.setAllowedAreas(Qt.LeftDockWidgetArea)
+        dock.setMinimumWidth(460)
         self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         dock.setWidget(scroll)
@@ -639,24 +641,30 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(dockw)
 
         # Load + general
-        load_box = QGroupBox("Input & General")
+        load_box = QGroupBox("Input / General")
         f = QFormLayout(load_box)
         self.path_label = QLabel("<i>No heightmap loaded</i>")
         btn_load = QPushButton("Load Heightmap")
         btn_load.clicked.connect(self.on_load)
         f.addRow(btn_load, self.path_label)
 
-        # Optional external flow accumulation texture
-        self.flowacc_path = QLineEdit("")
-        self.flowacc_path.setPlaceholderText("Optional: use image instead of computing D8 flowacc")
-        btn_flowacc = QPushButton("Browse…")
+        # Optional external flow accumulation texture (match heightmap loader style)
+        self.flowacc_texture_path = None
+        self.flowacc_label = QLabel()
+        self.flowacc_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        btn_flowacc = QPushButton("Load Flowacc Texture")
         btn_flowacc.clicked.connect(self.on_choose_flowacc)
-        flowacc_row = QHBoxLayout()
-        flowacc_row.addWidget(self.flowacc_path, 1)
-        flowacc_row.addWidget(btn_flowacc)
-        flowacc_row_w = QWidget()
-        flowacc_row_w.setLayout(flowacc_row)
-        f.addRow("Flowacc texture:", flowacc_row_w)
+        btn_flowacc_clear = QPushButton("Clear")
+        btn_flowacc_clear.clicked.connect(self.on_clear_flowacc)
+        flowacc_btn_row = QHBoxLayout()
+        flowacc_btn_row.setContentsMargins(0, 0, 0, 0)
+        flowacc_btn_row.setSpacing(6)
+        flowacc_btn_row.addWidget(btn_flowacc)
+        flowacc_btn_row.addWidget(btn_flowacc_clear)
+        flowacc_btn_row_w = QWidget()
+        flowacc_btn_row_w.setLayout(flowacc_btn_row)
+        self._update_flowacc_label()
+        f.addRow(flowacc_btn_row_w, self.flowacc_label)
 
         self.cellsize = QDoubleSpinBox(); self.cellsize.setRange(0.1, 10000); self.cellsize.setValue(10.0); self.cellsize.setSuffix(" m/px")
         self.zmin = QDoubleSpinBox(); self.zmin.setRange(-10000, 10000); self.zmin.setValue(0.0); self.zmin.setSuffix(" m")
@@ -758,6 +766,17 @@ class MainWindow(QMainWindow):
         outer.addStretch(1)
 
     # ----- UI Handlers -----
+    def _update_flowacc_label(self):
+        if self.flowacc_texture_path:
+            base = os.path.basename(self.flowacc_texture_path)
+            self.flowacc_label.setTextFormat(Qt.PlainText)
+            self.flowacc_label.setText(base)
+            self.flowacc_label.setToolTip(self.flowacc_texture_path)
+        else:
+            self.flowacc_label.setTextFormat(Qt.RichText)
+            self.flowacc_label.setText("<i>Using computed flow accumulation</i>")
+            self.flowacc_label.setToolTip("Clear to revert to computed flow accumulation")
+
     def _collect_settings(self):
         # push settings into engine and mark dirties as needed
         tpistr = self.tpi_radii.text().strip()
@@ -765,9 +784,7 @@ class MainWindow(QMainWindow):
             tpi_list = [float(x) for x in tpistr.replace(" ", "").split(",") if x]
         except:
             tpi_list = [25.0, 100.0]
-        flowacc_tex = self.flowacc_path.text().strip() if hasattr(self, 'flowacc_path') else ''
-        if flowacc_tex == "":
-            flowacc_tex = None
+        flowacc_tex = self.flowacc_texture_path if self.flowacc_texture_path else None
         self.engine.set_settings(
             cellsize=self.cellsize.value(),
             z_min=self.zmin.value(),
@@ -892,7 +909,12 @@ class MainWindow(QMainWindow):
             "Images (*.png *.jpg *.jpeg *.tif *.tiff);;All Files (*)"
         )
         if path:
-            self.flowacc_path.setText(path)
+            self.flowacc_texture_path = path
+            self._update_flowacc_label()
+
+    def on_clear_flowacc(self):
+        self.flowacc_texture_path = None
+        self._update_flowacc_label()
 
     def _on_tab_changed(self, idx: int):
         w = self.tabs.widget(idx)
@@ -909,4 +931,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
