@@ -1,0 +1,30 @@
+        print("[5/10] TPI at radii:", args.tpi_radii)
+        for r_m in args.tpi_radii:
+            r_px = int(round(r_m / args.cellsize))
+            fname_npy = f"tpi_r{int(r_m)}m.npy"
+            fname_png = f"tpi_r{int(r_m)}m.png"
+            
+            tpi = try_load_npy(os.path.join(args.outdir, fname_npy), f"tpi_r{int(r_m)}m", args.load_from_previous)
+            if tpi is None:
+                tpi = compute_tpi(elev, r_px)
+                if args.write_raw_npy:
+                    np.save(os.path.join(args.outdir, fname_npy), tpi)
+            
+            save_png_scalar(tpi, os.path.join(args.outdir, fname_png), bit_depth=args.bit_depth,
+                            clip_lo=(args.clip[0] if args.clip else None), clip_hi=(args.clip[1] if args.clip else None))
+
+    acc = None
+    if any(k in args.compute for k in ['flowacc','twi','climate','biome', 'foliage']):
+        print("[6/10] Flow accumulation (D8)…")
+        acc = try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
+        if acc is None:
+            acc = d8_flow_accumulation(elev, args.cellsize, resolve_pits=args.resolve_pits)
+            if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "flowacc.npy"), acc)
+        print_stats("flowacc_cells", acc)
+
+    if 'flowacc' in args.compute:
+        acc_log = np.log1p(acc)
+        save_png_scalar(acc_log, os.path.join(args.outdir, "flowacc_log.png"), bit_depth=args.bit_depth,
+                        clip_lo=(args.clip[0] if args.clip else None), clip_hi=(args.clip[1] if args.clip else None))
+

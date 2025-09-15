@@ -76,6 +76,37 @@ def load_heightmap(path: str, z_min: float, z_max: float) -> Tuple[np.ndarray, i
 def ensure_outdir(path: str):
     os.makedirs(path, exist_ok=True)
 
+def load_scalar_texture(path: str, target_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
+    """
+    Load a scalar texture from an image file as float32.
+    - Accepts 8-bit or 16-bit grayscale; if RGB(A), uses the first channel.
+    - Returns raw pixel values as float32 (not normalized to 0..1), so callers
+      can decide the interpretation. If you need 0..1, divide by 255 or 65535.
+    - If target_shape is provided and differs, resizes using nearest neighbor.
+    """
+    img = Image.open(path)
+    arr = np.array(img)
+    if arr.ndim == 3:
+        arr = arr[..., 0]
+    # If not grayscale integer, try converting to 8-bit L to avoid surprises
+    if arr.dtype == np.uint16:
+        data = arr.astype(np.float32)
+    elif arr.dtype == np.uint8:
+        data = arr.astype(np.float32)
+    else:
+        # Convert to 8-bit grayscale then to float
+        img = img.convert('L')
+        data = np.array(img).astype(np.float32)
+
+    if target_shape is not None and tuple(data.shape) != tuple(target_shape):
+        # PIL expects (width, height)
+        h, w = target_shape
+        pil_img = Image.fromarray(data.astype(np.float32))
+        pil_img = pil_img.resize((w, h), resample=Image.NEAREST)
+        data = np.array(pil_img).astype(np.float32)
+
+    return data.astype(np.float32)
+
 def try_load_npy(filepath: str, name: str, load_previous: bool) -> Optional[np.ndarray]:
     """Try to load a numpy array from file if load_previous is True and file exists."""
     if not load_previous:
@@ -1222,6 +1253,8 @@ def parse_args():
     ap.add_argument('--clip', nargs=2, type=float, default=None, metavar=('LO','HI'), help="Manual min/max for normalization clip (applied per-layer) instead of percentile 2/98.")
     ap.add_argument('--write-raw-npy', action='store_true', help="Also write raw .npy arrays for each computed layer.")
     ap.add_argument('--load-from-previous', action='store_true', help="Load previously computed layers from .npy files when available (requires --write-raw-npy)")
+    ap.add_argument('--flowacc-texture', type=str, default=None,
+                    help="Path to a custom flow accumulation texture (image). If provided, flow accumulation is loaded from this texture instead of being computed. The image's raw channel values are used as accumulation units and will be resized to the heightmap dimensions if needed.")
 
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
@@ -1373,10 +1406,14 @@ def main():
     acc = None
     if any(k in args.compute for k in ['flowacc','twi','climate','biome', 'foliage']):
         print("[6/10] Flow accumulation (D8)…")
-        acc = try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
+        acc = load_scalar_texture(args.flowacc_texture, target_shape=elev.shape) if args.flowacc_texture else try_load_npy(os.path.join(args.outdir, "flowacc.npy"), "flowacc", args.load_from_previous)
         if acc is None:
             acc = d8_flow_accumulation(elev, args.cellsize, resolve_pits=args.resolve_pits)
             if args.write_raw_npy:
+                np.save(os.path.join(args.outdir, "flowacc.npy"), acc)
+        else:
+            # If loaded from custom texture and requested, also persist .npy for downstream reuse
+            if args.flowacc_texture and args.write_raw_npy:
                 np.save(os.path.join(args.outdir, "flowacc.npy"), acc)
         print_stats("flowacc_cells", acc)
 
