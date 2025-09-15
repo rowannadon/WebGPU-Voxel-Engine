@@ -9,7 +9,7 @@
 constexpr float PI = 3.14159265358979323846f;
 
 bool Application::Initialize() {
-    saveHeightTexture();
+    //saveHeightTexture();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -151,31 +151,57 @@ void Application::saveHeightTexture() {
     std::vector<float> noiseData(width * height);
     fnGenerator->GenUniformGrid2D(noiseData.data(), -2048, -2048, width, height, 0.0017f, 0);
 
+    std::vector<float> smoothed(noiseData);
 
+    for (int y = 1; y < height - 1; y++) {
+        for (int x = 1; x < width - 1; x++) {
+            float sum = 0.0f;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    sum += noiseData[(y + dy) * width + (x + dx)];
+                }
+            }
+            smoothed[y * width + x] = sum / 9.0f; // average
+        }
+    }
+    noiseData.swap(smoothed);
 
-    // Convert float data (-1.0 to 1.0) to unsigned char (0 to 255)
-    std::vector<unsigned char> imageData(width * height * 3); // RGB channels
+    // Each pixel has 3 channels, each channel is 16-bit (2 bytes), so total = width * height * 3 * 2
+    std::vector<unsigned char> imageData(width * height * 3 * 2);
 
     for (int i = 0; i < width * height; ++i) {
-        // Clamp and normalize the noise value from [-1.0, 1.0] to [0, 255]
         float normalizedValue = std::clamp((noiseData[i] + 1.0f) * 0.5f, 0.0f, 1.0f);
-        unsigned char pixelValue = static_cast<unsigned char>(normalizedValue * 255.0f);
+        uint16_t pixelValue = static_cast<uint16_t>(normalizedValue * 65535.0f);
 
-        // Set R, G, B channels to the same value (grayscale)
-        imageData[i * 3 + 0] = pixelValue; // Red
-        imageData[i * 3 + 1] = pixelValue; // Green  
-        imageData[i * 3 + 2] = pixelValue; // Blue
+        // Write big-endian: high byte first, low byte second
+        unsigned char high = static_cast<unsigned char>((pixelValue >> 8) & 0xFF);
+        unsigned char low = static_cast<unsigned char>(pixelValue & 0xFF);
+
+        // RGB channels (all same for grayscale-like output)
+        imageData[i * 6 + 0] = high; // R high
+        imageData[i * 6 + 1] = low;  // R low
+        imageData[i * 6 + 2] = high; // G high
+        imageData[i * 6 + 3] = low;  // G low
+        imageData[i * 6 + 4] = high; // B high
+        imageData[i * 6 + 5] = low;  // B low
     }
 
-    // Save as PNG
-    const char* filename = "../../../resources/heightmap_file.png";
-    int result = stbi_write_png(filename, width, height, 3, imageData.data(), width * 3);
+    // Encode as 16-bit RGB PNG
+    std::vector<unsigned char> png;
+    unsigned error = lodepng::encode(png,
+        imageData.data(),
+        width,
+        height,
+        LCT_RGB,
+        16);
 
-    if (result) {
-        printf("Successfully saved noise texture to %s\n", filename);
+    const char* filename = "../../../resources/heightmap_file.png";
+    if (!error) {
+        lodepng::save_file(png, filename);
+        printf("Successfully saved 16-bit RGB noise texture to %s\n", filename);
     }
     else {
-        printf("Failed to save noise texture\n");
+        printf("PNG encoding error %u: %s\n", error, lodepng_error_text(error));
     }
 }
 

@@ -517,14 +517,14 @@ bool WebGPURenderer::initTextures() {
 
 	auto blockTextureArrays = textureManager->loadTextureArray("block_array", "block_array_view", "normal_array", "normal_array_view", "roughness_array", "roughness_array_view", RESOURCE_DIR "/textures/");
 	
-	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_textures/noise_texture.png", false);
+	Texture worleyTexture = textureManager->loadTexture("worley_noise", "worley_view", RESOURCE_DIR "/noise_textures/noise_texture.png", TextureFormat::RGBA8Unorm);
 
-	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png", false);
+	Texture rgba256Texture = textureManager->loadTexture("cloud_noise_256", "cloud_noise_256_view", RESOURCE_DIR "/noise_textures/rgba_noise_256.png", TextureFormat::RGBA8Unorm);
 
-	Texture rgba32Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png", false);
+	Texture rgba32Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png", TextureFormat::RGBA8Unorm);
 
-	Texture normalMapTexture = textureManager->loadTexture("normal_map", "normal_map_view", RESOURCE_DIR "/terrain/normal.png", false);
-	Texture biomeMapTexture = textureManager->loadTexture("biome_map", "biome_map_view", RESOURCE_DIR "/terrain/biome_map.png", true);
+	Texture normalMapTexture = textureManager->loadTexture("normal_map", "normal_map_view", RESOURCE_DIR "/terrain/normal.png", TextureFormat::RGBA16Unorm);
+	Texture biomeMapTexture = textureManager->loadTexture("biome_map", "biome_map_view", RESOURCE_DIR "/terrain/biome_map.png", TextureFormat::RGBA8UnormSrgb);
 
 	return textureManager->getTextureView("block_array_view") != nullptr;
 }

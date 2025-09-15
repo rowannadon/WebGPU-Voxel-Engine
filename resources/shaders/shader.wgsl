@@ -17,7 +17,7 @@ const isotropic_phase: f32 = 1.0 / sphere_solid_angle;
 
 const TO_KM_SCALE = 1.0/3280.0;
 
-const TERRAIN_UPSCALE = 8.0;
+const TERRAIN_UPSCALE = 2.0;
 
 // Wind effect constants
 const WIND_STRENGTH: f32 = 0.15;        // Overall wind intensity

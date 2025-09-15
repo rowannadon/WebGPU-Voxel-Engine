@@ -1254,7 +1254,7 @@ def parse_args():
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
     ap.add_argument('--cellsize', type=float, default=10.0, help="Meters per pixel.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
-    ap.add_argument('--z-max', type=float, default=4000.0, help="Elevation (m) at heightmap value 255.")
+    ap.add_argument('--z-max', type=float, default=3400.0, help="Elevation (m) at heightmap value 255.")
     ap.add_argument('--bit-depth', type=int, default=0, choices=[0,8,16], help="Output PNG bit depth: 0=auto (match input), or 8/16. Normals and biome map are saved as 8-bit RGB.")
     ap.add_argument(
         '--compute',

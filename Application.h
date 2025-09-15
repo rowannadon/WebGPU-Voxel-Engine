@@ -31,6 +31,8 @@
 #include <numeric>
 #include <FastNoise/FastNoise.h>
 
+#include "lodepng.h"
+
 using namespace wgpu;
 
 using glm::mat4x4;
@@ -75,7 +77,7 @@ private:
 
 private:
     struct FirstPersonCamera {
-        vec3 position = vec3(8196.0f, 8196.0f, 297.0f);  // Camera position in world space
+        vec3 position = vec3(2096.0f, 2096.0f, 297.0f);  // Camera position in world space
         vec3 front = vec3(-1.0f, 0.0f, 0.0f);    // Direction camera is looking
         vec3 up = vec3(0.0f, 0.0f, 1.0f);        // Up vector
         vec3 right = vec3(0.0f, 1.0f, 0.0f);     // Right vector (corrected)

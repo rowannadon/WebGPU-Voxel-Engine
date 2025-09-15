@@ -74,7 +74,7 @@ public:
     Sampler createSampler(const std::string& samplerName, const SamplerDescriptor& config);
 
     Texture loadTexture(const std::string name, const std::string textureViewName,
-        const std::filesystem::path& path, bool srgb);
+        const std::filesystem::path& path, TextureFormat format);
 
     void buildMaterialTablesWithNormalMapping(
         const std::vector<MaterialJsonEntry>& entries,
@@ -156,7 +156,12 @@ public:
 
 private:
     uint32_t bit_width(uint32_t m);
-    void writeMipMaps(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, const unsigned char* pixelData);
+    void TextureManager::writeMipMaps(
+        Texture texture,
+        Extent3D textureSize,
+        uint32_t mipLevelCount,
+        const void* rawPixelData,
+        TextureFormat format);
     void writeMipMapsArray(Texture texture, Extent3D textureSize, uint32_t mipLevelCount, uint32_t arrayLayer, const unsigned char* pixelData);
     bool validateTextureMapping(const std::vector<TextureMapping>& flat, const std::filesystem::path& dir);
     std::string getModelString(const CpuModelKind model);

@@ -65,7 +65,7 @@ add_executable(
     "Rendering/Pipelines/TransparentVoxelPipeline.h" 
     "Rendering/ModelManager.h" 
     "Rendering/ModelManager.cpp" 
-    "ColumnDAICs.h" "Rendering/StructureManager.h" "Rendering/StructureManager.cpp"  "Rendering/AsyncDepthReadback.h"  "Rendering/Pipelines/AtmospherePipeline.h" "Rendering/Pipelines/DepthPrePass.h" "Rendering/Pipelines/SSAOPipeline.h" "Rendering/Pipelines/DepthResolvePipeline.h" "Rendering/Pipelines/DoubleSidedVoxelPipeline.h" "Rendering/Pipelines/SSAOBlurPipeline.h" "Rendering/Pipelines/DoubleSidedDepthPrePass.h" "TextureManagerCPU.h" "TerrainManager.cpp" "ChunkColumn.cpp")
+    "ColumnDAICs.h" "Rendering/StructureManager.h" "Rendering/StructureManager.cpp"  "Rendering/AsyncDepthReadback.h"  "Rendering/Pipelines/AtmospherePipeline.h" "Rendering/Pipelines/DepthPrePass.h" "Rendering/Pipelines/SSAOPipeline.h" "Rendering/Pipelines/DepthResolvePipeline.h" "Rendering/Pipelines/DoubleSidedVoxelPipeline.h" "Rendering/Pipelines/SSAOBlurPipeline.h" "Rendering/Pipelines/DoubleSidedDepthPrePass.h" "TextureManagerCPU.h" "TerrainManager.cpp" "ChunkColumn.cpp" "lodepng.h" "lodepng.cpp")
 
 # We add an option to enable different settings when developing the app than
 # when distributing it.
