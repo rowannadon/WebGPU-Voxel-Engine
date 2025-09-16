@@ -90,6 +90,7 @@ def parse_args():
     ap.add_argument('--svf-radius', type=float, default=100.0, help="SVF scan radius in meters.")
     ap.add_argument('--clip', nargs=2, type=float, default=None, metavar=('LO','HI'), help="Manual min/max for normalization clip (applied per-layer) instead of percentile 2/98.")
     ap.add_argument('--write-raw-npy', action='store_true', help="Also write raw .npy arrays for each computed layer.")
+    ap.add_argument('--write-separate-biome-maps', action='store_true', help="Write one grayscale PNG per biome with mask/intensity (outputs in biome_maps/).")
     ap.add_argument('--load-from-previous', action='store_true', help="Load previously computed layers from .npy files when available (requires --write-raw-npy)")
     ap.add_argument('--overwrite', nargs='+', default=[],
                     help="Recompute specific layers even when --load-from-previous would reuse cached .npy data. Accepts the same layer names as --compute.")
@@ -531,28 +532,66 @@ def run_biome(ctx: PipelineContext) -> None:
 
     biome_id_path = os.path.join(args.outdir, "biome_id.npy")
     biome_rgb_path = os.path.join(args.outdir, "biome_rgb.npy")
+    membership_path = os.path.join(args.outdir, "biome_membership.npy")
     can_load_biome = ctx.can_load_stage('biome')
     biome_id = try_load_npy(biome_id_path, "biome_id", can_load_biome)
     biome_rgb = try_load_npy(biome_rgb_path, "biome_rgb", can_load_biome)
+    want_membership = args.write_separate_biome_maps and args.use_random_biomes
+    biome_membership = None
+    if want_membership:
+        biome_membership = try_load_npy(membership_path, "biome_membership", can_load_biome)
 
-    if biome_id is None or biome_rgb is None:
-        biome_id, biome_rgb = classify_biomes_advanced(
+    needs_recompute = (
+        biome_id is None or biome_rgb is None or (want_membership and biome_membership is None)
+    )
+    if needs_recompute:
+        result = classify_biomes_advanced(
             ctx.elev, args.sea_level_m, temp_c, P, PET, twi,
             slope, aspect, tpi_50, d2coast, lat1d,
-            u, v, mixing_radius=args.biome_mixing_factor, use_probabilistic=args.use_random_biomes,
+            u, v, mixing_radius=args.biome_mixing_factor,
+            use_probabilistic=args.use_random_biomes,
+            return_membership=want_membership,
         )
+        if want_membership:
+            biome_id, biome_rgb, biome_membership = result
+        else:
+            biome_id, biome_rgb = result
         if args.write_raw_npy:
             np.save(biome_id_path, biome_id)
             np.save(biome_rgb_path, biome_rgb)
+            if want_membership and biome_membership is not None:
+                np.save(membership_path, biome_membership)
 
     ctx.stage_results['biome_id'] = biome_id
     ctx.stage_results['biome_rgb'] = biome_rgb
+    if biome_membership is not None:
+        ctx.stage_results['biome_membership'] = biome_membership
 
     save_png_scalar(biome_id, os.path.join(args.outdir, "biome_id.png"), bit_depth=8, clip_lo=0, clip_hi=len(BIOME_TABLE) - 1)
     save_png_rgb(biome_rgb, os.path.join(args.outdir, "biome_map.png"))
 
     with open(os.path.join(args.outdir, "biome_legend.json"), 'w') as f:
         json.dump({int(k): {"name": v[0], "color_rgb": v[1]} for k, v in BIOME_TABLE.items()}, f, indent=2)
+
+    if args.write_separate_biome_maps:
+        masks_dir = os.path.join(args.outdir, "biome_maps")
+        ensure_outdir(masks_dir)
+        membership_for_masks = biome_membership if (biome_membership is not None and args.use_random_biomes) else None
+        for biome_value in sorted(np.unique(biome_id)):
+            biome_value_int = int(biome_value)
+            biome_name = BIOME_TABLE.get(biome_value_int, (f"biome_{biome_value_int}", None))[0]
+            safe_name = ''.join((c.lower() if c.isalnum() else '_') for c in biome_name).strip('_')
+            if not safe_name:
+                safe_name = f"biome_{biome_value_int}"
+            mask = None
+            if membership_for_masks is not None:
+                mask = membership_for_masks[:, :, biome_value_int]
+            else:
+                mask = (biome_id == biome_value_int).astype(np.float32)
+            mask = np.nan_to_num(mask, nan=0.0).astype(np.float32)
+            mask = np.clip(mask, 0.0, 1.0)
+            save_png_scalar(mask, os.path.join(masks_dir, f"biome_{biome_value_int:02d}_{safe_name}.png"), bit_depth=8, clip_lo=0, clip_hi=1)
+        print(f"  Saved per-biome masks to {masks_dir}")
 
     print(f"  Assigned {len(np.unique(biome_id[~ocean]))} different land biome types")
     unique_biomes = [biome for biome in np.unique(biome_id)]
@@ -772,6 +811,7 @@ def main():
         "biome_mixing_factor": args.biome_mixing_factor,
         "load_from_previous": args.load_from_previous,
         "use_random_biomes": args.use_random_biomes,
+        "write_separate_biome_maps": args.write_separate_biome_maps,
         "overwrite": args.overwrite,
         "overwrite_resolved": sorted(overwrite_stage_names),
     }
@@ -810,6 +850,8 @@ def main():
     print("  - climate_intermediates/latitude_deg.png, wind_u.png, wind_v.png, dir_slope.png")
     print("  - climate_intermediates/temp_c.png, precip_mm.png, pet_mm.png, aet_mm.png, aridity_index.png")
     print("  - biome_map.png (colored), biome_id.png (classes), biome_legend.json")
+    if args.write_separate_biome_maps:
+        print("  - biome_maps/*.png (per-biome masks)")
 
     if args.load_from_previous:
         print("\nNote: Some layers were loaded from previous .npy files where available.")

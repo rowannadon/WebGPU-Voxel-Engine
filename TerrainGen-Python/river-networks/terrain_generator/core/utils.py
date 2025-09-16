@@ -69,87 +69,92 @@ def poisson_disc_sampling(shape: Tuple[int, int], radius: float,
                          retries: int = 16) -> np.ndarray:
     """Fast Poisson-disc sampling (Bridson) with numpy grid acceleration.
 
-    - Preserves API and output format of the previous implementation.
     - Uses a dense integer grid for O(1) neighbor lookups instead of a dict.
-    - Inlines simple math to reduce numpy call overhead in tight loops.
+    - Draws candidate samples in vectorized batches to minimize Python overhead.
     """
-    # Convert shape for arithmetic and keep integer dims for bounds
     H, W = int(shape[0]), int(shape[1])
     shape_arr = np.array([H, W], dtype=float)
 
     if radius <= 0:
-        # Degenerate case: return empty set
         return np.empty((0, 2), dtype=float)
 
     cell_size = float(radius) / np.sqrt(2.0)
     if cell_size <= 0:
         return np.empty((0, 2), dtype=float)
 
-    # Grid dimensions (rows=Y, cols=X)
     grid_rows = int(np.ceil(H / cell_size))
     grid_cols = int(np.ceil(W / cell_size))
     grid = np.full((grid_rows, grid_cols), -1, dtype=np.int32)
 
-    # Neighbor cell offsets to search (covering a 5x5 cross + diagonals sufficient for r)
     neighbor_offsets = (
         (0, 0), (0, -1), (0, 1), (-1, 0), (1, 0),
         (-1, -1), (-1, 1), (1, -1), (1, 1),
         (-2, 0), (2, 0), (0, -2), (0, 2)
     )
 
-    # Active list and point storage
     active = collections.deque()
-    pts_x: list = []
-    pts_y: list = []
+    pts_x: List[float] = []
+    pts_y: List[float] = []
 
     r2 = float(radius) * float(radius)
-    max_r2 = 4.0 * r2  # (2r)^2
+    rng = np.random.default_rng()
+    tau = 2.0 * np.pi
+    batch_size = min(24, max(4, retries))
 
-    def to_cell_ix(x: float, y: float) -> Tuple[int, int]:
-        return int(x / cell_size), int(y / cell_size)
-
-    def occupied_within_radius(x: float, y: float) -> bool:
-        cx, cy = to_cell_ix(x, y)
-        for off_x, off_y in neighbor_offsets:
-            nx = cx + off_x
-            ny = cy + off_y
-            if 0 <= ny < grid_rows and 0 <= nx < grid_cols:
-                idx = grid[ny, nx]
-                if idx != -1:
-                    dx = pts_x[idx] - x
-                    dy = pts_y[idx] - y
-                    if (dx * dx + dy * dy) <= r2:
-                        return True
-        return False
-
-    def add_point_xy(x: float, y: float):
-        cx, cy = to_cell_ix(x, y)
+    def add_point_xy(x: float, y: float, cx: int, cy: int):
         grid[cy, cx] = len(pts_x)
         active.append((x, y))
         pts_x.append(x)
         pts_y.append(y)
 
-    # First point uniformly in domain
-    first = shape_arr * np.random.rand(2)
-    add_point_xy(float(first[0]), float(first[1]))
+    first = shape_arr * rng.random(2)
+    fx, fy = float(first[0]), float(first[1])
+    add_point_xy(fx, fy, int(fx / cell_size), int(fy / cell_size))
 
-    # Main loop: pop active point and try to place new points around it
     while active:
-        px, py = active.pop()  # LIFO works well and keeps cache locality
-        for _ in range(retries):
-            # Random candidate in annulus [r, 2r)
-            rx, ry = 2.0 * radius * (2.0 * np.random.rand(2) - 1.0)
-            d2 = rx * rx + ry * ry
-            if not (r2 < d2 < max_r2):
+        px, py = active.pop()
+        remaining = retries
+        while remaining > 0:
+            take = min(batch_size, remaining)
+            angles = rng.random(take) * tau
+            radii = radius * np.sqrt(1.0 + 3.0 * rng.random(take))
+            cos_angles = np.cos(angles)
+            sin_angles = np.sin(angles)
+            cand_x = px + radii * cos_angles
+            cand_y = py + radii * sin_angles
+
+            in_bounds = (
+                (cand_x >= 0.0) & (cand_x < W) &
+                (cand_y >= 0.0) & (cand_y < H)
+            )
+
+            if not np.any(in_bounds):
+                remaining -= take
                 continue
-            nx = px + rx
-            ny = py + ry
-            # Fast bounds check first
-            if nx < 0.0 or nx >= W or ny < 0.0 or ny >= H:
-                continue
-            # Neighbor radius check
-            if not occupied_within_radius(nx, ny):
-                add_point_xy(nx, ny)
+
+            cand_x = cand_x[in_bounds]
+            cand_y = cand_y[in_bounds]
+            cand_cx = (cand_x / cell_size).astype(np.int32)
+            cand_cy = (cand_y / cell_size).astype(np.int32)
+
+            for x, y, cx, cy in zip(cand_x, cand_y, cand_cx, cand_cy):
+                if cx < 0 or cy < 0 or cy >= grid_rows or cx >= grid_cols:
+                    continue
+                occupied = False
+                for off_x, off_y in neighbor_offsets:
+                    nx = cx + off_x
+                    ny = cy + off_y
+                    if 0 <= ny < grid_rows and 0 <= nx < grid_cols:
+                        idx = grid[ny, nx]
+                        if idx != -1:
+                            dx = pts_x[idx] - x
+                            dy = pts_y[idx] - y
+                            if (dx * dx + dy * dy) <= r2:
+                                occupied = True
+                                break
+                if not occupied:
+                    add_point_xy(float(x), float(y), int(cx), int(cy))
+            remaining -= take
 
     if not pts_x:
         return np.empty((0, 2), dtype=float)

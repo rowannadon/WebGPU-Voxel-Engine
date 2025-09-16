@@ -459,24 +459,23 @@ class TerrainGenerator:
         """Create point sampling and Delaunay triangulation with distance weights."""
         points = poisson_disc_sampling(shape, self.params.disc_radius)
         tri = scipy.spatial.Delaunay(points)
-        (indices, indptr) = tri.vertex_neighbor_vertices
-        neighbors = [indptr[indices[k]:indices[k + 1]] for k in range(len(points))]
-        
+        indptr, indices = tri.vertex_neighbor_vertices
+
+        # Materialize neighbor slices once to avoid repeated Python-level slicing
+        # Using numpy.split keeps memory contiguous and minimizes Python loops
+        neighbors = np.split(indices, indptr[1:-1])
+
         # Pre-compute edge weights based on distances
         # This ensures consistent height accumulation across dimensions
         dim_scale = self.params.dimension / 256.0
         distance_normalizer = 1.0 / dim_scale
-        
-        edge_weights = []
-        for i, point in enumerate(points):
-            weights = []
-            for j in neighbors[i]:
-                dist = np.linalg.norm(points[j] - point)
-                # Normalize distance to be dimension-independent
-                weight = dist * distance_normalizer
-                weights.append(weight)
-            edge_weights.append(np.array(weights))
-        
+
+        # Repeat each point index for each neighbor to vectorize distance computation
+        repeats = np.repeat(np.arange(len(points)), np.diff(indptr))
+        deltas = points[indices] - points[repeats]
+        distances = np.linalg.norm(deltas, axis=1) * distance_normalizer
+        edge_weights = np.split(distances, indptr[1:-1])
+
         return points, tri, neighbors, edge_weights
     
     def _compute_height(self, points: np.ndarray, neighbors: List[np.ndarray],
