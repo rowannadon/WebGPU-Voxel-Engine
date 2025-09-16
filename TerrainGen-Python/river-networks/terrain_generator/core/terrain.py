@@ -2,8 +2,9 @@
 
 import numpy as np
 import scipy.spatial
-import heapq
-from typing import Optional, Tuple, Dict, Any, List
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra
+from typing import Optional, Tuple, Any, List
 from dataclasses import dataclass, field
 
 from .noise import ConsistentFBMNoise
@@ -478,35 +479,68 @@ class TerrainGenerator:
 
         return points, tri, neighbors, edge_weights
     
+    def _prepare_graph(self, neighbors: List[np.ndarray],
+                       edge_weights: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray,
+                                                                np.ndarray, np.ndarray]:
+        """Flatten neighbor/weight lists into CSR arrays for graph traversal."""
+        dim = len(neighbors)
+        lengths = np.fromiter((len(n) for n in neighbors), dtype=np.int64, count=dim)
+        indptr = np.empty(dim + 1, dtype=np.int64)
+        indptr[0] = 0
+        np.cumsum(lengths, out=indptr[1:])
+        total_edges = int(indptr[-1])
+
+        if total_edges == 0:
+            indices = np.empty(0, dtype=np.int64)
+            weights = np.empty(0, dtype=np.float64)
+            row_indices = np.empty(0, dtype=np.int64)
+        else:
+            indices = np.concatenate(neighbors).astype(np.int64, copy=False)
+            weights = np.concatenate(edge_weights).astype(np.float64, copy=False)
+            row_indices = np.repeat(np.arange(dim, dtype=np.int64), lengths)
+
+        return indptr, indices, row_indices, weights
+
+    def _run_dijkstra(self, indptr: np.ndarray, indices: np.ndarray,
+                      edge_costs: np.ndarray, dim: int,
+                      seed_idx: int) -> np.ndarray:
+        """Execute Dijkstra on CSR graph and return distances from the seed."""
+        if edge_costs.size == 0:
+            return np.zeros(dim, dtype=np.float64)
+
+        graph = csr_matrix((edge_costs, indices, indptr), shape=(dim, dim))
+        distances = dijkstra(graph, indices=seed_idx, directed=True,
+                             return_predecessors=False)
+        distances[np.isinf(distances)] = 0.0
+        return distances
+
     def _compute_height(self, points: np.ndarray, neighbors: List[np.ndarray],
                     edge_weights: List[np.ndarray], deltas: np.ndarray,
                     get_delta_fn=None) -> np.ndarray:
         """Compute heights for each point using pre-computed edge weights."""
-        if get_delta_fn is None:
-            get_delta_fn = lambda src, dst, weight: deltas[dst] * self.params.max_delta * weight
-        
+        indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
         dim = len(points)
-        result = [None] * dim
-        seed_idx = self._min_index([sum(p) for p in points])
-        q = [(0.0, seed_idx)]
-        
-        while len(q) > 0:
-            (height, idx) = heapq.heappop(q)
-            if result[idx] is not None:
-                continue
-            result[idx] = height
-            
-            for i, n in enumerate(neighbors[idx]):
-                if result[n] is not None:
-                    continue
-                weight = edge_weights[idx][i]
-                delta = get_delta_fn(idx, n, weight)
-                heapq.heappush(q, (height + delta, n))
-        
+        seed_idx = int(np.argmin(points.sum(axis=1)))
+
+        if indices.size == 0:
+            return np.zeros(dim, dtype=np.float64)
+
+        if get_delta_fn is None:
+            edge_costs = deltas[indices] * self.params.max_delta * weights
+        else:
+            edge_costs = np.fromiter(
+                (get_delta_fn(int(src), int(dst), float(weight))
+                 for src, dst, weight in zip(row_indices, indices, weights)),
+                dtype=np.float64,
+                count=weights.size
+            )
+
+        result = self._run_dijkstra(indptr, indices, edge_costs, dim, seed_idx)
+
         # Scale heights by dimension ratio
         height_scale = self.params.dimension / 256.0
-        result = np.array(result) * height_scale
-        
+        result = result * height_scale
+
         # DON'T normalize to [0,1] - keep the scaled range!
         # Just ensure minimum is 0
         result = result - result.min()
@@ -517,28 +551,37 @@ class TerrainGenerator:
                             river_network: RiverNetwork,
                             variable_max_delta: Optional[np.ndarray] = None) -> np.ndarray:
         """Compute final height with river downcutting using edge weights."""
-        
-        def get_delta(src, dst, weight):
-            # River downcutting
-            v = river_network.volume[dst] if (dst in river_network.upstream[src]) else 0.0
-            downcut = 1.0 / (1.0 + v ** self.params.river_downcutting)
-            
-            # Get max delta (with variable support)
-            if variable_max_delta is not None:
-                current_max_delta = variable_max_delta[dst]
-            else:
-                current_max_delta = self.params.max_delta
-            
-            # Apply distance-based scaling via weight
-            return min(current_max_delta * weight, 
-                    deltas[dst] * downcut * weight)
-        
-        # Compute base heights
-        heights = self._compute_height(points, neighbors, edge_weights, deltas, 
-                                    get_delta_fn=get_delta)
-        
-        # Note: _compute_height already applies dimension scaling
-        # So heights are already in range [0, dimension/256]
+        indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
+        dim = len(points)
+        seed_idx = int(np.argmin(points.sum(axis=1)))
+
+        if indices.size == 0:
+            return np.zeros(dim, dtype=np.float64)
+
+        if variable_max_delta is not None:
+            max_delta = variable_max_delta[indices]
+        else:
+            max_delta = np.full(indices.shape, self.params.max_delta, dtype=np.float64)
+
+        upstream_mask = np.fromiter(
+            (int(dst) in river_network.upstream[int(src)] for src, dst in zip(row_indices, indices)),
+            dtype=np.bool_,
+            count=indices.size
+        )
+
+        volumes = river_network.volume[indices]
+        volumes = np.where(upstream_mask, volumes, 0.0)
+        downcut = 1.0 / (1.0 + np.power(volumes, self.params.river_downcutting))
+
+        flow_limited = deltas[indices] * downcut * weights
+        max_limited = max_delta * weights
+        edge_costs = np.minimum(max_limited, flow_limited)
+
+        heights = self._run_dijkstra(indptr, indices, edge_costs, dim, seed_idx)
+
+        height_scale = self.params.dimension / 256.0
+        heights = heights * height_scale
+        heights = heights - heights.min()
         return heights
 
     def _generate_variable_max_delta(self, shape: Tuple[int, int], 
@@ -617,7 +660,3 @@ class TerrainGenerator:
         
         return np.mean(distances) if distances else 1.0
     
-    @staticmethod
-    def _min_index(values: List) -> int:
-        """Returns the index of the smallest value."""
-        return values.index(min(values))
