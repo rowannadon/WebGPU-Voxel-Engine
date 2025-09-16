@@ -18,20 +18,38 @@ from PyQt5.QtWidgets import (
     QLineEdit, QProgressBar, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 )
 
+from biome import (
+    BIOME_TABLE,
+    classify_biomes_advanced,
+)
+from climate import (
+    actual_evapotranspiration,
+    directional_slope,
+    latitude_degrees,
+    potential_evapotranspiration,
+    precipitation_lat_bands,
+    precipitation_orographic_advanced,
+    prevailing_wind_3cell,
+    temperature_from_lat_elev,
+)
+from curvature import compute_laplacian_curvature
+from flow import d8_flow_accumulation, d8_flow_direction
+from foliage import compute_foliage_color_rgb, compute_foliage_densities
+from ocean import compute_coastline_mask, compute_ocean_mask
+from slope_aspect import (
+    compute_normals,
+    compute_slope_aspect,
+)
+from svf import compute_svf
+from tpi import compute_tpi
+from twi import compute_twi
+from util import (
+    distance_to_mask,
+)
 
-
-# ---- Import your compute functions (unchanged) ----
-# Make sure terrain_heuristics.py (your long script) sits alongside this file.
-from terrain_heuristics import (
+from terrain_io import (
     load_heightmap,
     load_scalar_texture,
-    compute_slope_aspect, compute_normals, compute_laplacian_curvature, compute_tpi,
-    d8_flow_accumulation, compute_twi, compute_svf,
-    compute_ocean_mask, compute_coastline_mask, distance_to_mask,
-    latitude_degrees, prevailing_wind_3cell, directional_slope,
-    temperature_from_lat_elev, precipitation_lat_bands, precipitation_orographic_advanced,
-    potential_evapotranspiration, actual_evapotranspiration,
-    classify_biomes_advanced, compute_foliage_color_rgb, compute_foliage_densities, BIOME_TABLE
 )
 
 # -----------------------
