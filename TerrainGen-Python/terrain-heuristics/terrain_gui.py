@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QDockWidget, QFormLayout, QDoubleSpinBox,
     QSpinBox, QCheckBox, QGroupBox, QScrollArea, QTabWidget, QMessageBox,
-    QLineEdit, QProgressBar, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+    QLineEdit, QProgressBar, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
+    QComboBox
 )
 
 from biome import (
@@ -29,6 +30,7 @@ from climate import (
     potential_evapotranspiration,
     precipitation_lat_bands,
     precipitation_orographic_advanced,
+    prevailing_wind,
     prevailing_wind_3cell,
     temperature_from_lat_elev,
 )
@@ -121,6 +123,12 @@ class TerrainEngine(QObject):
             shadow_decay_km=150.0,
             shadow_height_threshold_m=150.0,
             shadow_strength=1.0,
+            precip_lat_pattern="two_bands",
+            prevailing_wind_model="three_cell",
+            temperature_pattern="polar",
+            temperature_gradient_azimuth_deg=0.0,
+            precip_gradient_azimuth_deg=0.0,
+            constant_wind_azimuth_deg=0.0,
             svf_dirs=16, svf_radius=100.0,
             tpi_radii=[25.0, 100.0],
             biome_mixing=1, use_random_biomes=False,
@@ -183,7 +191,10 @@ class TerrainEngine(QObject):
                               ["lapse_rate_c_per_km","t_equator_c","t_pole_c",
                                "coast_decay_km","orographic_alpha","shadow_beta",
                                "shadow_max_distance_km","shadow_decay_km",
-                               "shadow_height_threshold_m","shadow_strength"])
+                               "shadow_height_threshold_m","shadow_strength",
+                               "precip_lat_pattern","prevailing_wind_model",
+                               "temperature_pattern","temperature_gradient_azimuth_deg",
+                               "precip_gradient_azimuth_deg","constant_wind_azimuth_deg"])
         svf_changed = any(prev[k] != self.params[k] for k in ["svf_dirs","svf_radius"])
         tpi_changed = (prev["tpi_radii"] != self.params["tpi_radii"])
         biome_changed = any(prev[k] != self.params[k] for k in ["biome_mixing","use_random_biomes"])
@@ -286,14 +297,37 @@ class TerrainEngine(QObject):
         dzdx, dzdy = self.cache["grad"]
 
         # winds
-        u = self._need("wind_u", lambda: prevailing_wind_3cell(self.lat1d)[0])
-        v = self._need("wind_v", lambda: prevailing_wind_3cell(self.lat1d)[1])
+        if "wind_u" not in self.cache or "wind_v" not in self.cache:
+            if p["prevailing_wind_model"] == "three_cell":
+                u_arr, v_arr = prevailing_wind_3cell(self.lat1d)
+            else:
+                u_arr, v_arr = prevailing_wind(
+                    self.lat1d,
+                    azimuth_deg=p["constant_wind_azimuth_deg"],
+                )
+            self.cache["wind_u"] = u_arr
+            self.cache["wind_v"] = v_arr
+        u = self.cache["wind_u"]
+        v = self.cache["wind_v"]
 
         dir_s = self._need("dir_s", lambda: directional_slope(dzdx, dzdy, u, v))
-        temp = self._need("temp_c", lambda: temperature_from_lat_elev(self.lat1d, self.elev,
-                                                                      p["lapse_rate_c_per_km"], p["t_equator_c"], p["t_pole_c"]))
+        temp = self._need("temp_c", lambda: temperature_from_lat_elev(
+            self.lat1d,
+            self.elev,
+            p["lapse_rate_c_per_km"],
+            p["t_equator_c"],
+            p["t_pole_c"],
+            pattern=p["temperature_pattern"],
+            gradient_azimuth_deg=p["temperature_gradient_azimuth_deg"],
+        ))
         P = self._need("P_mm", lambda: precipitation_orographic_advanced(
-            precipitation_lat_bands(self.lat1d), self.elev, u, v, dzdx, dzdy,
+            precipitation_lat_bands(
+                self.lat1d,
+                pattern=p["precip_lat_pattern"],
+                width=self.w,
+                gradient_azimuth_deg=p["precip_gradient_azimuth_deg"],
+            ),
+            self.elev, u, v, dzdx, dzdy,
             d2coast, p["cellsize"], alpha=p["orographic_alpha"], beta=p["shadow_beta"],
             coast_decay_m=p["coast_decay_km"]*1000.0, coast_min_frac=0.35,
             # Advanced rain shadow tuning
@@ -709,6 +743,34 @@ class MainWindow(QMainWindow):
         self.shadow_decay = QDoubleSpinBox(); self.shadow_decay.setRange(1.0, 1000.0); self.shadow_decay.setValue(150.0); self.shadow_decay.setSuffix(" km")
         self.shadow_height_threshold = QDoubleSpinBox(); self.shadow_height_threshold.setRange(0.0, 5000.0); self.shadow_height_threshold.setValue(150.0); self.shadow_height_threshold.setSuffix(" m")
         self.shadow_strength = QDoubleSpinBox(); self.shadow_strength.setRange(0.0, 5.0); self.shadow_strength.setDecimals(2); self.shadow_strength.setSingleStep(0.05); self.shadow_strength.setValue(1.0)
+        self.precip_pattern = QComboBox();
+        self.precip_pattern.addItem("Two tropical bands", "two_bands")
+        self.precip_pattern.addItem("Single equatorial band", "single_band")
+        self.precip_pattern.addItem("Uniform", "uniform")
+        self.precip_pattern.addItem("Latitudinal gradient", "gradient")
+        self.precip_pattern.setCurrentIndex(0)
+        self.wind_model = QComboBox();
+        self.wind_model.addItem("Constant (legacy)", "constant")
+        self.wind_model.addItem("Three-cell circulation", "three_cell")
+        self.wind_model.setCurrentIndex(1)
+        self.temp_pattern = QComboBox();
+        self.temp_pattern.addItem("Polar (equator warm)", "polar")
+        self.temp_pattern.addItem("Planar gradient", "gradient")
+        self.temp_pattern.setCurrentIndex(0)
+        self.temp_gradient_angle = QDoubleSpinBox(); self.temp_gradient_angle.setRange(0.0, 360.0); self.temp_gradient_angle.setDecimals(1)
+        self.temp_gradient_angle.setSingleStep(5.0); self.temp_gradient_angle.setSuffix(" °")
+        self.temp_pattern.currentIndexChanged.connect(self._update_temp_gradient_enabled)
+        self._update_temp_gradient_enabled()
+        self.precip_gradient_angle = QDoubleSpinBox(); self.precip_gradient_angle.setRange(0.0, 360.0); self.precip_gradient_angle.setDecimals(1)
+        self.precip_gradient_angle.setSingleStep(5.0); self.precip_gradient_angle.setSuffix(" °")
+        self.precip_gradient_angle.setValue(0.0)
+        self.precip_pattern.currentIndexChanged.connect(self._update_precip_gradient_enabled)
+        self._update_precip_gradient_enabled()
+        self.wind_constant_angle = QDoubleSpinBox(); self.wind_constant_angle.setRange(0.0, 360.0); self.wind_constant_angle.setDecimals(1)
+        self.wind_constant_angle.setSingleStep(5.0); self.wind_constant_angle.setSuffix(" °")
+        self.wind_constant_angle.setValue(0.0)
+        self.wind_model.currentIndexChanged.connect(self._update_wind_angle_enabled)
+        self._update_wind_angle_enabled()
 
         cf.addRow("Lapse rate:", self.lapse)
         cf.addRow("T@equator:", self.teq)
@@ -721,6 +783,12 @@ class MainWindow(QMainWindow):
         cf.addRow("Shadow decay:", self.shadow_decay)
         cf.addRow("Shadow height threshold:", self.shadow_height_threshold)
         cf.addRow("Shadow strength:", self.shadow_strength)
+        cf.addRow("Temperature pattern:", self.temp_pattern)
+        cf.addRow("Temp gradient azimuth:", self.temp_gradient_angle)
+        cf.addRow("Precip gradient azimuth:", self.precip_gradient_angle)
+        cf.addRow("Precip lat pattern:", self.precip_pattern)
+        cf.addRow("Constant wind azimuth:", self.wind_constant_angle)
+        cf.addRow("Prevailing wind:", self.wind_model)
         outer.addWidget(clim_box)
 
         # SVF / TPI
@@ -795,6 +863,18 @@ class MainWindow(QMainWindow):
             self.flowacc_label.setText("<i>Using computed flow accumulation</i>")
             self.flowacc_label.setToolTip("Clear to revert to computed flow accumulation")
 
+    def _update_temp_gradient_enabled(self):
+        enabled = (self.temp_pattern.currentData() == "gradient")
+        self.temp_gradient_angle.setEnabled(enabled)
+
+    def _update_precip_gradient_enabled(self):
+        enabled = (self.precip_pattern.currentData() == "gradient")
+        self.precip_gradient_angle.setEnabled(enabled)
+
+    def _update_wind_angle_enabled(self):
+        enabled = (self.wind_model.currentData() == "constant")
+        self.wind_constant_angle.setEnabled(enabled)
+
     def _collect_settings(self):
         # push settings into engine and mark dirties as needed
         tpistr = self.tpi_radii.text().strip()
@@ -818,6 +898,12 @@ class MainWindow(QMainWindow):
             shadow_decay_km=self.shadow_decay.value(),
             shadow_height_threshold_m=self.shadow_height_threshold.value(),
             shadow_strength=self.shadow_strength.value(),
+            temperature_pattern=self.temp_pattern.currentData(),
+            temperature_gradient_azimuth_deg=self.temp_gradient_angle.value(),
+            precip_gradient_azimuth_deg=self.precip_gradient_angle.value(),
+            precip_lat_pattern=self.precip_pattern.currentData(),
+            prevailing_wind_model=self.wind_model.currentData(),
+            constant_wind_azimuth_deg=self.wind_constant_angle.value(),
             svf_dirs=self.svf_dirs.value(),
             svf_radius=self.svf_radius.value(),
             tpi_radii=tpi_list,

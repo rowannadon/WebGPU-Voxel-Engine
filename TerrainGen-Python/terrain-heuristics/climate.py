@@ -78,12 +78,22 @@ def prevailing_wind_3cell(
     return u.astype(np.float32), v.astype(np.float32)
 
 
-def prevailing_wind(lat_deg: np.ndarray, eq_blend_deg: float = 5.0) -> Tuple[np.ndarray, np.ndarray]:
-    """Return constant north-to-south wind (legacy helper)."""
+def prevailing_wind(
+    lat_deg: np.ndarray,
+    eq_blend_deg: float = 5.0,
+    azimuth_deg: float = 0.0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return constant-direction wind (legacy helper).
+
+    azimuth_deg is measured clockwise from east (0° keeps legacy eastward flow).
+    """
     h = lat_deg.shape[0]
     lat_deg.reshape(h, 1)  # shape alignment only
-    u = np.ones((h, 1), dtype=np.float32)
-    v = np.zeros_like(u)
+    theta = math.radians(float(azimuth_deg) % 360.0)
+    dir_x = math.cos(theta)
+    dir_y = math.sin(theta)
+    u = np.full((h, 1), dir_x, dtype=np.float32)
+    v = np.full((h, 1), dir_y, dtype=np.float32)
     mag = np.sqrt(u * u + v * v)
     mag[mag == 0] = 1.0
     strength = np.clip(mag, 0.0, 1.0)
@@ -105,26 +115,96 @@ def temperature_from_lat_elev(
     lapse_c_per_km: float,
     t_equator_c: float,
     t_pole_c: float,
+    pattern: str = "polar",
+    gradient_azimuth_deg: float = 0.0,
 ) -> np.ndarray:
-    lat_abs = np.abs(lat_deg)[:, None]
-    coslat = np.cos(np.radians(lat_abs))
-    t0 = t_pole_c + (t_equator_c - t_pole_c) * (coslat ** 1.0)
-    temp = t0 - (lapse_c_per_km * (elev / 1000.0))
+    """Compute temperature field with optional planar gradient orientation."""
+
+    mode = str(pattern).lower()
+
+    if mode in {"polar", "default"}:
+        lat_abs = np.abs(lat_deg)[:, None]
+        coslat = np.cos(np.radians(lat_abs))
+        base = t_pole_c + (t_equator_c - t_pole_c) * (coslat ** 1.0)
+    elif mode in {"gradient", "linear"}:
+        h, w = elev.shape
+        ys = np.linspace(-0.5, 0.5, h, dtype=np.float32)
+        xs = np.linspace(-0.5, 0.5, w, dtype=np.float32)
+        Y, X = np.meshgrid(ys, xs, indexing="ij")
+        theta = np.radians(float(gradient_azimuth_deg) % 360.0)
+        dir_x = np.sin(theta)
+        dir_y = -np.cos(theta)
+        grad = X * dir_x + Y * dir_y
+        gmin = float(np.min(grad))
+        gmax = float(np.max(grad))
+        if gmax - gmin < 1e-6:
+            norm = np.zeros_like(grad, dtype=np.float32)
+        else:
+            norm = (grad - gmin) / (gmax - gmin)
+        base = t_equator_c + (t_pole_c - t_equator_c) * norm
+    else:
+        raise ValueError(f"Unknown temperature pattern: {pattern}")
+
+    temp = base - (lapse_c_per_km * (elev / 1000.0))
     return temp.astype(np.float32)
 
 
-def precipitation_lat_bands(lat_deg: np.ndarray, base_mm: float = 1200.0) -> np.ndarray:
+def precipitation_lat_bands(
+    lat_deg: np.ndarray,
+    base_mm: float = 1200.0,
+    pattern: str = "two_bands",
+    width: int = 1,
+    gradient_azimuth_deg: float = 0.0,
+) -> np.ndarray:
+    """Return precipitation template for different latitude patterns.
+
+    width controls the horizontal size of the returned pattern (defaults to 1 for
+    legacy broadcasting). For gradient patterns, the azimuth is measured clockwise
+    from north (0° = northward increase).
+    """
+
+    h = lat_deg.shape[0]
+    w = max(1, int(width))
     lat_abs = np.abs(lat_deg)[:, None]
 
-    def g(center, sigma, sign=1.0):
+    def g(center: float, sigma: float, sign: float = 1.0) -> np.ndarray:
         return sign * np.exp(-0.5 * ((lat_abs - center) / sigma) ** 2)
 
-    patt = 1.0
-    patt += 0.9 * g(0.0, 12.0)
-    patt += 0.6 * g(60.0, 10.0)
-    patt += -0.9 * g(30.0, 10.0)
-    patt += -0.5 * g(85.0, 5.0)
-    P = base_mm * np.clip(patt, 0.1, None)
+    mode = str(pattern).lower()
+    if mode in {"gradient", "linear"}:
+        ys = np.linspace(-0.5, 0.5, h, dtype=np.float32)
+        xs = np.linspace(-0.5, 0.5, w, dtype=np.float32)
+        Y, X = np.meshgrid(ys, xs, indexing="ij")
+        theta = math.radians(float(gradient_azimuth_deg) % 360.0)
+        dir_x = math.sin(theta)
+        dir_y = -math.cos(theta)
+        grad = X * dir_x + Y * dir_y
+        gmin = float(np.min(grad))
+        gmax = float(np.max(grad))
+        if gmax - gmin < 1e-6:
+            norm = np.zeros_like(grad, dtype=np.float32)
+        else:
+            norm = (grad - gmin) / (gmax - gmin)
+        patt = 0.6 + 0.8 * (1.0 - norm)
+    else:
+        patt = np.ones((h, 1), dtype=np.float32)
+        if mode in {"two_bands", "double", "legacy"}:
+            patt += 0.9 * g(0.0, 12.0)
+            patt += 0.6 * g(60.0, 10.0)
+            patt += -0.9 * g(30.0, 10.0)
+            patt += -0.5 * g(85.0, 5.0)
+        elif mode in {"single_band", "single", "equatorial"}:
+            patt += 1.1 * g(0.0, 14.0)
+            patt += -0.3 * g(40.0, 12.0)
+            patt += -0.4 * g(80.0, 8.0)
+        elif mode in {"uniform", "flat", "constant"}:
+            pass
+        else:
+            raise ValueError(f"Unknown precipitation pattern: {pattern}")
+        if w > 1:
+            patt = np.repeat(patt, w, axis=1)
+
+    P = float(base_mm) * np.clip(patt, 0.1, None)
     return P.astype(np.float32)
 
 
