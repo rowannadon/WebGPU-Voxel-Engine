@@ -524,7 +524,7 @@ bool WebGPURenderer::initTextures() {
 	Texture rgba32Texture = textureManager->loadTexture("cloud_noise_64", "cloud_noise_64_view", RESOURCE_DIR "/terrain/normal.png", TextureFormat::RGBA8Unorm);
 
 	Texture normalMapTexture = textureManager->loadTexture("normal_map", "normal_map_view", RESOURCE_DIR "/terrain/normal.png", TextureFormat::RGBA16Unorm);
-	Texture biomeMapTexture = textureManager->loadTexture("biome_map", "biome_map_view", RESOURCE_DIR "/terrain/biome_map.png", TextureFormat::RGBA8UnormSrgb);
+	Texture biomeMapTexture = textureManager->loadTexture("biome_map", "biome_map_view", RESOURCE_DIR "/terrain/terrain_albedo.png", TextureFormat::RGBA8UnormSrgb);
 
 	return textureManager->getTextureView("block_array_view") != nullptr;
 }
