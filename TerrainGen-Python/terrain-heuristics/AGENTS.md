@@ -1,6 +1,6 @@
 This repository contains a set of python scripts which generate various terrain heuristics, simulated climate, and biome information given an input heightmap. These are then rendered to various output textures. 
 
-1. The file terrain_heuristics.py implements a CLI program which generates the various heuristics given the input heightmap. Each generation stage is separated into its own file.
+1. The file terrain_heuristics.py implements a CLI program which generates the various heuristics given the input heightmap. Each generation stage is separated into its own file and the CLI now resolves stage dependencies up-front, planning an execution order so prerequisite data is computed or loaded exactly once before dependent stages run.
 The generated heuristics are:
 - Ocean/land mask
 - coastline outline

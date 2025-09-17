@@ -65,98 +65,106 @@ def dist_to_mask(mask: np.ndarray) -> np.ndarray:
     
     return kdtree.query(grid_points)[0].reshape(mask.shape)
 
-def poisson_disc_sampling(shape: Tuple[int, int], radius: float,
-                         retries: int = 16) -> np.ndarray:
-    """Fast Poisson-disc sampling (Bridson) with numpy grid acceleration.
+import numpy as np
+import collections
+from typing import Tuple
+from numba import njit
 
-    - Preserves API and output format of the previous implementation.
-    - Uses a dense integer grid for O(1) neighbor lookups instead of a dict.
-    - Inlines simple math to reduce numpy call overhead in tight loops.
-    """
-    # Convert shape for arithmetic and keep integer dims for bounds
-    H, W = int(shape[0]), int(shape[1])
-    shape_arr = np.array([H, W], dtype=float)
+@njit(cache=True, fastmath=True)
+def _poisson_disc_numba(H, W, radius, retries, seed):
+    if radius <= 0.0:
+        return np.empty((0, 2), np.float32)
 
-    if radius <= 0:
-        # Degenerate case: return empty set
-        return np.empty((0, 2), dtype=float)
+    cell_size = radius / np.sqrt(2.0)
+    if cell_size <= 0.0:
+        return np.empty((0, 2), np.float32)
 
-    cell_size = float(radius) / np.sqrt(2.0)
-    if cell_size <= 0:
-        return np.empty((0, 2), dtype=float)
-
-    # Grid dimensions (rows=Y, cols=X)
     grid_rows = int(np.ceil(H / cell_size))
     grid_cols = int(np.ceil(W / cell_size))
-    grid = np.full((grid_rows, grid_cols), -1, dtype=np.int32)
+    grid = -np.ones((grid_rows, grid_cols), np.int32)
 
-    # Neighbor cell offsets to search (covering a 5x5 cross + diagonals sufficient for r)
-    neighbor_offsets = (
-        (0, 0), (0, -1), (0, 1), (-1, 0), (1, 0),
-        (-1, -1), (-1, 1), (1, -1), (1, 1),
-        (-2, 0), (2, 0), (0, -2), (0, 2)
-    )
+    offsets = np.array([
+        [ 0,  0], [ 0, -1], [ 0,  1], [-1,  0], [ 1,  0],
+        [-1, -1], [-1,  1], [ 1, -1], [ 1,  1],
+        [-2,  0], [ 2,  0], [ 0, -2], [ 0,  2]
+    ], dtype=np.int32)
 
-    # Active list and point storage
-    active = collections.deque()
-    pts_x: list = []
-    pts_y: list = []
+    max_pts = grid_rows * grid_cols
+    pts = np.empty((max_pts, 2), np.float32)
+    active = np.empty(max_pts, np.int32)
+    n_pts = 0
+    n_active = 0
 
-    r2 = float(radius) * float(radius)
-    max_r2 = 4.0 * r2  # (2r)^2
+    r2 = radius * radius
+    tau = 2.0 * np.pi
+    if seed >= 0:
+        np.random.seed(seed)
 
-    def to_cell_ix(x: float, y: float) -> Tuple[int, int]:
-        return int(x / cell_size), int(y / cell_size)
+    # first point
+    x = np.random.random() * W
+    y = np.random.random() * H
+    cx = int(x / cell_size)
+    cy = int(y / cell_size)
+    grid[cy, cx] = n_pts
+    pts[n_pts, 0] = x
+    pts[n_pts, 1] = y
+    active[n_active] = n_pts
+    n_active += 1
+    n_pts += 1
 
-    def occupied_within_radius(x: float, y: float) -> bool:
-        cx, cy = to_cell_ix(x, y)
-        for off_x, off_y in neighbor_offsets:
-            nx = cx + off_x
-            ny = cy + off_y
-            if 0 <= ny < grid_rows and 0 <= nx < grid_cols:
-                idx = grid[ny, nx]
-                if idx != -1:
-                    dx = pts_x[idx] - x
-                    dy = pts_y[idx] - y
-                    if (dx * dx + dy * dy) <= r2:
-                        return True
-        return False
+    while n_active > 0:
+        pidx = active[n_active - 1]
+        n_active -= 1
+        px = pts[pidx, 0]
+        py = pts[pidx, 1]
 
-    def add_point_xy(x: float, y: float):
-        cx, cy = to_cell_ix(x, y)
-        grid[cy, cx] = len(pts_x)
-        active.append((x, y))
-        pts_x.append(x)
-        pts_y.append(y)
+        left = retries
+        while left > 0:
+            # single-candidate loop is usually optimal under JIT; batching gives no Python benefit anymore
+            ang = np.random.random() * tau
+            rr = radius * np.sqrt(1.0 + 3.0 * np.random.random())
+            x = px + rr * np.cos(ang)
+            y = py + rr * np.sin(ang)
 
-    # First point uniformly in domain
-    first = shape_arr * np.random.rand(2)
-    add_point_xy(float(first[0]), float(first[1]))
-
-    # Main loop: pop active point and try to place new points around it
-    while active:
-        px, py = active.pop()  # LIFO works well and keeps cache locality
-        for _ in range(retries):
-            # Random candidate in annulus [r, 2r)
-            rx, ry = 2.0 * radius * (2.0 * np.random.rand(2) - 1.0)
-            d2 = rx * rx + ry * ry
-            if not (r2 < d2 < max_r2):
+            if not (0.0 <= x < W and 0.0 <= y < H):
+                left -= 1
                 continue
-            nx = px + rx
-            ny = py + ry
-            # Fast bounds check first
-            if nx < 0.0 or nx >= W or ny < 0.0 or ny >= H:
+
+            cx = int(x / cell_size)
+            cy = int(y / cell_size)
+            if cx < 0 or cy < 0 or cx >= grid_cols or cy >= grid_rows:
+                left -= 1
                 continue
-            # Neighbor radius check
-            if not occupied_within_radius(nx, ny):
-                add_point_xy(nx, ny)
 
-    if not pts_x:
-        return np.empty((0, 2), dtype=float)
+            ok = True
+            for k in range(offsets.shape[0]):
+                nx = cx + offsets[k, 0]
+                ny = cy + offsets[k, 1]
+                if 0 <= nx < grid_cols and 0 <= ny < grid_rows:
+                    j = grid[ny, nx]
+                    if j != -1:
+                        dx = pts[j, 0] - x
+                        dy = pts[j, 1] - y
+                        if dx * dx + dy * dy <= r2:
+                            ok = False
+                            break
 
-    points = np.column_stack((np.asarray(pts_x, dtype=float),
-                              np.asarray(pts_y, dtype=float)))
-    return points
+            if ok:
+                grid[cy, cx] = n_pts
+                pts[n_pts, 0] = x
+                pts[n_pts, 1] = y
+                active[n_active] = n_pts
+                n_active += 1
+                n_pts += 1
+
+            left -= 1
+
+    return pts[:n_pts]
+
+def poisson_disc_sampling(shape: Tuple[int, int], radius: float, retries: int = 16, seed: int = -1) -> np.ndarray:
+    H, W = int(shape[0]), int(shape[1])
+    return _poisson_disc_numba(H, W, float(radius), int(retries), int(seed))
+
 
 def remove_lakes(mask: np.ndarray) -> np.ndarray:
     """Removes bodies of water enclosed by land."""

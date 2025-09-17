@@ -2,8 +2,9 @@
 
 import numpy as np
 import scipy.spatial
-import heapq
-from typing import Optional, Tuple, Dict, Any, List
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra
+from typing import Optional, Tuple, Any, List
 from dataclasses import dataclass, field
 from scipy.ndimage import zoom
 
@@ -516,13 +517,46 @@ class TerrainGenerator:
         
         return points, tri, neighbors, edge_weights
     
+    def _prepare_graph(self, neighbors: List[np.ndarray],
+                       edge_weights: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray,
+                                                                np.ndarray, np.ndarray]:
+        """Flatten neighbor/weight lists into CSR arrays for graph traversal."""
+        dim = len(neighbors)
+        lengths = np.fromiter((len(n) for n in neighbors), dtype=np.int64, count=dim)
+        indptr = np.empty(dim + 1, dtype=np.int64)
+        indptr[0] = 0
+        np.cumsum(lengths, out=indptr[1:])
+        total_edges = int(indptr[-1])
+
+        if total_edges == 0:
+            indices = np.empty(0, dtype=np.int64)
+            weights = np.empty(0, dtype=np.float64)
+            row_indices = np.empty(0, dtype=np.int64)
+        else:
+            indices = np.concatenate(neighbors).astype(np.int64, copy=False)
+            weights = np.concatenate(edge_weights).astype(np.float64, copy=False)
+            row_indices = np.repeat(np.arange(dim, dtype=np.int64), lengths)
+
+        return indptr, indices, row_indices, weights
+
+    def _run_dijkstra(self, indptr: np.ndarray, indices: np.ndarray,
+                      edge_costs: np.ndarray, dim: int,
+                      seed_idx: int) -> np.ndarray:
+        """Execute Dijkstra on CSR graph and return distances from the seed."""
+        if edge_costs.size == 0:
+            return np.zeros(dim, dtype=np.float64)
+
+        graph = csr_matrix((edge_costs, indices, indptr), shape=(dim, dim))
+        distances = dijkstra(graph, indices=seed_idx, directed=True,
+                             return_predecessors=False)
+        distances[np.isinf(distances)] = 0.0
+        return distances
+
     def _compute_height(self, points: np.ndarray, neighbors: List[np.ndarray],
                        edge_weights: List[np.ndarray], deltas: np.ndarray,
                        get_delta_fn=None) -> np.ndarray:
         """Compute heights for each point using pre-computed edge weights."""
-        if get_delta_fn is None:
-            get_delta_fn = lambda src, dst, weight: deltas[dst] * self.params.max_delta * weight
-        
+        indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
         dim = len(points)
         result = [None] * dim
         seed_idx = self._min_index([sum(p) for p in points])

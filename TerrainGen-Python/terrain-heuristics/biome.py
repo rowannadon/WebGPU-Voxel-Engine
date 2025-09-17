@@ -109,7 +109,6 @@ def calculate_biome_scores(
             ),
         )
 
-    # A long list of fuzzy membership rules follows (unchanged logic)
     scores[:, :, 1][land] = gaussian_membership(temp_c[land], -25, 5) * gaussian_membership(
         precip_mm[land], 100, 50
     )
@@ -309,15 +308,21 @@ def assign_biomes_from_scores(
     ocean: np.ndarray,
     use_probabilistic: bool = False,
     random_seed: int = 42,
+    return_membership: bool = False,
 ):
     """Convert biome score volume to discrete biome IDs and RGB map."""
     h, w, n_biomes = scores.shape
     biome_id = np.zeros((h, w), dtype=np.uint8)
     rgb = np.zeros((h, w, 3), dtype=np.float32)
+    membership = None
+    if return_membership:
+        membership = np.zeros((h, w, n_biomes), dtype=np.float32)
 
     biome_id[ocean] = 0
     ocean_color = np.array(BIOME_TABLE[0][1], dtype=np.float32)
     rgb[ocean] = ocean_color
+    if membership is not None:
+        membership[ocean, 0] = 1.0
 
     land = ~ocean
     if use_probabilistic:
@@ -339,6 +344,8 @@ def assign_biomes_from_scores(
                     weight = weights[biome_idx - 1]
                     if weight > 0:
                         weighted_color += weight * biome_colors[biome_idx]
+                if membership is not None:
+                    membership[i, j, 1:] = weights
                 rgb[i, j] = weighted_color
                 biome_id[i, j] = np.argmax(land_scores) + 1
             else:
@@ -350,6 +357,9 @@ def assign_biomes_from_scores(
         for k, (_, color) in BIOME_TABLE.items():
             mask = biome_id == k
             rgb[mask] = np.array(color, dtype=np.float32)
+        if membership is not None:
+            flat_membership = membership.reshape(-1, n_biomes)
+            flat_membership[np.arange(flat_membership.shape[0]), biome_id.reshape(-1)] = 1.0
 
     unassigned_land = land & ((biome_id == 0) | (np.all(rgb == 0, axis=2)))
     if np.any(unassigned_land):
@@ -369,6 +379,18 @@ def assign_biomes_from_scores(
     biome_id[ocean] = 0
     rgb[ocean] = ocean_color
     rgb_uint8 = np.clip(rgb, 0, 255).astype(np.uint8)
+    if membership is not None:
+        flat_membership = membership.reshape(-1, n_biomes)
+        flat_ids = biome_id.reshape(-1).astype(np.int64)
+        sums = flat_membership.sum(axis=1)
+        zero_mask = sums <= 0
+        if np.any(zero_mask):
+            flat_membership[zero_mask, :] = 0.0
+            flat_membership[zero_mask, flat_ids[zero_mask]] = 1.0
+        membership = flat_membership.reshape(h, w, n_biomes)
+        membership[ocean] = 0.0
+        membership[ocean, 0] = 1.0
+        return biome_id, rgb_uint8, membership.astype(np.float32)
     return biome_id, rgb_uint8
 
 
@@ -388,6 +410,7 @@ def classify_biomes_advanced(
     wind_v: np.ndarray,
     mixing_radius: int = 3,
     use_probabilistic: bool = False,
+    return_membership: bool = False,
 ):
     """High-level biome classification pipeline."""
     ocean = compute_ocean_mask(elev, elev.min(), elev.max(), sea_level_m)
@@ -408,4 +431,9 @@ def classify_biomes_advanced(
         ocean,
     )
     scores = apply_probabilistic_mixing(scores, mixing_radius)
-    return assign_biomes_from_scores(scores, ocean, use_probabilistic)
+    return assign_biomes_from_scores(
+        scores,
+        ocean,
+        use_probabilistic,
+        return_membership=return_membership,
+    )
