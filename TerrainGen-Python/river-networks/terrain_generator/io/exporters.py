@@ -31,18 +31,33 @@ class TerrainExporter:
         """Export flow mask to image file."""
         # Prepare flow data
         flow_data = river_volume.copy()
-        
+
         # Set non-land areas to 0
         if land_mask is not None:
             flow_data[~land_mask] = 0
-        
+
         # Normalize to 0-1 range
         if flow_data.max() > 0:
             flow_data = flow_data / flow_data.max()
-        
+
         # Export using same methods as heightmap
         TerrainExporter.export_heightmap(flow_data, filepath, format)
-    
+
+    @staticmethod
+    def export_watershed_mask(watershed_mask: np.ndarray, land_mask: np.ndarray,
+                              filepath: str, format: str = "PNG_8"):
+        """Export watershed mask to image file."""
+        mask_data = watershed_mask.astype(np.float32)
+
+        if land_mask is not None:
+            mask_data = mask_data.copy()
+            mask_data[~land_mask] = 0
+
+        if mask_data.max() > 0:
+            mask_data = mask_data / mask_data.max()
+
+        TerrainExporter.export_heightmap(mask_data, filepath, format)
+
     @staticmethod
     def _export_png_8bit(data: np.ndarray, filepath: Path):
         """Export as 8-bit PNG."""

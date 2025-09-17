@@ -13,6 +13,7 @@ class RiverNetwork:
     upstream: List[Set[int]]
     downstream: List[Optional[int]]
     volume: np.ndarray
+    watershed: np.ndarray
 
 class RiverGenerator:
     """Generates river networks on terrain."""
@@ -41,8 +42,11 @@ class RiverGenerator:
         
         # Compute water volume
         volume = self._compute_water_volume(upstream, num_points)
-        
-        return RiverNetwork(upstream, downstream, volume)
+
+        # Compute watershed ownership for each sample point
+        watershed = self._compute_watersheds(downstream, land_mask)
+
+        return RiverNetwork(upstream, downstream, volume, watershed)
     
     def _compute_flow_directions(self, points: np.ndarray,
                                 neighbors: List[List[int]], 
@@ -120,19 +124,59 @@ class RiverGenerator:
                              num_points: int) -> np.ndarray:
         """Compute water volume at each point."""
         volume = [None] * num_points
-        
+
         def compute_volume(i):
             if volume[i] is not None:
                 return
-            
+
             v = self.default_water_level
             for j in upstream[i]:
                 compute_volume(j)
                 v += volume[j]
-            
+
             volume[i] = v * (1 - self.evaporation_rate)
-        
+
         for i in range(num_points):
             compute_volume(i)
-        
+
         return np.array(volume)
+
+    def _compute_watersheds(self, downstream: List[Optional[int]],
+                            land_mask: np.ndarray) -> np.ndarray:
+        """Assign a watershed identifier to each sample point."""
+        num_points = len(downstream)
+        # -1 indicates unassigned (or off-map water cell)
+        watershed = np.full(num_points, -1, dtype=np.int32)
+
+        next_id = 1  # Start at 1 so 0 can remain background if desired
+
+        for i in range(num_points):
+            if not land_mask[i]:
+                # Ocean / water cells act as sinks; ensure they have stable ids
+                if watershed[i] == -1:
+                    watershed[i] = next_id
+                    next_id += 1
+                continue
+
+            path = []
+            current = i
+
+            # Walk downstream until we reach an assigned node or exit the network
+            while current is not None and watershed[current] == -1:
+                path.append(current)
+                current = downstream[current]
+
+            if current is None:
+                basin_id = next_id
+                next_id += 1
+            else:
+                basin_id = watershed[current]
+                if basin_id == -1:
+                    basin_id = next_id
+                    next_id += 1
+                    watershed[current] = basin_id
+
+            for node in path:
+                watershed[node] = basin_id
+
+        return watershed

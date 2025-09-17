@@ -519,7 +519,27 @@ class ControlPanel(QWidget):
         self.export_flow_button = QPushButton("Export Flow Mask")
         self.export_flow_button.setEnabled(False)
         layout.addWidget(self.export_flow_button)
-        
+
+        # Watershed mask export
+        layout.addSpacing(10)
+        watershed_label = QLabel("<b>Watershed Mask Export</b>")
+        layout.addWidget(watershed_label)
+
+        watershed_format_layout = QHBoxLayout()
+        watershed_format_label = QLabel("Format:")
+        watershed_format_layout.addWidget(watershed_format_label)
+
+        self.export_watershed_format_combo = QComboBox()
+        self.export_watershed_format_combo.addItems([
+            "PNG (8-bit)", "PNG (16-bit)", "TIFF (32-bit float)"
+        ])
+        watershed_format_layout.addWidget(self.export_watershed_format_combo)
+        layout.addLayout(watershed_format_layout)
+
+        self.export_watershed_button = QPushButton("Export Watershed Mask")
+        self.export_watershed_button.setEnabled(False)
+        layout.addWidget(self.export_watershed_button)
+
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -703,7 +723,16 @@ class ControlPanel(QWidget):
             "TIFF (32-bit float)": "TIFF_32"
         }
         return format_map.get(self.export_flow_format_combo.currentText(), "PNG_8")
-    
+
+    def get_watershed_export_format(self) -> str:
+        """Get selected watershed export format."""
+        format_map = {
+            "PNG (8-bit)": "PNG_8",
+            "PNG (16-bit)": "PNG_16",
+            "TIFF (32-bit float)": "TIFF_32"
+        }
+        return format_map.get(self.export_watershed_format_combo.currentText(), "PNG_8")
+
     def set_generation_enabled(self, enabled: bool):
         """Enable/disable generation controls during generation."""
         self.generate_button.setEnabled(enabled)
@@ -721,3 +750,4 @@ class ControlPanel(QWidget):
         """Enable/disable export controls."""
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
+        self.export_watershed_button.setEnabled(enabled)

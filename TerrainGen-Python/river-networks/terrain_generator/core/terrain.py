@@ -4,6 +4,7 @@ import numpy as np
 import scipy.spatial
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
+from scipy.interpolate import NearestNDInterpolator
 from typing import Optional, Tuple, Any, List
 from dataclasses import dataclass, field
 from scipy.ndimage import zoom
@@ -77,6 +78,7 @@ class TerrainData:
     heightmap: np.ndarray
     land_mask: np.ndarray
     river_volume: np.ndarray
+    watershed_mask: np.ndarray
     triangulation: Any
     points: np.ndarray = field(default=None)
     neighbors: List[np.ndarray] = field(default=None)
@@ -177,14 +179,21 @@ class TerrainGenerator:
         # Render to grid
         terrain_height = render_triangulation(target_shape, tri, final_height)
         river_volume = render_triangulation(target_shape, tri, river_network.volume)
-        
+
+        # Render watershed identifiers to regular grid using nearest-neighbor sampling
+        watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
+        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
+        watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
+        watershed_mask[~land_mask] = 0
+
         if progress_callback:
             progress_callback(100, "Complete!")
-        
+
         return TerrainData(
             heightmap=terrain_height,
             land_mask=land_mask,
             river_volume=river_volume,
+            watershed_mask=watershed_mask,
             triangulation=tri,
             points=points,
             neighbors=neighbors
@@ -210,11 +219,12 @@ class TerrainGenerator:
         
         if progress_callback:
             progress_callback(100, "Preview complete!")
-        
+
         return TerrainData(
             heightmap=initial_height,
             land_mask=land_mask,
             river_volume=np.zeros_like(initial_height),
+            watershed_mask=np.zeros_like(initial_height, dtype=np.int32),
             triangulation=None,
             points=None,
             neighbors=None
