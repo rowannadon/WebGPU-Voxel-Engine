@@ -76,7 +76,6 @@ def compute_wind_exposure(
     exposure = 0.6 * topo_exposure + 0.4 * slope_exposure
     return np.clip(exposure, -1.0, 1.0).astype(np.float32)
 
-
 def calculate_biome_scores(
     temp_c: np.ndarray,
     precip_mm: np.ndarray,
@@ -87,212 +86,206 @@ def calculate_biome_scores(
     elev_zones: np.ndarray,
     ocean: np.ndarray,
 ) -> np.ndarray:
-    """Return biome probability cube for each pixel."""
+    """Return biome probability cube for each pixel (retuned for better rare-biome expression)."""
     h, w = temp_c.shape
     n_biomes = len(BIOME_TABLE)
     scores = np.zeros((h, w, n_biomes), dtype=np.float32)
-    scores[:, :, 0][ocean] = 1000.0
-    land = ~ocean
 
-    def gaussian_membership(x, center, width):
-        return np.exp(-0.5 * ((x - center) / width) ** 2)
+    # --- helpers ---
+    def gaussian(x, c, w):
+        return np.exp(-0.5 * ((x - c) / (w + 1e-6)) ** 2)
 
-    def trapezoidal_membership(x, a, b, c, d):
+    def trap(x, a, b, c, d):
         return np.maximum(
-            0,
+            0.0,
             np.minimum(
-                1,
-                np.minimum(
-                    (x - a) / (b - a + 1e-6),
-                    (d - x) / (d - c + 1e-6),
-                ),
+                np.minimum((x - a) / (b - a + 1e-6), 1.0),
+                np.minimum((d - x) / (d - c + 1e-6), 1.0),
             ),
         )
 
-    scores[:, :, 1][land] = gaussian_membership(temp_c[land], -25, 5) * gaussian_membership(
-        precip_mm[land], 100, 50
-    )
+    def sigmoid(x):
+        return 1.0 / (1.0 + np.exp(-x))
 
-    scores[:, :, 2][land] = gaussian_membership(temp_c[land], -15, 5) * gaussian_membership(
-        precip_mm[land], 150, 50
-    )
+    # --- climate gates (soft) ---
+    gate_trop  = sigmoid((temp_c - 18.0) / 2.5)
+    gate_temp  = sigmoid((temp_c -  8.0) / 3.0) * sigmoid((22.0 - temp_c) / 3.0)
+    gate_boreal = sigmoid(( 8.0 - temp_c) / 3.0) * sigmoid((temp_c + 4.0) / 3.0)
+    gate_polar = sigmoid((-5.0 - temp_c) / 2.5)
 
-    scores[:, :, 3][land] = gaussian_membership(temp_c[land], -10, 5) * gaussian_membership(
-        precip_mm[land], 200, 70
-    )
+    # --- aridity (wider semi-dry/dry band) ---  # <<< tuned
+    very_dry = sigmoid((0.18 - moisture) / 0.05)
+    dry      = sigmoid((0.28 - moisture) / 0.07)
+    semi_dry = sigmoid((0.42 - moisture) / 0.08)
+    humid    = sigmoid((moisture - 0.60) / 0.08)
+    very_humid = sigmoid((moisture - 0.82) / 0.07)
 
-    montane_mask = land & (elev_zones >= 3)
-    scores[:, :, 4][montane_mask] = gaussian_membership(temp_c[montane_mask], -5, 4) * gaussian_membership(
-        precip_mm[montane_mask], 400, 150
-    )
+    # Elevation/coast
+    land = ~ocean
+    montane_mask    = land & (elev_zones >= 3)
+    submontane_mask = land & (elev_zones >= 2)
+    lowland_mask    = (elev_zones == 0)
+    coastal_mask    = land & (distance_to_mask(ocean, 1.0) < 4000)  # tighter coast band 4 km  # <<< tuned
+    coastal_boost   = 1.0 + 0.30 * coastal_mask.astype(float)       # helps Mediterranean only  # <<< tuned
 
-    scores[:, :, 5][montane_mask] = gaussian_membership(temp_c[montane_mask], 0, 4) * gaussian_membership(
-        precip_mm[montane_mask], 800, 200
-    ) * gaussian_membership(moisture[montane_mask], 0.7, 0.2)
+    # --- priors (balance) ---  # <<< tuned a bunch
+    PRIORS = {
+        0: 1.0,
+        1: 1.00,  # ice sheet
+        2: 1.00,  # polar desert
+        3: 1.00,  # arctic tundra
+        4: 0.95,  # alpine tundra
+        5: 0.85,  # alpine meadow (too big before)
+        6: 1.00,  # montane forest
+        7: 0.95,  # boreal forest
+        8: 1.00,  # mixed boreal
+        9: 0.95,  # temperate coniferous
+        10: 0.90, # temperate rainforest
+        11: 0.95, # temperate deciduous
+        12: 1.00, # temperate mixed
+        13: 1.25, # temperate grassland ↑
+        14: 1.15, # prairie ↑
+        15: 1.10, # steppe ↑
+        16: 1.25, # mediterranean woodland ↑
+        17: 1.10, # chaparral ↑
+        18: 1.00, # cold desert
+        19: 0.95, # hot desert
+        20: 1.25, # semi-arid scrubland ↑
+        21: 1.20, # dry savanna ↑
+        22: 1.00, # moist savanna ↓ (was 1.05)
+        23: 1.25, # tropical dry forest ↑
+        24: 1.00, # tropical seasonal
+        25: 0.85, # tropical rainforest ↓
+        26: 0.85, # cloud forest ↓ (too common)
+        27: 0.90, # mangrove ↓
+        28: 0.95, # freshwater wetland ↓
+        29: 0.90, # salt marsh ↓
+    }
 
-    scores[:, :, 6][montane_mask] = gaussian_membership(temp_c[montane_mask], 5, 3) * gaussian_membership(
-        precip_mm[montane_mask], 1000, 300
-    ) * gaussian_membership(moisture[montane_mask], 0.7, 0.2)
+    # Oceans deterministic
+    scores[:, :, 0][ocean] = 1000.0
 
-    scores[:, :, 7][land] = (
-        gaussian_membership(temp_c[land], 0, 3)
-        * gaussian_membership(precip_mm[land], 500, 200)
-        * gaussian_membership(continentality[land], 0.6, 0.3)
-        * gaussian_membership(moisture[land], 0.5, 0.2)
-    )
+    # --- Cryosphere/Polar (unchanged) ---
+    scores[:, :, 1][land] = gate_polar[land] * gaussian(precip_mm[land], 150, 120) * gaussian(temp_c[land], -20, 7)
+    scores[:, :, 2][land] = gate_polar[land] * dry[land] * gaussian(temp_c[land], -12, 6)
+    scores[:, :, 3][land] = gate_boreal[land] * humid[land] * gaussian(temp_c[land], -7, 5)
 
-    scores[:, :, 8][land] = (
-        gaussian_membership(temp_c[land], 3, 3)
-        * gaussian_membership(precip_mm[land], 600, 200)
-        * gaussian_membership(continentality[land], 0.5, 0.3)
-        * gaussian_membership(moisture[land], 0.6, 0.2)
-    )
+    # --- Alpine / Montane (narrower alpine meadow) ---
+    if np.any(montane_mask):
+        scores[:, :, 4][montane_mask] = gate_boreal[montane_mask] * gaussian(moisture[montane_mask], 0.55, 0.16)  # alpine tundra
+        # alpine meadow prefers mid moisture band only (not saturated)
+        scores[:, :, 5][montane_mask] = gate_temp[montane_mask] * trap(moisture[montane_mask], 0.55, 0.62, 0.78, 0.85)  # <<< tuned
+        scores[:, :, 6][montane_mask] = gate_temp[montane_mask] * humid[montane_mask] * gaussian(precip_mm[montane_mask], 1200, 380)
 
-    scores[:, :, 9][land] = (
-        gaussian_membership(temp_c[land], 8, 4)
-        * gaussian_membership(precip_mm[land], 1000, 400)
-        * gaussian_membership(moisture[land], 0.7, 0.2)
-        * (1 + 0.2 * aspect_effect[land])
-    )
+    # --- Boreal / Cool Temperate (unchanged-ish) ---
+    scores[:, :, 7][land] = gate_boreal[land] * gaussian(precip_mm[land], 550, 220) * gaussian(continentality[land], 0.6, 0.25) * gaussian(moisture[land], 0.5, 0.18)
+    scores[:, :, 8][land] = gate_boreal[land] * gaussian(precip_mm[land], 650, 220) * gaussian(continentality[land], 0.5, 0.25) * gaussian(moisture[land], 0.6, 0.18)
 
-    scores[:, :, 10][land] = (
-        gaussian_membership(temp_c[land], 10, 3)
-        * gaussian_membership(precip_mm[land], 2000, 500)
-        * gaussian_membership(moisture[land], 0.9, 0.1)
-        * gaussian_membership(continentality[land], 0.2, 0.2)
-    )
+    # --- Temperate Forests (slightly more moisture-demanding) ---  # <<< tuned
+    scores[:, :, 9][land]  = gate_temp[land] * gaussian(precip_mm[land], 1000, 450) * gaussian(moisture[land], 0.68, 0.16) * (1 + 0.15 * aspect_effect[land])
+    scores[:, :, 10][land] = gate_temp[land] * very_humid[land] * gaussian(precip_mm[land], 1850, 580) * gaussian(continentality[land], 0.2, 0.25)
+    scores[:, :, 11][land] = gate_temp[land] * gaussian(precip_mm[land], 800, 320)  * gaussian(moisture[land], 0.58, 0.16) * gaussian(continentality[land], 0.4, 0.25)
+    scores[:, :, 12][land] = gate_temp[land] * gaussian(precip_mm[land], 900, 320)  * gaussian(moisture[land], 0.62, 0.16) * gaussian(continentality[land], 0.5, 0.25)
 
-    scores[:, :, 11][land] = (
-        gaussian_membership(temp_c[land], 12, 4)
-        * gaussian_membership(precip_mm[land], 800, 300)
-        * gaussian_membership(moisture[land], 0.6, 0.2)
-        * gaussian_membership(continentality[land], 0.4, 0.3)
-    )
+    # --- Temperate Grasslands & Mediterranean (stronger open-biome signals) ---
+    # Temperate grassland: drier band + interior + wind exposure  # <<< tuned
+    interior_boost = (0.7 + 0.6 * continentality).clip(0.7, 1.3)  # favors interiors
+    scores[:, :, 13][land] = gate_temp[land] * semi_dry[land] * gaussian(precip_mm[land], 420, 180) * (1 + 0.50 * wind_exposure[land]) * interior_boost[land]
+    scores[:, :, 14][land] = gate_temp[land] * semi_dry[land] * gaussian(continentality[land], 0.7, 0.22)
+    # Mediterranean woodland: semi-dry, modestly coastal but not required  # <<< tuned
+    scores[:, :, 16][land] = gate_temp[land] * semi_dry[land] * gaussian(precip_mm[land], 560, 220) * (1 - 0.15 * continentality[land]) * coastal_boost[land]
+    scores[:, :, 17][land] = gate_temp[land] * dry[land]      * gaussian(precip_mm[land], 400, 160) * (1 + 0.15 * wind_exposure[land])  # chaparral
 
-    scores[:, :, 12][land] = (
-        gaussian_membership(temp_c[land], 10, 4)
-        * gaussian_membership(precip_mm[land], 900, 300)
-        * gaussian_membership(moisture[land], 0.65, 0.2)
-        * gaussian_membership(continentality[land], 0.5, 0.3)
-    )
+    # --- Deserts & Semi-arid (broaden scrub) ---
+    scores[:, :, 18][land] = (gate_boreal[land] + gate_temp[land]) * very_dry[land] * gaussian(temp_c[land], 6, 6)   * gaussian(continentality[land], 0.9, 0.15)
+    scores[:, :, 19][land] = (gate_temp[land] + gate_trop[land]) * very_dry[land] * gaussian(temp_c[land], 27, 6)  * (1 + 0.20 * wind_exposure[land])
+    scores[:, :, 20][land] = (gate_temp[land] + gate_trop[land]) * dry[land]      * gaussian(precip_mm[land], 300, 130) * gaussian(moisture[land], 0.25, 0.10)  # <<< tuned
 
-    scores[:, :, 13][land] = (
-        gaussian_membership(temp_c[land], 10, 5)
-        * gaussian_membership(precip_mm[land], 400, 150)
-        * gaussian_membership(moisture[land], 0.3, 0.15)
-        * (1 + 0.3 * wind_exposure[land])
-    )
+    # --- Tropical savannas/forests (rebalance toward dry) ---
+    scores[:, :, 21][land] = gate_trop[land] * semi_dry[land] * gaussian(precip_mm[land], 450, 180) * gaussian(moisture[land], 0.30, 0.12)  # dry savanna (slightly drier)  # <<< tuned
+    scores[:, :, 22][land] = gate_trop[land] * gaussian(precip_mm[land], 1000, 220) * gaussian(moisture[land], 0.52, 0.14) * gaussian(continentality[land], 0.5, 0.30)  # moist savanna (narrowed)  # <<< tuned
+    scores[:, :, 23][land] = gate_trop[land] * semi_dry[land] * gaussian(precip_mm[land], 900, 280) * gaussian(continentality[land], 0.45, 0.28)  # tropical dry forest ↑  # <<< tuned
+    scores[:, :, 24][land] = gate_trop[land] * gaussian(precip_mm[land], 1400, 320) * gaussian(moisture[land], 0.70, 0.12)
+    scores[:, :, 25][land] = gate_trop[land] * very_humid[land] * gaussian(precip_mm[land], 2200, 500) * gaussian(continentality[land], 0.15, 0.20)
 
-    scores[:, :, 14][land] = (
-        gaussian_membership(temp_c[land], 12, 5)
-        * gaussian_membership(precip_mm[land], 500, 150)
-        * gaussian_membership(moisture[land], 0.35, 0.15)
-        * gaussian_membership(continentality[land], 0.7, 0.2)
-    )
+    # --- Cloud forest (narrower, favor oceanic mid-elevation) ---  # <<< tuned
+    cloud_mask = submontane_mask
+    if np.any(cloud_mask):
+        scores[:, :, 26][cloud_mask] = (gate_trop[cloud_mask] + gate_temp[cloud_mask]) \
+            * gaussian(continentality[cloud_mask], 0.35, 0.22) \
+            * gaussian(moisture[cloud_mask], 0.92, 0.06) \
+            * gaussian(precip_mm[cloud_mask], 1800, 420)
 
-    scores[:, :, 15][land] = (
-        gaussian_membership(temp_c[land], 8, 5)
-        * gaussian_membership(precip_mm[land], 300, 100)
-        * gaussian_membership(moisture[land], 0.25, 0.1)
-        * gaussian_membership(continentality[land], 0.8, 0.2)
-    )
+    # --- Coastal biomes (stricter) ---  # <<< tuned
+    if np.any(coastal_mask):
+        warm_coast = coastal_mask & (temp_c > 22)  # was 20
+        scores[:, :, 27][warm_coast] = gate_trop[warm_coast] * gaussian(moisture[warm_coast], 0.97, 0.03) * (lowland_mask[warm_coast]).astype(float)
+        cool_coast = coastal_mask & (temp_c < 18)  # was 20
+        scores[:, :, 29][cool_coast] = (gate_temp[cool_coast] + gate_boreal[cool_coast]) * gaussian(moisture[cool_coast], 0.90, 0.06) * (lowland_mask[cool_coast]).astype(float)
 
-    scores[:, :, 16][land] = (
-        gaussian_membership(temp_c[land], 15, 3)
-        * gaussian_membership(precip_mm[land], 600, 200)
-        * gaussian_membership(moisture[land], 0.4, 0.15)
-        * (1 - 0.3 * continentality[land])
-    )
+    # --- Wetlands (stricter saturation) ---  # <<< tuned
+    wetland_mask = land & (moisture > 0.93)
+    if np.any(wetland_mask):
+        scores[:, :, 28][wetland_mask] = gaussian(temp_c[wetland_mask], 10, 9) * gaussian(moisture[wetland_mask], 0.965, 0.04)
 
-    scores[:, :, 17][land] = (
-        gaussian_membership(temp_c[land], 16, 3)
-        * gaussian_membership(precip_mm[land], 400, 150)
-        * gaussian_membership(moisture[land], 0.3, 0.1)
-        * (1 + 0.2 * wind_exposure[land])
-    )
+    # --- apply priors ---
+    for k in range(n_biomes):
+        if k in PRIORS:
+            scores[:, :, k] *= float(PRIORS[k])
 
-    scores[:, :, 18][land] = (
-        gaussian_membership(temp_c[land], 5, 5)
-        * gaussian_membership(precip_mm[land], 150, 75)
-        * gaussian_membership(moisture[land], 0.15, 0.1)
-        * gaussian_membership(continentality[land], 0.9, 0.1)
-    )
+     # place this right before: `scores *= 1.0 + 1e-6 ; return scores.astype(np.float32)`
+    BALANCE_ENABLED   = True
+    BALANCE_STRENGTH  = 0.75   # 0..1: higher = stronger push toward target
+    MULT_MIN, MULT_MAX = 0.50, 2.50  # clamp to avoid wild swings
+    N_BALANCE_PASSES  = 2      # 1-2 passes is usually enough
+    EPS = 1e-12
 
-    scores[:, :, 19][land] = (
-        gaussian_membership(temp_c[land], 25, 5)
-        * gaussian_membership(precip_mm[land], 100, 50)
-        * gaussian_membership(moisture[land], 0.1, 0.05)
-        * (1 + 0.3 * wind_exposure[land])
-    )
+    if BALANCE_ENABLED:
+        land_mask = ~ocean
+        # Tiny floor so empty classes can "emerge" if gates allow at all
+        scores[land_mask, 1:] += 1e-9
 
-    scores[:, :, 20][land] = (
-        gaussian_membership(temp_c[land], 20, 5)
-        * gaussian_membership(precip_mm[land], 250, 100)
-        * gaussian_membership(moisture[land], 0.2, 0.1)
-    )
+        for _ in range(N_BALANCE_PASSES):
+            # Current land-only "soft" shares (sum of scores per biome over land)
+            totals = np.array([
+                float(scores[:, :, k][land_mask].sum()) for k in range(n_biomes)
+            ], dtype=np.float64)
+            totals[0] = 0.0  # ignore ocean in balancing
+            total_land_sum = totals.sum()
+            if total_land_sum <= 0:
+                break
 
-    scores[:, :, 21][land] = (
-        gaussian_membership(temp_c[land], 24, 4)
-        * gaussian_membership(precip_mm[land], 400, 150)
-        * gaussian_membership(moisture[land], 0.3, 0.15)
-    )
+            current = totals / (total_land_sum + EPS)
 
-    scores[:, :, 22][land] = (
-        gaussian_membership(temp_c[land], 23, 4)
-        * gaussian_membership(precip_mm[land], 800, 200)
-        * gaussian_membership(moisture[land], 0.5, 0.2)
-    )
+            # --- Target shares ---
+            # Uniform across all non-ocean biomes by default:
+            target = np.zeros_like(current)
+            target[1:] = 1.0 / (n_biomes - 1)
 
-    scores[:, :, 23][land] = (
-        gaussian_membership(temp_c[land], 22, 3)
-        * gaussian_membership(precip_mm[land], 1000, 300)
-        * gaussian_membership(moisture[land], 0.6, 0.2)
-        * gaussian_membership(continentality[land], 0.4, 0.2)
-    )
+            # Example: custom targets (uncomment and tweak if you want)
+            # target = np.zeros_like(current)
+            # custom = {13:0.05, 16:0.03, 20:0.04, 21:0.08, 22:0.08}  # ids -> land share
+            # remaining = 1.0 - sum(custom.values())
+            # spread = remaining / (n_biomes - 1 - len(custom))
+            # for k in range(1, n_biomes):
+            #     target[k] = custom.get(k, spread)
 
-    scores[:, :, 24][land] = (
-        gaussian_membership(temp_c[land], 24, 3)
-        * gaussian_membership(precip_mm[land], 1400, 300)
-        * gaussian_membership(moisture[land], 0.7, 0.15)
-    )
+            # Multipliers: raise low-share, damp high-share (elasticity via strength)
+            multipliers = np.ones(n_biomes, dtype=np.float32)
+            for k in range(1, n_biomes):
+                if totals[k] > 0:
+                    m = (target[k] / (current[k] + EPS)) ** BALANCE_STRENGTH
+                    multipliers[k] = float(np.clip(m, MULT_MIN, MULT_MAX))
+                else:
+                    # If currently zero but allowed by gates, give a modest nudge
+                    multipliers[k] = 1.5
 
-    scores[:, :, 25][land] = (
-        gaussian_membership(temp_c[land], 26, 3)
-        * gaussian_membership(precip_mm[land], 2200, 400)
-        * gaussian_membership(moisture[land], 0.85, 0.1)
-        * gaussian_membership(continentality[land], 0.1, 0.15)
-    )
+            # Apply
+            for k in range(1, n_biomes):
+                scores[:, :, k] *= multipliers[k]
 
-    cloud_mask = land & (elev_zones >= 2) & (elev_zones <= 4)
-    scores[:, :, 26][cloud_mask] = (
-        gaussian_membership(temp_c[cloud_mask], 18, 4)
-        * gaussian_membership(precip_mm[cloud_mask], 1800, 400)
-        * gaussian_membership(moisture[cloud_mask], 0.9, 0.1)
-    )
-
-    coastal_mask = land & (distance_to_mask(ocean, 1.0) < 5000)
-    scores[:, :, 27][coastal_mask] = (
-        gaussian_membership(temp_c[coastal_mask], 24, 3)
-        * gaussian_membership(precip_mm[coastal_mask], 1500, 400)
-        * gaussian_membership(moisture[coastal_mask], 0.95, 0.05)
-        * (elev_zones[coastal_mask] == 0).astype(float)
-    )
-
-    wetland_mask = land & (moisture > 0.9)
-    scores[:, :, 28][wetland_mask] = (
-        gaussian_membership(temp_c[wetland_mask], 10, 8)
-        * gaussian_membership(moisture[wetland_mask], 0.95, 0.05)
-    )
-
-    salt_marsh_mask = coastal_mask & (temp_c < 20)
-    scores[:, :, 29][salt_marsh_mask] = (
-        gaussian_membership(temp_c[salt_marsh_mask], 12, 5)
-        * gaussian_membership(moisture[salt_marsh_mask], 0.85, 0.1)
-        * (elev_zones[salt_marsh_mask] == 0).astype(float)
-    )
-
-    return scores
-
+    scores *= 1.0 + 1e-6
+    return scores.astype(np.float32)
 
 def apply_probabilistic_mixing(scores: np.ndarray, mixing_radius: int = 2) -> np.ndarray:
     """Smooth biome scores to create gentle ecotones."""

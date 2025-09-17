@@ -599,6 +599,64 @@ def run_biome(ctx: PipelineContext) -> None:
         if (k in unique_biomes):
             print (f"- {v[0]}")
 
+    n_biomes = len(BIOME_TABLE)
+    h, w = biome_id.shape
+
+    # If we have soft membership (probabilistic mixing), use that for area weights.
+    if biome_membership is not None and args.use_random_biomes:
+        weights_all = np.nan_to_num(biome_membership.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        # Land-only weights: zero-out ocean pixels
+        weights_land = weights_all.copy()
+        weights_land[ocean, :] = 0.0
+
+        totals_all = weights_all.sum(axis=(0, 1))         # length n_biomes
+        totals_land = weights_land.sum(axis=(0, 1))
+        total_all = totals_all.sum()
+        total_land = totals_land.sum()
+    else:
+        # Hard counts from biome_id
+        counts_all = np.bincount(biome_id.reshape(-1), minlength=n_biomes).astype(np.float64)
+        counts_land = np.bincount(biome_id[~ocean].reshape(-1), minlength=n_biomes).astype(np.float64)
+        totals_all = counts_all
+        totals_land = counts_land
+        total_all = counts_all.sum()
+        total_land = counts_land.sum()
+
+    # Compute percentages (safe against /0)
+    pct_all = (100.0 * totals_all / total_all) if total_all > 0 else np.zeros(n_biomes)
+    pct_land = (100.0 * totals_land / total_land) if total_land > 0 else np.zeros(n_biomes)
+
+    # Pretty print, sorted by land coverage descending (ignore biomes with 0 on land)
+    order = np.argsort(-pct_land)
+    print("\nBiome coverage (land-only %):")
+    for k in order:
+        if totals_land[k] > 0:
+            name = BIOME_TABLE.get(int(k), (f"biome_{int(k)}", None))[0]
+            print(f"  {k:02d} {name:<24s} {pct_land[k]:6.2f}%")
+
+    print("\nBiome coverage (including ocean %):")
+    for k in np.argsort(-pct_all):
+        if totals_all[k] > 0:
+            name = BIOME_TABLE.get(int(k), (f"biome_{int(k)}", None))[0]
+            print(f"  {k:02d} {name:<24s} {pct_all[k]:6.2f}%")
+
+    # If you want a machine-readable dump too, write a JSON alongside the legend:
+    try:
+        biome_stats = {
+            int(k): {
+                "name": BIOME_TABLE.get(int(k), (f"biome_{int(k)}", None))[0],
+                "percent_land": float(pct_land[k]),
+                "percent_global": float(pct_all[k]),
+            }
+            for k in range(n_biomes)
+            if (totals_all[k] > 0 or totals_land[k] > 0)
+        }
+        with open(os.path.join(args.outdir, "biome_coverage.json"), "w") as f:
+            json.dump(biome_stats, f, indent=2)
+        print(f"\n  Wrote biome coverage summary to {os.path.join(args.outdir, 'biome_coverage.json')}")
+    except Exception as e:
+        print(f"  (Note) Failed to write biome_coverage.json: {e}")
+
 
 def run_foliage(ctx: PipelineContext) -> None:
     args = ctx.args

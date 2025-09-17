@@ -4,6 +4,7 @@ import numpy as np
 import collections
 import scipy.spatial
 from typing import Tuple, List, Optional
+from numba import njit
 
 def normalize(x: np.ndarray, bounds: Tuple[float, float] = (0, 1)) -> np.ndarray:
     """Renormalizes the values of x to bounds."""
@@ -64,11 +65,6 @@ def dist_to_mask(mask: np.ndarray) -> np.ndarray:
     grid_points = make_grid_points(mask.shape)
     
     return kdtree.query(grid_points)[0].reshape(mask.shape)
-
-import numpy as np
-import collections
-from typing import Tuple
-from numba import njit
 
 @njit(cache=True, fastmath=True)
 def _poisson_disc_numba(H, W, radius, retries, seed):

@@ -553,30 +553,34 @@ class TerrainGenerator:
         return distances
 
     def _compute_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                       edge_weights: List[np.ndarray], deltas: np.ndarray,
-                       get_delta_fn=None) -> np.ndarray:
+                    edge_weights: List[np.ndarray], deltas: np.ndarray,
+                    get_delta_fn=None) -> np.ndarray:
         """Compute heights for each point using pre-computed edge weights."""
         indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
         dim = len(points)
-        result = [None] * dim
-        seed_idx = self._min_index([sum(p) for p in points])
-        q = [(0.0, seed_idx)]
-        
-        while len(q) > 0:
-            (height, idx) = heapq.heappop(q)
-            if result[idx] is not None:
-                continue
-            result[idx] = height
-            
-            for i, n in enumerate(neighbors[idx]):
-                if result[n] is not None:
-                    continue
-                weight = edge_weights[idx][i]
-                delta = get_delta_fn(idx, n, weight)
-                heapq.heappush(q, (height + delta, n))
-        
+        seed_idx = int(np.argmin(points.sum(axis=1)))
+
+        if indices.size == 0:
+            return np.zeros(dim, dtype=np.float64)
+
+        if get_delta_fn is None:
+            edge_costs = deltas[indices] * self.params.max_delta * weights
+        else:
+            edge_costs = np.fromiter(
+                (get_delta_fn(int(src), int(dst), float(weight))
+                 for src, dst, weight in zip(row_indices, indices, weights)),
+                dtype=np.float64,
+                count=weights.size
+            )
+
+        result = self._run_dijkstra(indptr, indices, edge_costs, dim, seed_idx)
+
+        # Scale heights by dimension ratio
         height_scale = self.params.dimension / 256.0
-        result = np.array(result) * height_scale
+        result = result * height_scale
+
+        # DON'T normalize to [0,1] - keep the scaled range!
+        # Just ensure minimum is 0
         result = result - result.min()
         return result
 
