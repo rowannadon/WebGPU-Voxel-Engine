@@ -12,7 +12,7 @@ from .rivers import RiverGenerator, RiverNetwork
 from ..io import HeightmapImporter
 from .utils import (normalize, gaussian_blur, gaussian_gradient, bump, 
                    dist_to_mask, poisson_disc_sampling, remove_lakes,
-                   render_triangulation, lerp)
+                   render_triangulation)
 
 @dataclass
 class TerrainParameters:
@@ -563,11 +563,24 @@ class TerrainGenerator:
         else:
             max_delta = np.full(indices.shape, self.params.max_delta, dtype=np.float64)
 
-        upstream_mask = np.fromiter(
-            (int(dst) in river_network.upstream[int(src)] for src, dst in zip(row_indices, indices)),
-            dtype=np.bool_,
-            count=indices.size
-        )
+        # Encode edges as flat ids so we can test river connectivity with vectorized isin
+        dim = len(river_network.upstream)
+        edge_ids = row_indices * dim + indices
+
+        upstream_src = []
+        upstream_dst = []
+        for src, upstream_set in enumerate(river_network.upstream):
+            if upstream_set:
+                upstream_src.extend([src] * len(upstream_set))
+                upstream_dst.extend(upstream_set)
+
+        if upstream_src:
+            upstream_src = np.asarray(upstream_src, dtype=np.int64)
+            upstream_dst = np.asarray(upstream_dst, dtype=np.int64)
+            upstream_edge_ids = upstream_src * dim + upstream_dst
+            upstream_mask = np.isin(edge_ids, upstream_edge_ids)
+        else:
+            upstream_mask = np.zeros(edge_ids.shape, dtype=bool)
 
         volumes = river_network.volume[indices]
         volumes = np.where(upstream_mask, volumes, 0.0)
@@ -614,35 +627,24 @@ class TerrainGenerator:
         
         # Calculate terrace-based max delta for each point
         # Don't scale values here - let edge weights handle dimension scaling
-        variable_max_delta = np.zeros_like(points_height)
-        
-        for i, height in enumerate(points_height):
-            # Determine which terrace band this height falls into
-            band_index = int(height * self.params.terrace_count)
-            band_index = min(band_index, self.params.terrace_count - 1)
-            
-            # Calculate position within the band (0-1)
-            band_size = 1.0 / self.params.terrace_count
-            band_start = band_index * band_size
-            position_in_band = (height - band_start) / band_size if band_size > 0 else 0
-            position_in_band = np.clip(position_in_band, 0, 1)
-            
-            # Determine if we're in flat or steep section of the terrace
-            if position_in_band < self.params.terrace_thickness:
-                # Flat terrace area
-                terrace_delta = self.params.terrace_flat_delta
-            else:
-                # Steep transition area
-                terrace_delta = self.params.terrace_steep_delta
-            
-            # Apply terrace strength modulation
-            strength = terrace_strength[i]
-            variable_max_delta[i] = lerp(
-                self.params.max_delta,  # No terracing
-                terrace_delta,           # Full terracing
-                strength
-            )
-        
+        terrace_count = max(self.params.terrace_count, 1)
+        band_size = 1.0 / terrace_count
+        band_index = np.clip(np.floor(points_height * terrace_count).astype(int),
+                             0, terrace_count - 1)
+        band_start = band_index * band_size
+        position_in_band = np.clip((points_height - band_start) / band_size,
+                                    0.0, 1.0)
+
+        terrace_delta = np.where(
+            position_in_band < self.params.terrace_thickness,
+            self.params.terrace_flat_delta,
+            self.params.terrace_steep_delta
+        )
+
+        variable_max_delta = self.params.max_delta + (
+            terrace_delta - self.params.max_delta
+        ) * terrace_strength
+
         return variable_max_delta
     
     def _calculate_avg_point_spacing(self, points: np.ndarray, 
