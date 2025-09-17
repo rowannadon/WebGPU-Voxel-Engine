@@ -105,7 +105,7 @@ def calculate_biome_scores(
         )
 
     def sigmoid(x):
-        return 1.0 / (1.0 + np.exp(-x))
+        return 1.0 / (1.0 + np.exp(-x)) + 0.00001
 
     # --- climate gates (soft) ---
     gate_trop  = sigmoid((temp_c - 18.0) / 2.5)
