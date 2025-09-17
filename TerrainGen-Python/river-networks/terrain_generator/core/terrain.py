@@ -5,12 +5,12 @@ import scipy.spatial
 import heapq
 from typing import Optional, Tuple, Dict, Any, List
 from dataclasses import dataclass, field
+from scipy.ndimage import zoom
 
-from .noise import ConsistentFBMNoise
 from .rivers import RiverGenerator, RiverNetwork
 from ..io import HeightmapImporter
 from .utils import (normalize, gaussian_blur, gaussian_gradient, bump, 
-                   dist_to_mask, poisson_disc_sampling, remove_lakes,
+                   dist_to_mask, poisson_disc_sampling, connect_inland_seas,
                    render_triangulation, lerp)
 
 @dataclass
@@ -20,46 +20,29 @@ class TerrainParameters:
     seed: int = 42
     disc_radius: float = 1.0
     
-    # Edge falloff parameters
-    edge_falloff_distance: float = 15.0  # How far from edge to start falloff
-    edge_falloff_steepness: float = 2.0  # Steepness of falloff curve
+    # Domain-warped FBM parameters
+    fbm_scale: float = -2.0
+    fbm_lower: float = 2.0
+    fbm_upper: float = np.inf
     
-    # Land mask noise parameters
-    land_mask_scale: float = -2.0
-    land_mask_octaves: int = 6
-    land_mask_persistence: float = 0.5
-    land_mask_lacunarity: float = 2.0
-    land_mask_threshold: float = 0.0
-    land_mask_lower: float = -np.inf
-    land_mask_upper: float = np.inf
+    # Offset FBM parameters (for domain warping)
+    offset_scale: float = -2.0
+    offset_lower: float = 1.5
+    offset_upper: float = np.inf
+    offset_amplitude: float = 150.0
     
-    # Mountain noise parameters
-    mountain_scale: float = -1.5
-    mountain_octaves: int = 8
-    mountain_persistence: float = 0.6
-    mountain_lacunarity: float = 2.2
-    mountain_threshold: float = 0.3
-    mountain_amplitude: float = 1.0
-    mountain_lower: float = 2.0
-    mountain_upper: float = np.inf
+    # Land/height parameters
+    land_threshold: float = 0.5
+    blur_distance: float = 2.0
     
-    # Plains noise parameters (for flatter areas)
-    plains_scale: float = -3.0
-    plains_octaves: int = 4
-    plains_persistence: float = 0.3
-    plains_lacunarity: float = 2.0
-    plains_amplitude: float = 0.3
-    plains_lower: float = -np.inf
-    plains_upper: float = 2.0
+    # Edge falloff parameters (UPDATED)
+    edge_falloff_distance: float = 50.0  # Distance from edge where falloff starts (in pixels)
+    edge_falloff_rate: float = 4.0  # Exponential falloff rate (higher = steeper)
+    edge_smoothness: float = 0.1  # Smoothness of the minimum function (lower = sharper)
     
-    # Coastal variation noise parameters
-    coastal_scale: float = -2.5
-    coastal_octaves: int = 5
-    coastal_persistence: float = 0.4
-    coastal_lacunarity: float = 2.1
-    coastal_cliff_threshold: float = 0.5  # Higher = more cliffs
-    coastal_cliff_steepness: float = 3.0  # Steepness of cliff transitions
-    coastal_beach_width: float = 20.0     # Width of beach/cliff transition zone
+    # Height curves adjustment
+    use_height_curves: bool = False
+    height_curve_points: Optional[List[Tuple[float, float]]] = None
     
     # Heightmap import options
     use_imported_heightmap: bool = False
@@ -76,16 +59,16 @@ class TerrainParameters:
     max_delta: float = 0.05
     use_variable_max_delta: bool = False
     
-    # Terrace parameters (replacing old variable max delta params)
-    terrace_count: int = 5  # Number of terrace levels
-    terrace_thickness: float = 0.7  # Thickness of flat terrace area (0-1, proportion of band)
-    terrace_flat_delta: float = 0.01  # Max delta for flat terrace areas
-    terrace_steep_delta: float = 0.1  # Max delta for steep transitions between terraces
-    terrace_strength_scale: float = -2.5  # Noise scale for terrace strength modulation
-    terrace_strength_octaves: int = 4  # Noise octaves for strength modulation
-    terrace_strength_persistence: float = 0.4  # Noise persistence
-    terrace_min_strength: float = 0.0  # Minimum terrace effect (0 = no terracing)
-    terrace_max_strength: float = 1.0  # Maximum terrace effect (1 = full terracing)
+    # Terrace parameters
+    terrace_count: int = 5
+    terrace_thickness: float = 0.7
+    terrace_flat_delta: float = 0.01
+    terrace_steep_delta: float = 0.1
+    terrace_strength_scale: float = -2.5
+    terrace_strength_octaves: int = 4
+    terrace_strength_persistence: float = 0.4
+    terrace_min_strength: float = 0.0
+    terrace_max_strength: float = 1.0
 
 @dataclass
 class TerrainData:
@@ -100,55 +83,14 @@ class TerrainData:
 class TerrainGenerator:
     """Main terrain generation class."""
     
+    # Fixed resolution for consistent heightfield generation
+    BASE_RESOLUTION = 512
+    
     def __init__(self, params: TerrainParameters):
         self.params = params
         
         # Set numpy random seed for other operations
         np.random.seed(params.seed)
-        
-        # Use ConsistentFBMNoise for all terrain features
-        # Pass the seed to each noise generator
-        self.land_mask_noise = ConsistentFBMNoise(
-            scale=params.land_mask_scale,
-            octaves=params.land_mask_octaves,
-            persistence=params.land_mask_persistence,
-            lacunarity=params.land_mask_lacunarity,
-            lower=params.land_mask_lower,
-            upper=params.land_mask_upper,
-            seed_offset=1,  # Unique ID for land mask
-            base_seed=params.seed  # Pass the main seed
-        )
-        
-        self.mountain_noise = ConsistentFBMNoise(
-            scale=params.mountain_scale,
-            octaves=params.mountain_octaves,
-            persistence=params.mountain_persistence,
-            lacunarity=params.mountain_lacunarity,
-            lower=params.mountain_lower,
-            upper=params.mountain_upper,
-            seed_offset=2,  # Unique ID for mountains
-            base_seed=params.seed  # Pass the main seed
-        )
-        
-        self.plains_noise = ConsistentFBMNoise(
-            scale=params.plains_scale,
-            octaves=params.plains_octaves,
-            persistence=params.plains_persistence,
-            lacunarity=params.plains_lacunarity,
-            lower=params.plains_lower,
-            upper=params.plains_upper,
-            seed_offset=3,  # Unique ID for plains
-            base_seed=params.seed  # Pass the main seed
-        )
-        
-        self.coastal_noise = ConsistentFBMNoise(
-            scale=params.coastal_scale,
-            octaves=params.coastal_octaves,
-            persistence=params.coastal_persistence,
-            lacunarity=params.coastal_lacunarity,
-            seed_offset=4,  # Unique ID for coastal
-            base_seed=params.seed  # Pass the main seed
-        )
         
         self.river_generator = RiverGenerator(
             directional_inertia=params.directional_inertia,
@@ -164,25 +106,33 @@ class TerrainGenerator:
     
     def generate(self, progress_callback=None) -> TerrainData:
         """Generate complete terrain with rivers."""
-        shape = (self.params.dimension,) * 2
+        target_shape = (self.params.dimension,) * 2
         
         if progress_callback:
-            progress_callback(10, "Generating land masses...")
+            progress_callback(10, "Generating terrain...")
         
-        # Generate land mask
-        land_mask = self._generate_land_mask(shape)
+        # Generate terrain heightfield at base resolution
+        base_height, base_land_mask = self._generate_terrain_heightfield()
         
         if progress_callback:
-            progress_callback(25, "Creating terrain features...")
+            progress_callback(20, "Resampling to target dimension...")
         
-        # Generate initial heightmap
-        initial_height, deltas = self._generate_initial_height(shape, land_mask)
+        # Resample to target dimension
+        initial_height, land_mask = self._resample_to_target(
+            base_height, base_land_mask, target_shape
+        )
+        
+        if progress_callback:
+            progress_callback(30, "Processing height field...")
+        
+        # Compute deltas for erosion
+        deltas = normalize(np.abs(gaussian_gradient(initial_height)))
         
         if progress_callback:
             progress_callback(40, "Sampling points...")
         
-        # Sample points and create triangulation WITH EDGE WEIGHTS
-        points, tri, neighbors, edge_weights = self._create_triangulation(shape)
+        # Sample points and create triangulation
+        points, tri, neighbors, edge_weights = self._create_triangulation(target_shape)
         
         # Sample values at points
         coords = np.floor(points).astype(int)
@@ -192,18 +142,17 @@ class TerrainGenerator:
         if progress_callback:
             progress_callback(55, "Computing initial height map...")
         
-        # Compute initial height at points WITH EDGE WEIGHTS
+        # Compute initial height at points
         points_height = self._compute_height(points, neighbors, edge_weights, 
                                             points_deltas)
         
         # Normalize points_height back to [0,1] for river network computation
-        # River network expects normalized heights
         points_height_normalized = normalize(points_height, bounds=(0, 1))
         
         if progress_callback:
             progress_callback(70, "Computing river network...")
         
-        # Compute river network with normalized heights
+        # Compute river network
         river_network = self.river_generator.compute_network(
             points, neighbors, points_height_normalized, points_land
         )
@@ -215,28 +164,24 @@ class TerrainGenerator:
         variable_max_delta = None
         if self.params.use_variable_max_delta:
             variable_max_delta = self._generate_variable_max_delta(
-                shape, coords, points_height_normalized  # Use normalized heights for terracing
+                target_shape, coords, points_height_normalized
             )
         
-        # Generate final terrain WITH EDGE WEIGHTS
+        # Generate final terrain
         final_height = self._compute_final_height(
             points, neighbors, edge_weights, points_deltas, river_network,
             variable_max_delta
         )
         
-        # Render to grid - heights are already scaled by dimension
-        terrain_height = render_triangulation(shape, tri, final_height)
-        river_volume = render_triangulation(shape, tri, river_network.volume)
-        
-        # DON'T normalize to [0,1] - keep the dimension-scaled heights!
-        # terrain_height now ranges from [0, dimension/256]
-        # e.g., at dim=512, heights go from 0 to 2.0
+        # Render to grid
+        terrain_height = render_triangulation(target_shape, tri, final_height)
+        river_volume = render_triangulation(target_shape, tri, river_network.volume)
         
         if progress_callback:
             progress_callback(100, "Complete!")
         
         return TerrainData(
-            heightmap=terrain_height,  # Keep scaled heights
+            heightmap=terrain_height,
             land_mask=land_mask,
             river_volume=river_volume,
             triangulation=tri,
@@ -246,24 +191,22 @@ class TerrainGenerator:
     
     def generate_preview(self, progress_callback=None) -> TerrainData:
         """Generate terrain preview without rivers."""
-        shape = (self.params.dimension,) * 2
+        target_shape = (self.params.dimension,) * 2
         
         if progress_callback:
-            progress_callback(20, "Generating land masses...")
+            progress_callback(20, "Generating terrain...")
         
-        # Generate land mask
-        land_mask = self._generate_land_mask(shape)
-        
-        if progress_callback:
-            progress_callback(50, "Creating terrain features...")
-        
-        # Generate initial heightmap
-        initial_height, deltas = self._generate_initial_height(shape, land_mask)
+        # Generate terrain heightfield at base resolution
+        base_height, base_land_mask = self._generate_terrain_heightfield()
         
         if progress_callback:
-            progress_callback(90, "Preparing preview...")
+            progress_callback(60, "Resampling to target dimension...")
         
-        # For preview, skip costly triangulation entirely; not needed for grid mesh
+        # Resample to target dimension
+        initial_height, land_mask = self._resample_to_target(
+            base_height, base_land_mask, target_shape
+        )
+        
         if progress_callback:
             progress_callback(100, "Preview complete!")
         
@@ -275,6 +218,268 @@ class TerrainGenerator:
             points=None,
             neighbors=None
         )
+    
+    def _resample_to_target(self, heightfield: np.ndarray, land_mask: np.ndarray, 
+                           target_shape: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+        """Resample heightfield and land mask to target dimension."""
+        if heightfield.shape == target_shape:
+            # Already at target resolution
+            return heightfield, land_mask
+        
+        # Calculate zoom factors
+        zoom_factors = (target_shape[0] / heightfield.shape[0],
+                       target_shape[1] / heightfield.shape[1])
+        
+        # Resample heightfield using cubic interpolation for smoothness
+        resampled_height = zoom(heightfield, zoom_factors, order=3)
+        
+        # Resample land mask using nearest neighbor to preserve boolean nature
+        # But then clean it up
+        resampled_mask = zoom(land_mask.astype(float), zoom_factors, order=1) > 0.5
+        
+        # Ensure ocean areas stay at exactly 0
+        resampled_height = resampled_height * resampled_mask
+        
+        return resampled_height, resampled_mask
+    
+    def _fbm(self, shape: Tuple[int, int], p: float, 
+             lower: float = -np.inf, upper: float = np.inf) -> np.ndarray:
+        """Generate FBM noise."""
+        # Now that we're always at the same resolution, we can use simpler FBM
+        fx = np.fft.fftfreq(shape[0], d=1.0/shape[0])
+        fy = np.fft.fftfreq(shape[1], d=1.0/shape[1])
+        
+        fx_grid, fy_grid = np.meshgrid(fx, fy, indexing='ij')
+        freq_radial = np.sqrt(fx_grid**2 + fy_grid**2)
+        
+        envelope = np.zeros_like(freq_radial)
+        mask = freq_radial != 0
+        envelope[mask] = np.power(freq_radial[mask], p)
+        
+        envelope *= (freq_radial > lower) * (freq_radial < upper)
+        envelope[0, 0] = 0.0
+        
+        phase_noise = np.exp(2j * np.pi * np.random.rand(*shape))
+        result = np.real(np.fft.ifft2(np.fft.fft2(phase_noise) * envelope))
+        
+        if result.max() > result.min():
+            result = (result - result.min()) / (result.max() - result.min())
+        else:
+            result = np.ones_like(result) * 0.5
+            
+        return result
+    
+    def _sample(self, a: np.ndarray, offset: np.ndarray) -> np.ndarray:
+        """Sample array with domain warping."""
+        shape = np.array(a.shape)
+        delta = np.array((offset.real, offset.imag))
+        coords = np.array(np.meshgrid(*map(range, shape))) - delta
+        lower_coords = np.floor(coords).astype(int)
+        upper_coords = lower_coords + 1
+        coord_offsets = coords - lower_coords 
+        lower_coords %= shape[:, np.newaxis, np.newaxis]
+        upper_coords %= shape[:, np.newaxis, np.newaxis]
+        result = lerp(lerp(a[lower_coords[1], lower_coords[0]],
+                          a[lower_coords[1], upper_coords[0]],
+                          coord_offsets[0]),
+                     lerp(a[upper_coords[1], lower_coords[0]],
+                          a[upper_coords[1], upper_coords[0]],
+                          coord_offsets[0]),
+                     coord_offsets[1])
+        return result
+    
+    def _generate_gaussian_falloff(self, shape: Tuple[int, int]) -> np.ndarray:
+        """Generate gaussian falloff that's higher in center, lower at edges."""
+        height, width = shape
+        y, x = np.ogrid[:height, :width]
+        
+        cy, cx = height / 2.0, width / 2.0
+        norm_dist = min(cy, cx)
+        dist = np.sqrt((y - cy)**2 + (x - cx)**2) / norm_dist
+        
+        # Clamp distance to avoid extreme values
+        dist = np.clip(dist, 0, 2.0)
+        
+        sigma = self.params.radial_gradient_width
+        
+        # Use a more stable falloff formula
+        if sigma > 0:
+            # Gaussian-based falloff
+            gaussian_component = np.exp(-(dist**2) / (2 * sigma**2))
+            
+            # Blend between full height (1.0) and the gaussian falloff
+            # This ensures we never go below a minimum threshold
+            min_falloff = 0.1  # Never let falloff go below 10%
+            falloff = gaussian_component
+            
+            # Apply strength as a blend factor, not a multiplier
+            # This prevents the extreme drops that cause discontinuities
+            if self.params.radial_gradient_strength > 0:
+                # Interpolate between no falloff (1.0) and the gaussian falloff
+                falloff = lerp(np.ones_like(falloff), falloff, self.params.radial_gradient_strength)
+                
+                # Ensure minimum falloff to prevent complete cutoff
+                falloff = np.maximum(falloff, min_falloff)
+        else:
+            # No falloff if width is 0
+            falloff = np.ones(shape)
+        
+        return falloff
+    
+    def _generate_edge_mask(self, shape: Tuple[int, int]) -> np.ndarray:
+        """Generate edge mask using Chebyshev distance and exponential falloff."""
+        height, width = shape
+        
+        # Create coordinate grids
+        y, x = np.ogrid[:height, :width]
+        
+        # Calculate Chebyshev distance from edges
+        # (maximum of the distances to each edge)
+        dist_from_left = x
+        dist_from_right = width - 1 - x
+        dist_from_top = y
+        dist_from_bottom = height - 1 - y
+        
+        # Chebyshev distance is the minimum of distances to any edge
+        dist_from_edge = np.minimum(
+            np.minimum(dist_from_left, dist_from_right),
+            np.minimum(dist_from_top, dist_from_bottom)
+        )
+        
+        # Apply exponential falloff
+        # Distance is measured inward from the edge
+        falloff_distance = self.params.edge_falloff_distance
+        falloff_rate = self.params.edge_falloff_rate
+        
+        # Calculate mask value based on distance from edge
+        # When dist >= falloff_distance: mask = 1.0
+        # When dist < falloff_distance: mask falls off exponentially
+        mask = np.ones(shape, dtype=np.float32)
+        
+        # Apply exponential falloff in the edge region
+        edge_region = dist_from_edge < falloff_distance
+        if np.any(edge_region):
+            # Normalized distance within falloff region (0 at edge, 1 at falloff_distance)
+            norm_dist = dist_from_edge[edge_region] / falloff_distance
+            # Exponential falloff (0 at edge, 1 at falloff_distance)
+            mask[edge_region] = 1.0 - np.exp(-falloff_rate * norm_dist)
+        
+        return mask
+
+    def _smooth_minimum(self, a: np.ndarray, b: np.ndarray, smoothness: float) -> np.ndarray:
+        """
+        Compute smooth minimum of two arrays.
+        Uses the LogSumExp trick for numerical stability.
+        
+        Args:
+            a, b: Input arrays
+            smoothness: Smoothness parameter (lower = sharper transition)
+        
+        Returns:
+            Smooth minimum of a and b
+        """
+        if smoothness <= 0:
+            return np.minimum(a, b)
+        
+        # Use the smooth minimum formula: -smoothness * log(exp(-a/smoothness) + exp(-b/smoothness))
+        # But implement it in a numerically stable way
+        k = -1.0 / smoothness
+        
+        # For numerical stability, factor out the maximum
+        max_val = np.maximum(a, b)
+        a_scaled = k * (a - max_val)
+        b_scaled = k * (b - max_val)
+        
+        # Compute log-sum-exp
+        result = max_val - smoothness * np.log(np.exp(a_scaled) + np.exp(b_scaled))
+        
+        # Handle edge cases where smoothness is very small
+        result = np.where(np.isnan(result) | np.isinf(result), np.minimum(a, b), result)
+        
+        return result
+
+    def _generate_terrain_heightfield(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Generate terrain heightfield at base resolution."""
+        shape = (self.BASE_RESOLUTION, self.BASE_RESOLUTION)
+        
+        # Step 1: Generate domain-warped FBM heightfield
+        values = self._fbm(shape, self.params.fbm_scale, 
+                        self.params.fbm_lower, self.params.fbm_upper)
+        
+        offset_amplitude = self.params.offset_amplitude
+        
+        offset_x = self._fbm(shape, self.params.offset_scale,
+                            self.params.offset_lower, self.params.offset_upper)
+        offset_y = self._fbm(shape, self.params.offset_scale,
+                            self.params.offset_lower, self.params.offset_upper)
+        
+        offsets = offset_amplitude * (offset_x + 1j * offset_y)
+        heightfield = self._sample(values, offsets)
+        
+        # Use imported heightmap if specified
+        if self.params.use_imported_heightmap and self.imported_heightmap is not None:
+            if self.imported_heightmap.shape != shape:
+                zoom_factors = (shape[0] / self.imported_heightmap.shape[0],
+                            shape[1] / self.imported_heightmap.shape[1])
+                imported_resampled = zoom(self.imported_heightmap, zoom_factors, order=3)
+            else:
+                imported_resampled = self.imported_heightmap
+                
+            if self.params.heightmap_blend_factor >= 1.0:
+                heightfield = imported_resampled
+            else:
+                heightfield = (self.params.heightmap_blend_factor * imported_resampled +
+                            (1 - self.params.heightmap_blend_factor) * heightfield)
+        
+        # Apply height curves adjustment
+        heightfield = self._apply_height_curves(heightfield)
+        
+        # Step 2: Generate edge mask using Chebyshev distance
+        edge_mask = self._generate_edge_mask(shape)
+        
+        # Step 3: Apply smooth minimum between heightfield and edge mask
+        # This creates a smooth continent shape with guaranteed ocean at edges
+        heightfield = self._smooth_minimum(heightfield, edge_mask, self.params.edge_smoothness)
+        
+        # Step 4: Flood and flatten
+        flooded_heightfield = np.where(
+            heightfield > self.params.land_threshold,
+            heightfield - self.params.land_threshold,
+            0.0
+        )
+        
+        # Step 5: Blur to smooth beaches
+        if self.params.blur_distance > 0:
+            flooded_heightfield = gaussian_blur(flooded_heightfield, sigma=self.params.blur_distance)
+        
+        # Step 6: Define land mask
+        land_mask = flooded_heightfield > 0.001
+        
+        # Step 7: Connect inland seas to ocean (NEW)
+        print("Checking for inland seas...")
+        flooded_heightfield, land_mask = connect_inland_seas(
+            flooded_heightfield, land_mask,
+            min_sea_size=30  # Adjust this threshold as needed
+        )
+        
+        # Ensure ocean stays at exactly 0
+        flooded_heightfield = flooded_heightfield * land_mask
+        
+        # Step 8: Renormalize land areas to use full [0, 1] range
+        if np.any(land_mask):
+            max_land_height = flooded_heightfield[land_mask].max()
+            if max_land_height > 0:
+                flooded_heightfield = np.where(
+                    land_mask,
+                    flooded_heightfield / max_land_height,
+                    0.0
+                )
+        
+        # Scale height by dimension for final output
+        height_scale = self.params.dimension / 256.0
+        final_heightfield = flooded_heightfield * height_scale
+        
+        return final_heightfield, land_mask
     
     def _load_imported_heightmap(self):
         """Load and cache imported heightmap."""
@@ -290,171 +495,6 @@ class TerrainGenerator:
             self.imported_heightmap = None
             self.imported_land_mask = None
     
-    def _generate_edge_falloff(self, shape: Tuple[int, int]) -> np.ndarray:
-        """Generate edge falloff mask that ensures ocean at borders."""
-        height, width = shape
-        y, x = np.ogrid[:height, :width]
-        
-        # Scale edge falloff distance based on dimension
-        # This keeps the proportion of ocean consistent
-        dim_scale = np.mean(shape) / 256.0  # 256 is reference dimension
-        scaled_edge_distance = self.params.edge_falloff_distance * dim_scale
-        
-        # Distance from each edge
-        dist_from_left = x
-        dist_from_right = width - 1 - x
-        dist_from_top = y
-        dist_from_bottom = height - 1 - y
-        
-        # Minimum distance to any edge
-        min_dist = np.minimum(
-            np.minimum(dist_from_left, dist_from_right),
-            np.minimum(dist_from_top, dist_from_bottom)
-        )
-        
-        # Create falloff using tanh for smooth transition
-        falloff = np.tanh(min_dist / scaled_edge_distance) ** self.params.edge_falloff_steepness
-        
-        return falloff
-    
-    def _generate_land_mask(self, shape: Tuple[int, int]) -> np.ndarray:
-        """Generate the land/water mask."""
-        # Use imported heightmap if available
-        if self.params.use_imported_heightmap and self.imported_land_mask is not None:
-            if self.params.heightmap_blend_factor >= 1.0:
-                return self.imported_land_mask
-            else:
-                procedural_mask = self._generate_procedural_land_mask(shape)
-                blended = (self.params.heightmap_blend_factor * self.imported_land_mask.astype(float) +
-                          (1 - self.params.heightmap_blend_factor) * procedural_mask.astype(float))
-                return blended > 0.5
-        
-        return self._generate_procedural_land_mask(shape)
-    
-    def _generate_procedural_land_mask(self, shape: Tuple[int, int]) -> np.ndarray:
-        """Generate procedural land mask with consistent shape across dimensions."""
-        # Generate land noise - now automatically consistent across dimensions
-        land_noise = self.land_mask_noise.generate(shape)
-        
-        # Generate edge falloff
-        edge_falloff = self._generate_edge_falloff(shape)
-        
-        # Combine noise with edge falloff
-        effective_threshold = self.params.land_mask_threshold - (1.0 - edge_falloff) * 2.0
-        
-        # Create land mask
-        land_mask = land_noise > effective_threshold
-        
-        # Remove isolated water bodies
-        land_mask = remove_lakes(land_mask)
-        
-        return land_mask
-    
-    def _generate_initial_height(self, shape: Tuple[int, int], 
-                                land_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate initial terrain height with varied features."""
-        # Use imported heightmap if available
-        if self.params.use_imported_heightmap and self.imported_heightmap is not None:
-            if self.params.heightmap_blend_factor >= 1.0:
-                initial_height = self.imported_heightmap * land_mask
-            else:
-                procedural_height, _ = self._generate_procedural_height(shape, land_mask)
-                initial_height = (self.params.heightmap_blend_factor * self.imported_heightmap +
-                                (1 - self.params.heightmap_blend_factor) * procedural_height)
-                initial_height = initial_height * land_mask
-            
-            detail_noise = ConsistentFBMNoise(
-                scale=-3, 
-                octaves=4, 
-                persistence=0.3, 
-                seed_offset=6,
-                base_seed=self.params.seed  # Pass the seed here too
-            )
-            detail = detail_noise.generate(shape) * 0.05
-            initial_height = initial_height + detail * land_mask
-            
-            # Scale initial height by dimension for preview consistency
-            height_scale = self.params.dimension / 256.0
-            initial_height = initial_height * height_scale
-            
-            deltas = normalize(np.abs(gaussian_gradient(initial_height)))
-            return initial_height, deltas
-        
-        return self._generate_procedural_height(shape, land_mask)
-    
-    def _generate_procedural_height(self, shape: Tuple[int, int], 
-                                    land_mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate procedural terrain with mountains and plains."""
-        # Calculate dimension scale for consistent feature sizes
-        dim_scale = np.mean(shape) / 256.0
-        height_scale = self.params.dimension / 256.0  # Scale heights by dimension
-        
-        # Generate mountain shapes
-        mountain_shapes = self.mountain_noise.generate(shape)
-        mountain_mask = mountain_shapes > self.params.mountain_threshold
-        mountains = np.maximum(mountain_shapes - self.params.mountain_threshold, 0.0)
-        # Scale blur sigma with dimension
-        mountains = gaussian_blur(mountains, sigma=5.0 * dim_scale) * self.params.mountain_amplitude
-        
-        # Generate plains/rolling hills
-        plains_shapes = self.plains_noise.generate(shape)
-        plains = np.abs(plains_shapes) * self.params.plains_amplitude
-        
-        # Blend mountains and plains with scaled blur
-        mountain_blend = gaussian_blur(mountain_mask.astype(float), sigma=10.0 * dim_scale)
-        base_terrain = mountains * mountain_blend + plains * (1.0 - mountain_blend)
-        
-        # Generate coastal dropoff with variation
-        coastal_dropoff = self._generate_coastal_dropoff(shape, land_mask)
-        
-        # Combine terrain with coastal dropoff
-        initial_height = base_terrain * coastal_dropoff * land_mask
-        
-        # Add some overall variation
-        overall_variation = self.coastal_noise.generate(shape) * 0.1 + 1.0
-        initial_height = initial_height * overall_variation
-        
-        # Scale heights by dimension for more dramatic terrain at higher resolutions
-        initial_height = initial_height * height_scale
-        
-        # Normalize to [0, height_scale] to maintain proportions
-        initial_height = normalize(initial_height, bounds=(0, height_scale))
-        
-        # Compute gradients for terrain flow
-        deltas = normalize(np.abs(gaussian_gradient(initial_height)))
-        
-        return initial_height, deltas
-    
-    def _generate_coastal_dropoff(self, shape: Tuple[int, int], 
-                                land_mask: np.ndarray) -> np.ndarray:
-        """Generate coastal dropoff with cliffs and beaches."""
-        # Scale beach width with dimension
-        dim_scale = np.mean(shape) / 256.0
-        scaled_beach_width = self.params.coastal_beach_width * dim_scale
-        
-        # Distance to water
-        dist_to_water = dist_to_mask(land_mask)
-        
-        # Generate coastal variation noise
-        coastal_variation = self.coastal_noise.generate(shape)
-        
-        # Determine cliff vs beach areas
-        cliff_areas = coastal_variation > self.params.coastal_cliff_threshold
-        
-        # Create two different dropoff profiles with scaled width
-        beach_dropoff = np.tanh(dist_to_water / scaled_beach_width)
-        cliff_dropoff = np.tanh(dist_to_water / scaled_beach_width * 
-                            self.params.coastal_cliff_steepness) ** 2
-        
-        # Blend between cliff and beach based on noise
-        cliff_blend = gaussian_blur(cliff_areas.astype(float), sigma=5.0 * dim_scale)
-        coastal_dropoff = cliff_dropoff * cliff_blend + beach_dropoff * (1.0 - cliff_blend)
-        
-        # Ensure full dropoff at land edges
-        coastal_dropoff = coastal_dropoff * land_mask
-        
-        return coastal_dropoff
-    
     def _create_triangulation(self, shape: Tuple[int, int]) -> Tuple[np.ndarray, Any, List, List]:
         """Create point sampling and Delaunay triangulation with distance weights."""
         points = poisson_disc_sampling(shape, self.params.disc_radius)
@@ -462,8 +502,6 @@ class TerrainGenerator:
         (indices, indptr) = tri.vertex_neighbor_vertices
         neighbors = [indptr[indices[k]:indices[k + 1]] for k in range(len(points))]
         
-        # Pre-compute edge weights based on distances
-        # This ensures consistent height accumulation across dimensions
         dim_scale = self.params.dimension / 256.0
         distance_normalizer = 1.0 / dim_scale
         
@@ -472,7 +510,6 @@ class TerrainGenerator:
             weights = []
             for j in neighbors[i]:
                 dist = np.linalg.norm(points[j] - point)
-                # Normalize distance to be dimension-independent
                 weight = dist * distance_normalizer
                 weights.append(weight)
             edge_weights.append(np.array(weights))
@@ -480,8 +517,8 @@ class TerrainGenerator:
         return points, tri, neighbors, edge_weights
     
     def _compute_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                    edge_weights: List[np.ndarray], deltas: np.ndarray,
-                    get_delta_fn=None) -> np.ndarray:
+                       edge_weights: List[np.ndarray], deltas: np.ndarray,
+                       get_delta_fn=None) -> np.ndarray:
         """Compute heights for each point using pre-computed edge weights."""
         if get_delta_fn is None:
             get_delta_fn = lambda src, dst, weight: deltas[dst] * self.params.max_delta * weight
@@ -504,119 +541,123 @@ class TerrainGenerator:
                 delta = get_delta_fn(idx, n, weight)
                 heapq.heappush(q, (height + delta, n))
         
-        # Scale heights by dimension ratio
         height_scale = self.params.dimension / 256.0
         result = np.array(result) * height_scale
-        
-        # DON'T normalize to [0,1] - keep the scaled range!
-        # Just ensure minimum is 0
         result = result - result.min()
         return result
 
     def _compute_final_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                            edge_weights: List[np.ndarray], deltas: np.ndarray, 
-                            river_network: RiverNetwork,
-                            variable_max_delta: Optional[np.ndarray] = None) -> np.ndarray:
-        """Compute final height with river downcutting using edge weights."""
+                              edge_weights: List[np.ndarray], deltas: np.ndarray, 
+                              river_network: RiverNetwork,
+                              variable_max_delta: Optional[np.ndarray] = None) -> np.ndarray:
+        """Compute final height with river downcutting."""
         
         def get_delta(src, dst, weight):
-            # River downcutting
             v = river_network.volume[dst] if (dst in river_network.upstream[src]) else 0.0
             downcut = 1.0 / (1.0 + v ** self.params.river_downcutting)
             
-            # Get max delta (with variable support)
             if variable_max_delta is not None:
                 current_max_delta = variable_max_delta[dst]
             else:
                 current_max_delta = self.params.max_delta
             
-            # Apply distance-based scaling via weight
             return min(current_max_delta * weight, 
-                    deltas[dst] * downcut * weight)
+                      deltas[dst] * downcut * weight)
         
-        # Compute base heights
         heights = self._compute_height(points, neighbors, edge_weights, deltas, 
-                                    get_delta_fn=get_delta)
-        
-        # Note: _compute_height already applies dimension scaling
-        # So heights are already in range [0, dimension/256]
+                                      get_delta_fn=get_delta)
         return heights
 
     def _generate_variable_max_delta(self, shape: Tuple[int, int], 
                                     coords: np.ndarray,
                                     points_height: np.ndarray) -> np.ndarray:
         """Generate variable max delta field with terrace effects."""
+        # Generate at base resolution then resample
+        base_shape = (self.BASE_RESOLUTION, self.BASE_RESOLUTION)
+        strength_field = self._fbm(base_shape, self.params.terrace_strength_scale,
+                                  lower=1.0, upper=np.inf)
         
-        # Generate 2D noise for terrace strength modulation
-        strength_noise = ConsistentFBMNoise(
-            scale=self.params.terrace_strength_scale,
-            octaves=self.params.terrace_strength_octaves,
-            persistence=self.params.terrace_strength_persistence,
-            lacunarity=2.0,
-            seed_offset=5,  # Unique ID for terrace strength
-            base_seed=self.params.seed  # Pass the main seed
-        )
+        # Resample if needed
+        if base_shape != shape:
+            zoom_factors = (shape[0] / base_shape[0], shape[1] / base_shape[1])
+            strength_field = zoom(strength_field, zoom_factors, order=3)
         
-        # Generate strength field (0-1)
-        strength_field = strength_noise.generate(shape)
         strength_field = normalize(strength_field, bounds=(0, 1))
-        
-        # Sample strength at point locations
         strength_values = strength_field[coords[:, 0], coords[:, 1]]
         
-        # Map strength values to the desired range
         terrace_strength = (
             self.params.terrace_min_strength + 
             (self.params.terrace_max_strength - self.params.terrace_min_strength) * strength_values
         )
         
-        # Calculate terrace-based max delta for each point
-        # Don't scale values here - let edge weights handle dimension scaling
         variable_max_delta = np.zeros_like(points_height)
         
         for i, height in enumerate(points_height):
-            # Determine which terrace band this height falls into
             band_index = int(height * self.params.terrace_count)
             band_index = min(band_index, self.params.terrace_count - 1)
             
-            # Calculate position within the band (0-1)
             band_size = 1.0 / self.params.terrace_count
             band_start = band_index * band_size
             position_in_band = (height - band_start) / band_size if band_size > 0 else 0
             position_in_band = np.clip(position_in_band, 0, 1)
             
-            # Determine if we're in flat or steep section of the terrace
             if position_in_band < self.params.terrace_thickness:
-                # Flat terrace area
                 terrace_delta = self.params.terrace_flat_delta
             else:
-                # Steep transition area
                 terrace_delta = self.params.terrace_steep_delta
             
-            # Apply terrace strength modulation
             strength = terrace_strength[i]
             variable_max_delta[i] = lerp(
-                self.params.max_delta,  # No terracing
-                terrace_delta,           # Full terracing
+                self.params.max_delta,
+                terrace_delta,
                 strength
             )
         
         return variable_max_delta
     
-    def _calculate_avg_point_spacing(self, points: np.ndarray, 
-                                    neighbors: List[np.ndarray]) -> float:
-        """Calculate average spacing between neighboring points."""
-        distances = []
-        sample_size = min(100, len(points))  # Sample for efficiency
-        sample_indices = np.random.choice(len(points), sample_size, replace=False)
+    def _apply_height_curves(self, heightfield: np.ndarray) -> np.ndarray:
+        """Apply height curves adjustment if enabled."""
+        if not self.params.use_height_curves or not self.params.height_curve_points:
+            return heightfield
         
-        for idx in sample_indices:
-            point = points[idx]
-            for neighbor_idx in neighbors[idx]:
-                dist = np.linalg.norm(points[neighbor_idx] - point)
-                distances.append(dist)
+        from scipy.interpolate import CubicSpline, interp1d
         
-        return np.mean(distances) if distances else 1.0
+        # Sort points by x coordinate
+        sorted_points = sorted(self.params.height_curve_points, key=lambda p: p[0])
+        if len(sorted_points) < 2:
+            return heightfield
+        
+        x_coords = [p[0] for p in sorted_points]
+        y_coords = [p[1] for p in sorted_points]
+        
+        # Normalize heightfield to [0, 1]
+        hmin = heightfield.min()
+        hmax = heightfield.max()
+        
+        if hmax <= hmin:
+            return heightfield
+        
+        normalized = (heightfield - hmin) / (hmax - hmin)
+        
+        # Apply curve transformation
+        if len(sorted_points) >= 4:
+            try:
+                spline = CubicSpline(x_coords, y_coords, bc_type='clamped')
+                adjusted = spline(np.clip(normalized, 0, 1))
+            except:
+                # Fallback to linear interpolation
+                interp = interp1d(x_coords, y_coords, kind='linear',
+                                bounds_error=False, fill_value=(y_coords[0], y_coords[-1]))
+                adjusted = interp(np.clip(normalized, 0, 1))
+        else:
+            # Use linear interpolation for fewer points
+            interp = interp1d(x_coords, y_coords, kind='linear',
+                            bounds_error=False, fill_value=(y_coords[0], y_coords[-1]))
+            adjusted = interp(np.clip(normalized, 0, 1))
+        
+        # Clip and scale back to original range
+        adjusted = np.clip(adjusted, 0, 1)
+        return adjusted * (hmax - hmin) + hmin
     
     @staticmethod
     def _min_index(values: List) -> int:

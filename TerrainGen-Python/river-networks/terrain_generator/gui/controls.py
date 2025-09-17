@@ -10,121 +10,141 @@ from pathlib import Path
 from ..core import TerrainParameters
 from ..config import PresetManager
 from .widgets import ParameterControl
+from .curves_widget import HeightCurvesWidget
 
-class NoiseParameterWidget(QWidget):
-    """Widget for controlling noise parameters of a specific type."""
+
+class DomainWarpedFBMWidget(QWidget):
+    """Widget for controlling domain-warped FBM parameters."""
     
     parametersChanged = pyqtSignal()
     
-    def __init__(self, noise_type: str, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.noise_type = noise_type
         self.controls = {}
         self.setup_ui()
-        self.set_defaults()
     
     def setup_ui(self):
-        """Setup the noise parameter controls."""
+        """Setup the FBM parameter controls."""
         layout = QVBoxLayout(self)
         
-        # Get appropriate ranges and defaults based on noise type
-        params = self.get_noise_parameters()
+        # Main FBM parameters
+        fbm_label = QLabel("<b>Main FBM Settings:</b>")
+        layout.addWidget(fbm_label)
         
-        for param_name, (label, min_val, max_val, default, step, decimals) in params.items():
-            control = ParameterControl(label, min_val, max_val, default, step, decimals)
-            control.valueChanged.connect(lambda: self.parametersChanged.emit())
-            self.controls[param_name] = control
-            layout.addWidget(control)
+        self.controls['fbm_scale'] = ParameterControl(
+            "Frequency Scale", -5.0, 0.0, -2.0, 0.1, 1
+        )
+        self.controls['fbm_scale'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['fbm_scale'])
         
-        # Add specific controls for certain noise types
-        if self.noise_type == "land_mask":
-            threshold_info = QLabel("Threshold: Higher = less land, Lower = more land")
-            threshold_info.setStyleSheet("color: #888; font-size: 10px;")
-            layout.addWidget(threshold_info)
-        elif self.noise_type == "mountain":
-            mountain_info = QLabel("Threshold: Controls where mountains appear\nAmplitude: Mountain height")
-            mountain_info.setStyleSheet("color: #888; font-size: 10px;")
-            layout.addWidget(mountain_info)
-        elif self.noise_type == "coastal":
-            coastal_info = QLabel("Cliff Threshold: Higher = more cliffs\nCliff Steepness: How steep cliffs are")
-            coastal_info.setStyleSheet("color: #888; font-size: 10px;")
-            layout.addWidget(coastal_info)
+        self.controls['fbm_lower'] = ParameterControl(
+            "Lower Bound", 0.0, 10.0, 2.0, 0.1, 1
+        )
+        self.controls['fbm_lower'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['fbm_lower'])
+        
+        self.controls['fbm_upper'] = ParameterControl(
+            "Upper Bound", 0.0, 10.0, 10.0, 0.5, 1
+        )
+        self.controls['fbm_upper'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['fbm_upper'])
+        
+        layout.addSpacing(10)
+        
+        # Offset FBM parameters (for domain warping)
+        offset_label = QLabel("<b>Domain Warping Settings:</b>")
+        layout.addWidget(offset_label)
+        
+        self.controls['offset_scale'] = ParameterControl(
+            "Warp Frequency", -5.0, 0.0, -2.0, 0.1, 1
+        )
+        self.controls['offset_scale'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['offset_scale'])
+        
+        self.controls['offset_lower'] = ParameterControl(
+            "Warp Lower Bound", 0.0, 10.0, 1.5, 0.1, 1
+        )
+        self.controls['offset_lower'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['offset_lower'])
+        
+        self.controls['offset_upper'] = ParameterControl(
+            "Warp Upper Bound", 0.0, 10.0, 10.0, 0.5, 1
+        )
+        self.controls['offset_upper'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['offset_upper'])
+        
+        self.controls['offset_amplitude'] = ParameterControl(
+            "Warp Strength", 0.0, 500.0, 150.0, 10.0, 0
+        )
+        self.controls['offset_amplitude'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['offset_amplitude'])
+        
+        layout.addSpacing(10)
+        
+        # Post-processing parameters
+        post_label = QLabel("<b>Post-processing:</b>")
+        layout.addWidget(post_label)
+        
+        self.controls['land_threshold'] = ParameterControl(
+            "Land Threshold", 0.0, 1.0, 0.5, 0.01, 2
+        )
+        self.controls['land_threshold'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['land_threshold'])
+        
+        self.controls['blur_distance'] = ParameterControl(
+            "Blur Distance", 0.0, 10.0, 2.0, 0.5, 1
+        )
+        self.controls['blur_distance'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['blur_distance'])
+        
+        edge_label = QLabel("<b>Edge Falloff:</b>")
+        layout.addWidget(edge_label)
+
+        self.controls['edge_falloff_distance'] = ParameterControl(
+            "Falloff Distance (px)", 10.0, 200.0, 50.0, 5.0, 0
+        )
+        self.controls['edge_falloff_distance'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['edge_falloff_distance'])
+
+        self.controls['edge_falloff_rate'] = ParameterControl(
+            "Falloff Rate", 1.0, 10.0, 4.0, 0.5, 1
+        )
+        self.controls['edge_falloff_rate'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['edge_falloff_rate'])
+
+        self.controls['edge_smoothness'] = ParameterControl(
+            "Edge Smoothness", 0.01, 0.5, 0.1, 0.01, 2
+        )
+        self.controls['edge_smoothness'].valueChanged.connect(lambda: self.parametersChanged.emit())
+        layout.addWidget(self.controls['edge_smoothness'])
+
+        # Update the info label
+        info_label = QLabel(
+            "• Frequency Scale: Controls feature size\n"
+            "• Bounds: Filter frequency range\n"
+            "• Warp Strength: How much to distort\n"
+            "• Land Threshold: Higher = less land\n"
+            "• Blur Distance: Smooths terrain\n"
+            "• Falloff Distance: How far from edge\n"
+            "• Falloff Rate: Steepness of edge transition\n"
+            "• Edge Smoothness: Blend sharpness"
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(info_label)
         
         layout.addStretch()
     
-    def get_noise_parameters(self) -> dict:
-        """Get parameter definitions for this noise type."""
-        base_params = {
-            'scale': ("Frequency Scale", -5.0, 0.0, -2.0, 0.1, 1),
-            'octaves': ("Octaves", 1, 12, 6, 1, 0),
-            'persistence': ("Persistence", 0.1, 1.0, 0.5, 0.01, 2),
-            'lacunarity': ("Lacunarity", 1.5, 3.0, 2.0, 0.1, 1),
-        }
-        
-        if self.noise_type == "land_mask":
-            base_params['threshold'] = ("Land Threshold", -1.0, 1.0, 0.0, 0.01, 2)
-            base_params['lower'] = ("Lower Bound", -10.0, 10.0, -10.0, 0.5, 1)
-            base_params['upper'] = ("Upper Bound", -10.0, 10.0, 10.0, 0.5, 1)
-        elif self.noise_type == "mountain":
-            base_params['threshold'] = ("Mountain Threshold", 0.0, 1.0, 0.3, 0.01, 2)
-            base_params['amplitude'] = ("Mountain Amplitude", 0.1, 2.0, 1.0, 0.1, 1)
-            base_params['lower'] = ("Lower Frequency", 0.0, 10.0, 2.0, 0.5, 1)
-            base_params['upper'] = ("Upper Frequency", 0.0, 10.0, 10.0, 0.5, 1)
-        elif self.noise_type == "plains":
-            base_params['amplitude'] = ("Plains Amplitude", 0.1, 1.0, 0.3, 0.01, 2)
-            base_params['lower'] = ("Lower Bound", -10.0, 10.0, -10.0, 0.5, 1)
-            base_params['upper'] = ("Upper Bound", 0.0, 10.0, 2.0, 0.5, 1)
-        elif self.noise_type == "coastal":
-            base_params['cliff_threshold'] = ("Cliff Threshold", 0.0, 1.0, 0.5, 0.01, 2)
-            base_params['cliff_steepness'] = ("Cliff Steepness", 1.0, 10.0, 3.0, 0.1, 1)
-            base_params['beach_width'] = ("Beach Width", 5, 50, 20, 1, 0)
-        
-        return base_params
-    
-    def set_defaults(self):
-        """Set default values based on noise type."""
-        defaults = {
-            'land_mask': {
-                'scale': -1.2,
-                'octaves': 6,
-                'persistence': 0.5,
-                'lacunarity': 2.0,
-                'threshold': 0.5
-            },
-            'mountain': {
-                'scale': -1.0,
-                'octaves': 9,
-                'persistence': 0.65,
-                'lacunarity': 2.2,
-                'threshold': 0.6,
-                'amplitude': 1.8
-            },
-            'plains': {
-                'scale': -3.0,
-                'octaves': 4,
-                'persistence': 0.3,
-                'lacunarity': 2.0,
-                'amplitude': 0.3
-            },
-            'coastal': {
-                'scale': -1.5,
-                'octaves': 6,
-                'persistence': 0.4,
-                'lacunarity': 2.1,
-                'cliff_threshold': 0.7,
-                'cliff_steepness': 8.0,
-                'beach_width': 30
-            }
-        }
-        
-        if self.noise_type in defaults:
-            for param, value in defaults[self.noise_type].items():
-                if param in self.controls:
-                    self.controls[param].set_value(value)
-    
     def get_values(self) -> dict:
         """Get current values for all parameters."""
-        return {name: control.value() for name, control in self.controls.items()}
+        values = {}
+        for name, control in self.controls.items():
+            value = control.value()
+            # Convert upper bounds of 10.0 to infinity for frequency bounds
+            if name in ['fbm_upper', 'offset_upper'] and value >= 10.0:
+                value = np.inf
+            values[name] = value
+        return values
 
 class ControlPanel(QWidget):
     """Main control panel for terrain generation."""
@@ -135,7 +155,6 @@ class ControlPanel(QWidget):
         super().__init__()
         self.preset_manager = PresetManager()
         self.controls = {}
-        self.noise_widgets = {}
         self.setup_ui()
     
     def setup_ui(self):
@@ -153,9 +172,11 @@ class ControlPanel(QWidget):
         # Basic parameters group
         self.create_basic_group(layout)
         
-        # Advanced terrain generation group with tabs
-        self.create_advanced_terrain_group(layout)
-        
+        # Domain-warped FBM group
+        self.create_fbm_group(layout)
+        # Height curves adjustment group
+        self.create_curves_group(layout)
+
         # River parameters group
         self.create_river_group(layout)
         
@@ -210,10 +231,10 @@ class ControlPanel(QWidget):
         # Instructions
         import_info = QLabel(
             "Import a grayscale image:\n"
-            "â€¢ Black pixels = water\n"
-            "â€¢ Gray/white pixels = land (lighter = higher)\n"
-            "â€¢ Image will be resized to match dimension\n"
-            "â€¢ Blend Factor: 0 = procedural, 1 = imported"
+            "• Black pixels = water\n"
+            "• Gray/white pixels = land (lighter = higher)\n"
+            "• Image will be resized to match dimension\n"
+            "• Blend Factor: 0 = procedural, 1 = imported"
         )
         import_info.setWordWrap(True)
         import_info.setStyleSheet("color: #888; font-size: 10px;")
@@ -251,84 +272,22 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         parent_layout.addWidget(group)
     
-    def create_advanced_terrain_group(self, parent_layout):
-        """Create advanced terrain generation group with noise tabs."""
-        group = QGroupBox("Advanced Terrain Generation")
+    def create_fbm_group(self, parent_layout):
+        """Create domain-warped FBM group."""
+        group = QGroupBox("Terrain Generation")
         layout = QVBoxLayout()
-
-        # Edge falloff label
-        edge_label = QLabel("Edge Falloff Settings:")
-        edge_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(edge_label)
         
-        # Edge falloff controls - each on its own line
-        edge_distance = ParameterControl("Distance", 5, 50, 9, 1, 0)
-        self.controls['edge_falloff_distance'] = edge_distance
-        layout.addWidget(edge_distance)
+        # Add the domain-warped FBM widget
+        self.fbm_widget = DomainWarpedFBMWidget()
+        self.fbm_widget.parametersChanged.connect(lambda: None)  # Connect if needed
+        layout.addWidget(self.fbm_widget)
         
-        edge_steepness = ParameterControl("Steepness", 0.5, 5.0, 2.8, 0.1, 1)
-        self.controls['edge_falloff_steepness'] = edge_steepness
-        layout.addWidget(edge_steepness)
-        
-        # Add some spacing before the tabs
-        layout.addSpacing(10)
-
-        # Create tab widget for different noise types
-        self.noise_tabs = QTabWidget()
-
-        # Land Mask noise tab
-        self.land_mask_widget = NoiseParameterWidget("land_mask")
-        self.noise_widgets['land_mask'] = self.land_mask_widget
-        self.noise_tabs.addTab(self.land_mask_widget, "Land Shape")
-
-        # Mountain noise tab
-        self.mountain_widget = NoiseParameterWidget("mountain")
-        self.noise_widgets['mountain'] = self.mountain_widget
-        self.noise_tabs.addTab(self.mountain_widget, "Mountains")
-
-        # Plains noise tab
-        self.plains_widget = NoiseParameterWidget("plains")
-        self.noise_widgets['plains'] = self.plains_widget
-        self.noise_tabs.addTab(self.plains_widget, "Plains")
-
-        # Coastal variation tab
-        self.coastal_widget = NoiseParameterWidget("coastal")
-        self.noise_widgets['coastal'] = self.coastal_widget
-        self.noise_tabs.addTab(self.coastal_widget, "Coastal")
-
-        layout.addWidget(self.noise_tabs)
-
-        # Preset selector with save button
-        preset_layout = QHBoxLayout()
-        preset_label = QLabel("Preset:")
-        preset_layout.addWidget(preset_label)
-
-        self.preset_combo = QComboBox()
-        self.preset_combo.addItems([
-            "Custom",
-            "Large Continent",
-            "Island Chain", 
-            "Archipelago",
-            "Continental Shelf",
-            "Fjords"
-        ])
-        self.preset_combo.currentTextChanged.connect(self.apply_preset)
-        preset_layout.addWidget(self.preset_combo)
-        
-        # Add save preset button
-        self.save_preset_button = QPushButton("Save to Preset")
-        self.save_preset_button.setToolTip("Override selected preset with current settings")
-        self.save_preset_button.clicked.connect(self.save_current_to_preset)
-        preset_layout.addWidget(self.save_preset_button)
-        
-        layout.addLayout(preset_layout)
-
-        # Preview checkbox and button in same layout
+        # Preview checkbox and button
         preview_layout = QHBoxLayout()
-        self.preview_checkbox = QCheckBox("Quick Preview (land shape only)")
+        self.preview_checkbox = QCheckBox("Quick Preview (no rivers)")
         self.preview_checkbox.stateChanged.connect(self.toggle_preview_mode)
         preview_layout.addWidget(self.preview_checkbox)
-
+        
         self.preview_button = QPushButton("Generate Preview")
         self.preview_button.setVisible(False)
         self.preview_button.setStyleSheet("""
@@ -345,10 +304,35 @@ class ControlPanel(QWidget):
         """)
         preview_layout.addWidget(self.preview_button)
         layout.addLayout(preview_layout)
-
+        
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
+    
+    def create_curves_group(self, parent_layout):
+        """Create height curves adjustment group."""
+        group = QGroupBox("Height Curves Adjustment")
+        layout = QVBoxLayout()
+        
+        # Enable curves checkbox
+        self.use_curves_checkbox = QCheckBox("Enable Height Curves")
+        self.use_curves_checkbox.setChecked(False)
+        self.use_curves_checkbox.stateChanged.connect(self.toggle_curves)
+        layout.addWidget(self.use_curves_checkbox)
+        
+        # Curves widget
+        self.curves_widget = HeightCurvesWidget()
+        self.curves_widget.curvesChanged.connect(lambda: self.parametersChanged.emit() if hasattr(self, 'parametersChanged') else None)
+        self.curves_widget.setEnabled(False)
+        layout.addWidget(self.curves_widget)
+        
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+    def toggle_curves(self, state):
+        """Toggle curves adjustment."""
+        enabled = (state == 2)
+        self.curves_widget.setEnabled(enabled)
 
     def create_river_group(self, parent_layout):
         """Create river parameters group."""
@@ -423,8 +407,6 @@ class ControlPanel(QWidget):
             ('terrace_min_strength', "Minimum Strength", 0.0, 1.0, 0.0, 0.05, 2),
             ('terrace_max_strength', "Maximum Strength", 0.0, 1.0, 1.0, 0.05, 2),
             ('terrace_strength_scale', "Noise Scale", -4.0, 0.0, -2.5, 0.1, 1),
-            ('terrace_strength_octaves', "Noise Octaves", 1, 8, 4, 1, 0),
-            ('terrace_strength_persistence', "Noise Persistence", 0.1, 0.9, 0.4, 0.05, 2),
         ]
         
         for name, label, min_val, max_val, default, step, decimals in strength_controls:
@@ -433,21 +415,6 @@ class ControlPanel(QWidget):
             self.controls[name] = control
             self.variable_controls.append(control)
             layout.addWidget(control)
-        
-        # Info label
-        info_label = QLabel(
-            "Terrace effects create stepped/plateau terrain:\n"
-            "â€¢ Number: How many terrace levels\n"
-            "â€¢ Flatness: Proportion of flat vs steep (0.7 = 70% flat)\n"
-            "â€¢ Flat Slope: How flat the terraces are\n"
-            "â€¢ Step Slope: How steep transitions are\n"
-            "â€¢ Strength: Controls where terracing appears"
-        )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #888; font-size: 10px;")
-        info_label.setVisible(False)
-        self.variable_controls.append(info_label)
-        layout.addWidget(info_label)
         
         group.setLayout(layout)
         group.setMaximumWidth(420)
@@ -572,13 +539,6 @@ class ControlPanel(QWidget):
             QPushButton:hover {
                 background-color: #45a049;
             }
-            QPushButton:pressed {
-                background-color: #3d8b40;
-            }
-            QPushButton:disabled {
-                background-color: #999;
-                color: #666;
-            }
         """)
         parent_layout.addWidget(self.generate_button)
 
@@ -586,10 +546,10 @@ class ControlPanel(QWidget):
         """Add instructions label."""
         instructions = QLabel(
             "Controls:\n"
-            "â€¢ Adjust parameters with sliders or type values\n"
-            "â€¢ Click Generate to create terrain\n"
-            "â€¢ Left-click and drag to rotate view\n"
-            "â€¢ Scroll wheel to zoom in/out"
+            "• Adjust parameters with sliders or type values\n"
+            "• Click Generate to create terrain\n"
+            "• Left-click and drag to rotate view\n"
+            "• Scroll wheel to zoom in/out"
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: #888; font-size: 11px;")
@@ -611,49 +571,16 @@ class ControlPanel(QWidget):
         
         if filename:
             self.heightmap_path_edit.setText(filename)
-            try:
-                from PIL import Image
-                img = Image.open(filename)
-                self.heightmap_path_edit.setStyleSheet("")
-            except Exception as e:
-                self.heightmap_path_edit.setStyleSheet("color: red;")
-                QMessageBox.warning(self, "Invalid Image", 
-                                f"Failed to load image: {str(e)}")
     
     def toggle_preview_mode(self, state):
         """Toggle preview mode."""
-        preview_enabled = (state == 2)  # Qt.Checked
+        preview_enabled = (state == 2)
         self.preview_button.setVisible(preview_enabled)
         
         if preview_enabled:
             self.generate_button.setText("Generate Full Terrain")
-            # Keep button enabled but change style to indicate it's still functional
-            self.generate_button.setStyleSheet("""
-                QPushButton { 
-                    background-color: #2196F3; 
-                    color: white; 
-                    font-weight: bold; 
-                    padding: 10px;
-                    border-radius: 5px;
-                }
-                QPushButton:hover {
-                    background-color: #1976D2;
-                }
-            """)
         else:
             self.generate_button.setText("Generate Terrain")
-            self.generate_button.setStyleSheet("""
-                QPushButton { 
-                    background-color: #4CAF50; 
-                    color: white; 
-                    font-weight: bold; 
-                    padding: 10px;
-                    border-radius: 5px;
-                }
-                QPushButton:hover {
-                    background-color: #45a049;
-                }
-            """)
     
     def toggle_variable_max_delta(self, state):
         """Toggle variable max delta controls."""
@@ -683,72 +610,6 @@ class ControlPanel(QWidget):
         self.controls['river_threshold'].setEnabled(show_rivers)
         self.visualization_changed.emit({'show_rivers': show_rivers})
     
-    def save_current_to_preset(self):
-        """Save current settings to the selected preset."""
-        current_preset = self.preset_combo.currentText()
-        
-        if current_preset == "Custom":
-            QMessageBox.information(
-                self, 
-                "Cannot Save", 
-                "Cannot save to 'Custom'. Please select a specific preset to override."
-            )
-            return
-        
-        # Confirm overwrite
-        reply = QMessageBox.question(
-            self,
-            "Confirm Override",
-            f"Are you sure you want to override the '{current_preset}' preset with current settings?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
-            return
-        
-        # Extract current parameters
-        current_params = self.preset_manager.extract_from_controls(
-            self.controls,
-            self.noise_widgets
-        )
-        
-        # Update the preset
-        success = self.preset_manager.update_preset(current_preset, current_params)
-        
-        if success:
-            QMessageBox.information(
-                self,
-                "Preset Saved",
-                f"Successfully saved current settings to '{current_preset}' preset."
-            )
-        else:
-            QMessageBox.warning(
-                self,
-                "Save Failed",
-                f"Failed to save preset '{current_preset}'."
-            )
-
-    def apply_preset(self, preset_name: str):
-        """Apply a terrain preset."""
-        if preset_name == "Custom":
-            # When switching to Custom, disable the save button
-            self.save_preset_button.setEnabled(False)
-            return
-        
-        # Enable save button for non-custom presets
-        self.save_preset_button.setEnabled(True)
-        
-        # Use the preset manager to apply the preset
-        success = self.preset_manager.apply_to_controls(
-            preset_name, 
-            self.controls, 
-            self.noise_widgets
-        )
-        
-        if not success:
-            print(f"Failed to apply preset: {preset_name}")
-    
     def get_parameters(self) -> TerrainParameters:
         """Get current parameters as TerrainParameters object."""
         heightmap_path = None
@@ -757,67 +618,42 @@ class ControlPanel(QWidget):
             if path_text and path_text != "No file selected":
                 heightmap_path = path_text
         
-        # Get noise parameters from widgets
-        land_mask_params = self.noise_widgets['land_mask'].get_values()
-        mountain_params = self.noise_widgets['mountain'].get_values()
-        plains_params = self.noise_widgets['plains'].get_values()
-        coastal_params = self.noise_widgets['coastal'].get_values()
-        
-        # Handle infinity values
-        def get_inf_value(params, key, default):
-            val = params.get(key, default)
-            if val >= 10.0:
-                return np.inf
-            elif val <= -10.0:
-                return -np.inf
-            return val
+        # Get FBM parameters
+        fbm_params = self.fbm_widget.get_values()
+
+        # Get curves data if enabled
+        use_height_curves = False
+        height_curve_points = None
+        if hasattr(self, 'use_curves_checkbox'):
+            use_height_curves = self.use_curves_checkbox.isChecked()
+            if use_height_curves and hasattr(self, 'curves_widget'):
+                height_curve_points = self.curves_widget.get_control_points()
         
         return TerrainParameters(
             dimension=int(self.controls['dimension'].value()),
             seed=int(self.controls['seed'].value()),
             disc_radius=self.controls['disc_radius'].value(),
             
-            # Edge falloff
-            edge_falloff_distance=self.controls['edge_falloff_distance'].value(),
-            edge_falloff_steepness=self.controls['edge_falloff_steepness'].value(),
+            # Domain-warped FBM parameters
+            fbm_scale=fbm_params['fbm_scale'],
+            fbm_lower=fbm_params['fbm_lower'],
+            fbm_upper=fbm_params['fbm_upper'],
+            offset_scale=fbm_params['offset_scale'],
+            offset_lower=fbm_params['offset_lower'],
+            offset_upper=fbm_params['offset_upper'],
+            offset_amplitude=fbm_params['offset_amplitude'],
+            land_threshold=fbm_params['land_threshold'],
+            blur_distance=fbm_params['blur_distance'],
             
-            # Land mask noise
-            land_mask_scale=land_mask_params.get('scale', -0.4),
-            land_mask_octaves=int(land_mask_params.get('octaves', 69)),
-            land_mask_persistence=land_mask_params.get('persistence', 0.4),
-            land_mask_lacunarity=land_mask_params.get('lacunarity', 2.1),
-            land_mask_threshold=land_mask_params.get('threshold', 0.68),
-            land_mask_lower=get_inf_value(land_mask_params, 'lower', -np.inf),
-            land_mask_upper=get_inf_value(land_mask_params, 'upper', np.inf),
+            # Edge falloff parameters
+            edge_falloff_distance=fbm_params.get('edge_falloff_distance', 50.0),
+            edge_falloff_rate=fbm_params.get('edge_falloff_rate', 4.0),
+            edge_smoothness=fbm_params.get('edge_smoothness', 0.1),
             
-            # Mountain noise
-            mountain_scale=mountain_params.get('scale', -0.5),
-            mountain_octaves=int(mountain_params.get('octaves', 8)),
-            mountain_persistence=mountain_params.get('persistence', 0.6),
-            mountain_lacunarity=mountain_params.get('lacunarity', 2.2),
-            mountain_threshold=mountain_params.get('threshold', 0.55),
-            mountain_amplitude=mountain_params.get('amplitude', 1.0),
-            mountain_lower=mountain_params.get('lower', 2.0),
-            mountain_upper=get_inf_value(mountain_params, 'upper', 8.0),
-            
-            # Plains noise
-            plains_scale=plains_params.get('scale', -3.0),
-            plains_octaves=int(plains_params.get('octaves', 4)),
-            plains_persistence=plains_params.get('persistence', 0.3),
-            plains_lacunarity=plains_params.get('lacunarity', 2.0),
-            plains_amplitude=plains_params.get('amplitude', 0.3),
-            plains_lower=get_inf_value(plains_params, 'lower', -np.inf),
-            plains_upper=plains_params.get('upper', 2.0),
-            
-            # Coastal variation
-            coastal_scale=coastal_params.get('scale', -1.3),
-            coastal_octaves=int(coastal_params.get('octaves', 5)),
-            coastal_persistence=coastal_params.get('persistence', 0.4),
-            coastal_lacunarity=coastal_params.get('lacunarity', 2.1),
-            coastal_cliff_threshold=coastal_params.get('cliff_threshold', 0.7),
-            coastal_cliff_steepness=coastal_params.get('cliff_steepness', 8.0),
-            coastal_beach_width=coastal_params.get('beach_width', 18.0),
-            
+            # Height curves adjustment parameters
+            use_height_curves=hasattr(self, 'use_curves_checkbox') and self.use_curves_checkbox.isChecked(),
+            height_curve_points=height_curve_points,
+
             # Heightmap import
             use_imported_heightmap=self.use_import_checkbox.isChecked(),
             imported_heightmap_path=heightmap_path,
@@ -844,10 +680,6 @@ class ControlPanel(QWidget):
                 ParameterControl("", 0, 0, 0.12)).value(),
             terrace_strength_scale=self.controls.get('terrace_strength_scale',
                 ParameterControl("", 0, 0, -1.0)).value(),
-            terrace_strength_octaves=int(self.controls.get('terrace_strength_octaves',
-                ParameterControl("", 0, 0, 4)).value()),
-            terrace_strength_persistence=self.controls.get('terrace_strength_persistence',
-                ParameterControl("", 0, 0, 0.4)).value(),
             terrace_min_strength=self.controls.get('terrace_min_strength',
                 ParameterControl("", 0, 0, 0.0)).value(),
             terrace_max_strength=self.controls.get('terrace_max_strength',
@@ -876,11 +708,9 @@ class ControlPanel(QWidget):
         """Enable/disable generation controls during generation."""
         self.generate_button.setEnabled(enabled)
         if hasattr(self, 'preview_button'):
-            # Only enable preview button if preview mode is active
             if self.preview_checkbox.isChecked():
                 self.preview_button.setEnabled(enabled)
         
-        # Update button text based on state
         if enabled:
             if hasattr(self, 'preview_checkbox') and self.preview_checkbox.isChecked():
                 self.generate_button.setText("Generate Full Terrain")
@@ -891,11 +721,3 @@ class ControlPanel(QWidget):
         """Enable/disable export controls."""
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
-
-    def on_dimension_changed(self, new_dimension):
-        """Auto-adjust disc_radius based on dimension."""
-        # Scale disc_radius to maintain consistent terrain steepness
-        # This is critical for proper max_delta scaling
-        base_radius = 1.0  # radius at dimension 256
-        scaled_radius = base_radius * (new_dimension / 256.0)
-        self.controls['disc_radius'].set_value(scaled_radius)
