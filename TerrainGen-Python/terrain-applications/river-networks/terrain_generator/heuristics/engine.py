@@ -1,0 +1,187 @@
+"""Adapter utilities for reusing the terrain-heuristics engine inside the
+river-networks PyQt application."""
+
+from __future__ import annotations
+
+import os
+import sys
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Tuple
+
+import numpy as np
+from PyQt5.QtGui import QImage
+
+# ---------------------------------------------------------------------------
+# Ensure the terrain-heuristics package location is importable
+# ---------------------------------------------------------------------------
+
+HERE = os.path.abspath(os.path.dirname(__file__))
+HEURISTICS_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", "terrain-heuristics"))
+
+if HEURISTICS_ROOT not in sys.path:
+    sys.path.insert(0, HEURISTICS_ROOT)
+
+# The terrain_gui module defines TerrainEngine and helper routines that already
+# encapsulate the heuristics pipeline. Reuse them rather than re-implement the
+# full stack.
+from terrain_gui import TerrainEngine  # type: ignore
+from climate import latitude_degrees  # type: ignore
+
+
+@dataclass
+class HeuristicSettings:
+    """User-configurable parameters for heuristic computation."""
+
+    cellsize: float = 1500.0
+    z_min: float = 0.0
+    z_max: float = 6000.0
+    sea_level_m: float = 0.0
+    lapse_rate_c_per_km: float = 6.5
+    t_equator_c: float = 30.0
+    t_pole_c: float = 0.0
+    coast_decay_km: float = 1.75
+    orographic_alpha: float = 4.0
+    shadow_beta: float = 0.15
+    shadow_max_distance_km: float = 400.0
+    shadow_decay_km: float = 150.0
+    shadow_height_threshold_m: float = 150.0
+    shadow_strength: float = 1.0
+    precip_lat_pattern: str = "two_bands"
+    prevailing_wind_model: str = "three_cell"
+    temperature_pattern: str = "polar"
+    temperature_gradient_azimuth_deg: float = 0.0
+    precip_gradient_azimuth_deg: float = 0.0
+    constant_wind_azimuth_deg: float = 0.0
+    svf_dirs: int = 16
+    svf_radius: float = 100.0
+    tpi_radii: Tuple[float, float] = (25.0, 100.0)
+    biome_mixing: int = 1
+    use_random_biomes: bool = False
+    flowacc_texture: Optional[str] = None
+
+
+class HeuristicEngine:
+    """Thin wrapper around the standalone TerrainEngine."""
+
+    def __init__(self):
+        self._engine = TerrainEngine()
+        self._settings = HeuristicSettings()
+
+    # ------------------------------ helpers ------------------------------
+    def _apply_heightmap(self, heightmap: np.ndarray, z_min: float, z_max: float):
+        """Inject the terrain heightmap into the underlying engine."""
+        if heightmap.ndim != 2:
+            raise ValueError("Heightmap must be 2D")
+
+        heightmap = np.asarray(heightmap, dtype=np.float32)
+        elev = z_min + (heightmap * (z_max - z_min))
+
+        self._engine.elev = elev.astype(np.float32)
+        self._engine.h, self._engine.w = elev.shape
+        self._engine.lat1d = latitude_degrees(self._engine.h)
+        self._engine._dirty_all()
+
+    def _apply_settings(self, settings: HeuristicSettings):
+        prev = self._settings
+        self._settings = settings
+
+        # Update engine parameters in a single call so internal caches are
+        # invalidated coherently.
+        self._engine.set_settings(
+            cellsize=settings.cellsize,
+            z_min=settings.z_min,
+            z_max=settings.z_max,
+            sea_level_m=settings.sea_level_m,
+            lapse_rate_c_per_km=settings.lapse_rate_c_per_km,
+            t_equator_c=settings.t_equator_c,
+            t_pole_c=settings.t_pole_c,
+            coast_decay_km=settings.coast_decay_km,
+            orographic_alpha=settings.orographic_alpha,
+            shadow_beta=settings.shadow_beta,
+            shadow_max_distance_km=settings.shadow_max_distance_km,
+            shadow_decay_km=settings.shadow_decay_km,
+            shadow_height_threshold_m=settings.shadow_height_threshold_m,
+            shadow_strength=settings.shadow_strength,
+            precip_lat_pattern=settings.precip_lat_pattern,
+            prevailing_wind_model=settings.prevailing_wind_model,
+            temperature_pattern=settings.temperature_pattern,
+            temperature_gradient_azimuth_deg=settings.temperature_gradient_azimuth_deg,
+            precip_gradient_azimuth_deg=settings.precip_gradient_azimuth_deg,
+            constant_wind_azimuth_deg=settings.constant_wind_azimuth_deg,
+            svf_dirs=settings.svf_dirs,
+            svf_radius=settings.svf_radius,
+            tpi_radii=list(settings.tpi_radii),
+            biome_mixing=settings.biome_mixing,
+            use_random_biomes=settings.use_random_biomes,
+            flowacc_texture=settings.flowacc_texture,
+        )
+
+    # --------------------------- public methods --------------------------
+    def prepare(self, heightmap: np.ndarray, settings: Optional[HeuristicSettings] = None):
+        """Reset the engine with a new heightmap and optional settings."""
+        self._engine.reset()
+        if settings is None:
+            settings = self._settings
+        else:
+            self._settings = settings
+
+        self._apply_heightmap(heightmap, settings.z_min, settings.z_max)
+        self._apply_settings(settings)
+
+    def compute(self, selections: Iterable[str]) -> Tuple[Dict[str, QImage], Dict[str, np.ndarray]]:
+        """Compute the requested heuristic layers.
+
+        Returns a tuple ``(images, arrays)`` that match the TerrainEngine API.
+        """
+        images_holder: Dict[str, QImage] = {}
+        arrays_holder: Dict[str, np.ndarray] = {}
+        error: List[str] = []
+
+        finished_event = {"done": False}
+
+        def _on_finished(images: Dict[str, QImage], arrays: Dict[str, np.ndarray]):
+            images_holder.update(images)
+            arrays_holder.update(arrays)
+            finished_event["done"] = True
+
+        def _on_failed(message: str):
+            error.append(message)
+            finished_event["done"] = True
+
+        self._engine.finished.connect(_on_finished)
+        self._engine.failed.connect(_on_failed)
+
+        try:
+            self._engine.compute_selected(list(selections))
+        finally:
+            try:
+                self._engine.finished.disconnect(_on_finished)
+            except TypeError:
+                pass
+            try:
+                self._engine.failed.disconnect(_on_failed)
+            except TypeError:
+                pass
+
+        if error:
+            raise RuntimeError(error[0])
+
+        return images_holder, arrays_holder
+
+    @property
+    def qt_engine(self) -> TerrainEngine:
+        """Expose the underlying TerrainEngine for signal wiring."""
+        return self._engine
+
+
+def qimage_to_rgba(image: QImage) -> np.ndarray:
+    """Convert a ``QImage`` into a contiguous RGBA uint8 numpy array."""
+    if image.isNull():
+        raise ValueError("Cannot convert a null QImage to an array")
+    converted = image.convertToFormat(QImage.Format_RGBA8888)
+    width = converted.width()
+    height = converted.height()
+    ptr = converted.bits()
+    ptr.setsize(converted.byteCount())
+    arr = np.frombuffer(ptr, np.uint8).reshape((height, width, 4)).copy()
+    return arr

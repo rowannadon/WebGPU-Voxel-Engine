@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                             QLineEdit, QMessageBox, QTabWidget)
 from PyQt5.QtCore import pyqtSignal
 from pathlib import Path
+from typing import List
 
 from ..core import TerrainParameters
 from ..config import PresetManager
@@ -150,9 +151,6 @@ class ControlPanel(QWidget):
     """Main control panel for terrain generation."""
 
     parametersChanged = pyqtSignal()
-    visualization_changed = pyqtSignal(dict)
-    overlay_selected = pyqtSignal(str)
-    overlay_cleared = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -187,9 +185,6 @@ class ControlPanel(QWidget):
         
         # Terrain parameters group
         self.create_terrain_group(layout)
-        
-        # Visualization group
-        self.create_visualization_group(layout)
         
         # Export group
         self.create_export_group(layout)
@@ -460,89 +455,6 @@ class ControlPanel(QWidget):
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
     
-    def create_visualization_group(self, parent_layout):
-        """Create visualization group."""
-        group = QGroupBox("Visualization")
-        layout = QVBoxLayout()
-        
-        # Color scheme selector
-        color_layout = QHBoxLayout()
-        color_label = QLabel("Color Scheme:")
-        color_layout.addWidget(color_label)
-        
-        self.color_combo = QComboBox()
-        self.color_combo.addItems(["Terrain", "Grayscale", "Topographic"])
-        self.color_combo.currentTextChanged.connect(self.color_scheme_changed)
-        color_layout.addWidget(self.color_combo)
-        layout.addLayout(color_layout)
-        
-        # Height scale
-        height_control = ParameterControl(
-            "Height Scale", 5, 50, 20, 1, 0
-        )
-        height_control.valueChanged.connect(
-            lambda v: self.visualization_changed.emit({'height_scale': v})
-        )
-        self.controls['height_scale'] = height_control
-        layout.addWidget(height_control)
-        
-        # Sun altitude
-        sun_control = ParameterControl(
-            "Sun Altitude", 0, 90, 45, 1, 0
-        )
-        sun_control.valueChanged.connect(
-            lambda v: self.visualization_changed.emit({'sun_altitude': v})
-        )
-        self.controls['sun_altitude'] = sun_control
-        layout.addWidget(sun_control)
-        
-        # River display
-        self.show_rivers_checkbox = QCheckBox("Show Major Rivers")
-        self.show_rivers_checkbox.stateChanged.connect(self.river_display_changed)
-        layout.addWidget(self.show_rivers_checkbox)
-        
-        # River threshold
-        river_threshold_control = ParameterControl(
-            "River Size Threshold (%)", 80, 99.9, 97.5, 0.1, 1
-        )
-        river_threshold_control.valueChanged.connect(
-            lambda v: self.visualization_changed.emit({'river_threshold': v})
-        )
-        river_threshold_control.setEnabled(False)
-        self.controls['river_threshold'] = river_threshold_control
-        layout.addWidget(river_threshold_control)
-
-        layout.addSpacing(10)
-
-        overlay_label = QLabel("<b>Overlay Texture</b>")
-        layout.addWidget(overlay_label)
-
-        self.show_overlay_checkbox = QCheckBox("Show Overlay Texture")
-        self.show_overlay_checkbox.setEnabled(False)
-        self.show_overlay_checkbox.stateChanged.connect(self.overlay_visibility_changed)
-        layout.addWidget(self.show_overlay_checkbox)
-
-        overlay_file_layout = QHBoxLayout()
-        self.overlay_path_edit = QLineEdit()
-        self.overlay_path_edit.setPlaceholderText("No overlay selected")
-        self.overlay_path_edit.setReadOnly(True)
-        overlay_file_layout.addWidget(self.overlay_path_edit)
-
-        self.overlay_browse_button = QPushButton("Browse...")
-        self.overlay_browse_button.clicked.connect(self.browse_overlay_texture)
-        overlay_file_layout.addWidget(self.overlay_browse_button)
-
-        self.overlay_clear_button = QPushButton("Clear")
-        self.overlay_clear_button.setEnabled(False)
-        self.overlay_clear_button.clicked.connect(self.clear_overlay_texture)
-        overlay_file_layout.addWidget(self.overlay_clear_button)
-
-        layout.addLayout(overlay_file_layout)
-
-        group.setLayout(layout)
-        group.setMaximumWidth(420)
-        parent_layout.addWidget(group)
-    
     def create_export_group(self, parent_layout):
         """Create export group."""
         group = QGroupBox("Export Options")
@@ -641,7 +553,9 @@ class ControlPanel(QWidget):
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: #888; font-size: 11px;")
         parent_layout.addWidget(instructions)
-    
+
+
+
     def toggle_import_mode(self, state):
         """Toggle heightmap import mode."""
         import_enabled = (state == 2)  # Qt.Checked
@@ -674,83 +588,7 @@ class ControlPanel(QWidget):
         show_controls = (state == 2)
         for control in self.variable_controls:
             control.setVisible(show_controls)
-    
-    def color_scheme_changed(self, text):
-        """Handle color scheme change."""
-        scheme_map = {
-            "Terrain": "terrain",
-            "Grayscale": "grayscale",
-            "Topographic": "topographic"
-        }
-        
-        if text in scheme_map:
-            self.visualization_changed.emit({'color_scheme': scheme_map[text]})
-            
-            is_terrain = (text == "Terrain")
-            self.show_rivers_checkbox.setEnabled(is_terrain)
-            if not is_terrain:
-                self.show_rivers_checkbox.setChecked(False)
-    
-    def river_display_changed(self, state):
-        """Handle river display toggle."""
-        show_rivers = (state == 2)
-        self.controls['river_threshold'].setEnabled(show_rivers)
-        self.visualization_changed.emit({'show_rivers': show_rivers})
 
-    def overlay_visibility_changed(self, state):
-        """Handle overlay visibility toggle."""
-        visible = (state == 2)
-        self.visualization_changed.emit({'overlay_visible': visible})
-
-    def browse_overlay_texture(self):
-        """Browse for an overlay texture image."""
-        current_path = self.overlay_path_edit.text()
-        start_dir = Path(current_path).parent if current_path else Path.home()
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Overlay Texture",
-            str(start_dir),
-            "PNG Images (*.png);;All Files (*)"
-        )
-
-        if filename:
-            self.overlay_path_edit.setText(filename)
-            self.overlay_clear_button.setEnabled(True)
-            self.show_overlay_checkbox.setEnabled(True)
-            if not self.show_overlay_checkbox.isChecked():
-                self.show_overlay_checkbox.blockSignals(True)
-                self.show_overlay_checkbox.setChecked(True)
-                self.show_overlay_checkbox.blockSignals(False)
-                self.visualization_changed.emit({'overlay_visible': True})
-            else:
-                self.visualization_changed.emit({'overlay_visible': True})
-            self.overlay_selected.emit(filename)
-
-    def clear_overlay_texture(self):
-        """Clear the currently selected overlay texture."""
-        self.reset_overlay_controls()
-        self.overlay_cleared.emit()
-        self.visualization_changed.emit({'overlay_visible': False})
-
-    def reset_overlay_controls(self):
-        """Reset overlay controls to default state without emitting signals."""
-        self.overlay_path_edit.clear()
-        self.overlay_path_edit.setPlaceholderText("No overlay selected")
-        self.overlay_clear_button.setEnabled(False)
-        self.show_overlay_checkbox.blockSignals(True)
-        self.show_overlay_checkbox.setChecked(False)
-        self.show_overlay_checkbox.setEnabled(False)
-        self.show_overlay_checkbox.blockSignals(False)
-
-    def set_overlay_controls(self, path: str, visible: bool):
-        """Programmatically apply overlay selection state without emitting signals."""
-        self.overlay_path_edit.setText(path)
-        self.overlay_clear_button.setEnabled(True)
-        self.show_overlay_checkbox.blockSignals(True)
-        self.show_overlay_checkbox.setEnabled(True)
-        self.show_overlay_checkbox.setChecked(visible)
-        self.show_overlay_checkbox.blockSignals(False)
-    
     def get_parameters(self) -> TerrainParameters:
         """Get current parameters as TerrainParameters object."""
         heightmap_path = None
@@ -883,3 +721,531 @@ class ControlPanel(QWidget):
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
         self.export_watershed_button.setEnabled(enabled)
+
+class AnalysisPanel(QWidget):
+    """Panel hosting visualization controls and heuristic generation."""
+
+    visualization_changed = pyqtSignal(dict)
+    overlay_selected = pyqtSignal(str)
+    overlay_cleared = pyqtSignal()
+    heuristics_requested = pyqtSignal(dict)
+    computed_overlay_requested = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.visual_controls = {}
+        self.heuristics_controls = {}
+        self.heuristic_checkboxes = {}
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        self.create_visualization_group(layout)
+        self.create_heuristics_group(layout)
+
+        layout.addStretch()
+
+    def create_visualization_group(self, parent_layout):
+        """Create visualization group."""
+        group = QGroupBox("Visualization")
+        layout = QVBoxLayout()
+
+        color_layout = QHBoxLayout()
+        color_label = QLabel("Color Scheme:")
+        color_layout.addWidget(color_label)
+
+        self.color_combo = QComboBox()
+        self.color_combo.addItems(["Terrain", "Grayscale", "Topographic"])
+        self.color_combo.currentTextChanged.connect(self.color_scheme_changed)
+        color_layout.addWidget(self.color_combo)
+        layout.addLayout(color_layout)
+
+        height_control = ParameterControl(
+            "Height Scale", 5, 50, 20, 1, 0
+        )
+        height_control.valueChanged.connect(
+            lambda v: self.visualization_changed.emit({'height_scale': v})
+        )
+        self.visual_controls['height_scale'] = height_control
+        layout.addWidget(height_control)
+
+        sun_control = ParameterControl(
+            "Sun Altitude", 0, 90, 45, 1, 0
+        )
+        sun_control.valueChanged.connect(
+            lambda v: self.visualization_changed.emit({'sun_altitude': v})
+        )
+        self.visual_controls['sun_altitude'] = sun_control
+        layout.addWidget(sun_control)
+
+        self.show_rivers_checkbox = QCheckBox("Show Major Rivers")
+        self.show_rivers_checkbox.stateChanged.connect(self.river_display_changed)
+        layout.addWidget(self.show_rivers_checkbox)
+
+        river_threshold_control = ParameterControl(
+            "River Size Threshold (%)", 80, 99.9, 97.5, 0.1, 1
+        )
+        river_threshold_control.valueChanged.connect(
+            lambda v: self.visualization_changed.emit({'river_threshold': v})
+        )
+        river_threshold_control.setEnabled(False)
+        self.visual_controls['river_threshold'] = river_threshold_control
+        layout.addWidget(river_threshold_control)
+
+        layout.addSpacing(10)
+
+        overlay_label = QLabel("<b>Overlay Texture</b>")
+        layout.addWidget(overlay_label)
+
+        self.show_overlay_checkbox = QCheckBox("Show Overlay Texture")
+        self.show_overlay_checkbox.setEnabled(False)
+        self.show_overlay_checkbox.stateChanged.connect(self.overlay_visibility_changed)
+        layout.addWidget(self.show_overlay_checkbox)
+
+        overlay_file_layout = QHBoxLayout()
+        self.overlay_path_edit = QLineEdit()
+        self.overlay_path_edit.setPlaceholderText("No overlay selected")
+        self.overlay_path_edit.setReadOnly(True)
+        overlay_file_layout.addWidget(self.overlay_path_edit)
+
+        self.overlay_browse_button = QPushButton("Browse...")
+        self.overlay_browse_button.clicked.connect(self.browse_overlay_texture)
+        overlay_file_layout.addWidget(self.overlay_browse_button)
+
+        self.overlay_clear_button = QPushButton("Clear")
+        self.overlay_clear_button.setEnabled(False)
+        self.overlay_clear_button.clicked.connect(self.clear_overlay_texture)
+        overlay_file_layout.addWidget(self.overlay_clear_button)
+
+        layout.addLayout(overlay_file_layout)
+
+        computed_layout = QHBoxLayout()
+        computed_label = QLabel("Computed map:")
+        computed_layout.addWidget(computed_label)
+
+        self.computed_overlay_combo = QComboBox()
+        self.computed_overlay_combo.setEnabled(False)
+        computed_layout.addWidget(self.computed_overlay_combo)
+
+        self.apply_computed_overlay_button = QPushButton("Apply")
+        self.apply_computed_overlay_button.setEnabled(False)
+        self.apply_computed_overlay_button.clicked.connect(self.on_apply_computed_overlay)
+        computed_layout.addWidget(self.apply_computed_overlay_button)
+
+        layout.addLayout(computed_layout)
+
+        group.setLayout(layout)
+        group.setMaximumWidth(420)
+        parent_layout.addWidget(group)
+
+    def create_heuristics_group(self, parent_layout):
+        """Create heuristics selection group."""
+        group = QGroupBox("Terrain Heuristics")
+        layout = QVBoxLayout()
+
+        description = QLabel(
+            "Generate diagnostic maps (slope, flow, biomes, etc.) using the current heightmap."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(description)
+
+        heuristics = [
+            ("slope", "Slope (deg)"),
+            ("aspect", "Aspect (deg)"),
+            ("normal", "Surface normals"),
+            ("curvature", "Curvature"),
+            ("tpi", "Topographic position index"),
+            ("flowacc", "Flow accumulation"),
+            ("twi", "Topographic wetness"),
+            ("svf", "Sky view factor"),
+            ("climate", "Climate fields"),
+            ("biome", "Biomes"),
+            ("albedo", "Terrain albedo"),
+            ("foliage", "Foliage color"),
+            ("forest_density", "Forest density"),
+            ("groundcover_density", "Groundcover density"),
+        ]
+        default_checked = {"slope", "flowacc", "twi", "biome", "foliage"}
+        for key, label_text in heuristics:
+            cb = QCheckBox(label_text)
+            cb.setChecked(key in default_checked)
+            self.heuristic_checkboxes[key] = cb
+            layout.addWidget(cb)
+
+        layout.addSpacing(6)
+
+        params_box = QGroupBox("Computation Settings")
+        params_layout = QVBoxLayout()
+
+        cellsize_control = ParameterControl("Cell Size (m/pixel)", 1, 20000, 1500, 10, 0)
+        self.heuristics_controls['cellsize'] = cellsize_control
+        params_layout.addWidget(cellsize_control)
+
+        z_min_control = ParameterControl("Elevation Minimum (m)", -4000, 4000, 0, 50, 0)
+        self.heuristics_controls['z_min'] = z_min_control
+        params_layout.addWidget(z_min_control)
+
+        z_max_control = ParameterControl("Elevation Maximum (m)", 100, 10000, 6000, 50, 0)
+        self.heuristics_controls['z_max'] = z_max_control
+        params_layout.addWidget(z_max_control)
+
+        sea_level_control = ParameterControl("Sea Level (m)", -1000, 4000, 0, 10, 0)
+        self.heuristics_controls['sea_level_m'] = sea_level_control
+        params_layout.addWidget(sea_level_control)
+
+        lapse_control = ParameterControl("Temp Lapse Rate (°C/km)", 0.0, 15.0, 6.5, 0.1, 1)
+        self.heuristics_controls['lapse_rate_c_per_km'] = lapse_control
+        params_layout.addWidget(lapse_control)
+
+        teq_control = ParameterControl("Temp @ Equator (°C)", -20.0, 60.0, 30.0, 0.5, 1)
+        self.heuristics_controls['t_equator_c'] = teq_control
+        params_layout.addWidget(teq_control)
+
+        tpole_control = ParameterControl("Temp @ Poles (°C)", -80.0, 40.0, 0.0, 0.5, 1)
+        self.heuristics_controls['t_pole_c'] = tpole_control
+        params_layout.addWidget(tpole_control)
+
+        coast_decay_control = ParameterControl("Coast Decay (km)", 0.1, 500.0, 1.75, 0.05, 2)
+        self.heuristics_controls['coast_decay_km'] = coast_decay_control
+        params_layout.addWidget(coast_decay_control)
+
+        orographic_alpha_control = ParameterControl("Orographic Alpha", 0.0, 10.0, 4.0, 0.1, 1)
+        self.heuristics_controls['orographic_alpha'] = orographic_alpha_control
+        params_layout.addWidget(orographic_alpha_control)
+
+        shadow_max_distance_control = ParameterControl("Shadow Max Distance (km)", 1.0, 2000.0, 400.0, 5.0, 1)
+        self.heuristics_controls['shadow_max_distance_km'] = shadow_max_distance_control
+        params_layout.addWidget(shadow_max_distance_control)
+
+        shadow_decay_control = ParameterControl("Shadow Decay (km)", 1.0, 1000.0, 150.0, 5.0, 1)
+        self.heuristics_controls['shadow_decay_km'] = shadow_decay_control
+        params_layout.addWidget(shadow_decay_control)
+
+        shadow_height_control = ParameterControl("Shadow Height Threshold (m)", 0.0, 5000.0, 150.0, 10.0, 1)
+        self.heuristics_controls['shadow_height_threshold_m'] = shadow_height_control
+        params_layout.addWidget(shadow_height_control)
+
+        shadow_strength_control = ParameterControl("Shadow Strength", 0.0, 5.0, 1.0, 0.05, 2)
+        self.heuristics_controls['shadow_strength'] = shadow_strength_control
+        params_layout.addWidget(shadow_strength_control)
+
+        svf_dirs_control = ParameterControl("SVF Directions", 4, 64, 16, 1, 0)
+        self.heuristics_controls['svf_dirs'] = svf_dirs_control
+        params_layout.addWidget(svf_dirs_control)
+
+        svf_radius_control = ParameterControl("SVF Radius (m)", 10, 1000, 100, 5, 0)
+        self.heuristics_controls['svf_radius'] = svf_radius_control
+        params_layout.addWidget(svf_radius_control)
+
+        biome_mix_control = ParameterControl("Biome Mixing Radius", 0, 10, 1, 1, 0)
+        self.heuristics_controls['biome_mixing'] = biome_mix_control
+        params_layout.addWidget(biome_mix_control)
+
+        tpi_label = QLabel("TPI Radii (m, comma separated)")
+        params_layout.addWidget(tpi_label)
+        self.tpi_radii_edit = QLineEdit("25, 100")
+        params_layout.addWidget(self.tpi_radii_edit)
+
+        self.random_biomes_checkbox = QCheckBox("Use probabilistic biomes")
+        params_layout.addWidget(self.random_biomes_checkbox)
+
+        self.use_simulated_flow_checkbox = QCheckBox("Use simulated river flow for flow accumulation")
+        self.use_simulated_flow_checkbox.setChecked(True)
+        params_layout.addWidget(self.use_simulated_flow_checkbox)
+
+        pattern_layout = QHBoxLayout()
+        pattern_label = QLabel("Temperature pattern:")
+        pattern_layout.addWidget(pattern_label)
+        self.temperature_pattern_combo = QComboBox()
+        self.temperature_pattern_combo.addItem("Polar", "polar")
+        self.temperature_pattern_combo.addItem("Equatorial", "equatorial")
+        self.temperature_pattern_combo.addItem("Gradient", "gradient")
+        pattern_layout.addWidget(self.temperature_pattern_combo)
+        params_layout.addLayout(pattern_layout)
+
+        self.temperature_gradient_control = ParameterControl("Temperature gradient azimuth", 0, 360, 0, 5, 0)
+        self.temperature_gradient_control.setEnabled(False)
+        params_layout.addWidget(self.temperature_gradient_control)
+        self.temperature_pattern_combo.currentIndexChanged.connect(self.update_temperature_gradient_enabled)
+
+        precip_layout = QHBoxLayout()
+        precip_label = QLabel("Precipitation pattern:")
+        precip_layout.addWidget(precip_label)
+        self.precip_pattern_combo = QComboBox()
+        self.precip_pattern_combo.addItem("Two tropical bands", "two_bands")
+        self.precip_pattern_combo.addItem("Single equatorial band", "single_band")
+        self.precip_pattern_combo.addItem("Uniform", "uniform")
+        self.precip_pattern_combo.addItem("Latitudinal gradient", "gradient")
+        precip_layout.addWidget(self.precip_pattern_combo)
+        params_layout.addLayout(precip_layout)
+
+        self.precip_gradient_control = ParameterControl("Precip gradient azimuth", 0, 360, 0, 5, 0)
+        self.precip_gradient_control.setEnabled(False)
+        params_layout.addWidget(self.precip_gradient_control)
+        self.precip_pattern_combo.currentIndexChanged.connect(self.update_precip_gradient_enabled)
+
+        wind_layout = QHBoxLayout()
+        wind_label = QLabel("Prevailing wind model:")
+        wind_layout.addWidget(wind_label)
+        self.prevailing_wind_combo = QComboBox()
+        self.prevailing_wind_combo.addItem("Three-cell circulation", "three_cell")
+        self.prevailing_wind_combo.addItem("Constant azimuth", "constant")
+        wind_layout.addWidget(self.prevailing_wind_combo)
+        params_layout.addLayout(wind_layout)
+
+        self.constant_wind_control = ParameterControl("Constant wind azimuth", 0, 360, 25, 5, 0)
+        self.constant_wind_control.setEnabled(False)
+        params_layout.addWidget(self.constant_wind_control)
+        self.prevailing_wind_combo.currentIndexChanged.connect(self.update_wind_angle_enabled)
+
+        params_box.setLayout(params_layout)
+        layout.addWidget(params_box)
+
+        self.update_temperature_gradient_enabled()
+        self.update_precip_gradient_enabled()
+        self.update_wind_angle_enabled()
+
+        self.compute_heuristics_button = QPushButton("Compute Heuristic Maps")
+        self.compute_heuristics_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #3F51B5;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #303F9F;
+            }
+            """
+        )
+        self.compute_heuristics_button.clicked.connect(self.request_heuristics_computation)
+        layout.addWidget(self.compute_heuristics_button)
+
+        group.setLayout(layout)
+        group.setMaximumWidth(420)
+        parent_layout.addWidget(group)
+
+    def color_scheme_changed(self, text):
+        """Handle color scheme change."""
+        scheme_map = {
+            "Terrain": "terrain",
+            "Grayscale": "grayscale",
+            "Topographic": "topographic"
+        }
+
+        if text in scheme_map:
+            self.visualization_changed.emit({'color_scheme': scheme_map[text]})
+
+            is_terrain = (text == "Terrain")
+            self.show_rivers_checkbox.setEnabled(is_terrain)
+            if not is_terrain:
+                self.show_rivers_checkbox.setChecked(False)
+
+    def river_display_changed(self, state):
+        """Handle river display toggle."""
+        show_rivers = (state == 2)
+        self.visual_controls['river_threshold'].setEnabled(show_rivers)
+        self.visualization_changed.emit({'show_rivers': show_rivers})
+
+    def overlay_visibility_changed(self, state):
+        """Handle overlay visibility toggle."""
+        visible = (state == 2)
+        self.visualization_changed.emit({'overlay_visible': visible})
+
+    def browse_overlay_texture(self):
+        """Browse for an overlay texture image."""
+        current_path = self.overlay_path_edit.text()
+        start_dir = Path(current_path).parent if current_path else Path.home()
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Overlay Texture",
+            str(start_dir),
+            "PNG Images (*.png);;All Files (*)"
+        )
+
+        if filename:
+            self.overlay_path_edit.setText(filename)
+            self.overlay_clear_button.setEnabled(True)
+            self.show_overlay_checkbox.setEnabled(True)
+            if not self.show_overlay_checkbox.isChecked():
+                self.show_overlay_checkbox.blockSignals(True)
+                self.show_overlay_checkbox.setChecked(True)
+                self.show_overlay_checkbox.blockSignals(False)
+                self.visualization_changed.emit({'overlay_visible': True})
+            else:
+                self.visualization_changed.emit({'overlay_visible': True})
+            self.overlay_selected.emit(filename)
+
+    def clear_overlay_texture(self):
+        """Clear the currently selected overlay texture."""
+        self.reset_overlay_controls()
+        self.overlay_cleared.emit()
+        self.visualization_changed.emit({'overlay_visible': False})
+
+    def on_apply_computed_overlay(self):
+        """Emit a request to apply the currently selected computed overlay."""
+        if not self.computed_overlay_combo.isEnabled():
+            return
+        overlay_key = self.computed_overlay_combo.currentData()
+        if overlay_key:
+            self.computed_overlay_requested.emit(str(overlay_key))
+
+    def set_computed_overlays(self, names, selected: str = None):
+        """Populate the computed overlay combo box with available maps."""
+        self.computed_overlay_combo.blockSignals(True)
+        self.computed_overlay_combo.clear()
+        for name in names:
+            display = name.replace('_', ' ')
+            self.computed_overlay_combo.addItem(display, name)
+        has_items = bool(names)
+        self.computed_overlay_combo.setEnabled(has_items)
+        self.apply_computed_overlay_button.setEnabled(has_items)
+        if has_items:
+            target_index = 0
+            if selected is not None:
+                for idx in range(self.computed_overlay_combo.count()):
+                    if self.computed_overlay_combo.itemData(idx) == selected:
+                        target_index = idx
+                        break
+            self.computed_overlay_combo.setCurrentIndex(target_index)
+        self.computed_overlay_combo.blockSignals(False)
+
+    def clear_computed_overlays(self):
+        """Clear computed overlays from the UI controls."""
+        self.computed_overlay_combo.blockSignals(True)
+        self.computed_overlay_combo.clear()
+        self.computed_overlay_combo.blockSignals(False)
+        self.computed_overlay_combo.setEnabled(False)
+        self.apply_computed_overlay_button.setEnabled(False)
+
+    def reset_overlay_controls(self):
+        """Reset overlay controls to default state without emitting signals."""
+        self.overlay_path_edit.clear()
+        self.overlay_path_edit.setPlaceholderText("No overlay selected")
+        self.overlay_clear_button.setEnabled(False)
+        self.show_overlay_checkbox.blockSignals(True)
+        self.show_overlay_checkbox.setChecked(False)
+        self.show_overlay_checkbox.setEnabled(False)
+        self.show_overlay_checkbox.blockSignals(False)
+
+    def set_overlay_controls(self, path: str, visible: bool):
+        """Programmatically apply overlay selection state without emitting signals."""
+        self.overlay_path_edit.setText(path)
+        self.overlay_clear_button.setEnabled(True)
+        self.show_overlay_checkbox.blockSignals(True)
+        self.show_overlay_checkbox.setEnabled(True)
+        self.show_overlay_checkbox.setChecked(visible)
+        self.show_overlay_checkbox.blockSignals(False)
+
+    def update_temperature_gradient_enabled(self):
+        enabled = self.temperature_pattern_combo.currentData() == 'gradient'
+        self.temperature_gradient_control.setEnabled(enabled)
+
+    def update_precip_gradient_enabled(self):
+        enabled = self.precip_pattern_combo.currentData() == 'gradient'
+        self.precip_gradient_control.setEnabled(enabled)
+
+    def update_wind_angle_enabled(self):
+        enabled = self.prevailing_wind_combo.currentData() == 'constant'
+        self.constant_wind_control.setEnabled(enabled)
+
+    def _parse_tpi_radii(self) -> List[float]:
+        text = self.tpi_radii_edit.text().strip()
+        if not text:
+            return [25.0, 100.0]
+        parts = [p for p in text.replace(' ', '').split(',') if p]
+        radii: List[float] = []
+        for part in parts:
+            try:
+                value = float(part)
+                if value <= 0:
+                    raise ValueError
+                radii.append(value)
+            except ValueError:
+                raise ValueError(f"Invalid TPI radius: {part}") from None
+        if not radii:
+            raise ValueError("Provide at least one TPI radius")
+        return radii
+
+    def request_heuristics_computation(self):
+        selections = []
+        for key, checkbox in self.heuristic_checkboxes.items():
+            if checkbox.isChecked():
+                selections.append(key)
+
+        if not selections:
+            QMessageBox.information(self, "No heuristics selected",
+                                    "Select at least one map to compute.")
+            return
+
+        try:
+            tpi_radii = self._parse_tpi_radii()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid TPI radii", str(exc))
+            return
+
+        settings = {
+            'cellsize': self.heuristics_controls['cellsize'].value(),
+            'z_min': self.heuristics_controls['z_min'].value(),
+            'z_max': self.heuristics_controls['z_max'].value(),
+            'sea_level_m': self.heuristics_controls['sea_level_m'].value(),
+            'lapse_rate_c_per_km': self.heuristics_controls['lapse_rate_c_per_km'].value(),
+            't_equator_c': self.heuristics_controls['t_equator_c'].value(),
+            't_pole_c': self.heuristics_controls['t_pole_c'].value(),
+            'coast_decay_km': self.heuristics_controls['coast_decay_km'].value(),
+            'orographic_alpha': self.heuristics_controls['orographic_alpha'].value(),
+            'shadow_max_distance_km': self.heuristics_controls['shadow_max_distance_km'].value(),
+            'shadow_decay_km': self.heuristics_controls['shadow_decay_km'].value(),
+            'shadow_height_threshold_m': self.heuristics_controls['shadow_height_threshold_m'].value(),
+            'shadow_strength': self.heuristics_controls['shadow_strength'].value(),
+            'svf_dirs': int(self.heuristics_controls['svf_dirs'].value()),
+            'svf_radius': self.heuristics_controls['svf_radius'].value(),
+            'biome_mixing': int(self.heuristics_controls['biome_mixing'].value()),
+            'tpi_radii': tpi_radii,
+            'use_random_biomes': self.random_biomes_checkbox.isChecked(),
+            'temperature_pattern': self.temperature_pattern_combo.currentData(),
+            'temperature_gradient_azimuth_deg': self.temperature_gradient_control.value(),
+            'precip_lat_pattern': self.precip_pattern_combo.currentData(),
+            'precip_gradient_azimuth_deg': self.precip_gradient_control.value(),
+            'prevailing_wind_model': self.prevailing_wind_combo.currentData(),
+            'constant_wind_azimuth_deg': self.constant_wind_control.value(),
+        }
+
+        expanded = []
+        for key in selections:
+            if key == 'tpi':
+                for radius in tpi_radii:
+                    expanded.append(f"tpi@{float(radius)}")
+            else:
+                expanded.append(key)
+
+        request_payload = {
+            'selections': expanded,
+            'settings': settings,
+            'use_simulated_flow': self.use_simulated_flow_checkbox.isChecked(),
+        }
+        self.heuristics_requested.emit(request_payload)
+
+    def set_heuristics_busy(self, busy: bool):
+        self.compute_heuristics_button.setEnabled(not busy)
+        for checkbox in self.heuristic_checkboxes.values():
+            checkbox.setEnabled(not busy)
+        for control in self.heuristics_controls.values():
+            control.setEnabled(not busy)
+        self.tpi_radii_edit.setEnabled(not busy)
+        self.random_biomes_checkbox.setEnabled(not busy)
+        self.use_simulated_flow_checkbox.setEnabled(not busy)
+        self.temperature_pattern_combo.setEnabled(not busy)
+        self.precip_pattern_combo.setEnabled(not busy)
+        self.prevailing_wind_combo.setEnabled(not busy)
+        self.temperature_gradient_control.setEnabled(not busy and self.temperature_pattern_combo.currentData() == 'gradient')
+        self.precip_gradient_control.setEnabled(not busy and self.precip_pattern_combo.currentData() == 'gradient')
+        self.constant_wind_control.setEnabled(not busy and self.prevailing_wind_combo.currentData() == 'constant')
+        has_computed = self.computed_overlay_combo.count() > 0
+        self.computed_overlay_combo.setEnabled((not busy) and has_computed)
+        self.apply_computed_overlay_button.setEnabled((not busy) and has_computed)
+
