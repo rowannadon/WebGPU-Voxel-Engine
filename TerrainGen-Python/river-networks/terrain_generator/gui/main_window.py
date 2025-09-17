@@ -1,6 +1,8 @@
 """Main application window."""
 
 import sys
+import numpy as np
+from PIL import Image
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QScrollArea, QProgressBar, QLabel, QPushButton,
                             QMessageBox, QFileDialog)
@@ -73,7 +75,8 @@ class TerrainGeneratorWindow(QMainWindow):
         super().__init__()
         self.generator_thread = None
         self.current_terrain_data = None
-        
+        self.current_overlay_path = None
+
         self.setup_ui()
         self.setup_connections()
     
@@ -136,9 +139,11 @@ class TerrainGeneratorWindow(QMainWindow):
         self.control_panel.export_button.clicked.connect(self.export_terrain)
         self.control_panel.export_flow_button.clicked.connect(self.export_flow_mask)
         self.control_panel.export_watershed_button.clicked.connect(self.export_watershed_mask)
-        
+
         # Visualization controls
         self.control_panel.visualization_changed.connect(self.update_visualization)
+        self.control_panel.overlay_selected.connect(self.load_overlay_texture)
+        self.control_panel.overlay_cleared.connect(self.clear_overlay_texture)
     
     def generate_terrain(self):
         """Start terrain generation."""
@@ -186,7 +191,14 @@ class TerrainGeneratorWindow(QMainWindow):
         """Handle completed preview generation."""
         self.current_terrain_data = terrain_data
         self.terrain_viewport.set_terrain(terrain_data)
-        
+
+        if self.current_overlay_path and self.terrain_viewport.renderer.overlay_image is None:
+            self.current_overlay_path = None
+            self.control_panel.reset_overlay_controls()
+
+        if self.control_panel.show_overlay_checkbox.isEnabled() and self.control_panel.show_overlay_checkbox.isChecked():
+            self.terrain_viewport.set_overlay_visible(True)
+
         # Re-enable ALL controls properly
         self.control_panel.set_generation_enabled(True)  # This re-enables the main generate button
         self.control_panel.set_export_enabled(False)  # Keep export disabled for preview
@@ -205,7 +217,14 @@ class TerrainGeneratorWindow(QMainWindow):
         """Handle completed terrain generation."""
         self.current_terrain_data = terrain_data
         self.terrain_viewport.set_terrain(terrain_data)
-        
+
+        if self.current_overlay_path and self.terrain_viewport.renderer.overlay_image is None:
+            self.current_overlay_path = None
+            self.control_panel.reset_overlay_controls()
+
+        if self.control_panel.show_overlay_checkbox.isEnabled() and self.control_panel.show_overlay_checkbox.isChecked():
+            self.terrain_viewport.set_overlay_visible(True)
+
         self.control_panel.set_generation_enabled(True)  # Re-enable controls
         self.control_panel.set_export_enabled(True)  # Enable export for full terrain
         self.progress_bar.setVisible(False)
@@ -237,9 +256,61 @@ class TerrainGeneratorWindow(QMainWindow):
         
         if 'show_rivers' in viz_params:
             self.terrain_viewport.set_show_rivers(viz_params['show_rivers'])
-        
+
         if 'river_threshold' in viz_params:
             self.terrain_viewport.set_river_threshold(viz_params['river_threshold'])
+
+        if 'overlay_visible' in viz_params:
+            self.terrain_viewport.set_overlay_visible(viz_params['overlay_visible'])
+
+    def load_overlay_texture(self, filepath: str):
+        """Load an overlay texture from disk and apply it to the viewport."""
+        if not self.current_terrain_data:
+            QMessageBox.warning(self, "No Terrain", "Generate terrain before loading an overlay texture.")
+            self.control_panel.reset_overlay_controls()
+            return
+
+        try:
+            with Image.open(filepath) as img:
+                # Preserve alpha if present, otherwise ensure RGB
+                if img.mode not in ("RGBA", "RGB"):
+                    img = img.convert("RGBA")
+                overlay_array = np.array(img)
+        except Exception as exc:
+            QMessageBox.critical(self, "Overlay Load Failed", f"Could not load overlay image:\n{exc}")
+            if self.current_overlay_path:
+                visible = bool(
+                    self.terrain_viewport.renderer.overlay_image is not None and
+                    self.terrain_viewport.renderer.overlay_enabled
+                )
+                self.control_panel.set_overlay_controls(self.current_overlay_path, visible)
+            else:
+                self.control_panel.reset_overlay_controls()
+            return
+
+        try:
+            self.terrain_viewport.set_overlay_image(overlay_array)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Overlay Mismatch", str(exc))
+            if self.current_overlay_path:
+                visible = bool(
+                    self.terrain_viewport.renderer.overlay_image is not None and
+                    self.terrain_viewport.renderer.overlay_enabled
+                )
+                self.control_panel.set_overlay_controls(self.current_overlay_path, visible)
+            else:
+                self.control_panel.reset_overlay_controls()
+            return
+
+        self.current_overlay_path = filepath
+        self.terrain_viewport.set_overlay_visible(True)
+        self.status_label.setText(f"Overlay applied: {filepath}")
+
+    def clear_overlay_texture(self):
+        """Remove the current overlay texture from the viewport."""
+        self.current_overlay_path = None
+        self.terrain_viewport.clear_overlay_image()
+        self.status_label.setText("Overlay texture cleared.")
     
     def export_terrain(self):
         """Export terrain heightmap."""

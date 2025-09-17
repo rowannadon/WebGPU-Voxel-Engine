@@ -148,8 +148,10 @@ class DomainWarpedFBMWidget(QWidget):
 
 class ControlPanel(QWidget):
     """Main control panel for terrain generation."""
-    
+
     visualization_changed = pyqtSignal(dict)
+    overlay_selected = pyqtSignal(str)
+    overlay_cleared = pyqtSignal()
     
     def __init__(self):
         super().__init__()
@@ -471,7 +473,34 @@ class ControlPanel(QWidget):
         river_threshold_control.setEnabled(False)
         self.controls['river_threshold'] = river_threshold_control
         layout.addWidget(river_threshold_control)
-        
+
+        layout.addSpacing(10)
+
+        overlay_label = QLabel("<b>Overlay Texture</b>")
+        layout.addWidget(overlay_label)
+
+        self.show_overlay_checkbox = QCheckBox("Show Overlay Texture")
+        self.show_overlay_checkbox.setEnabled(False)
+        self.show_overlay_checkbox.stateChanged.connect(self.overlay_visibility_changed)
+        layout.addWidget(self.show_overlay_checkbox)
+
+        overlay_file_layout = QHBoxLayout()
+        self.overlay_path_edit = QLineEdit()
+        self.overlay_path_edit.setPlaceholderText("No overlay selected")
+        self.overlay_path_edit.setReadOnly(True)
+        overlay_file_layout.addWidget(self.overlay_path_edit)
+
+        self.overlay_browse_button = QPushButton("Browse...")
+        self.overlay_browse_button.clicked.connect(self.browse_overlay_texture)
+        overlay_file_layout.addWidget(self.overlay_browse_button)
+
+        self.overlay_clear_button = QPushButton("Clear")
+        self.overlay_clear_button.setEnabled(False)
+        self.overlay_clear_button.clicked.connect(self.clear_overlay_texture)
+        overlay_file_layout.addWidget(self.overlay_clear_button)
+
+        layout.addLayout(overlay_file_layout)
+
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -629,6 +658,60 @@ class ControlPanel(QWidget):
         show_rivers = (state == 2)
         self.controls['river_threshold'].setEnabled(show_rivers)
         self.visualization_changed.emit({'show_rivers': show_rivers})
+
+    def overlay_visibility_changed(self, state):
+        """Handle overlay visibility toggle."""
+        visible = (state == 2)
+        self.visualization_changed.emit({'overlay_visible': visible})
+
+    def browse_overlay_texture(self):
+        """Browse for an overlay texture image."""
+        current_path = self.overlay_path_edit.text()
+        start_dir = Path(current_path).parent if current_path else Path.home()
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Overlay Texture",
+            str(start_dir),
+            "PNG Images (*.png);;All Files (*)"
+        )
+
+        if filename:
+            self.overlay_path_edit.setText(filename)
+            self.overlay_clear_button.setEnabled(True)
+            self.show_overlay_checkbox.setEnabled(True)
+            if not self.show_overlay_checkbox.isChecked():
+                self.show_overlay_checkbox.blockSignals(True)
+                self.show_overlay_checkbox.setChecked(True)
+                self.show_overlay_checkbox.blockSignals(False)
+                self.visualization_changed.emit({'overlay_visible': True})
+            else:
+                self.visualization_changed.emit({'overlay_visible': True})
+            self.overlay_selected.emit(filename)
+
+    def clear_overlay_texture(self):
+        """Clear the currently selected overlay texture."""
+        self.reset_overlay_controls()
+        self.overlay_cleared.emit()
+        self.visualization_changed.emit({'overlay_visible': False})
+
+    def reset_overlay_controls(self):
+        """Reset overlay controls to default state without emitting signals."""
+        self.overlay_path_edit.clear()
+        self.overlay_path_edit.setPlaceholderText("No overlay selected")
+        self.overlay_clear_button.setEnabled(False)
+        self.show_overlay_checkbox.blockSignals(True)
+        self.show_overlay_checkbox.setChecked(False)
+        self.show_overlay_checkbox.setEnabled(False)
+        self.show_overlay_checkbox.blockSignals(False)
+
+    def set_overlay_controls(self, path: str, visible: bool):
+        """Programmatically apply overlay selection state without emitting signals."""
+        self.overlay_path_edit.setText(path)
+        self.overlay_clear_button.setEnabled(True)
+        self.show_overlay_checkbox.blockSignals(True)
+        self.show_overlay_checkbox.setEnabled(True)
+        self.show_overlay_checkbox.setChecked(visible)
+        self.show_overlay_checkbox.blockSignals(False)
     
     def get_parameters(self) -> TerrainParameters:
         """Get current parameters as TerrainParameters object."""

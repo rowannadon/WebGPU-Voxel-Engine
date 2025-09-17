@@ -58,7 +58,12 @@ class Terrain3DRenderer:
         self.river_threshold = 0.95
         self.color_scheme = 'terrain'
         self.colormaps = TerrainColormap.get_all()
-    
+        self.texture_coords = None
+        self.overlay_image = None
+        self.overlay_texture_id = None
+        self.overlay_dirty = False
+        self.overlay_enabled = False
+
     def set_data(self, terrain_data: TerrainData):
         """Set terrain data for rendering."""
         self.terrain_data = terrain_data
@@ -95,10 +100,18 @@ class Terrain3DRenderer:
         VY = (heightmap * self.height_scale).astype(np.float32)
         VZ = (Z - z_offset).astype(np.float32)
         self.vertices = np.column_stack((VX.ravel(), VY.ravel(), VZ.ravel())).astype(np.float32)
-        
+
+        # Generate texture coordinates for overlay mapping
+        width_div = max(width - 1, 1)
+        height_div = max(height - 1, 1)
+        U = (X.astype(np.float32) / width_div)
+        V = (Z.astype(np.float32) / height_div)
+        # OpenGL expects the first row as the bottom of the texture, so we keep V as-is
+        self.texture_coords = np.column_stack((U.ravel(), V.ravel())).astype(np.float32)
+
         # Compute normals
         self.normals = self._compute_normals(heightmap)
-        
+
         # Update colors
         self.update_colors()
         
@@ -142,10 +155,18 @@ class Terrain3DRenderer:
         """Update vertex colors with lighting and effects (vectorized)."""
         if self.terrain_data is None or self.vertices is None:
             return
-        
+
+        if self.overlay_enabled and self.overlay_image is not None:
+            # Use lighting-only colors so the texture overlay remains visible
+            lighting = self._compute_lighting_factors()
+            rgba = np.ones((lighting.shape[0], 4), dtype=np.float32)
+            rgba[:, 0:3] = lighting[:, None]
+            self.colors = rgba
+            return
+
         heightmap = self.terrain_data.heightmap
         height, width = heightmap.shape
-        
+
         # Get colormap
         colormap = self.colormaps[self.color_scheme]
         
@@ -185,7 +206,7 @@ class Terrain3DRenderer:
             base_colors[:, 0:3] *= lighting[:, None]
         
         self.colors = base_colors.astype(np.float32)
-    
+
     def _compute_river_mask(self) -> Optional[np.ndarray]:
         """Compute connected river mask (vectorized via labeling)."""
         if not self.terrain_data or self.terrain_data.river_volume is None:
@@ -214,23 +235,138 @@ class Terrain3DRenderer:
         touching_labels = np.unique(labels[(labels > 0) & ocean_border])
         connected = np.isin(labels, touching_labels)
         return connected
-    
+
     def render(self):
         """Render the terrain mesh."""
         if self.vertices is None or self.indices is None:
             return
-        
+
+        use_texture = (
+            self.overlay_enabled and
+            self.overlay_image is not None and
+            self.texture_coords is not None and
+            self._ensure_overlay_texture()
+        )
+
         glEnableClientState(GL_VERTEX_ARRAY)
         glEnableClientState(GL_COLOR_ARRAY)
-        
+        if use_texture:
+            glEnable(GL_TEXTURE_2D)
+            glEnableClientState(GL_TEXTURE_COORD_ARRAY)
+            glTexCoordPointer(2, GL_FLOAT, 0, self.texture_coords)
+        else:
+            glDisable(GL_TEXTURE_2D)
+
         glVertexPointer(3, GL_FLOAT, 0, self.vertices)
         glColorPointer(4, GL_FLOAT, 0, self.colors)
-        
+
         glDrawElements(GL_TRIANGLES, len(self.indices), 
                       GL_UNSIGNED_INT, self.indices)
-        
+
+        if use_texture:
+            glDisableClientState(GL_TEXTURE_COORD_ARRAY)
+            glBindTexture(GL_TEXTURE_2D, 0)
+            glDisable(GL_TEXTURE_2D)
         glDisableClientState(GL_COLOR_ARRAY)
         glDisableClientState(GL_VERTEX_ARRAY)
+
+    def set_overlay_image(self, image: Optional[np.ndarray]):
+        """Set or replace the overlay texture image."""
+        if image is None:
+            self.clear_overlay()
+            return
+
+        if self.terrain_data is None:
+            self.overlay_image = None
+            self.overlay_enabled = False
+            return
+
+        heightmap = self.terrain_data.heightmap
+        if image.shape[0] != heightmap.shape[0] or image.shape[1] != heightmap.shape[1]:
+            raise ValueError("Overlay image resolution must match the terrain heightmap")
+
+        self.overlay_texture_id = None
+        self.overlay_image = np.ascontiguousarray(image)
+        self.overlay_dirty = True
+        self.overlay_enabled = True
+        self.update_colors()
+
+    def clear_overlay(self):
+        """Remove overlay texture information."""
+        self.overlay_texture_id = None
+        self.overlay_image = None
+        self.overlay_enabled = False
+        self.overlay_dirty = False
+        self.update_colors()
+
+    def set_overlay_enabled(self, enabled: bool):
+        """Enable or disable overlay rendering."""
+        self.overlay_enabled = bool(enabled) and self.overlay_image is not None
+        self.update_colors()
+
+    def _compute_lighting_factors(self) -> np.ndarray:
+        """Compute per-vertex lighting factors (0-1)."""
+        count = self.vertices.shape[0]
+        lighting = np.ones((count,), dtype=np.float32)
+        if self.normals is None:
+            return lighting
+
+        sun_altitude_rad = np.radians(self.sun_altitude)
+        light_dir = np.array([
+            np.cos(sun_altitude_rad) * 0.707,
+            np.sin(sun_altitude_rad),
+            np.cos(sun_altitude_rad) * 0.707
+        ], dtype=np.float32)
+        light_dir /= (np.linalg.norm(light_dir) + 1e-8)
+        n = self.normals.astype(np.float32)
+        n_dot_l = np.clip(np.einsum('ij,j->i', n, light_dir), 0.0, 1.0)
+        ambient = 0.3
+        diffuse = 0.7
+        lighting = (ambient + diffuse * n_dot_l).astype(np.float32)
+        return lighting
+
+    def _ensure_overlay_texture(self) -> bool:
+        """Upload overlay texture if needed, returns True when ready."""
+        if self.overlay_image is None:
+            return False
+
+        if self.overlay_texture_id is None:
+            self.overlay_texture_id = glGenTextures(1)
+            self.overlay_dirty = True
+
+        glBindTexture(GL_TEXTURE_2D, self.overlay_texture_id)
+
+        if self.overlay_dirty:
+            data = self.overlay_image
+            if data.dtype != np.uint8:
+                data = np.clip(data * 255.0, 0, 255).astype(np.uint8)
+            height, width, channels = data.shape
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+            format_enum = GL_RGB if channels == 3 else GL_RGBA
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                format_enum,
+                width,
+                height,
+                0,
+                format_enum,
+                GL_UNSIGNED_BYTE,
+                data
+            )
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            self.overlay_dirty = False
+
+        return True
+
+    def release_overlay_texture(self):
+        """Delete overlay texture from GPU if it exists."""
+        if self.overlay_texture_id is not None:
+            glDeleteTextures(int(self.overlay_texture_id))
+            self.overlay_texture_id = None
 
 class TerrainViewport(QOpenGLWidget):
     """Qt widget for 3D terrain visualization."""
@@ -244,13 +380,19 @@ class TerrainViewport(QOpenGLWidget):
         self.last_pos = None
         self.widget_width = 800
         self.widget_height = 600
-    
+
     def set_terrain(self, terrain_data: TerrainData):
         """Set terrain data to visualize."""
         self.renderer.set_data(terrain_data)
+        if self.renderer.overlay_image is not None:
+            overlay_shape = self.renderer.overlay_image.shape[:2]
+            if overlay_shape != terrain_data.heightmap.shape:
+                self.clear_overlay_image()
+        else:
+            self.renderer.set_overlay_enabled(False)
         self.update()
         self.terrainUpdated.emit()
-    
+
     def set_color_scheme(self, scheme: str):
         """Change color scheme."""
         self.renderer.set_color_scheme(scheme)
@@ -272,14 +414,47 @@ class TerrainViewport(QOpenGLWidget):
         self.renderer.show_rivers = show
         self.renderer.update_colors()
         self.update()
-    
+
     def set_river_threshold(self, threshold: float):
         """Set river threshold percentage."""
         self.renderer.river_threshold = threshold / 100.0
         if self.renderer.show_rivers:
             self.renderer.update_colors()
             self.update()
-    
+
+    def set_overlay_image(self, image: np.ndarray):
+        """Set the overlay image for texture mapping."""
+        if self.renderer.terrain_data is None:
+            raise ValueError("Generate terrain before applying an overlay texture.")
+
+        expected_shape = self.renderer.terrain_data.heightmap.shape
+        if image.shape[0] != expected_shape[0] or image.shape[1] != expected_shape[1]:
+            raise ValueError("Overlay image resolution must match the terrain heightmap.")
+
+        ctx = self.context()
+        if ctx is not None and self.renderer.overlay_texture_id is not None:
+            self.makeCurrent()
+            self.renderer.release_overlay_texture()
+            self.doneCurrent()
+
+        self.renderer.set_overlay_image(image)
+        self.update()
+
+    def clear_overlay_image(self):
+        """Remove any overlay image."""
+        ctx = self.context()
+        if ctx is not None:
+            self.makeCurrent()
+            self.renderer.release_overlay_texture()
+            self.doneCurrent()
+        self.renderer.clear_overlay()
+        self.update()
+
+    def set_overlay_visible(self, visible: bool):
+        """Enable or disable overlay rendering."""
+        self.renderer.set_overlay_enabled(visible)
+        self.update()
+
     def initializeGL(self):
         """Initialize OpenGL settings."""
         glClearColor(0.0, 0.0, 0.0, 1.0)
