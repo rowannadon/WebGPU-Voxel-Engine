@@ -25,6 +25,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
+from albedo import compute_terrain_albedo_rgb
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -69,17 +70,16 @@ def parse_args():
     ap = argparse.ArgumentParser(description="Compute terrain heuristics and simple climate/biome maps from a PNG heightmap (8- or 16-bit grayscale).", formatter_class=p)
     ap.add_argument('--input', required=True, help="Input heightmap PNG (8- or 16-bit grayscale).")
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
-    ap.add_argument('--cellsize', type=float, default=10.0, help="Meters per pixel.")
+    ap.add_argument('--cellsize', type=float, default=1500.0, help="Meters per pixel.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
-    ap.add_argument('--z-max', type=float, default=3100.0, help="Elevation (m) at heightmap value 255.")
+    ap.add_argument('--z-max', type=float, default=6000.0, help="Elevation (m) at heightmap value 255.")
     ap.add_argument('--bit-depth', type=int, default=0, choices=[0,8,16], help="Output PNG bit depth: 0=auto (match input), or 8/16. Normals and biome map are saved as 8-bit RGB.")
     ap.add_argument(
         '--compute',
         nargs='+',
-        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','foliage','biome', 'forest_density', 'groundcover_density'],
+        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','biome','albedo','foliage', 'forest_density', 'groundcover_density'],
         help=(
-            "Which layers to compute. Core: slope, aspect, normal, curvature, tpi, flowacc, twi, svf, climate, biome, foliage. "
-            "New: 'forest_density' (trees), 'groundcover_density' (grass/low flora)."
+            "Which layers to compute. Core: slope, aspect, normal, curvature, tpi, flowacc, twi, svf, climate, biome, foliage, albedo. "
         )
     )
     ap.add_argument('--tpi-radii', nargs='*', type=float, default=[25.0, 100.0], help="TPI radii in METERS (convert to pixels using --cellsize).")
@@ -99,34 +99,34 @@ def parse_args():
 
     # Climate / water masks
     ap.add_argument('--sea-level-m', type=float, default=0.0, help="Elevation threshold in meters for oceans (<= is ocean).")
-    ap.add_argument('--lapse-rate-c-per-km', type=float, default=8.5, help="Lapse rate (°C/km).")
-    ap.add_argument('--t-equator-c', type=float, default=40.0, help="Sea-level annual mean temperature at equator (°C).")
-    ap.add_argument('--t-pole-c', type=float, default=0.0, help="Sea-level annual mean temperature at poles (°C).")
-    ap.add_argument('--coast-decay-km', type=float, default=2.0, help="e-folding distance for moisture decay from coasts (km).")
-    ap.add_argument('--orographic-alpha', type=float, default=4.0, help="Orographic lift multiplier for positive directional slope.")
+    ap.add_argument('--lapse-rate-c-per-km', type=float, default=6.5, help="Lapse rate (°C/km).")
+    ap.add_argument('--t-equator-c', type=float, default=60.0, help="Sea-level annual mean temperature at equator (°C).")
+    ap.add_argument('--t-pole-c', type=float, default=-5.0, help="Sea-level annual mean temperature at poles (°C).")
+    ap.add_argument('--coast-decay-km', type=float, default=75.0, help="e-folding distance for moisture decay from coasts (km).")
+    ap.add_argument('--orographic-alpha', type=float, default=5.0, help="Orographic lift multiplier for positive directional slope.")
     ap.add_argument('--shadow-beta', type=float, default=0.15, help="Rain shadow strength for negative directional slope.")
     # Advanced rain shadow controls (used when advanced shadow is enabled)
-    ap.add_argument('--shadow-max-distance-km', type=float, default=2.0,
+    ap.add_argument('--shadow-max-distance-km', type=float, default=150.0,
                     help="Maximum upwind tracing distance for rain shadow (km). Controls shadow size/extent.")
-    ap.add_argument('--shadow-decay-km', type=float, default=1.0,
+    ap.add_argument('--shadow-decay-km', type=float, default=75.0,
                     help="Exponential decay length for shadow with distance (km). Larger = longer shadows.")
-    ap.add_argument('--shadow-height-threshold-m', type=float, default=200.0,
+    ap.add_argument('--shadow-height-threshold-m', type=float, default=300.0,
                     help="Minimum upwind-over-downwind elevation difference (m) to cast a shadow.")
     ap.add_argument('--shadow-strength', type=float, default=1.0,
                     help="Shadow strength multiplier (>1 stronger, <1 weaker).")
     ap.add_argument('--biome-mixing-factor', type=int, default=1, help="Biome mixing amount")
     ap.add_argument('--use-random-biomes', default=False, action='store_true', help="Use randomized biome sampling")
-    ap.add_argument('--precip-lat-pattern', choices=['two_bands', 'single_band', 'uniform', 'gradient'], default='two_bands',
+    ap.add_argument('--precip-lat-pattern', choices=['two_bands', 'single_band', 'uniform', 'gradient'], default='gradient',
                     help="Precipitation base pattern by latitude: two tropical bands, a single equatorial band, uniform, or gradient.")
     ap.add_argument('--prevailing-wind-model', choices=['constant', 'three_cell'], default='constant',
                     help="Wind model used for directional precipitation: constant (legacy) or three_cell circulation.")
-    ap.add_argument('--temperature-pattern', choices=['polar', 'gradient'], default='polar',
+    ap.add_argument('--temperature-pattern', choices=['polar', 'gradient'], default='gradient',
                     help="Base temperature pattern: polar (default) or planar gradient.")
     ap.add_argument('--temperature-gradient-azimuth', type=float, default=0.0,
                     help="Gradient azimuth in degrees when using gradient temperature pattern (0=north, clockwise positive).")
-    ap.add_argument('--precip-gradient-azimuth', type=float, default=0.0,
+    ap.add_argument('--precip-gradient-azimuth', type=float, default=270.0,
                     help="Azimuth (degrees) for gradient precipitation pattern (0=north, clockwise positive).")
-    ap.add_argument('--constant-wind-azimuth', type=float, default=0.0,
+    ap.add_argument('--constant-wind-azimuth', type=float, default=25.0,
                     help="Azimuth (degrees) for constant prevailing wind model (0=east, counter-clockwise positive).")
 
     args = ap.parse_args()
@@ -697,6 +697,23 @@ def run_foliage(ctx: PipelineContext) -> None:
         np.save(os.path.join(args.outdir, "foliage_color.npy"), foliage_rgb)
 
 
+
+def run_albedo(ctx: PipelineContext) -> None:
+    args = ctx.args
+    biome_id = ctx.stage_results.get('biome_id')
+    if biome_id is None:
+        raise RuntimeError('Biome IDs must be computed before terrain albedo')
+    albedo_path = os.path.join(args.outdir, 'terrain_albedo.npy')
+    albedo = try_load_npy(albedo_path, 'terrain_albedo', ctx.can_load_stage('albedo'))
+    if albedo is None:
+        albedo = compute_terrain_albedo_rgb(biome_id)
+        if args.write_raw_npy:
+            np.save(albedo_path, albedo)
+    else:
+        albedo = np.asarray(albedo, dtype=np.uint8)
+    ctx.stage_results['albedo_rgb'] = albedo
+    save_png_rgb(albedo, os.path.join(args.outdir, 'terrain_albedo.png'))
+
 def run_foliage_density(ctx: PipelineContext) -> None:
     args = ctx.args
     twi = ctx.stage_results['twi']
@@ -758,6 +775,7 @@ STAGE_DEFS: Dict[str, StageDef] = {
     "svf": StageDef("svf", "Sky View Factor… (may be slow)", tuple(), run_svf),
     "climate": StageDef("climate", "Climate fields…", ("ocean_masks",), run_climate),
     "biome": StageDef("biome", "Advanced biome classification…", ("climate", "twi", "slope_aspect"), run_biome),
+    "albedo": StageDef("albedo", "Terrain albedo color map...", ("biome",), run_albedo),
     "foliage": StageDef("foliage", "Foliage color mask…", ("climate", "twi", "slope_aspect"), run_foliage),
     "foliage_density": StageDef("foliage_density", "Foliage density (forest/groundcover)…", ("climate", "twi", "slope_aspect"), run_foliage_density),
 }
@@ -774,6 +792,7 @@ COMPUTE_STAGE_ALIASES: Dict[str, str] = {
     'svf': 'svf',
     'climate': 'climate',
     'biome': 'biome',
+    'albedo': 'albedo',
     'foliage': 'foliage',
     'forest_density': 'foliage_density',
     'groundcover_density': 'foliage_density',

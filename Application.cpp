@@ -36,6 +36,7 @@ bool Application::Initialize() {
     textureManagerCPU->loadTexture("tDens", RESOURCE_DIR "/terrain/forest_density.png");
     textureManagerCPU->loadTexture("gDens", RESOURCE_DIR "/terrain/groundcover_density.png");
     textureManagerCPU->loadTexture("noise", RESOURCE_DIR "/heightmap_noise.png");
+    textureManagerCPU->loadTexture("precip", RESOURCE_DIR "/terrain/climate_intermediates/aet_mm.png");
 
     //structureManager->loadStructure("tree1", RESOURCE_DIR "/structures/treegen1.vox", ivec3(13, 11, 3));
     //structureManager->loadStructure("tree2", RESOURCE_DIR "/structures/treegen2.vox", ivec3(11, 8, 3));

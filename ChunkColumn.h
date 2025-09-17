@@ -117,13 +117,13 @@ class ChunkColumn {
 public:
     alignas(64) std::atomic<ColumnState> state{ ColumnState::Empty };
 private:
-    static constexpr float TERRAIN_UPSCALE = 2.0f;
+    static constexpr float TERRAIN_UPSCALE = 8.0f;
 
     static constexpr int CHUNK_SIZE = 32;
     static constexpr int CHUNK_HEIGHT = 62;
     static constexpr int COLUMN_HEIGHT = 10;
     static constexpr int COLUMN_HEIGHT_BLOCKS = COLUMN_HEIGHT * CHUNK_HEIGHT;  // Changed from 512 to 620 (10 chunks * 62)
-    static constexpr int VOXELS_PER_UINT64 = 62;  // Perfect fit!
+    static constexpr int VOXELS_PER_UINT64 = 62;
 
     // Recalculate total voxels and storage needs
     static constexpr int TOTAL_VOXELS = CHUNK_SIZE * CHUNK_SIZE * COLUMN_HEIGHT_BLOCKS;

@@ -23,6 +23,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
+from albedo import compute_terrain_albedo_rgb
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -151,12 +152,12 @@ class TerrainEngine(QObject):
         for k in ["ocean", "coastline", "d2coast_m"]:
             self.cache.pop(k, None)
         # Biome & foliage depend on ocean/coast distance
-        for k in ["biome_id", "biome_rgb", "foliage_rgb", "P_mm", "AI", "AET", "PET", "temp_c"]:
+        for k in ["biome_id", "biome_rgb", "albedo_rgb", "foliage_rgb", "P_mm", "AI", "AET", "PET", "temp_c"]:
             self.cache.pop(k, None)
 
     def _dirty_climate(self):
         for k in ["wind_u","wind_v","dir_s","P_mm","PET","AET","AI","temp_c","foliage_rgb",
-                  "biome_id","biome_rgb"]:
+                  "biome_id","biome_rgb","albedo_rgb"]:
             self.cache.pop(k, None)
 
     def _dirty_svf(self):
@@ -170,12 +171,12 @@ class TerrainEngine(QObject):
                 self.cache.pop(k)
 
     def _dirty_biome_only(self):
-        for k in ["biome_id","biome_rgb"]:
+        for k in ["biome_id","biome_rgb","albedo_rgb"]:
             self.cache.pop(k, None)
 
     def _dirty_flowacc(self):
         # Anything depending on flow accumulation or TWI
-        for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb",
+        for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb", "albedo_rgb",
                   "forest_density", "groundcover_density"]:
             self.cache.pop(k, None)
 
@@ -363,6 +364,10 @@ class TerrainEngine(QObject):
             self.cache["biome_rgb"] = brgb
         return self.cache["biome_id"], self.cache["biome_rgb"]
 
+    def get_albedo(self):
+        bid, _ = self.get_biome()
+        return self._need("albedo_rgb", lambda: compute_terrain_albedo_rgb(bid))
+
     def get_foliage(self):
         cl = self.get_climate()
         svf = self.cache.get("svf", None)  # optional
@@ -479,6 +484,11 @@ class TerrainEngine(QObject):
                 out_arrays["biome_rgb"] = brgb
                 out_images["biome_id"] = scalar_to_qimage(bid, lo=0, hi=len(BIOME_TABLE)-1)
                 out_images["biome_map"] = rgb_to_qimage(brgb)
+
+            elif sel == "albedo":
+                alb = self.get_albedo()
+                out_arrays["albedo_rgb"] = alb
+                out_images["terrain_albedo"] = rgb_to_qimage(alb)
 
             elif sel == "foliage":
                 frgb = self.get_foliage()
@@ -827,11 +837,12 @@ class MainWindow(QMainWindow):
         self.chk_svf = QCheckBox("SVF")
         self.chk_climate = QCheckBox("Climate (Temp, Precip, PET, AET, AI)"); self.chk_climate.setChecked(True)
         self.chk_biome = QCheckBox("Biome"); self.chk_biome.setChecked(True)
+        self.chk_albedo = QCheckBox("Terrain albedo"); self.chk_albedo.setChecked(True)
         self.chk_foliage = QCheckBox("Foliage color"); self.chk_foliage.setChecked(True)
         self.chk_forest = QCheckBox("Forest density")
         self.chk_ground = QCheckBox("Groundcover density")
         for w in [self.chk_elev,self.chk_ocean,self.chk_slope,self.chk_aspect,self.chk_normal,self.chk_curv,
-                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,
+                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,self.chk_albedo,
                   self.chk_foliage,self.chk_forest,self.chk_ground]:
             lay_sel.addWidget(w)
         outer.addWidget(sel_box)
@@ -928,6 +939,7 @@ class MainWindow(QMainWindow):
         if self.chk_svf.isChecked(): sel.append("svf")
         if self.chk_climate.isChecked(): sel.append("climate")
         if self.chk_biome.isChecked(): sel.append("biome")
+        if self.chk_albedo.isChecked(): sel.append("albedo")
         if self.chk_foliage.isChecked(): sel.append("foliage")
         if self.chk_forest.isChecked(): sel.append("forest_density")
         if self.chk_ground.isChecked(): sel.append("groundcover_density")

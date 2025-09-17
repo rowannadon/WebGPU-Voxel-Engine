@@ -1343,7 +1343,7 @@ void ChunkColumn::generateTerrain() {
             //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
-            int targetHeight = static_cast<int>(height * 310.0f);
+            int targetHeight = static_cast<int>(height * 595.0f);
 
             ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
             uint32_t blockHash = hash_ivec3(positionAbove);
@@ -1703,6 +1703,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                         float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         float svf = texc->getTexelAtPosition("svf", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
+                        float precip = texc->getTexelAtPosition("precip", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         
                         float gDens = texc->getTexelAtPosition("gDens", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
                         float tDens = texc->getTexelAtPosition("tDens", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
@@ -1719,7 +1720,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
                                     UnpackedVoxelMaterial m;
                                     m.facing = FacingDirection::PlusX;
 
-                                    if (flow > 0.05) {
+                                    if (flow > 0.03) {
                                         material.materialType = BlockType::Grass;
                                         m.materialType = material.materialType;
                                     }
@@ -1841,7 +1842,7 @@ void ChunkColumn::generateTopsoil(const std::array<std::shared_ptr<ChunkColumn>,
 
                         float aspenChance = tDens;
 
-                        if (material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
+                        if (tDens > 0.04 && material.materialType == BlockType::Grass || material.materialType == BlockType::Sand) {
                             int density = static_cast<int>(4.0 + ((1.0f - tDens) * 128.0f));
                             if (pos.z > (-10 + blockHash % 20) && blockHash % density == 0) {
                                 ivec3 positionAbove = ivec3(x, y, z + 1);
