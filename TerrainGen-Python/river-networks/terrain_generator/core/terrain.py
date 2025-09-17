@@ -45,6 +45,10 @@ class TerrainParameters:
     # Height curves adjustment
     use_height_curves: bool = False
     height_curve_points: Optional[List[Tuple[float, float]]] = None
+
+    # Max delta curves adjustment
+    use_max_delta_curves: bool = False
+    max_delta_curve_points: Optional[List[Tuple[float, float]]] = None
     
     # Heightmap import options
     use_imported_heightmap: bool = False
@@ -164,16 +168,29 @@ class TerrainGenerator:
             progress_callback(85, "Computing final terrain...")
         
         # Generate variable max delta if enabled
-        variable_max_delta = None
+        max_delta_field = None
         if self.params.use_variable_max_delta:
-            variable_max_delta = self._generate_variable_max_delta(
+            max_delta_field = self._generate_variable_max_delta(
                 target_shape, coords, points_height_normalized
             )
-        
+
+        if self.params.use_max_delta_curves and self.params.max_delta_curve_points:
+            curve_factors = self._evaluate_curve(
+                self.params.max_delta_curve_points,
+                points_height_normalized
+            )
+            if max_delta_field is None:
+                max_delta_field = np.full(
+                    points_height_normalized.shape,
+                    self.params.max_delta,
+                    dtype=np.float64
+                )
+            max_delta_field = max_delta_field * curve_factors
+
         # Generate final terrain
         final_height = self._compute_final_height(
             points, neighbors, edge_weights, points_deltas, river_network,
-            variable_max_delta
+            max_delta_field
         )
         
         # Render to grid
@@ -662,47 +679,64 @@ class TerrainGenerator:
             )
         
         return variable_max_delta
-    
+
+    @staticmethod
+    def _evaluate_curve(control_points: List[Tuple[float, float]],
+                        values: np.ndarray) -> np.ndarray:
+        """Evaluate a curve defined by control points at the given values."""
+        if not control_points or len(control_points) < 2:
+            return np.ones_like(values, dtype=np.float64)
+
+        from scipy.interpolate import CubicSpline, interp1d  # Lazy import for GUI-less usage
+
+        sorted_points = sorted(control_points, key=lambda p: p[0])
+        x_coords = [p[0] for p in sorted_points]
+        y_coords = [p[1] for p in sorted_points]
+
+        values = np.asarray(values, dtype=np.float64)
+        clipped = np.clip(values, 0.0, 1.0)
+
+        if len(sorted_points) >= 4:
+            try:
+                spline = CubicSpline(x_coords, y_coords, bc_type='clamped')
+                result = spline(clipped)
+            except Exception:
+                interp = interp1d(
+                    x_coords, y_coords, kind='linear',
+                    bounds_error=False, fill_value=(y_coords[0], y_coords[-1])
+                )
+                result = interp(clipped)
+        else:
+            interp = interp1d(
+                x_coords, y_coords, kind='linear',
+                bounds_error=False, fill_value=(y_coords[0], y_coords[-1])
+            )
+            result = interp(clipped)
+
+        return np.clip(result, 0.0, 1.0)
+
     def _apply_height_curves(self, heightfield: np.ndarray) -> np.ndarray:
         """Apply height curves adjustment if enabled."""
         if not self.params.use_height_curves or not self.params.height_curve_points:
             return heightfield
-        
-        from scipy.interpolate import CubicSpline, interp1d
-        
+
         # Sort points by x coordinate
         sorted_points = sorted(self.params.height_curve_points, key=lambda p: p[0])
         if len(sorted_points) < 2:
             return heightfield
-        
-        x_coords = [p[0] for p in sorted_points]
-        y_coords = [p[1] for p in sorted_points]
-        
+
         # Normalize heightfield to [0, 1]
         hmin = heightfield.min()
         hmax = heightfield.max()
-        
+
         if hmax <= hmin:
             return heightfield
-        
+
         normalized = (heightfield - hmin) / (hmax - hmin)
-        
+
         # Apply curve transformation
-        if len(sorted_points) >= 4:
-            try:
-                spline = CubicSpline(x_coords, y_coords, bc_type='clamped')
-                adjusted = spline(np.clip(normalized, 0, 1))
-            except:
-                # Fallback to linear interpolation
-                interp = interp1d(x_coords, y_coords, kind='linear',
-                                bounds_error=False, fill_value=(y_coords[0], y_coords[-1]))
-                adjusted = interp(np.clip(normalized, 0, 1))
-        else:
-            # Use linear interpolation for fewer points
-            interp = interp1d(x_coords, y_coords, kind='linear',
-                            bounds_error=False, fill_value=(y_coords[0], y_coords[-1]))
-            adjusted = interp(np.clip(normalized, 0, 1))
-        
+        adjusted = self._evaluate_curve(sorted_points, normalized)
+
         # Clip and scale back to original range
         adjusted = np.clip(adjusted, 0, 1)
         return adjusted * (hmax - hmin) + hmin

@@ -149,6 +149,7 @@ class DomainWarpedFBMWidget(QWidget):
 class ControlPanel(QWidget):
     """Main control panel for terrain generation."""
 
+    parametersChanged = pyqtSignal()
     visualization_changed = pyqtSignal(dict)
     overlay_selected = pyqtSignal(str)
     overlay_cleared = pyqtSignal()
@@ -178,6 +179,8 @@ class ControlPanel(QWidget):
         self.create_fbm_group(layout)
         # Height curves adjustment group
         self.create_curves_group(layout)
+        # Max delta curves group
+        self.create_max_delta_curves_group(layout)
 
         # River parameters group
         self.create_river_group(layout)
@@ -315,7 +318,7 @@ class ControlPanel(QWidget):
         """Create height curves adjustment group."""
         group = QGroupBox("Height Curves Adjustment")
         layout = QVBoxLayout()
-        
+
         # Enable curves checkbox
         self.use_curves_checkbox = QCheckBox("Enable Height Curves")
         self.use_curves_checkbox.setChecked(False)
@@ -331,10 +334,45 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         parent_layout.addWidget(group)
 
+    def create_max_delta_curves_group(self, parent_layout):
+        """Create max delta curves adjustment group."""
+        group = QGroupBox("Max Height Delta Modulation")
+        layout = QVBoxLayout()
+
+        self.use_max_delta_curves_checkbox = QCheckBox("Enable Max Delta Curves")
+        self.use_max_delta_curves_checkbox.stateChanged.connect(self.toggle_max_delta_curves)
+        layout.addWidget(self.use_max_delta_curves_checkbox)
+
+        self.max_delta_curves_widget = HeightCurvesWidget(
+            title_text="Max Delta vs Elevation",
+            default_curve=[(0.0, 1.0), (1.0, 1.0)]
+        )
+        self.max_delta_curves_widget.curvesChanged.connect(
+            lambda: self.parametersChanged.emit() if hasattr(self, 'parametersChanged') else None
+        )
+        self.max_delta_curves_widget.setEnabled(False)
+        layout.addWidget(self.max_delta_curves_widget)
+
+        info = QLabel(
+            "Define how erosion steepness varies with elevation."
+        )
+        info.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(info)
+
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
     def toggle_curves(self, state):
         """Toggle curves adjustment."""
         enabled = (state == 2)
         self.curves_widget.setEnabled(enabled)
+        self.parametersChanged.emit()
+
+    def toggle_max_delta_curves(self, state):
+        """Toggle max delta curves adjustment."""
+        enabled = (state == 2)
+        self.max_delta_curves_widget.setEnabled(enabled)
+        self.parametersChanged.emit()
 
     def create_river_group(self, parent_layout):
         """Create river parameters group."""
@@ -731,7 +769,14 @@ class ControlPanel(QWidget):
             use_height_curves = self.use_curves_checkbox.isChecked()
             if use_height_curves and hasattr(self, 'curves_widget'):
                 height_curve_points = self.curves_widget.get_control_points()
-        
+
+        use_max_delta_curves = False
+        max_delta_curve_points = None
+        if hasattr(self, 'use_max_delta_curves_checkbox'):
+            use_max_delta_curves = self.use_max_delta_curves_checkbox.isChecked()
+            if use_max_delta_curves and hasattr(self, 'max_delta_curves_widget'):
+                max_delta_curve_points = self.max_delta_curves_widget.get_control_points()
+
         return TerrainParameters(
             dimension=int(self.controls['dimension'].value()),
             seed=int(self.controls['seed'].value()),
@@ -756,6 +801,10 @@ class ControlPanel(QWidget):
             # Height curves adjustment parameters
             use_height_curves=hasattr(self, 'use_curves_checkbox') and self.use_curves_checkbox.isChecked(),
             height_curve_points=height_curve_points,
+
+            # Max delta curves adjustment
+            use_max_delta_curves=use_max_delta_curves,
+            max_delta_curve_points=max_delta_curve_points,
 
             # Heightmap import
             use_imported_heightmap=self.use_import_checkbox.isChecked(),

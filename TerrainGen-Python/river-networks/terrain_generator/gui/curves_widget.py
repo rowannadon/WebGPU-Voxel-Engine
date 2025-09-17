@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from PyQt5.QtCore import Qt, QPointF, QRectF, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QPainterPath
 from scipy.interpolate import CubicSpline, interp1d
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 class CurvesGraphWidget(QWidget):
     """Interactive curves adjustment graph."""
@@ -288,19 +288,24 @@ class CurvesGraphWidget(QWidget):
 
 class HeightCurvesWidget(QWidget):
     """Complete height curves adjustment widget."""
-    
+
     curvesChanged = pyqtSignal()
-    
-    def __init__(self, parent=None):
+
+    def __init__(self, parent=None, *, title_text: str = "Height Adjustment Curves",
+                 default_curve: Optional[List[Tuple[float, float]]] = None):
         super().__init__(parent)
+        self.title_text = title_text
+        self.default_curve = default_curve
         self.setup_ui()
-    
+        if self.default_curve:
+            self.curves_graph.set_control_points(self.default_curve)
+
     def setup_ui(self):
         """Setup the widget UI."""
         layout = QVBoxLayout(self)
-        
+
         # Title
-        title = QLabel("<b>Height Adjustment Curves</b>")
+        title = QLabel(f"<b>{self.title_text}</b>")
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         
@@ -439,7 +444,10 @@ class HeightCurvesWidget(QWidget):
     
     def reset_curves(self):
         """Reset curves to default."""
-        self.curves_graph.reset_curve()
+        if self.default_curve:
+            self.curves_graph.set_control_points(self.default_curve)
+        else:
+            self.curves_graph.reset_curve()
         self.curvesChanged.emit()
     
     def add_default_points(self):
