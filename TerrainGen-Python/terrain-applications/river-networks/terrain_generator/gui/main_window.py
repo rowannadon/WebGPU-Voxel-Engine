@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
 
-from ..core import TerrainGenerator, TerrainParameters, TerrainData
+from ..core import TerrainGenerator, TerrainParameters, TerrainData, normalize
 from ..visualization import TerrainViewport
 from ..io import TerrainExporter
 from ..heuristics import HeuristicEngine, HeuristicSettings, qimage_to_rgba
@@ -427,7 +427,7 @@ class TerrainGeneratorWindow(QMainWindow):
             return
 
         heightmap = np.asarray(self.current_terrain_data.heightmap, dtype=np.float32)
-        heightmap = np.clip(heightmap, 0.0, 1.0)
+        heightmap = normalize(heightmap, bounds=(0.0, 1.0))
 
         sanitized_request = {
             'selections': list(request_data.get('selections', [])),
