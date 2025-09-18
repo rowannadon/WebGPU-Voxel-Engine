@@ -308,20 +308,24 @@ def carve_channel_to_ocean(heightmap: np.ndarray, land_mask: np.ndarray,
     modified = heightmap.copy()
     
     # Create a smooth channel profile
-    channel_width = 3  # pixels
+    channel_width = 5  # pixels
+    edge_softness = 1.2  # >1 => gentler edges, ~1 is good, <1 steeper
+
     for y, x in path_indices:
         # Carve the channel point and its neighbors
-        for dy in range(-channel_width, channel_width+1):
-            for dx in range(-channel_width, channel_width+1):
+        for dy in range(-channel_width, channel_width + 1):
+            for dx in range(-channel_width, channel_width + 1):
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < h and 0 <= nx < w:
-                    dist = np.sqrt(dy**2 + dx**2)
+                    dist = np.hypot(dy, dx)
                     if dist <= channel_width:
-                        # Gaussian falloff for smooth edges
-                        falloff = np.exp(-dist**2 / (channel_width**2))
+                        # Raised-cosine (Hann) falloff with optional softness control
+                        t = (dist / channel_width) ** (1.0 / edge_softness)  # remap distance for gentler tails
+                        # falloff goes from 1 at center to 0 at the edge, smoothly
+                        falloff = 0.5 * (np.cos(np.pi * t) + 1.0)
+
                         carve_amount = carve_depth * falloff
-                        # Carve down but don't go below 0
-                        modified[ny, nx] = max(0, modified[ny, nx] - carve_amount)
+                        modified[ny, nx] = max(0.0, modified[ny, nx] - carve_amount)
     
     # Smooth the carved area
     from scipy.ndimage import gaussian_filter

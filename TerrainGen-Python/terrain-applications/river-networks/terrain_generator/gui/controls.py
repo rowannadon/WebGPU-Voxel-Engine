@@ -421,10 +421,10 @@ class ControlPanel(QWidget):
         layout.addWidget(terrace_label)
         
         controls_data = [
-            ('terrace_count', "Number of Terraces", 2, 20, 5, 1, 0),
-            ('terrace_thickness', "Terrace Flatness", 0.1, 0.9, 0.7, 0.05, 2),
-            ('terrace_flat_delta', "Flat Area Slope", 0.001, 0.05, 0.01, 0.001, 3),
-            ('terrace_steep_delta', "Step Slope", 0.05, 0.3, 0.1, 0.01, 2),
+            ('terrace_count', "Number of Terraces", 2, 10, 3, 1, 0),
+            ('terrace_thickness', "Terrace Flatness", 0.1, 0.9, 0.5, 0.05, 2),
+            ('terrace_flat_delta', "Flat Area Slope", 0.001, 0.02, 0.01, 0.001, 3),
+            ('terrace_steep_delta', "Step Slope", 0.05, 0.3, 0.07, 0.01, 2),
         ]
         
         for name, label, min_val, max_val, default, step, decimals in controls_data:
@@ -441,9 +441,9 @@ class ControlPanel(QWidget):
         layout.addWidget(strength_label)
         
         strength_controls = [
-            ('terrace_min_strength', "Minimum Strength", 0.0, 1.0, 0.0, 0.05, 2),
-            ('terrace_max_strength', "Maximum Strength", 0.0, 1.0, 1.0, 0.05, 2),
-            ('terrace_strength_scale', "Noise Scale", -4.0, 0.0, -2.5, 0.1, 1),
+            ('terrace_min_strength', "Minimum Strength", 0.0, 1.0, 0.1, 0.05, 2),
+            ('terrace_max_strength', "Maximum Strength", 0.0, 1.0, 0.8, 0.05, 2),
+            ('terrace_strength_scale', "Noise Scale", -4.0, 0.0, -1.7, 0.1, 1),
         ]
         
         for name, label, min_val, max_val, default, step, decimals in strength_controls:
