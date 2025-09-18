@@ -71,6 +71,8 @@ def parse_args():
     ap.add_argument('--input', required=True, help="Input heightmap PNG (8- or 16-bit grayscale).")
     ap.add_argument('--outdir', required=True, help="Output directory for textures.")
     ap.add_argument('--cellsize', type=float, default=1500.0, help="Meters per pixel.")
+    ap.add_argument('--custom-cellsize', nargs='*', default=[], metavar=('STAGE', 'VALUE'),
+                    help="Override cellsize (meters per pixel) for specific stages. Provide pairs such as '--custom-cellsize normal 25 twi 10'.")
     ap.add_argument('--z-min', type=float, default=0.0, help="Elevation (m) at heightmap value 0.")
     ap.add_argument('--z-max', type=float, default=6000.0, help="Elevation (m) at heightmap value 255.")
     ap.add_argument('--bit-depth', type=int, default=0, choices=[0,8,16], help="Output PNG bit depth: 0=auto (match input), or 8/16. Normals and biome map are saved as 8-bit RGB.")
@@ -132,6 +134,25 @@ def parse_args():
     args = ap.parse_args()
     if args.overwrite and not args.load_from_previous:
         ap.error("--overwrite requires --load-from-previous")
+
+    if len(args.custom_cellsize) % 2 != 0:
+        ap.error("--custom-cellsize expects pairs of STAGE and VALUE")
+
+    custom_map = {}
+    for i in range(0, len(args.custom_cellsize), 2):
+        stage_label = args.custom_cellsize[i]
+        value_str = args.custom_cellsize[i + 1]
+        try:
+            custom_value = float(value_str)
+        except ValueError:
+            ap.error(f"--custom-cellsize value for '{stage_label}' must be numeric (got '{value_str}')")
+        try:
+            stage_name = normalize_stage_name(stage_label)
+        except ValueError as exc:
+            ap.error(str(exc))
+        custom_map[stage_name] = custom_value
+
+    args.custom_cellsize = custom_map
     return args
 
 
@@ -167,6 +188,7 @@ class PipelineContext:
         self.masks_dir = os.path.join(args.outdir, "climate_intermediates")
         ensure_outdir(self.masks_dir)
         self.overwrite_stages = set(overwrite_stages)
+        self.custom_cellsize: Dict[str, float] = dict(getattr(args, 'custom_cellsize', {}))
 
     def should_output(self, option: str) -> bool:
         return option in self.requested_options
@@ -177,7 +199,23 @@ class PipelineContext:
         return self.dzdx, self.dzdy
 
     def can_load_stage(self, stage_name: str) -> bool:
-        return self.args.load_from_previous and stage_name not in self.overwrite_stages
+        if not self.args.load_from_previous:
+            return False
+        if stage_name in self.overwrite_stages:
+            return False
+        if stage_name in self.custom_cellsize:
+            return False
+        return True
+
+    def cellsize_for_stage(self, stage_name: str) -> float:
+        if stage_name not in STAGE_DEFS:
+            try:
+                stage_key = normalize_stage_name(stage_name)
+            except ValueError:
+                stage_key = stage_name
+        else:
+            stage_key = stage_name
+        return self.custom_cellsize.get(stage_key, self.args.cellsize)
 
 
 def tpi_stem(radius_m: float) -> str:
@@ -195,7 +233,8 @@ def ensure_tpi(ctx: PipelineContext, radius_m: float) -> np.ndarray:
     path_npy = os.path.join(args.outdir, f"{fname}.npy")
     tpi_arr = try_load_npy(path_npy, fname, ctx.can_load_stage('tpi'))
     if tpi_arr is None:
-        radius_px = max(1, int(round(radius_m / args.cellsize)))
+        cellsize = ctx.cellsize_for_stage('tpi')
+        radius_px = max(1, int(round(radius_m / max(cellsize, 1e-6))))
         tpi_arr = compute_tpi(ctx.elev, radius_px)
         if args.write_raw_npy:
             np.save(path_npy, tpi_arr)
@@ -238,7 +277,8 @@ def run_slope_aspect(ctx: PipelineContext) -> None:
     aspect = try_load_npy(aspect_path, "aspect_deg", ctx.can_load_stage('slope_aspect'))
 
     if slope is None or aspect is None:
-        slope, aspect = compute_slope_aspect(ctx.elev, args.cellsize)
+        cellsize = ctx.cellsize_for_stage('slope_aspect')
+        slope, aspect = compute_slope_aspect(ctx.elev, cellsize)
         if args.write_raw_npy:
             np.save(slope_path, slope)
             np.save(aspect_path, aspect)
@@ -259,7 +299,8 @@ def run_normal(ctx: PipelineContext) -> None:
     normals = try_load_npy(normal_path, "normal", ctx.can_load_stage('normal'))
 
     if normals is None:
-        normals = compute_normals(ctx.elev, args.cellsize)
+        cellsize = ctx.cellsize_for_stage('normal')
+        normals = compute_normals(ctx.elev, cellsize)
         if args.write_raw_npy:
             np.save(normal_path, normals)
 
@@ -274,7 +315,8 @@ def run_curvature(ctx: PipelineContext) -> None:
     curvature = try_load_npy(curv_path, "curvature", ctx.can_load_stage('curvature'))
 
     if curvature is None:
-        curvature = compute_laplacian_curvature(ctx.elev, args.cellsize)
+        cellsize = ctx.cellsize_for_stage('curvature')
+        curvature = compute_laplacian_curvature(ctx.elev, cellsize)
         if args.write_raw_npy:
             np.save(curv_path, curvature)
 
@@ -304,7 +346,8 @@ def run_flowacc(ctx: PipelineContext) -> None:
     else:
         acc = try_load_npy(flow_path, "flowacc", ctx.can_load_stage('flowacc'))
         if acc is None:
-            acc = d8_flow_accumulation(ctx.elev, args.cellsize, resolve_pits=args.resolve_pits)
+            cellsize = ctx.cellsize_for_stage('flowacc')
+            acc = d8_flow_accumulation(ctx.elev, cellsize, resolve_pits=args.resolve_pits)
             if args.write_raw_npy:
                 np.save(flow_path, acc)
     print_stats("flowacc_cells", acc)
@@ -324,7 +367,8 @@ def run_twi(ctx: PipelineContext) -> None:
     if twi is None:
         acc = ctx.stage_results['flowacc']
         slope = ctx.stage_results['slope_deg']
-        twi = compute_twi(acc, slope, args.cellsize)
+        cellsize = ctx.cellsize_for_stage('twi')
+        twi = compute_twi(acc, slope, cellsize)
         if args.write_raw_npy:
             np.save(twi_path, twi)
 
@@ -339,7 +383,8 @@ def run_svf(ctx: PipelineContext) -> None:
     svf = try_load_npy(svf_path, "svf", ctx.can_load_stage('svf'))
 
     if svf is None:
-        svf = compute_svf(ctx.elev, args.cellsize, dirs=args.svf_dirs, radius_m=args.svf_radius)
+        cellsize = ctx.cellsize_for_stage('svf')
+        svf = compute_svf(ctx.elev, cellsize, dirs=args.svf_dirs, radius_m=args.svf_radius)
         if args.write_raw_npy:
             np.save(svf_path, svf)
 
@@ -416,12 +461,13 @@ def run_climate(ctx: PipelineContext) -> None:
     ocean = ctx.stage_results['ocean_mask']
     dist_path = os.path.join(ctx.masks_dir, "dist2coast_m.npy")
     d2coast = try_load_npy(dist_path, "dist2coast_m", can_load_climate)
+    climate_cellsize = ctx.cellsize_for_stage('climate')
     if d2coast is None:
-        d2coast = distance_to_mask(coastline, args.cellsize)
+        d2coast = distance_to_mask(coastline, climate_cellsize)
         d2coast[ocean] = 0.0
         if args.write_raw_npy:
             np.save(dist_path, d2coast)
-    max_dc = float(args.cellsize * max(ctx.h, ctx.w))
+    max_dc = float(climate_cellsize * max(ctx.h, ctx.w))
     save_png_scalar(d2coast, os.path.join(ctx.masks_dir, "dist2coast_m.png"), bit_depth=args.bit_depth, clip_lo=0.0, clip_hi=max_dc)
 
     temp_path = os.path.join(ctx.masks_dir, "temp_c.npy")
@@ -453,7 +499,7 @@ def run_climate(ctx: PipelineContext) -> None:
         dzdx, dzdy = ctx.ensure_gradients()
         P = precipitation_orographic_advanced(
             P_lat, ctx.elev, u, v, dzdx, dzdy, d2coast,
-            args.cellsize,
+            climate_cellsize,
             alpha=args.orographic_alpha,
             beta=args.shadow_beta,
             coast_decay_m=args.coast_decay_km * 1000.0,
@@ -675,6 +721,8 @@ def run_foliage(ctx: PipelineContext) -> None:
 
     tpi_small = ensure_tpi(ctx, 25.0)
 
+    foliage_cellsize = ctx.cellsize_for_stage('foliage')
+
     foliage_rgb = compute_foliage_color_rgb(
         elev=ctx.elev,
         ocean=ocean,
@@ -688,7 +736,7 @@ def run_foliage(ctx: PipelineContext) -> None:
         lat_deg_1d=lat1d,
         svf=svf,
         tpi_small=tpi_small,
-        cellsize=args.cellsize,
+        cellsize=foliage_cellsize,
     )
 
     ctx.stage_results['foliage_rgb'] = foliage_rgb
@@ -731,6 +779,8 @@ def run_foliage_density(ctx: PipelineContext) -> None:
 
     tpi_small = ensure_tpi(ctx, 25.0)
 
+    foliage_density_cellsize = ctx.cellsize_for_stage('foliage_density')
+
     forest_den, ground_den = compute_foliage_densities(
         elev=ctx.elev,
         ocean=ocean,
@@ -744,7 +794,7 @@ def run_foliage_density(ctx: PipelineContext) -> None:
         lat_deg_1d=lat1d,
         svf=svf,
         tpi_small=tpi_small,
-        cellsize=args.cellsize,
+        cellsize=foliage_density_cellsize,
     )
 
     ctx.stage_results['forest_density'] = forest_den
@@ -800,12 +850,20 @@ COMPUTE_STAGE_ALIASES: Dict[str, str] = {
 }
 
 
+def normalize_stage_name(option: str) -> str:
+    stage = COMPUTE_STAGE_ALIASES.get(option, option)
+    if stage not in STAGE_DEFS:
+        raise ValueError(f"Unknown stage '{option}'")
+    return stage
+
+
 def normalize_stage_options(options: List[str]) -> List[str]:
     stages: List[str] = []
     for option in options:
-        stage = COMPUTE_STAGE_ALIASES.get(option, option)
-        if stage not in STAGE_DEFS:
-            raise ValueError(f"Unknown compute layer '{option}'")
+        try:
+            stage = normalize_stage_name(option)
+        except ValueError as exc:
+            raise ValueError(f"Unknown compute layer '{option}'") from exc
         stages.append(stage)
     return stages
 
@@ -864,6 +922,7 @@ def main():
     meta = {
         "input": os.path.abspath(args.input),
         "cellsize_m": args.cellsize,
+        "custom_cellsize_overrides": args.custom_cellsize,
         "z_min_m": args.z_min,
         "z_max_m": args.z_max,
         "bit_depth": args.bit_depth,
