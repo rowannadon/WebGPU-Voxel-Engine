@@ -155,8 +155,7 @@ class TerrainGeneratorWindow(QMainWindow):
         left_scroll.setWidget(self.control_panel)
         left_scroll.setWidgetResizable(True)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setMinimumWidth(500)
-        left_scroll.setMaximumWidth(520)
+        left_scroll.setMaximumWidth(450)
         main_layout.addWidget(left_scroll)
 
         # Center visualization stack
