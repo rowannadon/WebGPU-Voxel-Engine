@@ -305,6 +305,8 @@ class ControlPanel(QWidget):
         preview_layout.addWidget(self.preview_button)
         layout.addLayout(preview_layout)
         
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -386,6 +388,8 @@ class ControlPanel(QWidget):
             self.controls[name] = control
             layout.addWidget(control)
         
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -451,6 +455,8 @@ class ControlPanel(QWidget):
             self.variable_controls.append(control)
             layout.addWidget(control)
         
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -519,6 +525,8 @@ class ControlPanel(QWidget):
         self.export_watershed_button.setEnabled(False)
         layout.addWidget(self.export_watershed_button)
 
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -740,6 +748,8 @@ class AnalysisPanel(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
         self.create_visualization_group(layout)
         self.create_heuristics_group(layout)
@@ -835,6 +845,8 @@ class AnalysisPanel(QWidget):
 
         layout.addLayout(computed_layout)
 
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)
@@ -1025,6 +1037,8 @@ class AnalysisPanel(QWidget):
         self.compute_heuristics_button.clicked.connect(self.request_heuristics_computation)
         layout.addWidget(self.compute_heuristics_button)
 
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         group.setLayout(layout)
         group.setMaximumWidth(420)
         parent_layout.addWidget(group)

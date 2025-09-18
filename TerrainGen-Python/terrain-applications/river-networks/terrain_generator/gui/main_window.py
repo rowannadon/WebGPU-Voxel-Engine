@@ -7,8 +7,8 @@ import numpy as np
 from PIL import Image
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QScrollArea, QProgressBar, QLabel, QPushButton,
-                            QMessageBox, QFileDialog)
-from PyQt5.QtCore import QThread, pyqtSignal
+                            QMessageBox, QFileDialog, QSizePolicy)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
 
 from ..core import TerrainGenerator, TerrainParameters, TerrainData
@@ -154,22 +154,42 @@ class TerrainGeneratorWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidget(self.control_panel)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMaximumWidth(450)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setMinimumWidth(500)
+        left_scroll.setMaximumWidth(520)
         main_layout.addWidget(left_scroll)
 
         # Center visualization stack
         center_layout = QVBoxLayout()
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(4)
 
         self.terrain_viewport = TerrainViewport()
         self.terrain_viewport.setMinimumHeight(800)
         center_layout.addWidget(self.terrain_viewport)
 
+        status_container = QWidget()
+        status_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        status_container.setMaximumHeight(28)
+        status_row = QHBoxLayout(status_container)
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(8)
+
+        self.status_label = QLabel("Ready")
+        self.status_label.setWordWrap(False)
+        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.status_label.setMinimumHeight(18)
+        status_row.addWidget(self.status_label)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        center_layout.addWidget(self.progress_bar)
+        self.progress_bar.setFixedHeight(18)
+        self.progress_bar.setMinimumWidth(260)
+        self.progress_bar.setMaximumWidth(400)
+        self.progress_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        status_row.addWidget(self.progress_bar)
 
-        self.status_label = QLabel("Ready to generate terrain")
-        center_layout.addWidget(self.status_label)
+        center_layout.addWidget(status_container)
 
         main_layout.addLayout(center_layout, stretch=1)
 
