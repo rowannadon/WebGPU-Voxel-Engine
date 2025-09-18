@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from scipy.ndimage import zoom
 
 from .rivers import RiverGenerator, RiverNetwork
+from .sediment import morphodynamic_update
 from ..io import HeightmapImporter
 from .utils import (normalize, gaussian_blur, gaussian_gradient, bump, 
                    dist_to_mask, poisson_disc_sampling, connect_inland_seas,
@@ -60,6 +61,22 @@ class TerrainParameters:
     default_water_level: float = 1.0
     evaporation_rate: float = 0.2
     directional_inertia: float = 0.2
+
+    # Sediment transport parameters
+    enable_sediment: bool = True
+    morpho_iterations: int = 4
+    dt_morpho: float = 1.0
+    porosity: float = 0.35
+    k_capacity: float = 1.0
+    m_capacity: float = 1.0
+    n_capacity: float = 1.0
+    k_erosion: float = 0.3
+    k_deposition: float = 0.7
+    tau_crit_slope: float = 1e-3
+    floodplain_diffusion: float = 0.1
+    lake_fill_factor: float = 1.0
+    delta_enhance: float = 1.2
+    sediment_max_step: float = 0.05
     
     # Terrain parameters
     max_delta: float = 0.05
@@ -150,11 +167,12 @@ class TerrainGenerator:
             progress_callback(55, "Computing initial height map...")
         
         # Compute initial height at points
-        points_height = self._compute_height(points, neighbors, edge_weights, 
-                                            points_deltas)
-        
-        # Normalize points_height back to [0,1] for river network computation
-        points_height_normalized = normalize(points_height, bounds=(0, 1))
+        base_points_height = self._compute_height(
+            points, neighbors, edge_weights, points_deltas
+        )
+
+        # Normalize base_points_height back to [0,1] for river network computation
+        points_height_normalized = normalize(base_points_height, bounds=(0, 1))
         
         if progress_callback:
             progress_callback(70, "Computing river network...")
@@ -163,10 +181,7 @@ class TerrainGenerator:
         river_network = self.river_generator.compute_network(
             points, neighbors, points_height_normalized, points_land
         )
-        
-        if progress_callback:
-            progress_callback(85, "Computing final terrain...")
-        
+
         # Generate variable max delta if enabled
         max_delta_field = None
         if self.params.use_variable_max_delta:
@@ -187,11 +202,27 @@ class TerrainGenerator:
                 )
             max_delta_field = max_delta_field * curve_factors
 
-        # Generate final terrain
-        final_height = self._compute_final_height(
+        if progress_callback:
+            progress_callback(80, "Carving river valleys...")
+
+        downcut_height = self._compute_final_height(
             points, neighbors, edge_weights, points_deltas, river_network,
             max_delta_field
         )
+
+        if self.params.enable_sediment:
+            if progress_callback:
+                progress_callback(88, "Depositing alluvium...")
+            final_height = morphodynamic_update(
+                points, neighbors, downcut_height, points_land,
+                river_network, self.params,
+                baseline=downcut_height
+            )
+        else:
+            final_height = downcut_height
+
+        if progress_callback:
+            progress_callback(95, "Rasterizing terrain...")
         
         # Render to grid
         terrain_height = render_triangulation(target_shape, tri, final_height)

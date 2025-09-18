@@ -156,6 +156,7 @@ class ControlPanel(QWidget):
         super().__init__()
         self.preset_manager = PresetManager()
         self.controls = {}
+        self.sediment_controls: List[ParameterControl] = []
         self.setup_ui()
     
     def setup_ui(self):
@@ -182,7 +183,10 @@ class ControlPanel(QWidget):
 
         # River parameters group
         self.create_river_group(layout)
-        
+
+        # Sediment transport group
+        self.create_sediment_group(layout)
+
         # Terrain parameters group
         self.create_terrain_group(layout)
         
@@ -374,24 +378,78 @@ class ControlPanel(QWidget):
         """Create river parameters group."""
         group = QGroupBox("River Parameters")
         layout = QVBoxLayout()
-        
+
         controls_data = [
             ('river_downcutting', "River Downcutting", 0.1, 3.0, 1.7, 0.1, 1),
             ('default_water_level', "Default Water Level", 0.1, 5.0, 0.8, 0.1, 1),
             ('evaporation_rate', "Evaporation Rate", 0.0, 0.5, 0.3, 0.01, 2),
             ('directional_inertia', "River Straightness", 0.0, 1.0, 0.2, 0.01, 2),
         ]
-        
+
         for name, label, min_val, max_val, default, step, decimals in controls_data:
             control = ParameterControl(label, min_val, max_val, default, step, decimals)
             self.controls[name] = control
             layout.addWidget(control)
-        
+
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
         parent_layout.addWidget(group)
-    
+
+    def create_sediment_group(self, parent_layout):
+        """Create sediment transport parameters group."""
+        group = QGroupBox("Sediment Transport")
+        layout = QVBoxLayout()
+
+        self.enable_sediment_checkbox = QCheckBox("Enable Sediment Morphodynamics")
+        self.enable_sediment_checkbox.setChecked(True)
+        self.enable_sediment_checkbox.stateChanged.connect(self.toggle_sediment_controls)
+        layout.addWidget(self.enable_sediment_checkbox)
+
+        controls_data = [
+            ('morpho_iterations', "Iterations", 0.0, 20.0, 4.0, 1.0, 0),
+            ('dt_morpho', "Time Step", 0.1, 2.0, 1.0, 0.1, 1),
+            ('porosity', "Bed Porosity", 0.1, 0.6, 0.35, 0.05, 2),
+            ('k_capacity', "Transport Coefficient", 0.1, 3.0, 1.0, 0.1, 1),
+            ('m_capacity', "Discharge Exponent", 0.2, 2.0, 1.0, 0.1, 1),
+            ('n_capacity', "Slope Exponent", 0.5, 3.0, 1.0, 0.1, 1),
+            ('k_erosion', "Erosion Rate", 0.05, 1.0, 0.3, 0.05, 2),
+            ('k_deposition', "Deposition Rate", 0.05, 1.5, 0.7, 0.05, 2),
+            ('tau_crit_slope', "Critical Slope", 0.0, 0.01, 0.001, 0.001, 3),
+            ('floodplain_diffusion', "Floodplain Diffusion", 0.0, 0.5, 0.1, 0.05, 2),
+            ('lake_fill_factor', "Lake Fill Factor", 0.0, 2.5, 1.0, 0.1, 1),
+            ('delta_enhance', "Delta Boost", 1.0, 3.0, 1.2, 0.1, 1),
+            ('sediment_max_step', "Max Deposition Step", 0.0, 0.2, 0.05, 0.01, 2),
+        ]
+
+        self.sediment_controls = []
+
+        for name, label, min_val, max_val, default, step, decimals in controls_data:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            control.setEnabled(True)
+            self.controls[name] = control
+            control.valueChanged.connect(lambda _value, ctrl=name: self.parametersChanged.emit())
+            layout.addWidget(control)
+            self.sediment_controls.append(control)
+
+        info = QLabel(
+            "Channels are carved first, then these settings add deposition on top."
+        )
+        info.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(info)
+
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+    def toggle_sediment_controls(self, state):
+        """Enable/disable sediment controls when toggled."""
+        enabled = state == 2
+        for control in self.sediment_controls:
+            control.setEnabled(enabled)
+        self.parametersChanged.emit()
+
     def create_terrain_group(self, parent_layout):
         """Create terrain parameters group."""
         group = QGroupBox("Terrain Parameters")
@@ -658,7 +716,23 @@ class ControlPanel(QWidget):
             default_water_level=self.controls['default_water_level'].value(),
             evaporation_rate=self.controls['evaporation_rate'].value(),
             directional_inertia=self.controls['directional_inertia'].value(),
-            
+
+            # Sediment parameters
+            enable_sediment=self.enable_sediment_checkbox.isChecked(),
+            morpho_iterations=int(self.controls['morpho_iterations'].value()),
+            dt_morpho=self.controls['dt_morpho'].value(),
+            porosity=self.controls['porosity'].value(),
+            k_capacity=self.controls['k_capacity'].value(),
+            m_capacity=self.controls['m_capacity'].value(),
+            n_capacity=self.controls['n_capacity'].value(),
+            k_erosion=self.controls['k_erosion'].value(),
+            k_deposition=self.controls['k_deposition'].value(),
+            tau_crit_slope=self.controls['tau_crit_slope'].value(),
+            floodplain_diffusion=self.controls['floodplain_diffusion'].value(),
+            lake_fill_factor=self.controls['lake_fill_factor'].value(),
+            delta_enhance=self.controls['delta_enhance'].value(),
+            sediment_max_step=self.controls['sediment_max_step'].value(),
+
             # Terrain parameters
             max_delta=self.controls['max_delta'].value(),
             use_variable_max_delta=self.variable_max_delta_checkbox.isChecked(),
