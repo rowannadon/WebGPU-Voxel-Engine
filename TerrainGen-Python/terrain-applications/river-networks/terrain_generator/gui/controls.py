@@ -87,13 +87,13 @@ class DomainWarpedFBMWidget(QWidget):
         layout.addWidget(post_label)
         
         self.controls['land_threshold'] = ParameterControl(
-            "Land Threshold", 0.0, 1.0, 0.5, 0.01, 2
+            "Land Threshold", 0.0, 1.0, 0.3, 0.01, 2
         )
         self.controls['land_threshold'].valueChanged.connect(lambda: self.parametersChanged.emit())
         layout.addWidget(self.controls['land_threshold'])
         
         self.controls['blur_distance'] = ParameterControl(
-            "Blur Distance", 0.0, 10.0, 2.0, 0.5, 1
+            "Blur Distance", 0.0, 10.0, 2.5, 0.5, 1
         )
         self.controls['blur_distance'].valueChanged.connect(lambda: self.parametersChanged.emit())
         layout.addWidget(self.controls['blur_distance'])
@@ -102,19 +102,19 @@ class DomainWarpedFBMWidget(QWidget):
         layout.addWidget(edge_label)
 
         self.controls['edge_falloff_distance'] = ParameterControl(
-            "Falloff Distance (px)", 10.0, 200.0, 50.0, 5.0, 0
+            "Falloff Distance (px)", 10.0, 600.0, 200.0, 5.0, 0
         )
         self.controls['edge_falloff_distance'].valueChanged.connect(lambda: self.parametersChanged.emit())
         layout.addWidget(self.controls['edge_falloff_distance'])
 
         self.controls['edge_falloff_rate'] = ParameterControl(
-            "Falloff Rate", 1.0, 10.0, 4.0, 0.5, 1
+            "Falloff Rate", 1.0, 10.0, 1.5, 0.5, 1
         )
         self.controls['edge_falloff_rate'].valueChanged.connect(lambda: self.parametersChanged.emit())
         layout.addWidget(self.controls['edge_falloff_rate'])
 
         self.controls['edge_smoothness'] = ParameterControl(
-            "Edge Smoothness", 0.01, 0.5, 0.1, 0.01, 2
+            "Edge Smoothness", 0.01, 0.5, 0.2, 0.01, 2
         )
         self.controls['edge_smoothness'].valueChanged.connect(lambda: self.parametersChanged.emit())
         layout.addWidget(self.controls['edge_smoothness'])
@@ -250,7 +250,7 @@ class ControlPanel(QWidget):
         
         # Dimension control
         dim_control = ParameterControl(
-            "Dimension", 64, 4096, 256, step=64, decimals=0
+            "Dimension", 64, 4096, 1024, step=64, decimals=0
         )
         self.controls['dimension'] = dim_control
         layout.addWidget(dim_control)
@@ -264,7 +264,7 @@ class ControlPanel(QWidget):
         
         # Disc radius control
         disc_control = ParameterControl(
-            "Point Spacing", 0.5, 3.0, 1.0, step=0.1, decimals=1
+            "Point Spacing", 0.25, 8.0, 2.0, step=0.05, decimals=2
         )
         self.controls['disc_radius'] = disc_control
         layout.addWidget(disc_control)
@@ -308,7 +308,6 @@ class ControlPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
     
     def create_curves_group(self, parent_layout):
@@ -342,7 +341,7 @@ class ControlPanel(QWidget):
 
         self.max_delta_curves_widget = HeightCurvesWidget(
             title_text="Max Delta vs Elevation",
-            default_curve=[(0.0, 1.0), (1.0, 1.0)]
+            default_curve=[(0.0, 1.0), (2.0, 2.0)]
         )
         self.max_delta_curves_widget.curvesChanged.connect(
             lambda: self.parametersChanged.emit() if hasattr(self, 'parametersChanged') else None
@@ -377,9 +376,9 @@ class ControlPanel(QWidget):
         layout = QVBoxLayout()
         
         controls_data = [
-            ('river_downcutting', "River Downcutting", 0.5, 3.0, 1.6, 0.1, 1),
-            ('default_water_level', "Default Water Level", 0.1, 5.0, 1.0, 0.1, 1),
-            ('evaporation_rate', "Evaporation Rate", 0.0, 0.5, 0.2, 0.01, 2),
+            ('river_downcutting', "River Downcutting", 0.1, 3.0, 1.7, 0.1, 1),
+            ('default_water_level', "Default Water Level", 0.1, 5.0, 0.8, 0.1, 1),
+            ('evaporation_rate', "Evaporation Rate", 0.0, 0.5, 0.3, 0.01, 2),
             ('directional_inertia', "River Straightness", 0.0, 1.0, 0.2, 0.01, 2),
         ]
         
@@ -391,7 +390,6 @@ class ControlPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
     
     def create_terrain_group(self, parent_layout):
@@ -458,7 +456,6 @@ class ControlPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
     
     def create_export_group(self, parent_layout):
@@ -528,7 +525,6 @@ class ControlPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
     
     def create_generation_buttons(self, parent_layout):
@@ -848,7 +844,6 @@ class AnalysisPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
 
     def create_heuristics_group(self, parent_layout):
@@ -1040,7 +1035,6 @@ class AnalysisPanel(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
-        group.setMaximumWidth(420)
         parent_layout.addWidget(group)
 
     def color_scheme_changed(self, text):
