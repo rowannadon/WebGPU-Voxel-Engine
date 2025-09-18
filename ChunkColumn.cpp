@@ -1339,11 +1339,11 @@ void ChunkColumn::generateTerrain() {
         for (int x = 0; x < CHUNK_SIZE; x++) {
             // Generate height for this column
             float height = texc->getTexelAtPosition("height", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).b + 
-                0.015*texc->getTexelAtPosition("noise", x + position.x + offsetx, y + position.y + offsety, 5.0f).b;
+                0.006*texc->getTexelAtPosition("noise", x + position.x + offsetx, y + position.y + offsety, 5.0f).b;
             //float tpi = texc->getTexelAtPosition("tpi", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             //float flow = texc->getTexelAtPosition("flow", x + position.x + offsetx, y + position.y + offsety, 8.0f).r;
             float curvature = texc->getTexelAtPosition("curvature", x + position.x + offsetx, y + position.y + offsety, TERRAIN_UPSCALE).r;
-            int targetHeight = static_cast<int>(height * 595.0f);
+            int targetHeight = static_cast<int>(height * 1220.0f);
 
             ivec3 positionAbove = ivec3(x, y, targetHeight + 1);
             uint32_t blockHash = hash_ivec3(positionAbove);
