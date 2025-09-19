@@ -1,5 +1,6 @@
 """Utilities for assigning terrain albedo colors per biome."""
 from typing import Dict, Optional, Tuple
+from scipy.ndimage import gaussian_filter
 
 import numpy as np
 
@@ -55,6 +56,145 @@ def compute_terrain_albedo_rgb(biome_id: np.ndarray) -> np.ndarray:
     idx = np.asarray(biome_id, dtype=np.int32)
     idx = np.clip(idx, 0, _ALBEDO_LUT.shape[0] - 1)
     return _ALBEDO_LUT[idx]
+
+# Add this new function to albedo.py
+
+def compute_terrain_albedo_physical(
+    biome_id: np.ndarray,
+    slope_deg: np.ndarray,
+    deposition_map: np.ndarray,
+    flow_mask: np.ndarray,
+    forest_density: np.ndarray,
+    groundcover_density: np.ndarray,
+    foliage_rgb: np.ndarray,
+    ocean_mask: Optional[np.ndarray] = None,
+    angle_of_repose: float = 35.0,
+    cliff_threshold: float = 45.0,
+) -> np.ndarray:
+    """
+    Compute terrain albedo using physical properties and material types.
+    
+    Parameters:
+    -----------
+    biome_id: Biome classification map
+    slope_deg: Slope in degrees
+    deposition_map: Erosion deposition map (positive = deposition, negative = erosion)
+    flow_mask: Water flow/wetness mask (0-1)
+    forest_density: Forest density map (0-1)
+    groundcover_density: Groundcover density map (0-1)
+    foliage_rgb: Foliage color RGB map
+    ocean_mask: Boolean mask for ocean areas
+    angle_of_repose: Angle in degrees for talus vs sediment distinction
+    cliff_threshold: Slope threshold in degrees to identify cliffs
+    
+    Returns:
+    --------
+    RGB albedo texture (uint8)
+    """
+    
+    h, w = slope_deg.shape
+    output_rgb = np.zeros((h, w, 3), dtype=np.float32)
+    
+    # Get base biome colors
+    base_biome_rgb = compute_terrain_albedo_rgb(biome_id).astype(np.float32) / 255.0
+    
+    # Define material colors per biome (these can be refined)
+    # For now, using variations of the base biome colors
+    
+    # Cliff colors (grayish rock, varies slightly by biome)
+    cliff_base = np.array([0.45, 0.42, 0.40], dtype=np.float32)  # Base gray rock
+    
+    # Create biome-specific cliff colors (subtle variations)
+    cliff_colors = np.zeros((h, w, 3), dtype=np.float32)
+    for y in range(h):
+        for x in range(w):
+            biome = biome_id[y, x]
+            # Add slight biome-based tinting to cliff color
+            if biome <= 5:  # Cold biomes (polar, tundra)
+                cliff_colors[y, x] = cliff_base * np.array([0.95, 0.98, 1.0])
+            elif biome <= 12:  # Temperate biomes
+                cliff_colors[y, x] = cliff_base * np.array([1.0, 0.98, 0.95])
+            elif biome >= 18 and biome <= 20:  # Desert biomes
+                cliff_colors[y, x] = cliff_base * np.array([1.05, 1.0, 0.92])
+            else:  # Default/tropical
+                cliff_colors[y, x] = cliff_base
+    
+    # Talus colors (gravel/scree) - lighter and more varied than cliff
+    talus_colors = base_biome_rgb * 0.7 + np.array([0.55, 0.52, 0.48]) * 0.3
+    
+    # Sediment colors (sand/mud) - based on biome
+    sediment_colors = base_biome_rgb.copy()
+    # Make sediments slightly lighter and more saturated
+    sediment_colors = sediment_colors * 0.8 + np.array([0.65, 0.60, 0.50]) * 0.2
+    
+    # Process each pixel
+    is_cliff = slope_deg > cliff_threshold
+    is_deposition = deposition_map > 0
+    is_talus = (slope_deg > angle_of_repose) & ~is_cliff
+    
+    # Normalize flow_mask to use as wetness
+    wetness = np.clip(flow_mask, 0.0, 1.0)
+    
+    # 1. Process cliff areas
+    cliff_color = cliff_colors.copy()
+    # Darken cliffs with low deposition (mineral leaching effect)
+    leaching_factor = np.where(deposition_map < 0.5, 0.8 + 0.2 * deposition_map, 1.0)
+    cliff_color = cliff_color * leaching_factor[..., None]
+    
+    # 2. Process non-cliff areas
+    # 2a. Deposition areas (talus or sediment)
+    deposition_color = np.where(
+        is_talus[..., None],
+        talus_colors,  # Talus (high slope deposition)
+        sediment_colors  # Sediment (low slope deposition)
+    )
+    
+    # Apply wetness darkening to sediments
+    wet_darkening = 1.0 - 0.3 * wetness  # Darken by up to 30% when wet
+    deposition_color = deposition_color * wet_darkening[..., None]
+    
+    # 2b. Residual soil areas (vegetated)
+    # Convert foliage RGB to float
+    foliage_color = foliage_rgb.astype(np.float32) / 255.0
+    
+    # Blend foliage with base biome color based on vegetation density
+    # For low slopes: use groundcover
+    # For medium/high slopes: use forest density
+    slope_normalized = np.clip(slope_deg / 45.0, 0.0, 1.0)
+    
+    # Weight between groundcover and forest based on slope
+    vegetation_density = (1.0 - slope_normalized) * groundcover_density + slope_normalized * forest_density
+    
+    # Blend foliage color with base biome color
+    residual_soil_color = foliage_color * vegetation_density[..., None] + \
+                          base_biome_rgb * (1.0 - vegetation_density[..., None])
+    
+    # Apply wetness to vegetated areas too
+    residual_soil_color = residual_soil_color * (1.0 - 0.2 * wetness[..., None])
+    
+    # 3. Combine all components
+    for y in range(h):
+        for x in range(w):
+            if ocean_mask is not None and ocean_mask[y, x]:
+                # Keep ocean color
+                output_rgb[y, x] = base_biome_rgb[y, x]
+            elif is_cliff[y, x]:
+                # Cliff color
+                output_rgb[y, x] = cliff_color[y, x]
+            elif is_deposition[y, x]:
+                # Deposition (talus or sediment)
+                output_rgb[y, x] = deposition_color[y, x]
+            else:
+                # Residual soil (vegetated)
+                output_rgb[y, x] = residual_soil_color[y, x]
+    
+    # Add some subtle blending at boundaries for smoother transitions
+    from scipy.ndimage import gaussian_filter
+    output_rgb = output_rgb * 0.8 + gaussian_filter(output_rgb, sigma=0.5) * 0.2
+    
+    # Final clipping and conversion
+    output_rgb = np.clip(output_rgb, 0.0, 1.0)
+    return (output_rgb * 255.0 + 0.5).astype(np.uint8)
 
 
 def _box_blur_rgb(image: np.ndarray) -> np.ndarray:
@@ -188,5 +328,6 @@ def compute_terrain_albedo_continuous(
 __all__ = [
     "compute_terrain_albedo_rgb",
     "compute_terrain_albedo_continuous",
+    "compute_terrain_albedo_physical",
     "BIOME_ALBEDO_RGB",
 ]

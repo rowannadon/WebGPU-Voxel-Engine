@@ -25,7 +25,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
-from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb
+from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb, compute_terrain_albedo_physical
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -130,6 +130,10 @@ def parse_args():
                     help="Azimuth (degrees) for gradient precipitation pattern (0=north, clockwise positive).")
     ap.add_argument('--constant-wind-azimuth', type=float, default=25.0,
                     help="Azimuth (degrees) for constant prevailing wind model (0=east, counter-clockwise positive).")
+    ap.add_argument('--deposition-texture', type=str, default=None,
+                    help="Path to a custom deposition texture (image). If provided, deposition map is loaded from this texture instead of being computed.")
+    ap.add_argument('--albedo-mode', choices=['biome', 'continuous', 'physical'], default='physical',
+                    help="Albedo computation mode: 'biome' (simple biome-based), 'continuous' (climate-modulated), 'physical' (slope/deposition-based)")
 
     args = ap.parse_args()
     if args.overwrite and not args.load_from_previous:
@@ -751,14 +755,106 @@ def run_albedo(ctx: PipelineContext) -> None:
     biome_id = ctx.stage_results.get('biome_id')
     if biome_id is None:
         raise RuntimeError('Biome IDs must be computed before terrain albedo')
+    
+    # Check for albedo_mode, default to 'physical'
+    albedo_mode = getattr(args, 'albedo_mode', 'physical')
+    
     albedo_path = os.path.join(args.outdir, 'terrain_albedo.npy')
     albedo = try_load_npy(albedo_path, 'terrain_albedo', ctx.can_load_stage('albedo'))
+    
     if albedo is None:
-        albedo = compute_terrain_albedo_rgb(biome_id)
+        if albedo_mode == 'physical':
+            # Check for deposition in stage_results first (from cache)
+            deposition = ctx.stage_results.get('deposition')
+            
+            if deposition is None:
+                # Try to load from texture if specified
+                if hasattr(args, 'deposition_texture') and args.deposition_texture:
+                    deposition = load_scalar_texture(args.deposition_texture, target_shape=ctx.elev.shape)
+                    deposition = (deposition - 0.5) * 2.0
+                else:
+                    # Use neutral values
+                    print("  Note: No deposition map available, using neutral values")
+                    deposition = np.zeros_like(ctx.elev)
+            
+            # Store in stage_results
+            ctx.stage_results['deposition'] = deposition
+            
+            # Get or compute flow mask for wetness
+            flow_mask = ctx.stage_results.get('flow_mask')
+            if flow_mask is None:
+                # Use TWI as proxy for wetness
+                twi = ctx.stage_results.get('twi')
+                if twi is not None:
+                    flow_mask = np.clip((twi - 4.5) / 6.0, 0.0, 1.0)
+                else:
+                    flow_mask = np.zeros_like(ctx.elev)
+            
+            # Get or compute vegetation densities
+            forest_density = ctx.stage_results.get('forest_density')
+            groundcover_density = ctx.stage_results.get('groundcover_density')
+            if forest_density is None or groundcover_density is None:
+                # Force computation
+                if 'foliage_density' not in ctx.completed_stages:
+                    run_foliage_density(ctx)
+                forest_density = ctx.stage_results.get('forest_density', np.zeros_like(ctx.elev))
+                groundcover_density = ctx.stage_results.get('groundcover_density', np.zeros_like(ctx.elev))
+            
+            # Get or compute foliage color
+            foliage_rgb = ctx.stage_results.get('foliage_rgb')
+            if foliage_rgb is None:
+                if 'foliage' not in ctx.completed_stages:
+                    run_foliage(ctx)
+                foliage_rgb = ctx.stage_results.get('foliage_rgb')
+                if foliage_rgb is None:
+                    foliage_rgb = compute_terrain_albedo_rgb(biome_id)
+            
+            # Get slope
+            slope = ctx.stage_results.get('slope_deg')
+            if slope is None:
+                raise RuntimeError('Slope must be computed before physical albedo')
+            
+            # Get ocean mask
+            ocean = ctx.stage_results.get('ocean_mask')
+            
+            # Import the new function
+            from albedo import compute_terrain_albedo_physical
+            
+            # Compute physical albedo
+            albedo = compute_terrain_albedo_physical(
+                biome_id=biome_id,
+                slope_deg=slope,
+                deposition_map=deposition,
+                flow_mask=flow_mask,
+                forest_density=forest_density,
+                groundcover_density=groundcover_density,
+                foliage_rgb=foliage_rgb,
+                ocean_mask=ocean,
+                angle_of_repose=35.0,
+                cliff_threshold=45.0,
+            )
+            
+        elif args.albedo_mode == 'continuous':
+            # Use existing continuous albedo function
+            albedo = compute_terrain_albedo_continuous(
+                biome_id, 
+                ctx.stage_results['slope_deg'],
+                ctx.stage_results['twi'],
+                ctx.stage_results['temp_c'],
+                ctx.stage_results['precip_mm'],
+                ctx.stage_results['pet_mm'],
+                ctx.stage_results.get('aridity_index'),
+                ctx.stage_results['dist2coast_m'],
+                ctx.stage_results['latitude_deg'],
+                ctx.stage_results.get('ocean_mask')
+            )
+        else:
+            # Simple biome-based albedo
+            albedo = compute_terrain_albedo_rgb(biome_id)
+        
         if args.write_raw_npy:
             np.save(albedo_path, albedo)
-    else:
-        albedo = np.asarray(albedo, dtype=np.uint8)
+    
     ctx.stage_results['albedo_rgb'] = albedo
     save_png_rgb(albedo, os.path.join(args.outdir, 'terrain_albedo.png'))
 

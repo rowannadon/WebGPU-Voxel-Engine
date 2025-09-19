@@ -23,7 +23,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
-from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb
+from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb, compute_terrain_albedo_physical
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -133,7 +133,9 @@ class TerrainEngine(QObject):
             svf_dirs=16, svf_radius=100.0,
             tpi_radii=[25.0, 100.0],
             biome_mixing=1, use_random_biomes=False,
-            flowacc_texture=None
+            flowacc_texture=None,
+            albedo_mode="physical",
+            deposition_texture=None
         )
         # caches
         self.cache = {}
@@ -177,7 +179,7 @@ class TerrainEngine(QObject):
     def _dirty_flowacc(self):
         # Anything depending on flow accumulation or TWI
         for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb", "albedo_rgb", "albedo_continuous_rgb",
-                  "forest_density", "groundcover_density"]:
+                "forest_density", "groundcover_density", "deposition"]:  # Add "deposition" here
             self.cache.pop(k, None)
 
     # -------- Public API --------
@@ -200,6 +202,8 @@ class TerrainEngine(QObject):
         tpi_changed = (prev["tpi_radii"] != self.params["tpi_radii"])
         biome_changed = any(prev[k] != self.params[k] for k in ["biome_mixing","use_random_biomes"])
         flowacc_changed = (prev.get("flowacc_texture") != self.params.get("flowacc_texture"))
+        albedo_changed = (prev.get("albedo_mode") != self.params.get("albedo_mode") or
+                        prev.get("deposition_texture") != self.params.get("deposition_texture"))
 
         if core_changed:
             self._dirty_core()
@@ -215,6 +219,9 @@ class TerrainEngine(QObject):
             self._dirty_biome_only()
         if flowacc_changed:
             self._dirty_flowacc()
+        if albedo_changed:
+            self.cache.pop("albedo_rgb", None)
+            self.cache.pop("deposition", None)
 
     def load_heightmap_path(self, path):
         p = self.params
@@ -224,6 +231,13 @@ class TerrainEngine(QObject):
         self.h, self.w = self.elev.shape
         self.lat1d = latitude_degrees(self.h)
         self._dirty_all()
+
+    def inject_deposition_map(self, deposition_map: np.ndarray):
+        """Inject a deposition map from external source (e.g., erosion simulation)."""
+        if deposition_map is not None:
+            self.cache["deposition"] = np.asarray(deposition_map, dtype=np.float32)
+            # Clear albedo cache to force recomputation
+            self.cache.pop("albedo_rgb", None)
 
     # ---- on-demand compute primitives ----
     def _need(self, key, fn):
@@ -366,7 +380,54 @@ class TerrainEngine(QObject):
 
     def get_albedo(self):
         bid, _ = self.get_biome()
-        return self._need("albedo_rgb", lambda: compute_terrain_albedo_rgb(bid))
+        albedo_mode = self.params.get("albedo_mode", "physical")
+        
+        if albedo_mode == "physical":
+            # Get or use cached deposition map
+            deposition = self.cache.get("deposition")
+            if deposition is None:
+                # Check if there's a deposition texture to load
+                dep_tex = self.params.get("deposition_texture")
+                if dep_tex and os.path.exists(dep_tex):
+                    deposition = load_scalar_texture(dep_tex, target_shape=self.elev.shape)
+                    deposition = (deposition - 0.5) * 2.0  # Convert from 0-1 to -1 to 1
+                else:
+                    # Use neutral values if no deposition data
+                    deposition = np.zeros_like(self.elev)
+                self.cache["deposition"] = deposition
+            
+            # Get flow mask (wetness)
+            twi = self.get_twi()
+            flow_mask = np.clip((twi - 4.5) / 6.0, 0.0, 1.0)
+            
+            # Get vegetation densities
+            forest_density, groundcover_density = self.get_foliage_densities()
+            
+            # Get foliage color
+            foliage_rgb = self.get_foliage()
+            
+            # Get slope
+            slope_deg, _, _ = self.get_slope_aspect_normals()
+            
+            # Get ocean mask
+            ocean, _, _ = self.get_ocean_masks()
+            
+            # Compute physical albedo
+            return self._need("albedo_rgb", lambda: compute_terrain_albedo_physical(
+                biome_id=bid,
+                slope_deg=slope_deg,
+                deposition_map=deposition,
+                flow_mask=flow_mask,
+                forest_density=forest_density,
+                groundcover_density=groundcover_density,
+                foliage_rgb=foliage_rgb,
+                ocean_mask=ocean,
+                angle_of_repose=35.0,
+                cliff_threshold=45.0,
+            ))
+        else:
+            # Original simple biome-based albedo
+            return self._need("albedo_rgb", lambda: compute_terrain_albedo_rgb(bid))
 
     def get_albedo_continuous(self):
         bid, _ = self.get_biome()

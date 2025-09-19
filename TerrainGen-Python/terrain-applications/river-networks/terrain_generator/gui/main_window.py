@@ -79,11 +79,14 @@ class HeuristicComputationThread(QThread):
     finished = pyqtSignal(dict, dict)  # overlays, raw arrays
     error = pyqtSignal(str)
 
-    def __init__(self, heightmap: np.ndarray, request: dict, flow_override: Optional[np.ndarray] = None):
+    def __init__(self, heightmap: np.ndarray, request: dict, 
+                 flow_override: Optional[np.ndarray] = None,
+                 deposition_map: Optional[np.ndarray] = None):
         super().__init__()
         self.heightmap = np.asarray(heightmap, dtype=np.float32)
         self.request = request
         self.flow_override = None if flow_override is None else np.asarray(flow_override, dtype=np.float32)
+        self.deposition_map = None if deposition_map is None else np.asarray(deposition_map, dtype=np.float32)
 
     def run(self):
         try:
@@ -98,17 +101,30 @@ class HeuristicComputationThread(QThread):
             settings_kwargs = dict(self.request.get('settings', {}))
             if 'tpi_radii' in settings_kwargs:
                 settings_kwargs['tpi_radii'] = tuple(settings_kwargs['tpi_radii'])
+            settings_kwargs['albedo_mode'] = 'physical'
             settings = HeuristicSettings(**settings_kwargs)
 
             engine.prepare(self.heightmap, settings)
+
+            if self.deposition_map is not None:
+                engine.inject_deposition_map(self.deposition_map)
 
             if self.flow_override is not None:
                 override = np.asarray(self.flow_override, dtype=np.float32)
                 qt_engine.cache['acc'] = override.copy()
                 qt_engine.params['flowacc_texture'] = None
-                for key in ['twi', 'foliage_rgb', 'forest_density', 'groundcover_density']:
+                for key in ['twi', 'foliage_rgb', 'forest_density', 'groundcover_density', 'albedo_rgb']:
                     qt_engine.cache.pop(key, None)
-            images, arrays = engine.compute(self.request.get('selections', []))
+            
+            # Ensure required layers are computed for physical albedo
+            selections = list(self.request.get('selections', []))
+            if 'albedo' in selections:
+                # Make sure dependencies are computed
+                for dep in ['slope', 'twi', 'foliage', 'forest_density', 'groundcover_density']:
+                    if dep not in selections:
+                        selections.append(dep)
+            
+            images, arrays = engine.compute(selections)
 
             overlays = {name: qimage_to_rgba(image) for name, image in images.items()}
 
@@ -429,6 +445,10 @@ class TerrainGeneratorWindow(QMainWindow):
         heightmap = np.asarray(self.current_terrain_data.heightmap, dtype=np.float32)
         heightmap = normalize(heightmap, bounds=(0.0, 1.0))
 
+        deposition_map = None
+        if hasattr(self.current_terrain_data, 'deposition_map'):
+            deposition_map = self.current_terrain_data.deposition_map
+
         sanitized_request = {
             'selections': list(request_data.get('selections', [])),
             'settings': dict(request_data.get('settings', {}))
@@ -446,7 +466,12 @@ class TerrainGeneratorWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.status_label.setText("Computing heuristics...")
 
-        self.heuristic_thread = HeuristicComputationThread(heightmap, sanitized_request, flow_override=flow_override)
+        self.heuristic_thread = HeuristicComputationThread(
+            heightmap, 
+            sanitized_request, 
+            flow_override=flow_override,
+            deposition_map=deposition_map
+        )
         self.heuristic_thread.progress.connect(self.update_progress)
         self.heuristic_thread.finished.connect(self.heuristics_finished)
         self.heuristic_thread.error.connect(self.heuristics_error)

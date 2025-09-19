@@ -58,7 +58,8 @@ class HeuristicSettings:
     biome_mixing: int = 1
     use_random_biomes: bool = False
     flowacc_texture: Optional[str] = None
-
+    albedo_mode: str = "physical"
+    deposition_texture: Optional[str] = None
 
 class HeuristicEngine:
     """Thin wrapper around the standalone TerrainEngine."""
@@ -66,6 +67,7 @@ class HeuristicEngine:
     def __init__(self):
         self._engine = TerrainEngine()
         self._settings = HeuristicSettings()
+        self._deposition_map = None
 
     # ------------------------------ helpers ------------------------------
     def _apply_heightmap(self, heightmap: np.ndarray, z_min: float, z_max: float):
@@ -80,6 +82,9 @@ class HeuristicEngine:
         self._engine.h, self._engine.w = elev.shape
         self._engine.lat1d = latitude_degrees(self._engine.h)
         self._engine._dirty_all()
+
+        if self._deposition_map is not None:
+            self.inject_deposition_map(self._deposition_map)
 
     def _apply_settings(self, settings: HeuristicSettings):
         prev = self._settings
@@ -114,7 +119,16 @@ class HeuristicEngine:
             biome_mixing=settings.biome_mixing,
             use_random_biomes=settings.use_random_biomes,
             flowacc_texture=settings.flowacc_texture,
+            albedo_mode=settings.albedo_mode,
+            deposition_texture=settings.deposition_texture,
         )
+
+    def inject_deposition_map(self, deposition_map: np.ndarray):
+        """Inject a deposition map from erosion simulation."""
+        if deposition_map is not None:
+            self._deposition_map = np.asarray(deposition_map, dtype=np.float32)
+            # Store in the engine's cache so it can be accessed during computation
+            self._engine.cache['deposition'] = self._deposition_map.copy()
 
     # --------------------------- public methods --------------------------
     def prepare(self, heightmap: np.ndarray, settings: Optional[HeuristicSettings] = None):
