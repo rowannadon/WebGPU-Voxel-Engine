@@ -219,6 +219,7 @@ class TerrainGeneratorWindow(QMainWindow):
         # Export buttons
         self.control_panel.export_button.clicked.connect(self.export_terrain)
         self.control_panel.export_flow_button.clicked.connect(self.export_flow_mask)
+        self.control_panel.export_sediment_button.clicked.connect(self.export_sediment_mask)
         self.control_panel.export_watershed_button.clicked.connect(self.export_watershed_mask)
 
         # Visualization controls
@@ -311,7 +312,10 @@ class TerrainGeneratorWindow(QMainWindow):
             self.terrain_viewport.set_overlay_visible(True)
 
         self.control_panel.set_generation_enabled(True)  # Re-enable controls
-        self.control_panel.set_export_enabled(True)  # Enable export for full terrain
+        self.control_panel.set_export_enabled(
+            True,
+            self.current_terrain_data.sediment_deposition is not None
+        )  # Enable export for full terrain
         self.progress_bar.setVisible(False)
         self.status_label.setText("Terrain generated successfully!")
 
@@ -593,12 +597,12 @@ class TerrainGeneratorWindow(QMainWindow):
             QMessageBox.warning(self, "No Data",
                               "Please generate terrain first.")
             return
-        
+
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export Flow Mask", "flow_mask.png",
             "PNG Files (*.png);;TIFF Files (*.tiff)"
         )
-        
+
         if filename:
             try:
                 export_format = self.control_panel.get_flow_export_format()
@@ -610,6 +614,42 @@ class TerrainGeneratorWindow(QMainWindow):
                     export_format
                 )
                 
+                QMessageBox.information(self, "Export Successful",
+                                      f"Exported to {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Failed", str(e))
+
+    def export_sediment_mask(self):
+        """Export sediment deposition mask."""
+        if not self.current_terrain_data:
+            QMessageBox.warning(self, "No Data",
+                              "Please generate terrain first.")
+            return
+
+        if self.current_terrain_data.sediment_deposition is None:
+            QMessageBox.warning(
+                self,
+                "Sediment Disabled",
+                "Sediment deposition data is unavailable. Enable sediment simulation and regenerate terrain."
+            )
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Sediment Mask", "sediment_mask.png",
+            "PNG Files (*.png);;TIFF Files (*.tiff)"
+        )
+
+        if filename:
+            try:
+                export_format = self.control_panel.get_sediment_export_format()
+                exporter = TerrainExporter()
+                exporter.export_sediment_mask(
+                    self.current_terrain_data.sediment_deposition,
+                    self.current_terrain_data.land_mask,
+                    filename,
+                    export_format
+                )
+
                 QMessageBox.information(self, "Export Successful",
                                       f"Exported to {filename}")
             except Exception as e:

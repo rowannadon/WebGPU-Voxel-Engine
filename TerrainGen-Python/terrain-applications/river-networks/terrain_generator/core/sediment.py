@@ -87,8 +87,15 @@ def morphodynamic_step(points: np.ndarray,
                        land_mask: np.ndarray,
                        river_network: RiverNetwork,
                        params,
-                       baseline: Optional[np.ndarray]) -> np.ndarray:
-    """Perform a single Exner-style sediment routing step."""
+                       baseline: Optional[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Perform a single Exner-style sediment routing step.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Updated terrain heights and the amount of sediment deposited per node
+        during this step (land nodes only).
+    """
     discharge = river_network.volume
     slopes = _node_slopes(points, neighbors, heights)
     slopes[~land_mask] = 0.0
@@ -145,6 +152,9 @@ def morphodynamic_step(points: np.ndarray,
     new_heights = np.maximum(new_heights, 0.0)
     new_heights[~land_mask] = 0.0
 
+    # Only report deposition that occurs on land for downstream consumers
+    deposition_export = deposition * land_mask.astype(np.float64)
+
     if params.floodplain_diffusion > 0.0:
         lap = _graph_laplacian(neighbors, new_heights)
         flat_mask = slopes < params.tau_crit_slope * 5.0
@@ -155,7 +165,7 @@ def morphodynamic_step(points: np.ndarray,
         if baseline is not None:
             new_heights = np.maximum(new_heights, baseline)
 
-    return new_heights
+    return new_heights, deposition_export
 
 
 def morphodynamic_update(points: np.ndarray,
@@ -164,13 +174,17 @@ def morphodynamic_update(points: np.ndarray,
                          land_mask: np.ndarray,
                          river_network: RiverNetwork,
                          params,
-                         baseline: Optional[np.ndarray] = None) -> np.ndarray:
-    """Apply several morphodynamic iterations."""
+                         baseline: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
+    """Apply several morphodynamic iterations and accumulate deposition."""
     if params.morpho_iterations <= 0 or not params.enable_sediment:
-        return heights
+        return heights, np.zeros_like(heights)
 
     updated = heights.copy()
+    total_deposition = np.zeros_like(heights)
     for _ in range(params.morpho_iterations):
-        updated = morphodynamic_step(points, neighbors, updated, land_mask,
-                                     river_network, params, baseline)
-    return updated
+        updated, step_deposition = morphodynamic_step(
+            points, neighbors, updated, land_mask,
+            river_network, params, baseline
+        )
+        total_deposition += step_deposition
+    return updated, total_deposition

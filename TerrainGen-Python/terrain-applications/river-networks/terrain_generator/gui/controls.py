@@ -560,6 +560,26 @@ class ControlPanel(QWidget):
         self.export_flow_button.setEnabled(False)
         layout.addWidget(self.export_flow_button)
 
+        # Sediment mask export
+        layout.addSpacing(10)
+        sediment_label = QLabel("<b>Sediment Deposition Export</b>")
+        layout.addWidget(sediment_label)
+
+        sediment_format_layout = QHBoxLayout()
+        sediment_format_label = QLabel("Format:")
+        sediment_format_layout.addWidget(sediment_format_label)
+
+        self.export_sediment_format_combo = QComboBox()
+        self.export_sediment_format_combo.addItems([
+            "PNG (8-bit)", "PNG (16-bit)", "TIFF (32-bit float)"
+        ])
+        sediment_format_layout.addWidget(self.export_sediment_format_combo)
+        layout.addLayout(sediment_format_layout)
+
+        self.export_sediment_button = QPushButton("Export Sediment Mask")
+        self.export_sediment_button.setEnabled(False)
+        layout.addWidget(self.export_sediment_button)
+
         # Watershed mask export
         layout.addSpacing(10)
         watershed_label = QLabel("<b>Watershed Mask Export</b>")
@@ -772,6 +792,15 @@ class ControlPanel(QWidget):
         }
         return format_map.get(self.export_flow_format_combo.currentText(), "PNG_8")
 
+    def get_sediment_export_format(self) -> str:
+        """Get selected sediment export format."""
+        format_map = {
+            "PNG (8-bit)": "PNG_8",
+            "PNG (16-bit)": "PNG_16",
+            "TIFF (32-bit float)": "TIFF_32"
+        }
+        return format_map.get(self.export_sediment_format_combo.currentText(), "PNG_8")
+
     def get_watershed_export_format(self) -> str:
         """Get selected watershed export format."""
         format_map = {
@@ -794,10 +823,11 @@ class ControlPanel(QWidget):
             else:
                 self.generate_button.setText("Generate Terrain")
     
-    def set_export_enabled(self, enabled: bool):
+    def set_export_enabled(self, enabled: bool, sediment_available: bool = True):
         """Enable/disable export controls."""
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
+        self.export_sediment_button.setEnabled(enabled and sediment_available)
         self.export_watershed_button.setEnabled(enabled)
 
 class AnalysisPanel(QWidget):

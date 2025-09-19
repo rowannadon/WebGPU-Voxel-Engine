@@ -59,6 +59,25 @@ class TerrainExporter:
         TerrainExporter.export_heightmap(mask_data, filepath, format)
 
     @staticmethod
+    def export_sediment_mask(sediment_deposition: Optional[np.ndarray], land_mask: np.ndarray,
+                             filepath: str, format: str = "PNG_8"):
+        """Export sediment deposition mask to image file."""
+        if sediment_deposition is None:
+            raise ValueError("No sediment deposition data available for export.")
+
+        mask_data = sediment_deposition.astype(np.float32)
+
+        if land_mask is not None:
+            mask_data = mask_data.copy()
+            mask_data[~land_mask] = 0.0
+
+        max_value = float(mask_data.max())
+        if max_value > 0.0:
+            mask_data = mask_data / max_value
+
+        TerrainExporter.export_heightmap(mask_data, filepath, format)
+
+    @staticmethod
     def _export_png_8bit(data: np.ndarray, filepath: Path):
         """Export as 8-bit PNG."""
         normalized = normalize(data.astype(np.float32), (0, 255))

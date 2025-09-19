@@ -101,8 +101,9 @@ class TerrainData:
     river_volume: np.ndarray
     watershed_mask: np.ndarray
     triangulation: Any
-    points: np.ndarray = field(default=None)
-    neighbors: List[np.ndarray] = field(default=None)
+    sediment_deposition: Optional[np.ndarray] = None
+    points: Optional[np.ndarray] = field(default=None)
+    neighbors: Optional[List[np.ndarray]] = field(default=None)
 
 class TerrainGenerator:
     """Main terrain generation class."""
@@ -210,10 +211,11 @@ class TerrainGenerator:
             max_delta_field
         )
 
+        node_deposition = None
         if self.params.enable_sediment:
             if progress_callback:
                 progress_callback(88, "Depositing alluvium...")
-            final_height = morphodynamic_update(
+            final_height, node_deposition = morphodynamic_update(
                 points, neighbors, downcut_height, points_land,
                 river_network, self.params,
                 baseline=downcut_height
@@ -227,6 +229,12 @@ class TerrainGenerator:
         # Render to grid
         terrain_height = render_triangulation(target_shape, tri, final_height)
         river_volume = render_triangulation(target_shape, tri, river_network.volume)
+        sediment_mask = None
+        if node_deposition is not None:
+            sediment_mask = render_triangulation(target_shape, tri, node_deposition)
+            if land_mask is not None:
+                sediment_mask = np.where(land_mask, sediment_mask, 0.0)
+            sediment_mask = np.clip(sediment_mask, 0.0, None).astype(np.float32, copy=False)
 
         # Render watershed identifiers to regular grid using nearest-neighbor sampling
         watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
@@ -243,6 +251,7 @@ class TerrainGenerator:
             river_volume=river_volume,
             watershed_mask=watershed_mask,
             triangulation=tri,
+            sediment_deposition=sediment_mask,
             points=points,
             neighbors=neighbors
         )
