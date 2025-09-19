@@ -23,7 +23,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
-from albedo import compute_terrain_albedo_rgb
+from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -152,12 +152,12 @@ class TerrainEngine(QObject):
         for k in ["ocean", "coastline", "d2coast_m"]:
             self.cache.pop(k, None)
         # Biome & foliage depend on ocean/coast distance
-        for k in ["biome_id", "biome_rgb", "albedo_rgb", "foliage_rgb", "P_mm", "AI", "AET", "PET", "temp_c"]:
+        for k in ["biome_id", "biome_rgb", "albedo_rgb", "albedo_continuous_rgb", "foliage_rgb", "P_mm", "AI", "AET", "PET", "temp_c"]:
             self.cache.pop(k, None)
 
     def _dirty_climate(self):
         for k in ["wind_u","wind_v","dir_s","P_mm","PET","AET","AI","temp_c","foliage_rgb",
-                  "biome_id","biome_rgb","albedo_rgb"]:
+                  "biome_id","biome_rgb","albedo_rgb","albedo_continuous_rgb"]:
             self.cache.pop(k, None)
 
     def _dirty_svf(self):
@@ -171,12 +171,12 @@ class TerrainEngine(QObject):
                 self.cache.pop(k)
 
     def _dirty_biome_only(self):
-        for k in ["biome_id","biome_rgb","albedo_rgb"]:
+        for k in ["biome_id","biome_rgb","albedo_rgb","albedo_continuous_rgb"]:
             self.cache.pop(k, None)
 
     def _dirty_flowacc(self):
         # Anything depending on flow accumulation or TWI
-        for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb", "albedo_rgb",
+        for k in ["acc", "twi", "foliage_rgb", "biome_id", "biome_rgb", "albedo_rgb", "albedo_continuous_rgb",
                   "forest_density", "groundcover_density"]:
             self.cache.pop(k, None)
 
@@ -368,6 +368,27 @@ class TerrainEngine(QObject):
         bid, _ = self.get_biome()
         return self._need("albedo_rgb", lambda: compute_terrain_albedo_rgb(bid))
 
+    def get_albedo_continuous(self):
+        bid, _ = self.get_biome()
+        cl = self.get_climate()
+        slope_deg, _, _ = self.get_slope_aspect_normals()
+        twi = self.get_twi()
+        return self._need(
+            "albedo_continuous_rgb",
+            lambda: compute_terrain_albedo_continuous(
+                biome_id=bid,
+                slope_deg=slope_deg,
+                twi=twi,
+                temp_c=cl["temp_c"],
+                precip_mm=cl["precip_mm"],
+                pet_mm=cl["PET"],
+                aridity_index=cl["AI"],
+                dist_coast_m=cl["d2coast"],
+                latitude_deg=self.lat1d,
+                ocean_mask=cl["ocean"],
+            ),
+        )
+
     def get_foliage(self):
         cl = self.get_climate()
         svf = self.cache.get("svf", None)  # optional
@@ -489,6 +510,11 @@ class TerrainEngine(QObject):
                 alb = self.get_albedo()
                 out_arrays["albedo_rgb"] = alb
                 out_images["terrain_albedo"] = rgb_to_qimage(alb)
+
+            elif sel == "albedo_continuous":
+                alb_cont = self.get_albedo_continuous()
+                out_arrays["albedo_continuous_rgb"] = alb_cont
+                out_images["terrain_albedo_continuous"] = rgb_to_qimage(alb_cont)
 
             elif sel == "foliage":
                 frgb = self.get_foliage()
@@ -838,11 +864,12 @@ class MainWindow(QMainWindow):
         self.chk_climate = QCheckBox("Climate (Temp, Precip, PET, AET, AI)"); self.chk_climate.setChecked(True)
         self.chk_biome = QCheckBox("Biome"); self.chk_biome.setChecked(True)
         self.chk_albedo = QCheckBox("Terrain albedo"); self.chk_albedo.setChecked(True)
+        self.chk_albedo_cont = QCheckBox("Continuous terrain albedo"); self.chk_albedo_cont.setChecked(True)
         self.chk_foliage = QCheckBox("Foliage color"); self.chk_foliage.setChecked(True)
         self.chk_forest = QCheckBox("Forest density")
         self.chk_ground = QCheckBox("Groundcover density")
         for w in [self.chk_elev,self.chk_ocean,self.chk_slope,self.chk_aspect,self.chk_normal,self.chk_curv,
-                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,self.chk_albedo,
+                  self.chk_tpi,self.chk_acc,self.chk_twi,self.chk_svf,self.chk_climate,self.chk_biome,self.chk_albedo,self.chk_albedo_cont,
                   self.chk_foliage,self.chk_forest,self.chk_ground]:
             lay_sel.addWidget(w)
         outer.addWidget(sel_box)
@@ -940,6 +967,7 @@ class MainWindow(QMainWindow):
         if self.chk_climate.isChecked(): sel.append("climate")
         if self.chk_biome.isChecked(): sel.append("biome")
         if self.chk_albedo.isChecked(): sel.append("albedo")
+        if self.chk_albedo_cont.isChecked(): sel.append("albedo_continuous")
         if self.chk_foliage.isChecked(): sel.append("foliage")
         if self.chk_forest.isChecked(): sel.append("forest_density")
         if self.chk_ground.isChecked(): sel.append("groundcover_density")

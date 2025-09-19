@@ -25,7 +25,7 @@ from biome import (
     BIOME_TABLE,
     classify_biomes_advanced,
 )
-from albedo import compute_terrain_albedo_rgb
+from albedo import compute_terrain_albedo_continuous, compute_terrain_albedo_rgb
 from climate import (
     actual_evapotranspiration,
     directional_slope,
@@ -79,9 +79,9 @@ def parse_args():
     ap.add_argument(
         '--compute',
         nargs='+',
-        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','biome','albedo','foliage', 'forest_density', 'groundcover_density'],
+        default=['slope','aspect','normal','curvature','tpi','flowacc','twi','svf','climate','biome','albedo','albedo_continuous','foliage', 'forest_density', 'groundcover_density'],
         help=(
-            "Which layers to compute. Core: slope, aspect, normal, curvature, tpi, flowacc, twi, svf, climate, biome, foliage, albedo. "
+            "Which layers to compute. Core: slope, aspect, normal, curvature, tpi, flowacc, twi, svf, climate, biome, foliage, albedo, albedo_continuous. "
         )
     )
     ap.add_argument('--tpi-radii', nargs='*', type=float, default=[25.0, 100.0], help="TPI radii in METERS (convert to pixels using --cellsize).")
@@ -762,6 +762,41 @@ def run_albedo(ctx: PipelineContext) -> None:
     ctx.stage_results['albedo_rgb'] = albedo
     save_png_rgb(albedo, os.path.join(args.outdir, 'terrain_albedo.png'))
 
+
+def run_albedo_continuous(ctx: PipelineContext) -> None:
+    args = ctx.args
+    biome_id = ctx.stage_results.get('biome_id')
+    if biome_id is None:
+        raise RuntimeError('Biome IDs must be computed before terrain albedo (continuous)')
+
+    required_keys = ['slope_deg', 'twi', 'temp_c', 'precip_mm', 'pet_mm', 'aridity_index', 'dist2coast_m', 'latitude_deg', 'ocean_mask']
+    missing = [k for k in required_keys if k not in ctx.stage_results]
+    if missing:
+        raise RuntimeError(f"Missing prerequisites for continuous albedo: {', '.join(missing)}")
+
+    albedo_path = os.path.join(args.outdir, 'terrain_albedo_continuous.npy')
+    albedo = try_load_npy(albedo_path, 'terrain_albedo_continuous', ctx.can_load_stage('albedo_continuous'))
+    if albedo is None:
+        albedo = compute_terrain_albedo_continuous(
+            biome_id=biome_id,
+            slope_deg=ctx.stage_results['slope_deg'],
+            twi=ctx.stage_results['twi'],
+            temp_c=ctx.stage_results['temp_c'],
+            precip_mm=ctx.stage_results['precip_mm'],
+            pet_mm=ctx.stage_results['pet_mm'],
+            aridity_index=ctx.stage_results.get('aridity_index'),
+            dist_coast_m=ctx.stage_results['dist2coast_m'],
+            latitude_deg=ctx.stage_results['latitude_deg'],
+            ocean_mask=ctx.stage_results['ocean_mask'],
+        )
+        if args.write_raw_npy:
+            np.save(albedo_path, albedo)
+    else:
+        albedo = np.asarray(albedo, dtype=np.uint8)
+
+    ctx.stage_results['albedo_continuous_rgb'] = albedo
+    save_png_rgb(albedo, os.path.join(args.outdir, 'terrain_albedo_continuous.png'))
+
 def run_foliage_density(ctx: PipelineContext) -> None:
     args = ctx.args
     twi = ctx.stage_results['twi']
@@ -826,6 +861,7 @@ STAGE_DEFS: Dict[str, StageDef] = {
     "climate": StageDef("climate", "Climate fields…", ("ocean_masks",), run_climate),
     "biome": StageDef("biome", "Advanced biome classification…", ("climate", "twi", "slope_aspect"), run_biome),
     "albedo": StageDef("albedo", "Terrain albedo color map...", ("biome",), run_albedo),
+    "albedo_continuous": StageDef("albedo_continuous", "Continuous terrain albedo map informed by climate & terrain", ("biome", "climate", "twi", "slope_aspect"), run_albedo_continuous),
     "foliage": StageDef("foliage", "Foliage color mask…", ("climate", "twi", "slope_aspect"), run_foliage),
     "foliage_density": StageDef("foliage_density", "Foliage density (forest/groundcover)…", ("climate", "twi", "slope_aspect"), run_foliage_density),
 }
@@ -843,6 +879,10 @@ COMPUTE_STAGE_ALIASES: Dict[str, str] = {
     'climate': 'climate',
     'biome': 'biome',
     'albedo': 'albedo',
+    'albedo_continuous': 'albedo_continuous',
+    'albedo-continuous': 'albedo_continuous',
+    'terrain_albedo_continuous': 'albedo_continuous',
+    'terrain-albedo-continuous': 'albedo_continuous',
     'foliage': 'foliage',
     'forest_density': 'foliage_density',
     'groundcover_density': 'foliage_density',

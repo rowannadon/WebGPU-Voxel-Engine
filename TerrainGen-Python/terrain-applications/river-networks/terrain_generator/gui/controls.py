@@ -873,8 +873,9 @@ class AnalysisPanel(QWidget):
             ("foliage", "Foliage color"),
             ("forest_density", "Forest density"),
             ("groundcover_density", "Groundcover density"),
+            ("albedo_continuous", "Continuous albedo"),
         ]
-        default_checked = {"slope", "flowacc", "twi", "biome", "foliage"}
+        default_checked = {"slope", "aspect", "normal", "curvature", "tpi", "flowacc", "twi", "svf", "climate", "biome", "albedo", "albedo_continuous", "foliage", "forest_density", "groundcover_density"}
         for key, label_text in heuristics:
             cb = QCheckBox(label_text)
             cb.setChecked(key in default_checked)
