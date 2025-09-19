@@ -7,7 +7,7 @@ from scipy.sparse.csgraph import dijkstra
 from scipy.interpolate import NearestNDInterpolator
 from typing import Optional, Tuple, Any, List
 from dataclasses import dataclass, field
-from scipy.ndimage import zoom
+from scipy.ndimage import zoom, binary_dilation
 
 from .rivers import RiverGenerator, RiverNetwork
 from .sediment import morphodynamic_update
@@ -77,6 +77,7 @@ class TerrainParameters:
     lake_fill_factor: float = 1.0
     delta_enhance: float = 1.2
     sediment_max_step: float = 0.05
+    sediment_coast_buffer: int = 3
     
     # Terrain parameters
     max_delta: float = 0.05
@@ -102,6 +103,7 @@ class TerrainData:
     watershed_mask: np.ndarray
     triangulation: Any
     sediment_deposition: Optional[np.ndarray] = None
+    sediment_land_mask: Optional[np.ndarray] = None
     points: Optional[np.ndarray] = field(default=None)
     neighbors: Optional[List[np.ndarray]] = field(default=None)
 
@@ -163,6 +165,15 @@ class TerrainGenerator:
         coords = np.floor(points).astype(int)
         points_land = land_mask[coords[:, 0], coords[:, 1]]
         points_deltas = deltas[coords[:, 0], coords[:, 1]]
+        sediment_land_mask = land_mask
+        if self.params.sediment_coast_buffer > 0:
+            structure = np.ones((3, 3), dtype=bool)
+            sediment_land_mask = binary_dilation(
+                land_mask,
+                structure=structure,
+                iterations=int(self.params.sediment_coast_buffer)
+            )
+        sediment_points_land = sediment_land_mask[coords[:, 0], coords[:, 1]]
         
         if progress_callback:
             progress_callback(55, "Computing initial height map...")
@@ -216,7 +227,7 @@ class TerrainGenerator:
             if progress_callback:
                 progress_callback(88, "Depositing alluvium...")
             final_height, node_deposition = morphodynamic_update(
-                points, neighbors, downcut_height, points_land,
+                points, neighbors, downcut_height, sediment_points_land,
                 river_network, self.params,
                 baseline=downcut_height
             )
@@ -232,8 +243,8 @@ class TerrainGenerator:
         sediment_mask = None
         if node_deposition is not None:
             sediment_mask = render_triangulation(target_shape, tri, node_deposition)
-            if land_mask is not None:
-                sediment_mask = np.where(land_mask, sediment_mask, 0.0)
+            if sediment_land_mask is not None:
+                sediment_mask = np.where(sediment_land_mask, sediment_mask, 0.0)
             sediment_mask = np.clip(sediment_mask, 0.0, None).astype(np.float32, copy=False)
 
         # Render watershed identifiers to regular grid using nearest-neighbor sampling
@@ -252,6 +263,7 @@ class TerrainGenerator:
             watershed_mask=watershed_mask,
             triangulation=tri,
             sediment_deposition=sediment_mask,
+            sediment_land_mask=sediment_land_mask if sediment_mask is not None else None,
             points=points,
             neighbors=neighbors
         )

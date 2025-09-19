@@ -643,9 +643,12 @@ class TerrainGeneratorWindow(QMainWindow):
             try:
                 export_format = self.control_panel.get_sediment_export_format()
                 exporter = TerrainExporter()
+                export_mask = self.current_terrain_data.sediment_land_mask
+                if export_mask is None:
+                    export_mask = self.current_terrain_data.land_mask
                 exporter.export_sediment_mask(
                     self.current_terrain_data.sediment_deposition,
-                    self.current_terrain_data.land_mask,
+                    export_mask,
                     filename,
                     export_format
                 )

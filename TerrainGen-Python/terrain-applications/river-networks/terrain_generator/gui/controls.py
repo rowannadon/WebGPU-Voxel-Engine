@@ -420,6 +420,7 @@ class ControlPanel(QWidget):
             ('lake_fill_factor', "Lake Fill Factor", 0.0, 2.5, 1.0, 0.1, 1),
             ('delta_enhance', "Delta Boost", 1.0, 3.0, 1.2, 0.1, 1),
             ('sediment_max_step', "Max Deposition Step", 0.0, 0.2, 0.05, 0.01, 2),
+            ('sediment_coast_buffer', "Coastal Buffer (cells)", 0.0, 10.0, 3.0, 1.0, 0),
         ]
 
         self.sediment_controls = []
@@ -752,6 +753,7 @@ class ControlPanel(QWidget):
             lake_fill_factor=self.controls['lake_fill_factor'].value(),
             delta_enhance=self.controls['delta_enhance'].value(),
             sediment_max_step=self.controls['sediment_max_step'].value(),
+            sediment_coast_buffer=int(self.controls['sediment_coast_buffer'].value()),
 
             # Terrain parameters
             max_delta=self.controls['max_delta'].value(),
@@ -1360,4 +1362,3 @@ class AnalysisPanel(QWidget):
         has_computed = self.computed_overlay_combo.count() > 0
         self.computed_overlay_combo.setEnabled((not busy) and has_computed)
         self.apply_computed_overlay_button.setEnabled((not busy) and has_computed)
-

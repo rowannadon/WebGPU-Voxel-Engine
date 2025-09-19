@@ -59,7 +59,7 @@ class TerrainExporter:
         TerrainExporter.export_heightmap(mask_data, filepath, format)
 
     @staticmethod
-    def export_sediment_mask(sediment_deposition: Optional[np.ndarray], land_mask: np.ndarray,
+    def export_sediment_mask(sediment_deposition: Optional[np.ndarray], land_mask: Optional[np.ndarray],
                              filepath: str, format: str = "PNG_8"):
         """Export sediment deposition mask to image file."""
         if sediment_deposition is None:
