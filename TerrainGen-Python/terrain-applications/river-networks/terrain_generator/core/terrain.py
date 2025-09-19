@@ -14,6 +14,7 @@ from ..io import HeightmapImporter
 from .utils import (normalize, gaussian_blur, gaussian_gradient, bump, 
                    dist_to_mask, poisson_disc_sampling, connect_inland_seas,
                    render_triangulation, lerp)
+from .particle_erosion import ParticleErosion
 
 @dataclass
 class TerrainParameters:
@@ -76,6 +77,19 @@ class TerrainParameters:
     terrace_min_strength: float = 0.0
     terrace_max_strength: float = 1.0
 
+    # Erosion parameters
+    use_erosion: bool = True
+    erosion_iterations: int = 80000
+    erosion_inertia: float = 0.3
+    erosion_capacity: float = 8.0
+    erosion_deposition_rate: float = 0.2
+    erosion_rate: float = 0.4
+    erosion_evaporation: float = 0.98
+    erosion_gravity: float = 10.0
+    erosion_max_lifetime: int = 60
+    erosion_step_size: float = 0.3
+    erosion_blur_iterations: int = 1
+
 @dataclass
 class TerrainData:
     """Container for generated terrain data."""
@@ -83,6 +97,7 @@ class TerrainData:
     land_mask: np.ndarray
     river_volume: np.ndarray
     watershed_mask: np.ndarray
+    deposition_map: np.ndarray
     triangulation: Any
     points: np.ndarray = field(default=None)
     neighbors: List[np.ndarray] = field(default=None)
@@ -95,6 +110,7 @@ class TerrainGenerator:
     
     def __init__(self, params: TerrainParameters):
         self.params = params
+        self.deposition_map = None
         
         # Set numpy random seed for other operations
         np.random.seed(params.seed)
@@ -203,6 +219,68 @@ class TerrainGenerator:
         watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
         watershed_mask[~land_mask] = 0
 
+        if self.params.use_erosion:
+            if progress_callback:
+                progress_callback(90, "Applying erosion...")
+            
+            # Apply particle erosion using parameters
+            erosion = ParticleErosion(
+                iterations=self.params.erosion_iterations,
+                inertia=self.params.erosion_inertia,
+                capacity_const=self.params.erosion_capacity,
+                deposition_const=self.params.erosion_deposition_rate,
+                erosion_const=self.params.erosion_rate,
+                evaporation_const=self.params.erosion_evaporation,
+                gravity=self.params.erosion_gravity,
+                max_lifetime=self.params.erosion_max_lifetime,
+                step_size=self.params.erosion_step_size,
+                min_slope=0.0001,
+                blur_iterations=self.params.erosion_blur_iterations
+            )
+            
+            # Scale erosion parameters based on dimension
+            dim_scale = self.params.dimension / 256.0
+            if dim_scale > 1.5:
+                erosion.iterations = int(erosion.iterations * np.sqrt(dim_scale))
+                erosion.step_size *= np.sqrt(dim_scale) * 0.5
+                erosion.max_lifetime = int(erosion.max_lifetime * np.sqrt(dim_scale))
+            
+            # Preserve the original height scale
+            max_height = terrain_height.max()
+            
+            if max_height <= 0:
+                # No land above sea level, skip erosion
+                self.deposition_map = np.zeros_like(terrain_height)
+            else:
+                # Normalize for erosion
+                normalized_terrain = terrain_height / max_height
+                
+                # Apply erosion
+                eroded_terrain, deposition_map = erosion.erode(
+                    normalized_terrain,
+                    progress_callback=progress_callback
+                )
+                
+                # Scale back to original height range
+                terrain_height = eroded_terrain * max_height
+                
+                # Update land mask to include new land formed by deposition
+                new_land_threshold = 0.001 * max_height
+                updated_land_mask = terrain_height > new_land_threshold
+                land_mask = land_mask | updated_land_mask
+                
+                # Store deposition map for export
+                self.deposition_map = deposition_map * max_height
+        else:
+            # No erosion, no deposition
+            self.deposition_map = np.zeros_like(terrain_height)
+        
+        # Render watershed identifiers to regular grid using nearest-neighbor sampling
+        watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
+        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
+        watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
+        watershed_mask[~land_mask] = 0
+        
         if progress_callback:
             progress_callback(100, "Complete!")
 
@@ -211,6 +289,7 @@ class TerrainGenerator:
             land_mask=land_mask,
             river_volume=river_volume,
             watershed_mask=watershed_mask,
+            deposition_map=self.deposition_map,
             triangulation=tri,
             points=points,
             neighbors=neighbors
@@ -242,6 +321,7 @@ class TerrainGenerator:
             land_mask=land_mask,
             river_volume=np.zeros_like(initial_height),
             watershed_mask=np.zeros_like(initial_height, dtype=np.int32),
+            deposition_map=np.zeros_like(initial_height),
             triangulation=None,
             points=None,
             neighbors=None

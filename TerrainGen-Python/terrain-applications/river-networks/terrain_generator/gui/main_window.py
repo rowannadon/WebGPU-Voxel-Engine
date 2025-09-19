@@ -220,6 +220,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.control_panel.export_button.clicked.connect(self.export_terrain)
         self.control_panel.export_flow_button.clicked.connect(self.export_flow_mask)
         self.control_panel.export_watershed_button.clicked.connect(self.export_watershed_mask)
+        self.control_panel.export_deposition_button.clicked.connect(self.export_deposition_mask)
 
         # Visualization controls
         self.analysis_panel.visualization_changed.connect(self.update_visualization)
@@ -638,6 +639,34 @@ class TerrainGeneratorWindow(QMainWindow):
                     export_format
                 )
 
+                QMessageBox.information(self, "Export Successful",
+                                      f"Exported to {filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Failed", str(e))
+                
+    def export_deposition_mask(self):
+        """Export deposition mask."""
+        if not self.current_terrain_data:
+            QMessageBox.warning(self, "No Data",
+                              "Please generate terrain first.")
+            return
+        
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Deposition Mask", "deposition_mask.png",
+            "PNG Files (*.png);;TIFF Files (*.tiff)"
+        )
+        
+        if filename:
+            try:
+                export_format = self.control_panel.get_deposition_export_format()
+                exporter = TerrainExporter()
+                exporter.export_deposition_mask(
+                    self.current_terrain_data.deposition_map,
+                    self.current_terrain_data.land_mask,
+                    filename,
+                    export_format
+                )
+                
                 QMessageBox.information(self, "Export Successful",
                                       f"Exported to {filename}")
             except Exception as e:

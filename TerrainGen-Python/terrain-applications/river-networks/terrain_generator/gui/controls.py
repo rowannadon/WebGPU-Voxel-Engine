@@ -185,6 +185,9 @@ class ControlPanel(QWidget):
         
         # Terrain parameters group
         self.create_terrain_group(layout)
+
+        # Erosion parameters group
+        self.create_erosion_group(layout)
         
         # Export group
         self.create_export_group(layout)
@@ -458,6 +461,95 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         parent_layout.addWidget(group)
     
+    def create_erosion_group(self, parent_layout):
+        """Create erosion parameters group."""
+        group = QGroupBox("Particle Erosion")
+        layout = QVBoxLayout()
+        
+        # Enable erosion checkbox
+        self.use_erosion_checkbox = QCheckBox("Enable Particle Erosion")
+        self.use_erosion_checkbox.setChecked(True)
+        self.use_erosion_checkbox.stateChanged.connect(self.toggle_erosion)
+        layout.addWidget(self.use_erosion_checkbox)
+        
+        # Erosion controls
+        self.erosion_controls = []
+        
+        # Basic erosion parameters
+        basic_label = QLabel("<b>Basic Settings:</b>")
+        self.erosion_controls.append(basic_label)
+        layout.addWidget(basic_label)
+        
+        controls_data = [
+            ('erosion_iterations', "Droplet Count", 10000, 200000, 80000, 5000, 0),
+            ('erosion_inertia', "Flow Inertia", 0.0, 0.7, 0.3, 0.05, 2),
+            ('erosion_step_size', "Step Size", 0.1, 1.0, 0.3, 0.05, 2),
+        ]
+        
+        for name, label, min_val, max_val, default, step, decimals in controls_data:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            self.controls[name] = control
+            self.erosion_controls.append(control)
+            layout.addWidget(control)
+        
+        # Erosion/Deposition rates
+        rates_label = QLabel("<b>Erosion & Deposition:</b>")
+        self.erosion_controls.append(rates_label)
+        layout.addWidget(rates_label)
+        
+        rate_controls = [
+            ('erosion_capacity', "Carrying Capacity", 1.0, 20.0, 8.0, 0.5, 1),
+            ('erosion_rate', "Erosion Rate", 0.1, 1.0, 0.4, 0.05, 2),
+            ('erosion_deposition_rate', "Deposition Rate", 0.1, 1.0, 0.2, 0.05, 2),
+        ]
+        
+        for name, label, min_val, max_val, default, step, decimals in rate_controls:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            self.controls[name] = control
+            self.erosion_controls.append(control)
+            layout.addWidget(control)
+        
+        # Physics parameters
+        physics_label = QLabel("<b>Physics Settings:</b>")
+        self.erosion_controls.append(physics_label)
+        layout.addWidget(physics_label)
+        
+        physics_controls = [
+            ('erosion_gravity', "Gravity Strength", 1.0, 20.0, 10.0, 0.5, 1),
+            ('erosion_evaporation', "Water Retention", 0.9, 0.999, 0.98, 0.001, 3),
+            ('erosion_max_lifetime', "Droplet Lifetime", 20, 100, 60, 5, 0),
+            ('erosion_blur_iterations', "Smoothing Passes", 0, 3, 1, 1, 0),
+        ]
+        
+        for name, label, min_val, max_val, default, step, decimals in physics_controls:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            self.controls[name] = control
+            self.erosion_controls.append(control)
+            layout.addWidget(control)
+        
+        # Info label
+        info = QLabel(
+            "• Droplet Count: More droplets = smoother but slower\n"
+            "• Flow Inertia: Higher = straighter channels\n"
+            "• Carrying Capacity: Amount of sediment carried\n"
+            "• Water Retention: 0.98 = 2% evaporation per step"
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #888; font-size: 10px;")
+        self.erosion_controls.append(info)
+        layout.addWidget(info)
+        
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+    
+    def toggle_erosion(self, state):
+        """Toggle erosion controls."""
+        enabled = (state == 2)  # Qt.Checked
+        for control in self.erosion_controls:
+            control.setEnabled(enabled)
+
     def create_export_group(self, parent_layout):
         """Create export group."""
         group = QGroupBox("Export Options")
@@ -521,6 +613,33 @@ class ControlPanel(QWidget):
         self.export_watershed_button = QPushButton("Export Watershed Mask")
         self.export_watershed_button.setEnabled(False)
         layout.addWidget(self.export_watershed_button)
+        
+        # Deposition mask export (NEW)
+        layout.addSpacing(10)
+        deposition_label = QLabel("<b>Deposition Mask Export</b>")
+        layout.addWidget(deposition_label)
+        
+        deposition_format_layout = QHBoxLayout()
+        deposition_format_label = QLabel("Format:")
+        deposition_format_layout.addWidget(deposition_format_label)
+        
+        self.export_deposition_format_combo = QComboBox()
+        self.export_deposition_format_combo.addItems([
+            "PNG (8-bit)", "PNG (16-bit)", "TIFF (32-bit float)"
+        ])
+        deposition_format_layout.addWidget(self.export_deposition_format_combo)
+        layout.addLayout(deposition_format_layout)
+        
+        self.export_deposition_button = QPushButton("Export Deposition Mask")
+        self.export_deposition_button.setEnabled(False)
+        layout.addWidget(self.export_deposition_button)
+        
+        # Info about deposition
+        deposition_info = QLabel(
+            "Deposition mask: Bright = deposition, Dark = erosion"
+        )
+        deposition_info.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(deposition_info)
 
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
@@ -678,6 +797,29 @@ class ControlPanel(QWidget):
                 ParameterControl("", 0, 0, 0.0)).value(),
             terrace_max_strength=self.controls.get('terrace_max_strength',
                 ParameterControl("", 0, 0, 0.8)).value(),
+
+            # Erosion parameters
+            use_erosion=self.use_erosion_checkbox.isChecked(),
+            erosion_iterations=int(self.controls.get('erosion_iterations',
+                ParameterControl("", 0, 0, 80000)).value()),
+            erosion_inertia=self.controls.get('erosion_inertia',
+                ParameterControl("", 0, 0, 0.3)).value(),
+            erosion_capacity=self.controls.get('erosion_capacity',
+                ParameterControl("", 0, 0, 8.0)).value(),
+            erosion_deposition_rate=self.controls.get('erosion_deposition_rate',
+                ParameterControl("", 0, 0, 0.2)).value(),
+            erosion_rate=self.controls.get('erosion_rate',
+                ParameterControl("", 0, 0, 0.4)).value(),
+            erosion_evaporation=self.controls.get('erosion_evaporation',
+                ParameterControl("", 0, 0, 0.98)).value(),
+            erosion_gravity=self.controls.get('erosion_gravity',
+                ParameterControl("", 0, 0, 10.0)).value(),
+            erosion_max_lifetime=int(self.controls.get('erosion_max_lifetime',
+                ParameterControl("", 0, 0, 60)).value()),
+            erosion_step_size=self.controls.get('erosion_step_size',
+                ParameterControl("", 0, 0, 0.3)).value(),
+            erosion_blur_iterations=int(self.controls.get('erosion_blur_iterations',
+                ParameterControl("", 0, 0, 1)).value()),
         )
     
     def get_export_format(self) -> str:
@@ -706,6 +848,15 @@ class ControlPanel(QWidget):
             "TIFF (32-bit float)": "TIFF_32"
         }
         return format_map.get(self.export_watershed_format_combo.currentText(), "PNG_8")
+    
+    def get_deposition_export_format(self) -> str:
+        """Get selected deposition export format."""
+        format_map = {
+            "PNG (8-bit)": "PNG_8",
+            "PNG (16-bit)": "PNG_16",
+            "TIFF (32-bit float)": "TIFF_32"
+        }
+        return format_map.get(self.export_deposition_format_combo.currentText(), "PNG_8")
 
     def set_generation_enabled(self, enabled: bool):
         """Enable/disable generation controls during generation."""
@@ -725,6 +876,7 @@ class ControlPanel(QWidget):
         self.export_button.setEnabled(enabled)
         self.export_flow_button.setEnabled(enabled)
         self.export_watershed_button.setEnabled(enabled)
+        self.export_deposition_button.setEnabled(enabled)
 
 class AnalysisPanel(QWidget):
     """Panel hosting visualization controls and heuristic generation."""

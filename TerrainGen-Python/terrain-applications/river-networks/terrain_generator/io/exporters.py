@@ -59,6 +59,26 @@ class TerrainExporter:
         TerrainExporter.export_heightmap(mask_data, filepath, format)
 
     @staticmethod
+    def export_deposition_mask(deposition_map: np.ndarray, land_mask: np.ndarray,
+                               filepath: str, format: str = "PNG_8"):
+        """Export deposition mask to image file."""
+        # Prepare deposition data
+        # Positive values = deposition (bright), negative = erosion (dark)
+        deposition_data = deposition_map.copy()
+        
+        # Normalize to 0-1 range where 0.5 is neutral (no change)
+        max_change = max(abs(deposition_data.min()), abs(deposition_data.max()))
+        if max_change > 0:
+            # Map [-max_change, max_change] to [0, 1] with 0.5 as center
+            normalized = (deposition_data / (2 * max_change)) + 0.5
+            normalized = np.clip(normalized, 0, 1)
+        else:
+            normalized = np.full_like(deposition_data, 0.5)
+        
+        # Export using same methods as heightmap
+        TerrainExporter.export_heightmap(normalized, filepath, format)
+
+    @staticmethod
     def _export_png_8bit(data: np.ndarray, filepath: Path):
         """Export as 8-bit PNG."""
         normalized = normalize(data.astype(np.float32), (0, 255))
