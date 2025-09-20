@@ -3,8 +3,9 @@
 import numpy as np
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                             QPushButton, QLabel, QComboBox, QCheckBox, QFileDialog, 
-                            QLineEdit, QMessageBox, QTabWidget)
-from PyQt5.QtCore import pyqtSignal
+                            QLineEdit, QMessageBox, QTabWidget, QDoubleSpinBox,
+                            QScrollArea, QSizePolicy)
+from PyQt5.QtCore import pyqtSignal, Qt
 from pathlib import Path
 from typing import List
 
@@ -160,45 +161,65 @@ class ControlPanel(QWidget):
     
     def setup_ui(self):
         """Setup the control panel UI."""
-        layout = QVBoxLayout(self)
-        
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(8)
+
         # Title
         title = QLabel("Terrain Generation Parameters")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
-        
+        scroll_layout.addWidget(title)
+
         # Heightmap import group
-        self.create_import_group(layout)
-        
+        self.create_import_group(scroll_layout)
+
         # Basic parameters group
-        self.create_basic_group(layout)
-        
+        self.create_basic_group(scroll_layout)
+
         # Domain-warped FBM group
-        self.create_fbm_group(layout)
+        self.create_fbm_group(scroll_layout)
         # Height curves adjustment group
-        self.create_curves_group(layout)
+        self.create_curves_group(scroll_layout)
         # Max delta curves group
-        self.create_max_delta_curves_group(layout)
+        self.create_max_delta_curves_group(scroll_layout)
 
         # River parameters group
-        self.create_river_group(layout)
-        
+        self.create_river_group(scroll_layout)
+
         # Terrain parameters group
-        self.create_terrain_group(layout)
+        self.create_terrain_group(scroll_layout)
 
         # Erosion parameters group
-        self.create_erosion_group(layout)
-        
+        self.create_erosion_group(scroll_layout)
+
         # Export group
-        self.create_export_group(layout)
-        
-        # Generation buttons
-        self.create_generation_buttons(layout)
-        
-        # Instructions
-        self.add_instructions(layout)
-        
-        layout.addStretch()
+        self.create_export_group(scroll_layout)
+
+        # Instructions remain within the scrollable area
+        self.add_instructions(scroll_layout)
+
+        scroll_layout.addStretch()
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        root_layout.addWidget(scroll_area, stretch=1)
+
+        button_container = QWidget()
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setContentsMargins(12, 8, 12, 12)
+        button_layout.setSpacing(8)
+
+        # Primary action button stays visible outside the scroll area
+        self.create_generation_buttons(button_layout)
+
+        root_layout.addWidget(button_container)
     
     def create_import_group(self, parent_layout):
         """Create heightmap import group."""
@@ -650,6 +671,7 @@ class ControlPanel(QWidget):
         """Create generation buttons."""
         self.generate_button = QPushButton("Generate Terrain")
         self.generate_button.setEnabled(True)
+        self.generate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.generate_button.setStyleSheet("""
             QPushButton { 
                 background-color: #4CAF50; 
@@ -887,23 +909,48 @@ class AnalysisPanel(QWidget):
     heuristics_requested = pyqtSignal(dict)
     computed_overlay_requested = pyqtSignal(str)
     export_computed_overlay_requested = pyqtSignal(str)
+    export_all_computed_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.visual_controls = {}
         self.heuristics_controls = {}
         self.heuristic_checkboxes = {}
+        self.heuristic_cellsizes = {}
         self.setup_ui()
 
     def setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        self.create_visualization_group(layout)
-        self.create_heuristics_group(layout)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(8)
 
-        layout.addStretch()
+        self.create_visualization_group(scroll_layout)
+        self.create_heuristics_group(scroll_layout)
+
+        scroll_layout.addStretch()
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(scroll_widget)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        root_layout.addWidget(scroll_area, stretch=1)
+
+        button_container = QWidget()
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setContentsMargins(12, 8, 12, 12)
+        button_layout.setSpacing(8)
+
+        # Keep heuristic computation button visible outside scrollable region
+        if hasattr(self, 'compute_heuristics_button'):
+            self.compute_heuristics_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            button_layout.addWidget(self.compute_heuristics_button)
+
+        root_layout.addWidget(button_container)
 
     def create_visualization_group(self, parent_layout):
         """Create visualization group."""
@@ -997,6 +1044,11 @@ class AnalysisPanel(QWidget):
         self.export_computed_overlay_button.clicked.connect(self.on_export_computed_overlay)
         computed_layout.addWidget(self.export_computed_overlay_button)
 
+        self.export_all_computed_button = QPushButton("Export All")
+        self.export_all_computed_button.setEnabled(False)
+        self.export_all_computed_button.clicked.connect(self.on_export_all_computed_overlays)
+        computed_layout.addWidget(self.export_all_computed_button)
+
         layout.addLayout(computed_layout)
 
         layout.setContentsMargins(12, 12, 12, 12)
@@ -1035,10 +1087,31 @@ class AnalysisPanel(QWidget):
         ]
         default_checked = {"slope", "aspect", "normal", "curvature", "tpi", "flowacc", "twi", "svf", "climate", "biome", "albedo", "albedo_continuous", "foliage", "forest_density", "groundcover_density"}
         for key, label_text in heuristics:
+            row = QHBoxLayout()
             cb = QCheckBox(label_text)
             cb.setChecked(key in default_checked)
             self.heuristic_checkboxes[key] = cb
-            layout.addWidget(cb)
+            row.addWidget(cb)
+
+            row.addStretch()
+
+            size_label = QLabel("Cell size")
+            size_label.setStyleSheet("color: #666; font-size: 11px;")
+            row.addWidget(size_label)
+
+            override = QDoubleSpinBox()
+            override.setRange(0.0, 50000.0)
+            override.setDecimals(1)
+            override.setSingleStep(50.0)
+            override.setSpecialValueText("Default")
+            override.setSuffix(" m")
+            override.setValue(0.0)
+            override.setMaximumWidth(110)
+            override.setToolTip("Override the global cell size for this map (0 = default).")
+            self.heuristic_cellsizes[key] = override
+            row.addWidget(override)
+
+            layout.addLayout(row)
 
         layout.addSpacing(6)
 
@@ -1189,7 +1262,6 @@ class AnalysisPanel(QWidget):
             """
         )
         self.compute_heuristics_button.clicked.connect(self.request_heuristics_computation)
-        layout.addWidget(self.compute_heuristics_button)
 
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
@@ -1269,6 +1341,12 @@ class AnalysisPanel(QWidget):
         if overlay_key:
             self.export_computed_overlay_requested.emit(str(overlay_key))
 
+    def on_export_all_computed_overlays(self):
+        """Emit a request to export all computed overlays."""
+        if not self.export_all_computed_button.isEnabled():
+            return
+        self.export_all_computed_requested.emit()
+
     def set_computed_overlays(self, names, selected: str = None):
         """Populate the computed overlay combo box with available maps."""
         self.computed_overlay_combo.blockSignals(True)
@@ -1280,6 +1358,7 @@ class AnalysisPanel(QWidget):
         self.computed_overlay_combo.setEnabled(has_items)
         self.apply_computed_overlay_button.setEnabled(has_items)
         self.export_computed_overlay_button.setEnabled(has_items)
+        self.export_all_computed_button.setEnabled(has_items)
         if has_items:
             target_index = 0
             if selected is not None:
@@ -1298,6 +1377,7 @@ class AnalysisPanel(QWidget):
         self.computed_overlay_combo.setEnabled(False)
         self.apply_computed_overlay_button.setEnabled(False)
         self.export_computed_overlay_button.setEnabled(False)
+        self.export_all_computed_button.setEnabled(False)
 
     def reset_overlay_controls(self):
         """Reset overlay controls to default state without emitting signals."""
@@ -1350,9 +1430,15 @@ class AnalysisPanel(QWidget):
 
     def request_heuristics_computation(self):
         selections = []
+        cellsize_overrides = {}
         for key, checkbox in self.heuristic_checkboxes.items():
             if checkbox.isChecked():
                 selections.append(key)
+                override_widget = self.heuristic_cellsizes.get(key)
+                if override_widget is not None:
+                    value = override_widget.value()
+                    if value > 0.0:
+                        cellsize_overrides[key] = value
 
         if not selections:
             QMessageBox.information(self, "No heuristics selected",
@@ -1404,6 +1490,7 @@ class AnalysisPanel(QWidget):
             'selections': expanded,
             'settings': settings,
             'use_simulated_flow': self.use_simulated_flow_checkbox.isChecked(),
+            'cellsize_overrides': cellsize_overrides,
         }
         self.heuristics_requested.emit(request_payload)
 
@@ -1413,6 +1500,8 @@ class AnalysisPanel(QWidget):
             checkbox.setEnabled(not busy)
         for control in self.heuristics_controls.values():
             control.setEnabled(not busy)
+        for override in self.heuristic_cellsizes.values():
+            override.setEnabled(not busy)
         self.tpi_radii_edit.setEnabled(not busy)
         self.random_biomes_checkbox.setEnabled(not busy)
         self.use_simulated_flow_checkbox.setEnabled(not busy)
@@ -1426,4 +1515,4 @@ class AnalysisPanel(QWidget):
         self.computed_overlay_combo.setEnabled((not busy) and has_computed)
         self.apply_computed_overlay_button.setEnabled((not busy) and has_computed)
         self.export_computed_overlay_button.setEnabled((not busy) and has_computed)
-
+        self.export_all_computed_button.setEnabled((not busy) and has_computed)

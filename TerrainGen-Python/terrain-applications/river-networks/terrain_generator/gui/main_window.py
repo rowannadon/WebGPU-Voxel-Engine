@@ -1,12 +1,13 @@
 """Main application window."""
 
+import os
 import sys
-from typing import Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 from PIL import Image
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                            QScrollArea, QProgressBar, QLabel, QPushButton,
+                            QProgressBar, QLabel, QPushButton,
                             QMessageBox, QFileDialog, QSizePolicy)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
@@ -90,48 +91,83 @@ class HeuristicComputationThread(QThread):
 
     def run(self):
         try:
-            engine = HeuristicEngine()
-            qt_engine = engine.qt_engine
-
-            def forward_progress(message: str, percent: int):
-                self.progress.emit(percent, message)
-
-            qt_engine.progress.connect(forward_progress)
-
             settings_kwargs = dict(self.request.get('settings', {}))
             if 'tpi_radii' in settings_kwargs:
                 settings_kwargs['tpi_radii'] = tuple(settings_kwargs['tpi_radii'])
             settings_kwargs['albedo_mode'] = 'physical'
             settings = HeuristicSettings(**settings_kwargs)
 
-            engine.prepare(self.heightmap, settings)
+            overrides_input = self.request.get('cellsize_overrides', {}) or {}
+            cellsize_overrides: Dict[str, float] = {}
+            for key, value in overrides_input.items():
+                try:
+                    value_f = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if value_f > 0.0:
+                    cellsize_overrides[str(key)] = value_f
 
-            if self.deposition_map is not None:
-                engine.inject_deposition_map(self.deposition_map)
-
-            if self.flow_override is not None:
-                override = np.asarray(self.flow_override, dtype=np.float32)
-                qt_engine.cache['acc'] = override.copy()
-                qt_engine.params['flowacc_texture'] = None
-                for key in ['twi', 'foliage_rgb', 'forest_density', 'groundcover_density', 'albedo_rgb']:
-                    qt_engine.cache.pop(key, None)
-            
-            # Ensure required layers are computed for physical albedo
             selections = list(self.request.get('selections', []))
+            dependency_overrides = {
+                'albedo': ['slope', 'twi', 'foliage', 'forest_density', 'groundcover_density'],
+                'albedo_continuous': ['slope', 'twi', 'foliage', 'forest_density', 'groundcover_density'],
+            }
+            for source, deps in dependency_overrides.items():
+                if source in cellsize_overrides:
+                    for dep in deps:
+                        cellsize_overrides.setdefault(dep, cellsize_overrides[source])
+
             if 'albedo' in selections:
-                # Make sure dependencies are computed
                 for dep in ['slope', 'twi', 'foliage', 'forest_density', 'groundcover_density']:
                     if dep not in selections:
                         selections.append(dep)
-            
-            images, arrays = engine.compute(selections)
 
-            overlays = {name: qimage_to_rgba(image) for name, image in images.items()}
+            overlays: Dict[str, np.ndarray] = {}
+            arrays: Dict[str, np.ndarray] = {}
 
-            try:
-                qt_engine.progress.disconnect(forward_progress)
-            except TypeError:
-                pass
+            def forward_progress(message: str, percent: int):
+                self.progress.emit(percent, message)
+
+            def apply_flow_override(engine_instance: HeuristicEngine):
+                if self.flow_override is None:
+                    return
+                qt = engine_instance.qt_engine
+                override = np.asarray(self.flow_override, dtype=np.float32)
+                qt.cache['acc'] = override.copy()
+                qt.params['flowacc_texture'] = None
+                for key in ['twi', 'foliage_rgb', 'forest_density', 'groundcover_density', 'albedo_rgb']:
+                    qt.cache.pop(key, None)
+
+            groups: Dict[float, List[str]] = {}
+            default_cellsize = settings.cellsize
+            for sel in selections:
+                base_key = sel.split('@', 1)[0]
+                group_value = cellsize_overrides.get(base_key, default_cellsize)
+                groups.setdefault(group_value, []).append(sel)
+
+            for group_cellsize, group_selections in groups.items():
+                if not group_selections:
+                    continue
+                group_kwargs = dict(settings_kwargs)
+                group_kwargs['cellsize'] = group_cellsize
+                group_settings = HeuristicSettings(**group_kwargs)
+
+                engine_instance = HeuristicEngine()
+                qt = engine_instance.qt_engine
+                qt.progress.connect(forward_progress)
+                try:
+                    engine_instance.prepare(self.heightmap, group_settings)
+                    if self.deposition_map is not None:
+                        engine_instance.inject_deposition_map(self.deposition_map)
+                    apply_flow_override(engine_instance)
+                    images, arrs = engine_instance.compute(group_selections)
+                    overlays.update({name: qimage_to_rgba(image) for name, image in images.items()})
+                    arrays.update(arrs)
+                finally:
+                    try:
+                        qt.progress.disconnect(forward_progress)
+                    except TypeError:
+                        pass
 
             self.finished.emit(overlays, arrays)
         except Exception as exc:
@@ -167,12 +203,9 @@ class TerrainGeneratorWindow(QMainWindow):
 
         # Left control panel
         self.control_panel = ControlPanel()
-        left_scroll = QScrollArea()
-        left_scroll.setWidget(self.control_panel)
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setMaximumWidth(450)
-        main_layout.addWidget(left_scroll)
+        self.control_panel.setMaximumWidth(450)
+        self.control_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        main_layout.addWidget(self.control_panel)
 
         # Center visualization stack
         center_layout = QVBoxLayout()
@@ -210,11 +243,9 @@ class TerrainGeneratorWindow(QMainWindow):
 
         # Right analysis panel
         self.analysis_panel = AnalysisPanel()
-        right_scroll = QScrollArea()
-        right_scroll.setWidget(self.analysis_panel)
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setMaximumWidth(450)
-        main_layout.addWidget(right_scroll)
+        self.analysis_panel.setMaximumWidth(450)
+        self.analysis_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        main_layout.addWidget(self.analysis_panel)
 
         # Initialize visualization settings from analysis panel defaults
         height_control = self.analysis_panel.visual_controls['height_scale']
@@ -245,6 +276,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.heuristics_requested.connect(self.compute_heuristics)
         self.analysis_panel.computed_overlay_requested.connect(self.apply_computed_overlay)
         self.analysis_panel.export_computed_overlay_requested.connect(self.export_computed_overlay)
+        self.analysis_panel.export_all_computed_requested.connect(self.export_all_computed_overlays)
     
     def generate_terrain(self):
         """Start terrain generation."""
@@ -452,7 +484,8 @@ class TerrainGeneratorWindow(QMainWindow):
 
         sanitized_request = {
             'selections': list(request_data.get('selections', [])),
-            'settings': dict(request_data.get('settings', {}))
+            'settings': dict(request_data.get('settings', {})),
+            'cellsize_overrides': dict(request_data.get('cellsize_overrides', {})),
         }
 
         use_simulated_flow = bool(request_data.get('use_simulated_flow', False))
@@ -533,6 +566,19 @@ class TerrainGeneratorWindow(QMainWindow):
         self.terrain_viewport.set_overlay_visible(True)
         self.status_label.setText(f"Applied computed overlay: {overlay_key}")
 
+    def _save_overlay_to_path(self, overlay_array: np.ndarray, filename: str):
+        """Write an overlay array to disk using an appropriate pixel format."""
+        array = np.asarray(overlay_array)
+        if array.ndim == 2:
+            mode = "L"
+        elif array.ndim == 3 and array.shape[2] == 3:
+            mode = "RGB"
+        elif array.ndim == 3 and array.shape[2] == 4:
+            mode = "RGBA"
+        else:
+            raise ValueError("Unsupported overlay format for export")
+        Image.fromarray(array.astype(np.uint8), mode=mode).save(filename)
+
     def export_computed_overlay(self, overlay_key: str):
         """Export a computed heuristic overlay texture to disk."""
         overlay = self.computed_overlays.get(overlay_key)
@@ -556,18 +602,7 @@ class TerrainGeneratorWindow(QMainWindow):
             return
 
         try:
-            array = np.asarray(overlay)
-            if array.ndim == 2:
-                mode = "L"
-            elif array.ndim == 3 and array.shape[2] == 3:
-                mode = "RGB"
-            elif array.ndim == 3 and array.shape[2] == 4:
-                mode = "RGBA"
-            else:
-                raise ValueError("Unsupported overlay format for export")
-
-            image = Image.fromarray(array.astype(np.uint8), mode=mode)
-            image.save(filename)
+            self._save_overlay_to_path(overlay, filename)
             QMessageBox.information(
                 self,
                 "Export Successful",
@@ -576,6 +611,46 @@ class TerrainGeneratorWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Export Failed", str(exc))
 
+    def export_all_computed_overlays(self):
+        """Export all computed overlays to a directory."""
+        if not self.computed_overlays:
+            QMessageBox.information(
+                self,
+                "No Maps",
+                "Compute heuristics before exporting maps."
+            )
+            return
+
+        directory = QFileDialog.getExistingDirectory(self, "Export Heuristic Maps")
+        if not directory:
+            return
+
+        errors = []
+        exported = 0
+        for key, overlay in self.computed_overlays.items():
+            target_path = os.path.join(directory, f"{key}.png")
+            try:
+                self._save_overlay_to_path(overlay, target_path)
+                exported += 1
+            except Exception as exc:
+                errors.append((key, str(exc)))
+
+        if errors and exported == 0:
+            message = "\n".join(f"{name}: {err}" for name, err in errors)
+            QMessageBox.critical(self, "Export Failed", f"Unable to export maps:\n{message}")
+        elif errors:
+            message = "\n".join(f"{name}: {err}" for name, err in errors)
+            QMessageBox.warning(
+                self,
+                "Partial Export",
+                f"Exported {exported} maps, but some failed:\n{message}"
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Exported {exported} maps to {directory}"
+            )
 
     def load_overlay_texture(self, filepath: str):
         """Load an overlay texture from disk and apply it to the viewport."""
