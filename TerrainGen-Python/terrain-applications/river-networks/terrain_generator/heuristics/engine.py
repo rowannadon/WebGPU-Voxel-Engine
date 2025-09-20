@@ -1,32 +1,15 @@
-"""Adapter utilities for reusing the terrain-heuristics engine inside the
-river-networks PyQt application."""
+"""Terrain heuristics integration utilities for the river-networks application."""
 
 from __future__ import annotations
 
-import os
-import sys
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 from PyQt5.QtGui import QImage
 
-# ---------------------------------------------------------------------------
-# Ensure the terrain-heuristics package location is importable
-# ---------------------------------------------------------------------------
-
-HERE = os.path.abspath(os.path.dirname(__file__))
-HEURISTICS_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "terrain-heuristics"))
-
-if HEURISTICS_ROOT not in sys.path:
-    sys.path.insert(0, HEURISTICS_ROOT)
-
-# The terrain_gui module defines TerrainEngine and helper routines that already
-# encapsulate the heuristics pipeline. Reuse them rather than re-implement the
-# full stack.
-from terrain_gui import TerrainEngine  # type: ignore
-from climate import latitude_degrees  # type: ignore
-
+from .pipeline.climate import latitude_degrees
+from .pipeline.engine import TerrainEngine
 
 @dataclass
 class HeuristicSettings:

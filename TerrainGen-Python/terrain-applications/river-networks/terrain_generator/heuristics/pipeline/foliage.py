@@ -3,8 +3,8 @@ from typing import Optional, Tuple
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-from biome import BIOME_TABLE
-from util import compute_aspect_effect, compute_continentality, compute_elevation_zones
+from .biome import BIOME_TABLE
+from .util import compute_aspect_effect, compute_continentality, compute_elevation_zones
 
 __all__ = ["compute_foliage_color_rgb", "compute_foliage_densities"]
 

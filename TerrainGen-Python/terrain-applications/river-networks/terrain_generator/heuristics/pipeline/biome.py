@@ -3,8 +3,8 @@ from typing import Dict, Tuple
 import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 
-from ocean import compute_ocean_mask
-from util import (
+from .ocean import compute_ocean_mask
+from .util import (
     compute_aspect_effect,
     compute_continentality,
     compute_elevation_zones,

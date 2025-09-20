@@ -244,6 +244,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.overlay_cleared.connect(self.clear_overlay_texture)
         self.analysis_panel.heuristics_requested.connect(self.compute_heuristics)
         self.analysis_panel.computed_overlay_requested.connect(self.apply_computed_overlay)
+        self.analysis_panel.export_computed_overlay_requested.connect(self.export_computed_overlay)
     
     def generate_terrain(self):
         """Start terrain generation."""
@@ -531,6 +532,50 @@ class TerrainGeneratorWindow(QMainWindow):
         self.current_overlay_source = ('computed', overlay_key)
         self.terrain_viewport.set_overlay_visible(True)
         self.status_label.setText(f"Applied computed overlay: {overlay_key}")
+
+    def export_computed_overlay(self, overlay_key: str):
+        """Export a computed heuristic overlay texture to disk."""
+        overlay = self.computed_overlays.get(overlay_key)
+        if overlay is None:
+            QMessageBox.warning(
+                self,
+                "Unavailable",
+                "Compute heuristics to obtain this map before exporting."
+            )
+            return
+
+        default_name = f"{overlay_key}.png"
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Heuristic Map",
+            default_name,
+            "PNG Files (*.png);;TIFF Files (*.tiff)"
+        )
+
+        if not filename:
+            return
+
+        try:
+            array = np.asarray(overlay)
+            if array.ndim == 2:
+                mode = "L"
+            elif array.ndim == 3 and array.shape[2] == 3:
+                mode = "RGB"
+            elif array.ndim == 3 and array.shape[2] == 4:
+                mode = "RGBA"
+            else:
+                raise ValueError("Unsupported overlay format for export")
+
+            image = Image.fromarray(array.astype(np.uint8), mode=mode)
+            image.save(filename)
+            QMessageBox.information(
+                self,
+                "Export Successful",
+                f"Saved {overlay_key} to {filename}"
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", str(exc))
+
 
     def load_overlay_texture(self, filepath: str):
         """Load an overlay texture from disk and apply it to the viewport."""

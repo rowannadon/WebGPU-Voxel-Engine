@@ -4,7 +4,7 @@ from scipy.ndimage import gaussian_filter
 
 import numpy as np
 
-from biome import BIOME_TABLE
+from .biome import BIOME_TABLE
 
 # Approximate broadband albedo RGB colors (sRGB 0-255) per biome id.
 # Values are intentionally muted compared to the vivid biome legend colors so the

@@ -886,6 +886,7 @@ class AnalysisPanel(QWidget):
     overlay_cleared = pyqtSignal()
     heuristics_requested = pyqtSignal(dict)
     computed_overlay_requested = pyqtSignal(str)
+    export_computed_overlay_requested = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -990,6 +991,11 @@ class AnalysisPanel(QWidget):
         self.apply_computed_overlay_button.setEnabled(False)
         self.apply_computed_overlay_button.clicked.connect(self.on_apply_computed_overlay)
         computed_layout.addWidget(self.apply_computed_overlay_button)
+
+        self.export_computed_overlay_button = QPushButton("Export")
+        self.export_computed_overlay_button.setEnabled(False)
+        self.export_computed_overlay_button.clicked.connect(self.on_export_computed_overlay)
+        computed_layout.addWidget(self.export_computed_overlay_button)
 
         layout.addLayout(computed_layout)
 
@@ -1255,6 +1261,14 @@ class AnalysisPanel(QWidget):
         if overlay_key:
             self.computed_overlay_requested.emit(str(overlay_key))
 
+    def on_export_computed_overlay(self):
+        """Emit a request to export the currently selected computed overlay."""
+        if not self.computed_overlay_combo.isEnabled():
+            return
+        overlay_key = self.computed_overlay_combo.currentData()
+        if overlay_key:
+            self.export_computed_overlay_requested.emit(str(overlay_key))
+
     def set_computed_overlays(self, names, selected: str = None):
         """Populate the computed overlay combo box with available maps."""
         self.computed_overlay_combo.blockSignals(True)
@@ -1265,6 +1279,7 @@ class AnalysisPanel(QWidget):
         has_items = bool(names)
         self.computed_overlay_combo.setEnabled(has_items)
         self.apply_computed_overlay_button.setEnabled(has_items)
+        self.export_computed_overlay_button.setEnabled(has_items)
         if has_items:
             target_index = 0
             if selected is not None:
@@ -1282,6 +1297,7 @@ class AnalysisPanel(QWidget):
         self.computed_overlay_combo.blockSignals(False)
         self.computed_overlay_combo.setEnabled(False)
         self.apply_computed_overlay_button.setEnabled(False)
+        self.export_computed_overlay_button.setEnabled(False)
 
     def reset_overlay_controls(self):
         """Reset overlay controls to default state without emitting signals."""
@@ -1409,4 +1425,5 @@ class AnalysisPanel(QWidget):
         has_computed = self.computed_overlay_combo.count() > 0
         self.computed_overlay_combo.setEnabled((not busy) and has_computed)
         self.apply_computed_overlay_button.setEnabled((not busy) and has_computed)
+        self.export_computed_overlay_button.setEnabled((not busy) and has_computed)
 
