@@ -16,7 +16,7 @@ from PyQt5.QtGui import QImage
 # ---------------------------------------------------------------------------
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-HEURISTICS_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", "terrain-heuristics"))
+HEURISTICS_ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "terrain-heuristics"))
 
 if HEURISTICS_ROOT not in sys.path:
     sys.path.insert(0, HEURISTICS_ROOT)

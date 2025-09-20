@@ -794,17 +794,12 @@ def run_albedo(ctx: PipelineContext) -> None:
             forest_density = ctx.stage_results.get('forest_density')
             groundcover_density = ctx.stage_results.get('groundcover_density')
             if forest_density is None or groundcover_density is None:
-                # Force computation
-                if 'foliage_density' not in ctx.completed_stages:
-                    run_foliage_density(ctx)
                 forest_density = ctx.stage_results.get('forest_density', np.zeros_like(ctx.elev))
                 groundcover_density = ctx.stage_results.get('groundcover_density', np.zeros_like(ctx.elev))
             
             # Get or compute foliage color
             foliage_rgb = ctx.stage_results.get('foliage_rgb')
             if foliage_rgb is None:
-                if 'foliage' not in ctx.completed_stages:
-                    run_foliage(ctx)
                 foliage_rgb = ctx.stage_results.get('foliage_rgb')
                 if foliage_rgb is None:
                     foliage_rgb = compute_terrain_albedo_rgb(biome_id)
