@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from ..core import TerrainParameters
-from ..config import PresetManager
-from .widgets import ParameterControl
+from ..config import PresetManager, save_erosion_parameters, ErosionParameterSet
+from .widgets import ParameterControl, RockLayerRow
 from .curves_widget import HeightCurvesWidget
 
 
@@ -179,6 +179,7 @@ class ControlPanel(QWidget):
         super().__init__()
         self.preset_manager = PresetManager()
         self.controls = {}
+        self.rock_layer_rows: List[RockLayerRow] = []
         self.setup_ui()
 
     @staticmethod
@@ -236,6 +237,9 @@ class ControlPanel(QWidget):
 
         # Terrain parameters group
         self.create_terrain_group(scroll_layout)
+
+        # Rock layers configuration
+        self.create_rock_layers_group(scroll_layout)
 
         # Erosion parameters group
         self.create_erosion_group(scroll_layout)
@@ -548,7 +552,125 @@ class ControlPanel(QWidget):
         layout.setSpacing(8)
         group.setLayout(layout)
         parent_layout.addWidget(group)
-    
+
+    def create_rock_layers_group(self, parent_layout):
+        """Create rock layer configuration group."""
+        group = QGroupBox("Rock Layers")
+        layout = QVBoxLayout()
+
+        description = QLabel(
+            "Layers are processed from top to bottom. Thickness uses normalised heights."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(description)
+
+        self.rock_layers_widget = QWidget()
+        self.rock_layers_layout = QVBoxLayout(self.rock_layers_widget)
+        self.rock_layers_layout.setContentsMargins(0, 0, 0, 0)
+        self.rock_layers_layout.setSpacing(4)
+        layout.addWidget(self.rock_layers_widget)
+
+        controls_row = QHBoxLayout()
+        self.add_layer_button = QPushButton("Add Layer (Top)")
+        self.add_layer_button.clicked.connect(lambda: self.add_rock_layer(position=0))
+        controls_row.addWidget(self.add_layer_button)
+
+        self.append_layer_button = QPushButton("Add Layer (Bottom)")
+        self.append_layer_button.clicked.connect(lambda: self.add_rock_layer(position=len(self.rock_layer_rows)))
+        controls_row.addWidget(self.append_layer_button)
+
+        controls_row.addStretch()
+        layout.addLayout(controls_row)
+
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+        if not self.rock_layer_rows:
+            self.add_rock_layer(position=0)
+
+    def add_rock_layer(self, position: Optional[int] = None, state: Optional[Dict[str, Any]] = None):
+        """Insert a new rock layer entry."""
+        row = RockLayerRow()
+        if state:
+            row.set_state(state)
+        row.moveRequested.connect(self.on_move_rock_layer)
+        row.deleteRequested.connect(self.on_remove_rock_layer)
+        row.browseRequested.connect(self.on_browse_rock_parameters)
+
+        if position is None or position < 0 or position > len(self.rock_layer_rows):
+            position = 0
+
+        self.rock_layer_rows.insert(position, row)
+        self.rock_layers_layout.insertWidget(position, row)
+        self.update_rock_layer_indices()
+
+    def on_move_rock_layer(self, row: RockLayerRow, direction: int):
+        """Move a rock layer row up or down."""
+        if row not in self.rock_layer_rows:
+            return
+        index = self.rock_layer_rows.index(row)
+        new_index = index - 1 if direction < 0 else index + 1
+        if new_index < 0 or new_index >= len(self.rock_layer_rows):
+            return
+        self.rock_layer_rows.pop(index)
+        self.rock_layer_rows.insert(new_index, row)
+        self.rock_layers_layout.removeWidget(row)
+        self.rock_layers_layout.insertWidget(new_index, row)
+        self.update_rock_layer_indices()
+
+    def on_remove_rock_layer(self, row: RockLayerRow):
+        """Remove a rock layer row."""
+        if len(self.rock_layer_rows) <= 1:
+            QMessageBox.information(
+                self,
+                "Cannot Remove Layer",
+                "At least one rock layer must remain."
+            )
+            return
+        if row in self.rock_layer_rows:
+            self.rock_layer_rows.remove(row)
+            row.setParent(None)
+            row.deleteLater()
+            self.update_rock_layer_indices()
+
+    def on_browse_rock_parameters(self, row: RockLayerRow):
+        """Select an erosion parameter file for a rock layer."""
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Erosion Parameter File",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+        if filename:
+            row.set_path(filename)
+
+    def update_rock_layer_indices(self):
+        """Update numbering and control states for rock layers."""
+        total = len(self.rock_layer_rows)
+        for idx, row in enumerate(self.rock_layer_rows):
+            row.set_index(idx)
+            row.set_move_enabled(can_move_up=(idx > 0), can_move_down=(idx < total - 1))
+            row.set_remove_enabled(total > 1)
+
+    def collect_rock_layer_states(self) -> List[Dict[str, Any]]:
+        """Return the current rock layer configuration from lowest to highest."""
+        return [row.get_state() for row in reversed(self.rock_layer_rows)]
+
+    def apply_rock_layer_states(self, layers: Optional[List[Dict[str, Any]]]):
+        """Restore rock layer rows from stored state."""
+        for row in list(self.rock_layer_rows):
+            row.setParent(None)
+            row.deleteLater()
+        self.rock_layer_rows.clear()
+
+        if not layers:
+            self.add_rock_layer(position=0)
+            return
+
+        for state in reversed(layers):
+            self.add_rock_layer(position=len(self.rock_layer_rows), state=state)
+
     def create_erosion_group(self, parent_layout):
         """Create erosion parameters group."""
         group = QGroupBox("Particle Erosion")
@@ -626,7 +748,11 @@ class ControlPanel(QWidget):
         info.setStyleSheet("color: #888; font-size: 10px;")
         self.erosion_controls.append(info)
         layout.addWidget(info)
-        
+
+        self.export_erosion_button = QPushButton("Export Erosion Parameters...")
+        self.export_erosion_button.clicked.connect(self.export_erosion_parameters)
+        layout.addWidget(self.export_erosion_button)
+
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         group.setLayout(layout)
@@ -637,6 +763,49 @@ class ControlPanel(QWidget):
         enabled = (state == 2)  # Qt.Checked
         for control in self.erosion_controls:
             control.setEnabled(enabled)
+
+    def build_erosion_parameter_snapshot(self) -> Dict[str, Any]:
+        """Collect the current erosion-related parameters."""
+        snapshot: Dict[str, Any] = {}
+        snapshot['river_downcutting'] = self.controls['river_downcutting'].value()
+        snapshot['max_delta'] = self.controls['max_delta'].value()
+        snapshot['erosion_iterations'] = int(self.controls['erosion_iterations'].value())
+        snapshot['erosion_inertia'] = self.controls['erosion_inertia'].value()
+        snapshot['erosion_capacity'] = self.controls['erosion_capacity'].value()
+        snapshot['erosion_deposition_rate'] = self.controls['erosion_deposition_rate'].value()
+        snapshot['erosion_rate'] = self.controls['erosion_rate'].value()
+        snapshot['erosion_evaporation'] = self.controls['erosion_evaporation'].value()
+        snapshot['erosion_gravity'] = self.controls['erosion_gravity'].value()
+        snapshot['erosion_max_lifetime'] = int(self.controls['erosion_max_lifetime'].value())
+        snapshot['erosion_step_size'] = self.controls['erosion_step_size'].value()
+        snapshot['erosion_blur_iterations'] = int(self.controls['erosion_blur_iterations'].value())
+        return snapshot
+
+    def export_erosion_parameters(self):
+        """Export current erosion settings to a JSON file."""
+        snapshot = self.build_erosion_parameter_snapshot()
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Erosion Parameters",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+        if not filename:
+            return
+
+        target_path = Path(filename)
+        param_set = ErosionParameterSet.from_defaults(snapshot, name=target_path.stem)
+        try:
+            saved_path = save_erosion_parameters(target_path, param_set)
+        except OSError as exc:
+            QMessageBox.warning(self, "Export Failed", f"Could not write file: {exc}")
+            return
+
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Erosion parameters saved to {saved_path}"
+        )
 
     def create_export_group(self, parent_layout):
         """Create export group."""
@@ -721,13 +890,39 @@ class ControlPanel(QWidget):
         self.export_deposition_button = QPushButton("Export Deposition Mask")
         self.export_deposition_button.setEnabled(False)
         layout.addWidget(self.export_deposition_button)
-        
+
         # Info about deposition
         deposition_info = QLabel(
             "Deposition mask: Bright = deposition, Dark = erosion"
         )
         deposition_info.setStyleSheet("color: #888; font-size: 10px;")
         layout.addWidget(deposition_info)
+
+        layout.addSpacing(10)
+        rock_label = QLabel("<b>Rock Map Export</b>")
+        layout.addWidget(rock_label)
+
+        rock_format_layout = QHBoxLayout()
+        rock_format_label = QLabel("Format:")
+        rock_format_layout.addWidget(rock_format_label)
+
+        self.export_rock_format_combo = QComboBox()
+        self.export_rock_format_combo.addItems([
+            "PNG (8-bit)",
+        ])
+        rock_format_layout.addWidget(self.export_rock_format_combo)
+        layout.addLayout(rock_format_layout)
+
+        self.export_rock_button = QPushButton("Export Rock Map")
+        self.export_rock_button.setEnabled(False)
+        layout.addWidget(self.export_rock_button)
+
+        rock_info = QLabel(
+            "Each rock type is assigned a unique colour. Non-land cells export as black."
+        )
+        rock_info.setWordWrap(True)
+        rock_info.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(rock_info)
 
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
@@ -887,6 +1082,8 @@ class ControlPanel(QWidget):
             terrace_max_strength=self.controls.get('terrace_max_strength',
                 ParameterControl("", 0, 0, 0.8)).value(),
 
+            rock_layers=self.collect_rock_layer_states(),
+
             # Erosion parameters
             use_erosion=self.use_erosion_checkbox.isChecked(),
             erosion_iterations=int(self.controls.get('erosion_iterations',
@@ -937,6 +1134,7 @@ class ControlPanel(QWidget):
             'flow': self.export_flow_format_combo.currentText(),
             'watershed': self.export_watershed_format_combo.currentText(),
             'deposition': self.export_deposition_format_combo.currentText(),
+            'rock': self.export_rock_format_combo.currentText(),
         }
 
         return {
@@ -952,6 +1150,7 @@ class ControlPanel(QWidget):
             'use_variable_max_delta': self.variable_max_delta_checkbox.isChecked(),
             'use_erosion': self.use_erosion_checkbox.isChecked(),
             'export_formats': export_formats,
+            'rock_layers': self.collect_rock_layer_states(),
         }
 
     def apply_state(self, state: Optional[Dict[str, Any]]):
@@ -1008,6 +1207,8 @@ class ControlPanel(QWidget):
         self.variable_max_delta_checkbox.setChecked(bool(state.get('use_variable_max_delta', False)))
         self.use_erosion_checkbox.setChecked(bool(state.get('use_erosion', True)))
 
+        self.apply_rock_layer_states(state.get('rock_layers'))
+
         export_formats = state.get('export_formats', {})
         if isinstance(export_formats, dict):
             mapping = {
@@ -1015,6 +1216,7 @@ class ControlPanel(QWidget):
                 'flow': self.export_flow_format_combo,
                 'watershed': self.export_watershed_format_combo,
                 'deposition': self.export_deposition_format_combo,
+                'rock': self.export_rock_format_combo,
             }
             for key, combo in mapping.items():
                 target = export_formats.get(key)
@@ -1060,6 +1262,10 @@ class ControlPanel(QWidget):
         }
         return format_map.get(self.export_deposition_format_combo.currentText(), "PNG_8")
 
+    def get_rock_export_format(self) -> str:
+        """Get selected rock map export format."""
+        return "PNG_8"
+
     def set_generation_enabled(self, enabled: bool):
         """Enable/disable generation controls during generation."""
         self.generate_button.setEnabled(enabled)
@@ -1079,6 +1285,7 @@ class ControlPanel(QWidget):
         self.export_flow_button.setEnabled(enabled)
         self.export_watershed_button.setEnabled(enabled)
         self.export_deposition_button.setEnabled(enabled)
+        self.export_rock_button.setEnabled(enabled)
 
 class AnalysisPanel(QWidget):
     """Panel hosting visualization controls and heuristic generation."""

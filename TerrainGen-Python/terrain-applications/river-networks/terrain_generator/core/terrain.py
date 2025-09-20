@@ -5,12 +5,16 @@ import scipy.spatial
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 from scipy.interpolate import NearestNDInterpolator
-from typing import Optional, Tuple, Any, List
+from typing import Optional, Tuple, Any, List, Dict
 from dataclasses import dataclass, field
 from scipy.ndimage import zoom
 
 from .rivers import RiverGenerator, RiverNetwork
 from ..io import HeightmapImporter
+from ..config import (
+    RockLayerConfig,
+    normalize_layer_inputs,
+)
 from .utils import (normalize, gaussian_blur, gaussian_gradient, bump, 
                    dist_to_mask, poisson_disc_sampling, connect_inland_seas,
                    render_triangulation, lerp)
@@ -90,6 +94,13 @@ class TerrainParameters:
     erosion_step_size: float = 0.3
     erosion_blur_iterations: int = 1
 
+    # Rock layer configuration
+    rock_layers: List[RockLayerConfig] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.rock_layers:
+            self.rock_layers = normalize_layer_inputs(self.rock_layers)
+
 @dataclass
 class TerrainData:
     """Container for generated terrain data."""
@@ -98,6 +109,7 @@ class TerrainData:
     river_volume: np.ndarray
     watershed_mask: np.ndarray
     deposition_map: np.ndarray
+    rock_map: Optional[np.ndarray]
     triangulation: Any
     points: np.ndarray = field(default=None)
     neighbors: List[np.ndarray] = field(default=None)
@@ -171,7 +183,10 @@ class TerrainGenerator:
         
         # Normalize points_height back to [0,1] for river network computation
         points_height_normalized = normalize(points_height, bounds=(0, 1))
-        
+
+        rock_layers, resolved_layer_params = self._resolve_rock_layers()
+        rock_assignments = self._assign_rock_layers(points_height_normalized, rock_layers)
+
         if progress_callback:
             progress_callback(70, "Computing river network...")
         
@@ -206,12 +221,15 @@ class TerrainGenerator:
         # Generate final terrain
         final_height = self._compute_final_height(
             points, neighbors, edge_weights, points_deltas, river_network,
-            max_delta_field
+            max_delta_field,
+            rock_assignments,
+            resolved_layer_params
         )
         
         # Render to grid
         terrain_height = render_triangulation(target_shape, tri, final_height)
         river_volume = render_triangulation(target_shape, tri, river_network.volume)
+        rock_map_grid = self._render_rock_map(points, rock_assignments, target_shape)
 
         # Render watershed identifiers to regular grid using nearest-neighbor sampling
         watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
@@ -222,42 +240,52 @@ class TerrainGenerator:
         if self.params.use_erosion:
             if progress_callback:
                 progress_callback(90, "Applying erosion...")
-            
+
+            base_params = resolved_layer_params[0] if resolved_layer_params else self._default_erosion_settings()
+            erosion_maps = self._build_parameter_maps(rock_map_grid, resolved_layer_params)
+
             # Apply particle erosion using parameters
             erosion = ParticleErosion(
-                iterations=self.params.erosion_iterations,
-                inertia=self.params.erosion_inertia,
-                capacity_const=self.params.erosion_capacity,
-                deposition_const=self.params.erosion_deposition_rate,
-                erosion_const=self.params.erosion_rate,
-                evaporation_const=self.params.erosion_evaporation,
-                gravity=self.params.erosion_gravity,
-                max_lifetime=self.params.erosion_max_lifetime,
-                step_size=self.params.erosion_step_size,
+                iterations=int(base_params.get('erosion_iterations', self.params.erosion_iterations)),
+                inertia=float(base_params.get('erosion_inertia', self.params.erosion_inertia)),
+                capacity_const=float(base_params.get('erosion_capacity', self.params.erosion_capacity)),
+                deposition_const=float(base_params.get('erosion_deposition_rate', self.params.erosion_deposition_rate)),
+                erosion_const=float(base_params.get('erosion_rate', self.params.erosion_rate)),
+                evaporation_const=float(base_params.get('erosion_evaporation', self.params.erosion_evaporation)),
+                gravity=float(base_params.get('erosion_gravity', self.params.erosion_gravity)),
+                max_lifetime=int(base_params.get('erosion_max_lifetime', self.params.erosion_max_lifetime)),
+                step_size=float(base_params.get('erosion_step_size', self.params.erosion_step_size)),
+                max_delta=float(base_params.get('max_delta', self.params.max_delta)),
                 min_slope=0.0001,
-                blur_iterations=self.params.erosion_blur_iterations
+                blur_iterations=int(base_params.get('erosion_blur_iterations', self.params.erosion_blur_iterations))
             )
-            
+
             # Scale erosion parameters based on dimension
             dim_scale = self.params.dimension / 256.0
             if dim_scale > 1.5:
                 erosion.iterations = int(erosion.iterations * np.sqrt(dim_scale))
-                erosion.step_size *= np.sqrt(dim_scale) * 0.5
+                step_multiplier = np.sqrt(dim_scale) * 0.5
+                erosion.step_size *= step_multiplier
                 erosion.max_lifetime = int(erosion.max_lifetime * np.sqrt(dim_scale))
-            
+                if 'erosion_step_size' in erosion_maps:
+                    erosion_maps['erosion_step_size'] = np.ascontiguousarray(
+                        erosion_maps['erosion_step_size'] * step_multiplier
+                    )
+
             # Preserve the original height scale
             max_height = terrain_height.max()
-            
+
             if max_height <= 0:
                 # No land above sea level, skip erosion
                 self.deposition_map = np.zeros_like(terrain_height)
             else:
                 # Normalize for erosion
                 normalized_terrain = terrain_height / max_height
-                
+
                 # Apply erosion
                 eroded_terrain, deposition_map = erosion.erode(
                     normalized_terrain,
+                    parameter_maps=erosion_maps,
                     progress_callback=progress_callback
                 )
                 
@@ -274,13 +302,7 @@ class TerrainGenerator:
         else:
             # No erosion, no deposition
             self.deposition_map = np.zeros_like(terrain_height)
-        
-        # Render watershed identifiers to regular grid using nearest-neighbor sampling
-        watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
-        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
-        watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
-        watershed_mask[~land_mask] = 0
-        
+
         if progress_callback:
             progress_callback(100, "Complete!")
 
@@ -290,6 +312,7 @@ class TerrainGenerator:
             river_volume=river_volume,
             watershed_mask=watershed_mask,
             deposition_map=self.deposition_map,
+            rock_map=rock_map_grid,
             triangulation=tri,
             points=points,
             neighbors=neighbors
@@ -322,6 +345,7 @@ class TerrainGenerator:
             river_volume=np.zeros_like(initial_height),
             watershed_mask=np.zeros_like(initial_height, dtype=np.int32),
             deposition_map=np.zeros_like(initial_height),
+            rock_map=np.zeros_like(initial_height, dtype=np.int32),
             triangulation=None,
             points=None,
             neighbors=None
@@ -692,26 +716,137 @@ class TerrainGenerator:
         return result
 
     def _compute_final_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                              edge_weights: List[np.ndarray], deltas: np.ndarray, 
+                              edge_weights: List[np.ndarray], deltas: np.ndarray,
                               river_network: RiverNetwork,
-                              variable_max_delta: Optional[np.ndarray] = None) -> np.ndarray:
+                              variable_max_delta: Optional[np.ndarray] = None,
+                              rock_assignments: Optional[np.ndarray] = None,
+                              rock_parameters: Optional[List[Dict[str, float]]] = None
+                              ) -> np.ndarray:
         """Compute final height with river downcutting."""
-        
+
         def get_delta(src, dst, weight):
             v = river_network.volume[dst] if (dst in river_network.upstream[src]) else 0.0
-            downcut = 1.0 / (1.0 + v ** self.params.river_downcutting)
-            
-            if variable_max_delta is not None:
-                current_max_delta = variable_max_delta[dst]
+
+            if rock_assignments is not None and rock_parameters:
+                layer_idx = int(rock_assignments[dst])
+                layer_idx = max(0, min(layer_idx, len(rock_parameters) - 1))
+                layer_params = rock_parameters[layer_idx]
             else:
-                current_max_delta = self.params.max_delta
-            
-            return min(current_max_delta * weight, 
+                layer_params = self._default_erosion_settings()
+
+            downcut_power = float(layer_params.get('river_downcutting', self.params.river_downcutting))
+            downcut = 1.0 / (1.0 + v ** downcut_power)
+
+            current_max_delta = float(layer_params.get('max_delta', self.params.max_delta))
+            if variable_max_delta is not None:
+                current_max_delta = min(current_max_delta, float(variable_max_delta[dst]))
+
+            return min(current_max_delta * weight,
                       deltas[dst] * downcut * weight)
-        
+
         heights = self._compute_height(points, neighbors, edge_weights, deltas, 
                                       get_delta_fn=get_delta)
         return heights
+
+    def _default_erosion_settings(self) -> Dict[str, float]:
+        """Return the baseline erosion parameters as a mapping."""
+        return {
+            'river_downcutting': float(self.params.river_downcutting),
+            'max_delta': float(self.params.max_delta),
+            'erosion_iterations': float(self.params.erosion_iterations),
+            'erosion_inertia': float(self.params.erosion_inertia),
+            'erosion_capacity': float(self.params.erosion_capacity),
+            'erosion_deposition_rate': float(self.params.erosion_deposition_rate),
+            'erosion_rate': float(self.params.erosion_rate),
+            'erosion_evaporation': float(self.params.erosion_evaporation),
+            'erosion_gravity': float(self.params.erosion_gravity),
+            'erosion_max_lifetime': float(self.params.erosion_max_lifetime),
+            'erosion_step_size': float(self.params.erosion_step_size),
+            'erosion_blur_iterations': float(self.params.erosion_blur_iterations),
+        }
+
+    def _resolve_rock_layers(self) -> Tuple[List[RockLayerConfig], List[Dict[str, float]]]:
+        """Resolve layer list and their erosion parameters."""
+        layers = self.params.rock_layers or [RockLayerConfig(name='Default', thickness=float('inf'))]
+        defaults = self._default_erosion_settings()
+        resolved_layers: List[Dict[str, float]] = []
+
+        for layer in layers:
+            try:
+                param_set = layer.load_parameter_set()
+            except OSError as exc:
+                raise RuntimeError(f"Failed to read erosion parameters for layer '{layer.name}': {exc}") from exc
+            except ValueError as exc:
+                raise RuntimeError(f"Invalid erosion parameter file for layer '{layer.name}': {exc}") from exc
+
+            if param_set is None:
+                resolved_layers.append(dict(defaults))
+            else:
+                resolved_layers.append(param_set.resolve(defaults))
+
+        return layers, resolved_layers
+
+    @staticmethod
+    def _assign_rock_layers(normalized_heights: np.ndarray,
+                            layers: List[RockLayerConfig]) -> np.ndarray:
+        """Assign each point to a rock layer based on normalized height."""
+        if not layers:
+            return np.zeros_like(normalized_heights, dtype=np.int32)
+
+        thresholds = np.zeros(len(layers), dtype=np.float64)
+        cumulative = 0.0
+        for idx, layer in enumerate(layers):
+            thickness = layer.thickness
+            try:
+                thickness_value = float(thickness)
+            except (TypeError, ValueError):
+                thickness_value = 0.0
+            if np.isnan(thickness_value):
+                thickness_value = 0.0
+            cumulative += max(0.0, thickness_value)
+            thresholds[idx] = cumulative
+
+        if not np.isfinite(thresholds[-1]) or thresholds[-1] <= 0.0:
+            thresholds[-1] = np.inf
+
+        indices = np.searchsorted(thresholds, normalized_heights, side='right')
+        np.clip(indices, 0, len(layers) - 1, out=indices)
+        return indices.astype(np.int32)
+
+    def _render_rock_map(self, points: np.ndarray, assignments: np.ndarray,
+                         target_shape: Tuple[int, int]) -> np.ndarray:
+        """Render discrete rock layer assignments onto the output grid."""
+        interpolator = NearestNDInterpolator(points, assignments.astype(np.float32))
+        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
+        rendered = interpolator(grid_y, grid_x)
+        return rendered.astype(np.int32)
+
+    @staticmethod
+    def _build_parameter_maps(rock_map: np.ndarray,
+                              resolved_layers: List[Dict[str, float]]) -> Dict[str, np.ndarray]:
+        """Create per-cell maps for erosion parameters based on rock indices."""
+        if not resolved_layers:
+            return {}
+
+        layer_values = {
+            key: np.asarray([layer.get(key, 0.0) for layer in resolved_layers], dtype=np.float64)
+            for key in (
+                'erosion_inertia',
+                'erosion_capacity',
+                'erosion_deposition_rate',
+                'erosion_rate',
+                'erosion_evaporation',
+                'erosion_gravity',
+                'erosion_step_size',
+                'max_delta',
+            )
+        }
+
+        parameter_maps: Dict[str, np.ndarray] = {}
+        for key, values in layer_values.items():
+            parameter_maps[key] = np.ascontiguousarray(values[rock_map])
+
+        return parameter_maps
 
     def _generate_variable_max_delta(self, shape: Tuple[int, int], 
                                     coords: np.ndarray,

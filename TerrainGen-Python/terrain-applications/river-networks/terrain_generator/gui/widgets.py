@@ -1,7 +1,7 @@
 """Custom widget components."""
 
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QLabel, QSlider,
-                            QSpinBox, QDoubleSpinBox)
+                            QSpinBox, QDoubleSpinBox, QPushButton, QLineEdit)
 from PyQt5.QtCore import Qt, pyqtSignal
 
 class ParameterControl(QWidget):
@@ -93,3 +93,103 @@ class ParameterControl(QWidget):
             self.spinbox.setValue(value)
         else:
             self.spinbox.setValue(int(value))
+
+
+class RockLayerRow(QWidget):
+    """Editable row representing a single rock layer entry."""
+
+    moveRequested = pyqtSignal(object, int)
+    deleteRequested = pyqtSignal(object)
+    browseRequested = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._index = 0
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(6)
+
+        self.index_label = QLabel("1")
+        self.index_label.setFixedWidth(24)
+        self.index_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.index_label)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Layer name")
+        layout.addWidget(self.name_edit, stretch=1)
+
+        self.thickness_spin = QDoubleSpinBox()
+        self.thickness_spin.setDecimals(3)
+        self.thickness_spin.setSingleStep(0.05)
+        self.thickness_spin.setMinimum(0.0)
+        self.thickness_spin.setMaximum(10.0)
+        self.thickness_spin.setValue(0.25)
+        self.thickness_spin.setToolTip("Thickness in normalised height units.")
+        self.thickness_spin.setFixedWidth(90)
+        layout.addWidget(self.thickness_spin)
+
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("No erosion parameter file")
+        self.path_edit.setReadOnly(True)
+        layout.addWidget(self.path_edit, stretch=2)
+
+        self.browse_button = QPushButton("Browse...")
+        self.browse_button.setFixedWidth(80)
+        self.browse_button.clicked.connect(lambda: self.browseRequested.emit(self))
+        layout.addWidget(self.browse_button)
+
+        self.up_button = QPushButton("Up")
+        self.up_button.setFixedWidth(50)
+        self.up_button.clicked.connect(lambda: self.moveRequested.emit(self, -1))
+        layout.addWidget(self.up_button)
+
+        self.down_button = QPushButton("Down")
+        self.down_button.setFixedWidth(60)
+        self.down_button.clicked.connect(lambda: self.moveRequested.emit(self, 1))
+        layout.addWidget(self.down_button)
+
+        self.remove_button = QPushButton("Remove")
+        self.remove_button.setFixedWidth(70)
+        self.remove_button.clicked.connect(lambda: self.deleteRequested.emit(self))
+        layout.addWidget(self.remove_button)
+
+    def set_index(self, index: int):
+        self._index = index
+        self.index_label.setText(str(index + 1))
+
+    def set_move_enabled(self, *, can_move_up: bool, can_move_down: bool):
+        self.up_button.setEnabled(can_move_up)
+        self.down_button.setEnabled(can_move_down)
+
+    def set_remove_enabled(self, enabled: bool):
+        self.remove_button.setEnabled(enabled)
+
+    def set_path(self, path: str):
+        self.path_edit.setText(path or "")
+        self.path_edit.setToolTip(path or "No erosion parameter file selected.")
+
+    def get_state(self) -> dict:
+        return {
+            'name': self.name_edit.text().strip() or f'Layer {self._index + 1}',
+            'thickness': float(self.thickness_spin.value()),
+            'erosion_params_path': self.path_edit.text().strip() or None,
+        }
+
+    def set_state(self, state: dict):
+        if not state:
+            return
+        name = state.get('name')
+        if name:
+            self.name_edit.setText(str(name))
+        thickness = state.get('thickness')
+        if thickness is not None:
+            try:
+                self.thickness_spin.setValue(float(thickness))
+            except (TypeError, ValueError):
+                pass
+        path = state.get('erosion_params_path') or state.get('parameters_path')
+        if path:
+            self.set_path(str(path))

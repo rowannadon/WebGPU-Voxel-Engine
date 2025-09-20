@@ -206,7 +206,8 @@ class TerrainGeneratorWindow(QMainWindow):
 
         # Left control panel
         self.control_panel = ControlPanel()
-        self.control_panel.setMaximumWidth(450)
+        self.control_panel.setMaximumWidth(650)
+        self.control_panel.setMinimumWidth(650)
         self.control_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         main_layout.addWidget(self.control_panel)
 
@@ -271,6 +272,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.control_panel.export_flow_button.clicked.connect(self.export_flow_mask)
         self.control_panel.export_watershed_button.clicked.connect(self.export_watershed_mask)
         self.control_panel.export_deposition_button.clicked.connect(self.export_deposition_mask)
+        self.control_panel.export_rock_button.clicked.connect(self.export_rock_map)
         self.control_panel.load_preset_button.clicked.connect(self.load_preset_from_file)
         self.control_panel.save_preset_button.clicked.connect(self.save_preset_to_file)
 
@@ -867,12 +869,12 @@ class TerrainGeneratorWindow(QMainWindow):
             QMessageBox.warning(self, "No Data",
                               "Please generate terrain first.")
             return
-        
+
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export Deposition Mask", "deposition_mask.png",
             "PNG Files (*.png);;TIFF Files (*.tiff)"
         )
-        
+
         if filename:
             try:
                 export_format = self.control_panel.get_deposition_export_format()
@@ -883,8 +885,35 @@ class TerrainGeneratorWindow(QMainWindow):
                     filename,
                     export_format
                 )
-                
+
                 QMessageBox.information(self, "Export Successful",
                                       f"Exported to {filename}")
             except Exception as e:
                 QMessageBox.critical(self, "Export Failed", str(e))
+
+    def export_rock_map(self):
+        """Export a colour-coded rock map texture."""
+        if not self.current_terrain_data or self.current_terrain_data.rock_map is None:
+            QMessageBox.warning(self, "No Data",
+                              "Generate terrain with rock layers before exporting.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Rock Map", "rock_map.png",
+            "PNG Files (*.png)"
+        )
+
+        if filename:
+            try:
+                export_format = self.control_panel.get_rock_export_format()
+                exporter = TerrainExporter()
+                exporter.export_rock_map(
+                    self.current_terrain_data.rock_map,
+                    self.current_terrain_data.land_mask,
+                    filename,
+                    export_format
+                )
+                QMessageBox.information(self, "Export Successful",
+                                      f"Exported to {filename}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Export Failed", str(exc))

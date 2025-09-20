@@ -2,7 +2,7 @@
 
 import numpy as np
 from numba import njit, prange
-from typing import Tuple, Optional
+from typing import Dict, Tuple, Optional
 from scipy.ndimage import gaussian_filter
 
 @njit(cache=True)
@@ -95,21 +95,19 @@ def deposit_at_position(heightmap: np.ndarray, x: float, y: float, amount: float
 def simulate_single_droplet(heightmap: np.ndarray,
                            start_x: float,
                            start_y: float,
-                           inertia: float,
-                           capacity_const: float,
-                           deposition_const: float,
-                           erosion_const: float,
-                           evaporation_const: float,
-                           gravity: float,
+                           inertia_map: np.ndarray,
+                           capacity_map: np.ndarray,
+                           deposition_map: np.ndarray,
+                           erosion_map: np.ndarray,
+                           evaporation_map: np.ndarray,
+                           gravity_map: np.ndarray,
+                           step_map: np.ndarray,
+                           max_delta_map: np.ndarray,
                            max_steps: int,
-                           step_size: float,
                            min_slope: float) -> float:
-    """
-    Simulate a single water droplet flowing down the terrain.
-    Returns the total change in sediment.
-    """
+    """Simulate a single water droplet with spatially varying parameters."""
     h, w = heightmap.shape
-    
+
     # Initialize droplet state
     x, y = start_x, start_y
     dx, dy = 0.0, 0.0  # Direction
@@ -129,11 +127,21 @@ def simulate_single_droplet(heightmap: np.ndarray,
         
         # Calculate gradient
         grad_x, grad_y = compute_gradient(heightmap, x, y)
-        
+
+        # Sample local parameter values
+        inertia = max(0.0, min(0.999, bilinear_interpolate(inertia_map, x, y)))
+        capacity_const = max(0.0, bilinear_interpolate(capacity_map, x, y))
+        deposition_const = max(0.0, bilinear_interpolate(deposition_map, x, y))
+        erosion_const = max(0.0, bilinear_interpolate(erosion_map, x, y))
+        evaporation_const = max(0.0, min(0.999, bilinear_interpolate(evaporation_map, x, y)))
+        gravity = max(1e-3, bilinear_interpolate(gravity_map, x, y))
+        step_size = max(0.05, bilinear_interpolate(step_map, x, y))
+        max_delta = max(1e-6, bilinear_interpolate(max_delta_map, x, y))
+
         # Update direction with inertia
         new_dx = dx * inertia - grad_x * (1.0 - inertia)
         new_dy = dy * inertia - grad_y * (1.0 - inertia)
-        
+
         # Normalize direction
         dir_len = np.sqrt(new_dx * new_dx + new_dy * new_dy)
         if dir_len > 1e-6:
@@ -186,7 +194,7 @@ def simulate_single_droplet(heightmap: np.ndarray,
             
             # Don't erode below sea level
             if erode_amount > 0:
-                erode_amount = min(erode_amount, old_height)
+                erode_amount = min(erode_amount, old_height, max_delta)
                 deposit_at_position(heightmap, x, y, -erode_amount, radius=1.2)
                 sediment += erode_amount
                 total_change -= erode_amount
@@ -209,13 +217,13 @@ def simulate_single_droplet(heightmap: np.ndarray,
         
         # Evaporate water (less evaporation in ocean)
         if old_height <= 0.01:
-            water *= 0.99  # Slower evaporation in water
+            water *= min(evaporation_const, 0.99)  # Slower evaporation in water
         else:
             water *= evaporation_const
-            
+
         if water < 0.01:
             break
-    
+
     return total_change
 
 class ParticleErosion:
@@ -231,6 +239,7 @@ class ParticleErosion:
                  gravity: float = 10.0,
                  max_lifetime: int = 60,  # Max steps per droplet
                  step_size: float = 0.3,  # Smaller steps for smoother flow
+                 max_delta: float = 0.05,  # Maximum erosion per step
                  min_slope: float = 0.0001,
                  blur_iterations: int = 1):  # Post-process smoothing
         """
@@ -245,10 +254,12 @@ class ParticleErosion:
         self.gravity = gravity
         self.max_lifetime = max_lifetime
         self.step_size = step_size
+        self.max_delta = max_delta
         self.min_slope = min_slope
         self.blur_iterations = blur_iterations
     
     def erode(self, heightmap: np.ndarray,
+            parameter_maps: Optional[Dict[str, np.ndarray]] = None,
             progress_callback: Optional[callable] = None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Apply particle erosion with ocean deposition allowed.
@@ -256,7 +267,7 @@ class ParticleErosion:
         h, w = heightmap.shape
         eroded = heightmap.copy().astype(np.float64)
         initial_height = eroded.copy()
-        
+
         # Track initial ocean areas (but don't restrict erosion to land)
         initial_ocean_mask = initial_height <= 0.001
         
@@ -285,10 +296,32 @@ class ParticleErosion:
         spawn_prob_flat = spawn_prob.flatten()
         total_cells = h * w
         
+        # Prepare per-cell parameter maps (fallback to uniform values)
+        maps = parameter_maps or {}
+
+        def prepare_map(key: str, default: float) -> np.ndarray:
+            arr = maps.get(key)
+            if arr is None:
+                arr = np.full_like(eroded, default, dtype=np.float64)
+            else:
+                arr = np.asarray(arr, dtype=np.float64)
+                if arr.shape != eroded.shape:
+                    raise ValueError(f"Parameter map '{key}' has mismatched shape {arr.shape}, expected {eroded.shape}")
+            return np.ascontiguousarray(arr)
+
+        inertia_map = prepare_map('erosion_inertia', self.inertia)
+        capacity_map = prepare_map('erosion_capacity', self.capacity_const)
+        deposition_map = prepare_map('erosion_deposition_rate', self.deposition_const)
+        erosion_map = prepare_map('erosion_rate', self.erosion_const)
+        evaporation_map = prepare_map('erosion_evaporation', self.evaporation_const)
+        gravity_map = prepare_map('erosion_gravity', self.gravity)
+        step_map = prepare_map('erosion_step_size', self.step_size)
+        max_delta_map = prepare_map('max_delta', self.max_delta)
+
         # Simulate many droplets
         batch_size = 1000
         num_batches = self.iterations // batch_size
-        
+
         for batch_idx in range(num_batches):
             if progress_callback and batch_idx % 10 == 0:
                 progress = int(70 + (batch_idx / num_batches) * 20)
@@ -309,14 +342,15 @@ class ParticleErosion:
                 simulate_single_droplet(
                     eroded,
                     x_start, y_start,
-                    self.inertia,
-                    self.capacity_const,
-                    self.deposition_const,
-                    self.erosion_const,
-                    self.evaporation_const,
-                    self.gravity,
+                    inertia_map,
+                    capacity_map,
+                    deposition_map,
+                    erosion_map,
+                    evaporation_map,
+                    gravity_map,
+                    step_map,
+                    max_delta_map,
                     self.max_lifetime,
-                    self.step_size,
                     self.min_slope
                 )
         
