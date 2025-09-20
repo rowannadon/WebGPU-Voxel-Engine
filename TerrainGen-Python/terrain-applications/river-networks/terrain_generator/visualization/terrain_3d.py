@@ -1,14 +1,14 @@
 """3D terrain visualization using OpenGL."""
 
-from PyQt5.QtWidgets import QOpenGLWidget
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QSurfaceFormat
-from OpenGL.GL import *
-import numpy as np
+import ctypes
 from typing import Optional
-from collections import deque
 
-from ..core import TerrainData, normalize
+import numpy as np
+from OpenGL.GL import *
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QOpenGLWidget
+
+from ..core import TerrainData
 from skimage import morphology, measure
 from .colormaps import TerrainColormap
 
@@ -63,6 +63,15 @@ class Terrain3DRenderer:
         self.overlay_texture_id = None
         self.overlay_dirty = False
         self.overlay_enabled = False
+        self.vertex_buffer_id = None
+        self.color_buffer_id = None
+        self.index_buffer_id = None
+        self.texcoord_buffer_id = None
+        self.vertex_dirty = False
+        self.index_dirty = False
+        self.texcoord_dirty = False
+        self.color_dirty = False
+        self.index_count = 0
 
     def set_data(self, terrain_data: TerrainData):
         """Set terrain data for rendering."""
@@ -100,6 +109,7 @@ class Terrain3DRenderer:
         VY = (heightmap * self.height_scale).astype(np.float32)
         VZ = (Z - z_offset).astype(np.float32)
         self.vertices = np.column_stack((VX.ravel(), VY.ravel(), VZ.ravel())).astype(np.float32)
+        self.vertex_dirty = True
 
         # Generate texture coordinates for overlay mapping
         width_div = max(width - 1, 1)
@@ -108,16 +118,18 @@ class Terrain3DRenderer:
         V = (Z.astype(np.float32) / height_div)
         # OpenGL expects the first row as the bottom of the texture, so we keep V as-is
         self.texture_coords = np.column_stack((U.ravel(), V.ravel())).astype(np.float32)
+        self.texcoord_dirty = True
 
         # Compute normals
         self.normals = self._compute_normals(heightmap)
 
         # Update colors
         self.update_colors()
-        
+
         # Generate indices
         self._generate_indices(height, width)
-    
+        self.index_dirty = True
+
     def _compute_normals(self, heightmap: np.ndarray) -> np.ndarray:
         """Compute vertex normals from heightmap (vectorized)."""
         h_scaled = heightmap.astype(np.float32) * np.float32(self.height_scale)
@@ -150,7 +162,8 @@ class Terrain3DRenderer:
         tris_odd = np.stack([v0, v2, v3,  v0, v3, v1], axis=-1)[~even]
         indices = np.concatenate([tris_even.reshape(-1, 3), tris_odd.reshape(-1, 3)], axis=0)
         self.indices = indices.astype(np.uint32).ravel()
-    
+        self.index_count = int(self.indices.size)
+
     def update_colors(self):
         """Update vertex colors with lighting and effects (vectorized)."""
         if self.terrain_data is None or self.vertices is None:
@@ -162,6 +175,7 @@ class Terrain3DRenderer:
             rgba = np.ones((lighting.shape[0], 4), dtype=np.float32)
             rgba[:, 0:3] = lighting[:, None]
             self.colors = rgba
+            self.color_dirty = True
             return
 
         heightmap = self.terrain_data.heightmap
@@ -206,6 +220,7 @@ class Terrain3DRenderer:
             base_colors[:, 0:3] *= lighting[:, None]
         
         self.colors = base_colors.astype(np.float32)
+        self.color_dirty = True
 
     def _compute_river_mask(self) -> Optional[np.ndarray]:
         """Compute connected river mask (vectorized via labeling)."""
@@ -238,7 +253,7 @@ class Terrain3DRenderer:
 
     def render(self):
         """Render the terrain mesh."""
-        if self.vertices is None or self.indices is None:
+        if self.vertices is None or self.indices is None or self.colors is None:
             return
 
         use_texture = (
@@ -248,20 +263,32 @@ class Terrain3DRenderer:
             self._ensure_overlay_texture()
         )
 
+        if not self._ensure_gpu_buffers():
+            return
+
+        use_texture = use_texture and self.texcoord_buffer_id is not None
+
         glEnableClientState(GL_VERTEX_ARRAY)
         glEnableClientState(GL_COLOR_ARRAY)
         if use_texture:
             glEnable(GL_TEXTURE_2D)
             glEnableClientState(GL_TEXTURE_COORD_ARRAY)
-            glTexCoordPointer(2, GL_FLOAT, 0, self.texture_coords)
+            glBindBuffer(GL_ARRAY_BUFFER, self.texcoord_buffer_id)
+            glTexCoordPointer(2, GL_FLOAT, 0, ctypes.c_void_p(0))
         else:
             glDisable(GL_TEXTURE_2D)
 
-        glVertexPointer(3, GL_FLOAT, 0, self.vertices)
-        glColorPointer(4, GL_FLOAT, 0, self.colors)
+        glBindBuffer(GL_ARRAY_BUFFER, self.vertex_buffer_id)
+        glVertexPointer(3, GL_FLOAT, 0, ctypes.c_void_p(0))
 
-        glDrawElements(GL_TRIANGLES, len(self.indices), 
-                      GL_UNSIGNED_INT, self.indices)
+        glBindBuffer(GL_ARRAY_BUFFER, self.color_buffer_id)
+        glColorPointer(4, GL_FLOAT, 0, ctypes.c_void_p(0))
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.index_buffer_id)
+        glDrawElements(GL_TRIANGLES, self.index_count, GL_UNSIGNED_INT, ctypes.c_void_p(0))
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
 
         if use_texture:
             glDisableClientState(GL_TEXTURE_COORD_ARRAY)
@@ -269,6 +296,49 @@ class Terrain3DRenderer:
             glDisable(GL_TEXTURE_2D)
         glDisableClientState(GL_COLOR_ARRAY)
         glDisableClientState(GL_VERTEX_ARRAY)
+
+    def _ensure_gpu_buffers(self) -> bool:
+        """Upload CPU-side arrays into GPU buffers when marked dirty."""
+        if self.vertices is None or self.colors is None or self.indices is None:
+            return False
+
+        if self.vertex_buffer_id is None:
+            self.vertex_buffer_id = glGenBuffers(1)
+            self.vertex_dirty = True
+        if self.color_buffer_id is None:
+            self.color_buffer_id = glGenBuffers(1)
+            self.color_dirty = True
+        if self.index_buffer_id is None:
+            self.index_buffer_id = glGenBuffers(1)
+            self.index_dirty = True
+        if self.texture_coords is not None and self.texcoord_buffer_id is None:
+            self.texcoord_buffer_id = glGenBuffers(1)
+            self.texcoord_dirty = True
+
+        if self.vertex_dirty:
+            glBindBuffer(GL_ARRAY_BUFFER, self.vertex_buffer_id)
+            glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes, self.vertices, GL_STATIC_DRAW)
+            self.vertex_dirty = False
+
+        if self.texcoord_buffer_id is not None and self.texcoord_dirty and self.texture_coords is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.texcoord_buffer_id)
+            glBufferData(GL_ARRAY_BUFFER, self.texture_coords.nbytes, self.texture_coords, GL_STATIC_DRAW)
+            self.texcoord_dirty = False
+
+        if self.color_dirty and self.colors is not None:
+            glBindBuffer(GL_ARRAY_BUFFER, self.color_buffer_id)
+            usage = GL_DYNAMIC_DRAW if (self.overlay_enabled or self.show_rivers) else GL_STATIC_DRAW
+            glBufferData(GL_ARRAY_BUFFER, self.colors.nbytes, self.colors, usage)
+            self.color_dirty = False
+
+        if self.index_dirty:
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.index_buffer_id)
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.indices.nbytes, self.indices, GL_STATIC_DRAW)
+            self.index_dirty = False
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0)
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)
+        return True
 
     def set_overlay_image(self, image: Optional[np.ndarray]):
         """Set or replace the overlay texture image."""
@@ -367,6 +437,22 @@ class Terrain3DRenderer:
         if self.overlay_texture_id is not None:
             glDeleteTextures(int(self.overlay_texture_id))
             self.overlay_texture_id = None
+
+    def release_gpu_resources(self):
+        """Release VBOs/IBOs associated with the current mesh."""
+        for attr in ['vertex_buffer_id', 'color_buffer_id', 'index_buffer_id', 'texcoord_buffer_id']:
+            buffer_id = getattr(self, attr)
+            if buffer_id:
+                glDeleteBuffers(1, [int(buffer_id)])
+                setattr(self, attr, None)
+        if self.vertices is not None:
+            self.vertex_dirty = True
+        if self.colors is not None:
+            self.color_dirty = True
+        if self.indices is not None:
+            self.index_dirty = True
+        if self.texture_coords is not None:
+            self.texcoord_dirty = True
 
 class TerrainViewport(QOpenGLWidget):
     """Qt widget for 3D terrain visualization."""
@@ -517,10 +603,20 @@ class TerrainViewport(QOpenGLWidget):
     def wheelEvent(self, event):
         """Handle mouse wheel for zoom."""
         delta = event.angleDelta().y() / 120
-        
+
         if delta > 0:
             self.camera.zoom_in()
         else:
             self.camera.zoom_out()
-        
+
         self.update()
+
+    def closeEvent(self, event):
+        """Release GPU resources before the widget is destroyed."""
+        ctx = self.context()
+        if ctx is not None:
+            self.makeCurrent()
+            self.renderer.release_overlay_texture()
+            self.renderer.release_gpu_resources()
+            self.doneCurrent()
+        super().closeEvent(event)
