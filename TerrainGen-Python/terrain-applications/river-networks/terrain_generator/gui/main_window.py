@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
 
+from ..config import PresetError
 from ..core import TerrainGenerator, TerrainParameters, TerrainData, normalize
 from ..visualization import TerrainViewport
 from ..io import TerrainExporter
@@ -189,6 +190,8 @@ class TerrainGeneratorWindow(QMainWindow):
         self.heuristic_arrays = {}
 
         self.setup_ui()
+        self.preset_manager = self.control_panel.preset_manager
+        self.last_preset_directory = str(self.preset_manager.default_directory())
         self.setup_connections()
     
     def setup_ui(self):
@@ -268,6 +271,8 @@ class TerrainGeneratorWindow(QMainWindow):
         self.control_panel.export_flow_button.clicked.connect(self.export_flow_mask)
         self.control_panel.export_watershed_button.clicked.connect(self.export_watershed_mask)
         self.control_panel.export_deposition_button.clicked.connect(self.export_deposition_mask)
+        self.control_panel.load_preset_button.clicked.connect(self.load_preset_from_file)
+        self.control_panel.save_preset_button.clicked.connect(self.save_preset_to_file)
 
         # Visualization controls
         self.analysis_panel.visualization_changed.connect(self.update_visualization)
@@ -277,12 +282,79 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.computed_overlay_requested.connect(self.apply_computed_overlay)
         self.analysis_panel.export_computed_overlay_requested.connect(self.export_computed_overlay)
         self.analysis_panel.export_all_computed_requested.connect(self.export_all_computed_overlays)
-    
+
+    def load_preset_from_file(self):
+        """Load terrain and heuristic settings from a preset file."""
+        start_dir = self.last_preset_directory or str(self.preset_manager.default_directory())
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Preset",
+            start_dir,
+            "Preset Files (*.json);;All Files (*)"
+        )
+        if not filename:
+            return
+
+        try:
+            terrain_state, heuristics_state, _ = self.preset_manager.load_preset(filename)
+        except PresetError as exc:
+            QMessageBox.critical(self, "Preset Error", str(exc))
+            return
+
+        self.control_panel.apply_state(terrain_state)
+        self.analysis_panel.apply_state(heuristics_state)
+        self.last_preset_directory = os.path.dirname(filename) or self.last_preset_directory
+        self.reset_computed_overlays()
+        self.status_label.setText(f"Preset loaded: {os.path.basename(filename)}")
+
+    def save_preset_to_file(self):
+        """Export the current GUI settings to a preset file."""
+        start_dir = self.last_preset_directory or str(self.preset_manager.default_directory())
+        suggestion = os.path.join(start_dir, "terrain_preset.json")
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Preset",
+            suggestion,
+            "Preset Files (*.json);;All Files (*)"
+        )
+        if not filename:
+            return
+
+        terrain_state = self.control_panel.get_state()
+        heuristics_state = self.analysis_panel.get_state()
+
+        metadata: Dict[str, Any] = {}
+        numeric_controls = terrain_state.get('numeric_controls', {})
+        if 'dimension' in numeric_controls:
+            try:
+                metadata['terrain_dimension'] = int(float(numeric_controls['dimension']))
+            except (TypeError, ValueError):
+                pass
+        if 'seed' in numeric_controls:
+            try:
+                metadata['seed'] = int(float(numeric_controls['seed']))
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            target_path = self.preset_manager.save_preset(
+                filename,
+                terrain_state=terrain_state,
+                heuristics_state=heuristics_state,
+                metadata=metadata,
+            )
+        except PresetError as exc:
+            QMessageBox.critical(self, "Preset Error", str(exc))
+            return
+
+        self.last_preset_directory = os.path.dirname(os.fspath(target_path)) or self.last_preset_directory
+        self.status_label.setText(f"Preset saved: {os.path.basename(os.fspath(target_path))}")
+
     def generate_terrain(self):
         """Start terrain generation."""
         if self.generator_thread and self.generator_thread.isRunning():
             return
-        
+
         # Get parameters from control panel
         params = self.control_panel.get_parameters()
         
