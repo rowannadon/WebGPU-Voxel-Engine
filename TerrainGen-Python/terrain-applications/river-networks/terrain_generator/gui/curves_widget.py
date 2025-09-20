@@ -458,6 +458,23 @@ class HeightCurvesWidget(QWidget):
     def get_control_points(self) -> List[Tuple[float, float]]:
         """Get current control points."""
         return self.curves_graph.get_control_points()
+
+    def set_control_points(self, points: Optional[List[Tuple[float, float]]]):
+        """Set control points from an iterable of pairs."""
+        if not points:
+            return
+        sanitized = []
+        for pair in points:
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                continue
+            try:
+                sanitized.append((float(pair[0]), float(pair[1])))
+            except (TypeError, ValueError):
+                continue
+        if not sanitized:
+            return
+        self.curves_graph.set_control_points(sanitized)
+        self.curvesChanged.emit()
     
     def apply_to_heightfield(self, heightfield: np.ndarray) -> np.ndarray:
         """Apply curves adjustment to a heightfield."""

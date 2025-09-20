@@ -1,5 +1,5 @@
-"""Configuration and presets."""
+"""Configuration utilities and preset management."""
 
-from .presets import PresetManager, TerrainPreset
+from .presets import PresetManager, PresetError
 
-__all__ = ['PresetManager', 'TerrainPreset']
+__all__ = ['PresetManager', 'PresetError']

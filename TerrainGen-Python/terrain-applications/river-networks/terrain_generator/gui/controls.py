@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                             QScrollArea, QSizePolicy)
 from PyQt5.QtCore import pyqtSignal, Qt
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any, Optional
 
 from ..core import TerrainParameters
 from ..config import PresetManager
@@ -148,6 +148,28 @@ class DomainWarpedFBMWidget(QWidget):
             values[name] = value
         return values
 
+    def set_values(self, values: dict):
+        """Apply parameter values from a mapping."""
+        if not values:
+            return
+        for name, control in self.controls.items():
+            if name not in values:
+                continue
+            raw_value = values[name]
+            if isinstance(raw_value, str):
+                lowered = raw_value.lower()
+                if lowered in {"inf", "infinity", "+inf", "+infinity"}:
+                    raw_value = control.spinbox.maximum()
+                elif lowered in {"-inf", "-infinity"}:
+                    raw_value = control.spinbox.minimum()
+            elif raw_value is None:
+                raw_value = control.spinbox.maximum()
+
+            try:
+                control.set_value(float(raw_value))
+            except (TypeError, ValueError):
+                continue
+
 class ControlPanel(QWidget):
     """Main control panel for terrain generation."""
 
@@ -158,6 +180,24 @@ class ControlPanel(QWidget):
         self.preset_manager = PresetManager()
         self.controls = {}
         self.setup_ui()
+
+    @staticmethod
+    def _resolve_control_value(control: ParameterControl, raw_value: Any) -> Optional[float]:
+        """Convert persisted values into values acceptable by the control."""
+        if isinstance(raw_value, str):
+            lowered = raw_value.strip().lower()
+            if lowered in {"inf", "infinity"}:
+                return float(control.spinbox.maximum())
+            try:
+                return float(raw_value)
+            except ValueError:
+                return None
+        if raw_value is None:
+            return float(control.spinbox.maximum())
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return None
     
     def setup_ui(self):
         """Setup the control panel UI."""
@@ -174,6 +214,9 @@ class ControlPanel(QWidget):
         title = QLabel("Terrain Generation Parameters")
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         scroll_layout.addWidget(title)
+
+        # Preset management group
+        self.create_preset_group(scroll_layout)
 
         # Heightmap import group
         self.create_import_group(scroll_layout)
@@ -220,7 +263,31 @@ class ControlPanel(QWidget):
         self.create_generation_buttons(button_layout)
 
         root_layout.addWidget(button_container)
-    
+
+    def create_preset_group(self, parent_layout):
+        """Create import/export preset controls."""
+        group = QGroupBox("Presets")
+        layout = QVBoxLayout()
+
+        description = QLabel(
+            "Import or export all terrain and heuristic settings as JSON presets."
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(description)
+
+        button_row = QHBoxLayout()
+        self.load_preset_button = QPushButton("Import Preset…")
+        button_row.addWidget(self.load_preset_button)
+
+        self.save_preset_button = QPushButton("Export Preset…")
+        button_row.addWidget(self.save_preset_button)
+
+        layout.addLayout(button_row)
+
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
     def create_import_group(self, parent_layout):
         """Create heightmap import group."""
         group = QGroupBox("Heightmap Import")
@@ -843,6 +910,119 @@ class ControlPanel(QWidget):
             erosion_blur_iterations=int(self.controls.get('erosion_blur_iterations',
                 ParameterControl("", 0, 0, 1)).value()),
         )
+
+    def get_state(self) -> Dict[str, Any]:
+        """Serialize all terrain-related GUI settings."""
+        numeric_controls = {
+            name: control.value()
+            for name, control in self.controls.items()
+        }
+
+        fbm_values = self.fbm_widget.get_values()
+
+        height_curve_points = None
+        if self.use_curves_checkbox.isChecked():
+            height_curve_points = [list(pair) for pair in self.curves_widget.get_control_points()]
+
+        max_delta_curve_points = None
+        if self.use_max_delta_curves_checkbox.isChecked():
+            max_delta_curve_points = [list(pair) for pair in self.max_delta_curves_widget.get_control_points()]
+
+        import_path = self.heightmap_path_edit.text().strip()
+        if import_path == "No file selected":
+            import_path = ""
+
+        export_formats = {
+            'heightmap': self.export_format_combo.currentText(),
+            'flow': self.export_flow_format_combo.currentText(),
+            'watershed': self.export_watershed_format_combo.currentText(),
+            'deposition': self.export_deposition_format_combo.currentText(),
+        }
+
+        return {
+            'numeric_controls': numeric_controls,
+            'fbm': fbm_values,
+            'use_imported_heightmap': self.use_import_checkbox.isChecked(),
+            'imported_heightmap_path': import_path,
+            'preview_mode': self.preview_checkbox.isChecked(),
+            'use_height_curves': self.use_curves_checkbox.isChecked(),
+            'height_curve_points': height_curve_points,
+            'use_max_delta_curves': self.use_max_delta_curves_checkbox.isChecked(),
+            'max_delta_curve_points': max_delta_curve_points,
+            'use_variable_max_delta': self.variable_max_delta_checkbox.isChecked(),
+            'use_erosion': self.use_erosion_checkbox.isChecked(),
+            'export_formats': export_formats,
+        }
+
+    def apply_state(self, state: Optional[Dict[str, Any]]):
+        """Restore GUI settings from serialized terrain preset data."""
+        if not state:
+            return
+
+        numeric_controls = state.get('numeric_controls', {})
+        for name, value in numeric_controls.items():
+            control = self.controls.get(name)
+            if control is None:
+                continue
+            resolved = self._resolve_control_value(control, value)
+            if resolved is None:
+                continue
+            try:
+                control.set_value(resolved)
+            except Exception:
+                continue
+
+        fbm_values = state.get('fbm', {})
+        if isinstance(fbm_values, dict):
+            sanitized = {}
+            for key, value in fbm_values.items():
+                if isinstance(value, str):
+                    sanitized[key] = value
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if not np.isfinite(numeric):
+                    sanitized[key] = "inf" if numeric > 0 else "-inf"
+                else:
+                    sanitized[key] = numeric
+            self.fbm_widget.set_values(sanitized)
+
+        use_import = bool(state.get('use_imported_heightmap', False))
+        self.use_import_checkbox.setChecked(use_import)
+        self.heightmap_path_edit.setText(state.get('imported_heightmap_path', "") or "")
+
+        self.preview_checkbox.setChecked(bool(state.get('preview_mode', False)))
+
+        use_height_curves = bool(state.get('use_height_curves', False))
+        self.use_curves_checkbox.setChecked(use_height_curves)
+        if use_height_curves and state.get('height_curve_points'):
+            self.curves_widget.set_control_points(state['height_curve_points'])
+
+        use_max_delta_curves = bool(state.get('use_max_delta_curves', False))
+        self.use_max_delta_curves_checkbox.setChecked(use_max_delta_curves)
+        if use_max_delta_curves and state.get('max_delta_curve_points'):
+            self.max_delta_curves_widget.set_control_points(state['max_delta_curve_points'])
+
+        self.variable_max_delta_checkbox.setChecked(bool(state.get('use_variable_max_delta', False)))
+        self.use_erosion_checkbox.setChecked(bool(state.get('use_erosion', True)))
+
+        export_formats = state.get('export_formats', {})
+        if isinstance(export_formats, dict):
+            mapping = {
+                'heightmap': self.export_format_combo,
+                'flow': self.export_flow_format_combo,
+                'watershed': self.export_watershed_format_combo,
+                'deposition': self.export_deposition_format_combo,
+            }
+            for key, combo in mapping.items():
+                target = export_formats.get(key)
+                if not target:
+                    continue
+                index = combo.findText(str(target))
+                if index >= 0:
+                    combo.setCurrentIndex(index)
     
     def get_export_format(self) -> str:
         """Get selected export format."""
@@ -1409,6 +1589,119 @@ class AnalysisPanel(QWidget):
     def update_wind_angle_enabled(self):
         enabled = self.prevailing_wind_combo.currentData() == 'constant'
         self.constant_wind_control.setEnabled(enabled)
+
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: Any):
+        if value is None:
+            return
+        # Try matching stored data first
+        for index in range(combo.count()):
+            if combo.itemData(index) == value:
+                combo.setCurrentIndex(index)
+                return
+        # Fall back to string comparison on displayed text
+        index = combo.findText(str(value))
+        if index >= 0:
+            combo.setCurrentIndex(index)
+
+    def get_state(self) -> Dict[str, Any]:
+        """Serialize heuristic-related GUI settings."""
+        checkbox_state = {
+            key: checkbox.isChecked()
+            for key, checkbox in self.heuristic_checkboxes.items()
+        }
+
+        cellsizes = {
+            key: spin.value()
+            for key, spin in self.heuristic_cellsizes.items()
+        }
+
+        numeric_controls = {
+            key: control.value()
+            for key, control in self.heuristics_controls.items()
+        }
+
+        return {
+            'heuristic_checkboxes': checkbox_state,
+            'heuristic_cellsizes': cellsizes,
+            'heuristic_controls': numeric_controls,
+            'tpi_radii_text': self.tpi_radii_edit.text(),
+            'use_random_biomes': self.random_biomes_checkbox.isChecked(),
+            'use_simulated_flow': self.use_simulated_flow_checkbox.isChecked(),
+            'temperature_pattern': self.temperature_pattern_combo.currentData(),
+            'temperature_gradient_azimuth_deg': self.temperature_gradient_control.value(),
+            'precip_pattern': self.precip_pattern_combo.currentData(),
+            'precip_gradient_azimuth_deg': self.precip_gradient_control.value(),
+            'prevailing_wind_model': self.prevailing_wind_combo.currentData(),
+            'constant_wind_azimuth_deg': self.constant_wind_control.value(),
+        }
+
+    def apply_state(self, state: Optional[Dict[str, Any]]):
+        """Restore heuristic-related settings from serialized data."""
+        if not state:
+            return
+
+        checkbox_state = state.get('heuristic_checkboxes', {})
+        for key, checkbox in self.heuristic_checkboxes.items():
+            if key not in checkbox_state:
+                continue
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(checkbox_state[key]))
+            checkbox.blockSignals(False)
+
+        cellsizes = state.get('heuristic_cellsizes', {})
+        for key, spin in self.heuristic_cellsizes.items():
+            if key not in cellsizes:
+                continue
+            try:
+                spin.setValue(float(cellsizes[key]))
+            except (TypeError, ValueError):
+                continue
+
+        numeric_controls = state.get('heuristic_controls', {})
+        for key, control in self.heuristics_controls.items():
+            if key not in numeric_controls:
+                continue
+            resolved = ControlPanel._resolve_control_value(control, numeric_controls[key])
+            if resolved is None:
+                continue
+            try:
+                control.set_value(resolved)
+            except Exception:
+                continue
+
+        if 'tpi_radii_text' in state:
+            self.tpi_radii_edit.setText(str(state['tpi_radii_text']))
+
+        self.random_biomes_checkbox.setChecked(bool(state.get('use_random_biomes', False)))
+        self.use_simulated_flow_checkbox.setChecked(bool(state.get('use_simulated_flow', True)))
+
+        self._set_combo_value(self.temperature_pattern_combo, state.get('temperature_pattern'))
+        self._set_combo_value(self.precip_pattern_combo, state.get('precip_pattern'))
+        self._set_combo_value(self.prevailing_wind_combo, state.get('prevailing_wind_model'))
+
+        # Ensure dependent controls update their enabled state before assigning values
+        self.update_temperature_gradient_enabled()
+        self.update_precip_gradient_enabled()
+        self.update_wind_angle_enabled()
+
+        if 'temperature_gradient_azimuth_deg' in state:
+            try:
+                self.temperature_gradient_control.set_value(float(state['temperature_gradient_azimuth_deg']))
+            except (TypeError, ValueError):
+                pass
+
+        if 'precip_gradient_azimuth_deg' in state:
+            try:
+                self.precip_gradient_control.set_value(float(state['precip_gradient_azimuth_deg']))
+            except (TypeError, ValueError):
+                pass
+
+        if 'constant_wind_azimuth_deg' in state:
+            try:
+                self.constant_wind_control.set_value(float(state['constant_wind_azimuth_deg']))
+            except (TypeError, ValueError):
+                pass
 
     def _parse_tpi_radii(self) -> List[float]:
         text = self.tpi_radii_edit.text().strip()
