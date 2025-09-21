@@ -310,6 +310,102 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.export_computed_overlay_requested.connect(self.export_computed_overlay)
         self.analysis_panel.export_all_computed_requested.connect(self.export_all_computed_overlays)
 
+    def _normalize_to_uint8(self, arr: np.ndarray, land_mask: np.ndarray = None) -> np.ndarray:
+        arr = np.asarray(arr, dtype=np.float32)
+        if land_mask is not None:
+            arr = np.where(land_mask, arr, 0.0)
+        vmin = float(np.min(arr))
+        vmax = float(np.max(arr))
+        if vmax > vmin:
+            norm = (arr - vmin) / (vmax - vmin)
+        else:
+            norm = np.zeros_like(arr, dtype=np.float32)
+        return np.clip(np.rint(norm * 255.0), 0, 255).astype(np.uint8)
+
+    def _gray_to_rgba(self, gray_u8: np.ndarray) -> np.ndarray:
+        h, w = gray_u8.shape
+        a = np.full((h, w), 255, dtype=np.uint8)
+        return np.stack([gray_u8, gray_u8, gray_u8, a], axis=-1)
+
+    def _build_generated_texture_overlays(self, td: TerrainData) -> dict:
+        """Return a dict[name]->RGBA uint8 for the core simulation textures."""
+        overlays = {}
+
+        # 1) Heightmap (grayscale)
+        hm_u8 = self._normalize_to_uint8(td.heightmap)
+        overlays['heightmap'] = self._gray_to_rgba(hm_u8)
+
+        # 2) Flow mask (river_volume) – grayscale, land only
+        flow = np.asarray(td.river_volume, dtype=np.float32)
+        if flow.size and np.any(flow > 0):
+            if td.land_mask is not None:
+                flow = np.where(td.land_mask, flow, 0.0)
+            fmax = float(flow.max())
+            flow_u8 = np.zeros_like(hm_u8, dtype=np.uint8) if fmax <= 0 else np.clip(
+                np.rint(flow / fmax * 255.0), 0, 255
+            ).astype(np.uint8)
+            overlays['flow_mask'] = self._gray_to_rgba(flow_u8)
+
+        # 3) Watershed mask – categorical (stable palette), land only
+        ws = np.asarray(td.watershed_mask)
+        if ws.ndim == 2 and np.max(ws) > 0:
+            labels = ws.astype(np.int64)
+            max_label = int(labels.max())
+            # reuse exporter's palette (also accepts optional overrides)
+            palette = TerrainExporter._rock_color_palette(max_label + 1)
+            h, w = labels.shape
+            rgba = np.zeros((h, w, 4), dtype=np.uint8)
+            for idx in range(max_label + 1):
+                rgba[labels == idx, :3] = palette[idx]
+            if td.land_mask is not None:
+                rgba[~td.land_mask, :3] = 0
+            rgba[..., 3] = 255
+            overlays['watershed'] = rgba
+
+        # 4) Deposition map – grayscale with 0.5 neutral
+        dep = np.asarray(td.deposition_map, dtype=np.float32)
+        if dep.size:
+            max_change = max(float(np.max(np.abs(dep))), 1e-12)
+            dep_norm = np.clip(dep / (2.0 * max_change) + 0.5, 0.0, 1.0)
+            dep_u8 = np.clip(np.rint(dep_norm * 255.0), 0, 255).astype(np.uint8)
+        else:
+            dep_u8 = np.full_like(hm_u8, 128, dtype=np.uint8)
+        overlays['deposition'] = self._gray_to_rgba(dep_u8)
+
+        # 5) Rock map – categorical color (honors configured albedo if available), land only
+        if td.rock_map is not None:
+            indices = np.asarray(td.rock_map, dtype=np.int64)
+            max_index = int(max(0, indices.max()))
+            colors_override = getattr(td, 'rock_albedo', None)
+            palette = TerrainExporter._rock_color_palette(max_index + 1, overrides=colors_override)
+            h, w = indices.shape
+            rgba = np.zeros((h, w, 4), dtype=np.uint8)
+            clipped = np.clip(indices, 0, max_index)
+            for idx in range(max_index + 1):
+                rgba[clipped == idx, :3] = palette[idx]
+            if td.land_mask is not None:
+                rgba[~td.land_mask, :3] = (0, 0, 0)
+            rgba[..., 3] = 255
+            overlays['rock_map'] = rgba
+
+        return overlays
+
+    def _ingest_generated_overlays(self):
+        """Merge the generated texture overlays into the computed-overlay model & UI."""
+        if not self.current_terrain_data:
+            return
+        generated = self._build_generated_texture_overlays(self.current_terrain_data)
+        if not generated:
+            return
+        # Merge into in-memory store
+        self.computed_overlays.update(generated)
+        # Refresh the combo without clobbering selection
+        selected = None
+        if self.current_overlay_source and self.current_overlay_source[0] == 'computed':
+            selected = self.current_overlay_source[1]
+        names = sorted(self.computed_overlays.keys())
+        self.analysis_panel.set_computed_overlays(names, selected)
+
     def load_preset_from_file(self):
         """Load terrain and heuristic settings from a preset file."""
         start_dir = self.last_preset_directory or str(self.preset_manager.default_directory())
@@ -451,6 +547,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.current_terrain_data = terrain_data
         self.terrain_viewport.set_terrain(terrain_data)
         self.reset_computed_overlays()
+        self._ingest_generated_overlays()
 
         if self.current_overlay_source and self.terrain_viewport.renderer.overlay_image is None:
             self.current_overlay_source = None
@@ -620,9 +717,14 @@ class TerrainGeneratorWindow(QMainWindow):
     def heuristics_finished(self, overlays: dict, arrays: dict):
         """Handle completion of heuristic computation."""
         self.heuristic_thread = None
-        self.computed_overlays = overlays
+
+        # >>> CHANGED: merge (don’t clobber) so generated textures stay listed
+        combined = dict(self.computed_overlays)
+        combined.update(overlays)
+        self.computed_overlays = combined
+
         self.heuristic_arrays = arrays
-        overlay_names = sorted(overlays.keys())
+        overlay_names = sorted(self.computed_overlays.keys())
 
         active_overlay_key = None
         if self.current_overlay_source and self.current_overlay_source[0] == 'computed':
@@ -637,7 +739,7 @@ class TerrainGeneratorWindow(QMainWindow):
         else:
             self.status_label.setText("Heuristic computation completed.")
 
-        if active_overlay_key and active_overlay_key in overlays:
+        if active_overlay_key and active_overlay_key in self.computed_overlays:
             self.apply_computed_overlay(active_overlay_key)
 
     def heuristics_error(self, error_msg: str):
