@@ -51,6 +51,9 @@ class HeuristicEngine:
         self._engine = TerrainEngine()
         self._settings = HeuristicSettings()
         self._deposition_map = None
+        self._rock_map = None
+        self._rock_types: Optional[Tuple[str, ...]] = None
+        self._rock_colors: Optional[Tuple[Optional[Tuple[int, int, int]], ...]] = None
 
     # ------------------------------ helpers ------------------------------
     def _apply_heightmap(self, heightmap: np.ndarray, z_min: float, z_max: float):
@@ -68,6 +71,8 @@ class HeuristicEngine:
 
         if self._deposition_map is not None:
             self.inject_deposition_map(self._deposition_map)
+        if self._rock_map is not None:
+            self._engine.inject_rock_map(self._rock_map, self._rock_types, self._rock_colors)
 
     def _apply_settings(self, settings: HeuristicSettings):
         prev = self._settings
@@ -112,6 +117,46 @@ class HeuristicEngine:
             self._deposition_map = np.asarray(deposition_map, dtype=np.float32)
             # Store in the engine's cache so it can be accessed during computation
             self._engine.cache['deposition'] = self._deposition_map.copy()
+
+    def inject_rock_map(
+        self,
+        rock_map: np.ndarray,
+        rock_types: Optional[Iterable[str]] = None,
+        rock_colors: Optional[Iterable[Optional[Iterable[int]]]] = None,
+    ):
+        """Inject a rock layer index map used for material-aware heuristics."""
+        if rock_map is None:
+            self._rock_map = None
+            self._rock_types = None
+            self._rock_colors = None
+            self._engine.inject_rock_map(None, None)
+            return
+
+        arr = np.asarray(rock_map, dtype=np.int32)
+        self._rock_map = np.ascontiguousarray(arr)
+        if rock_types is not None:
+            self._rock_types = tuple(str(name) for name in rock_types)
+        else:
+            self._rock_types = None
+
+        normalized_colors: Optional[Tuple[Optional[Tuple[int, int, int]], ...]] = None
+        if rock_colors is not None:
+            buffer: list[Optional[Tuple[int, int, int]]] = []
+            for entry in rock_colors:
+                if entry is None:
+                    buffer.append(None)
+                    continue
+                try:
+                    components = tuple(int(max(0, min(255, float(c)))) for c in entry[:3])  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    buffer.append(None)
+                    continue
+                buffer.append(components)
+            normalized_colors = tuple(buffer)
+
+        self._rock_colors = normalized_colors
+
+        self._engine.inject_rock_map(self._rock_map, self._rock_types, self._rock_colors)
 
     # --------------------------- public methods --------------------------
     def prepare(self, heightmap: np.ndarray, settings: Optional[HeuristicSettings] = None):

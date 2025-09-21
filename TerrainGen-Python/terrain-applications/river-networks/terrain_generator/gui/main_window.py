@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -83,12 +83,35 @@ class HeuristicComputationThread(QThread):
 
     def __init__(self, heightmap: np.ndarray, request: dict, 
                  flow_override: Optional[np.ndarray] = None,
-                 deposition_map: Optional[np.ndarray] = None):
+                 deposition_map: Optional[np.ndarray] = None,
+                 rock_map: Optional[np.ndarray] = None,
+                 rock_types: Optional[List[str]] = None,
+                 rock_colors: Optional[List[Optional[Tuple[int, int, int]]]] = None):
         super().__init__()
         self.heightmap = np.asarray(heightmap, dtype=np.float32)
         self.request = request
         self.flow_override = None if flow_override is None else np.asarray(flow_override, dtype=np.float32)
         self.deposition_map = None if deposition_map is None else np.asarray(deposition_map, dtype=np.float32)
+        self.rock_map = None if rock_map is None else np.ascontiguousarray(rock_map, dtype=np.int32)
+        if rock_types is not None:
+            self.rock_types: Optional[Tuple[str, ...]] = tuple(str(name) for name in rock_types)
+        else:
+            self.rock_types = None
+        if rock_colors is not None:
+            normalized: list[Optional[Tuple[int, int, int]]] = []
+            for entry in rock_colors:
+                if entry is None:
+                    normalized.append(None)
+                    continue
+                try:
+                    components = tuple(int(max(0, min(255, float(c)))) for c in entry[:3])
+                except (TypeError, ValueError):
+                    normalized.append(None)
+                    continue
+                normalized.append(components)
+            self.rock_colors: Optional[Tuple[Optional[Tuple[int, int, int]], ...]] = tuple(normalized)
+        else:
+            self.rock_colors = None
 
     def run(self):
         try:
@@ -158,6 +181,8 @@ class HeuristicComputationThread(QThread):
                 qt.progress.connect(forward_progress)
                 try:
                     engine_instance.prepare(self.heightmap, group_settings)
+                    if self.rock_map is not None:
+                        engine_instance.inject_rock_map(self.rock_map, self.rock_types, self.rock_colors)
                     if self.deposition_map is not None:
                         engine_instance.inject_deposition_map(self.deposition_map)
                     apply_flow_override(engine_instance)
@@ -556,6 +581,10 @@ class TerrainGeneratorWindow(QMainWindow):
         if hasattr(self.current_terrain_data, 'deposition_map'):
             deposition_map = self.current_terrain_data.deposition_map
 
+        rock_map = getattr(self.current_terrain_data, 'rock_map', None)
+        rock_types = getattr(self.current_terrain_data, 'rock_types', None)
+        rock_colors = getattr(self.current_terrain_data, 'rock_albedo', None)
+
         sanitized_request = {
             'selections': list(request_data.get('selections', [])),
             'settings': dict(request_data.get('settings', {})),
@@ -578,7 +607,10 @@ class TerrainGeneratorWindow(QMainWindow):
             heightmap, 
             sanitized_request, 
             flow_override=flow_override,
-            deposition_map=deposition_map
+            deposition_map=deposition_map,
+            rock_map=rock_map,
+            rock_types=rock_types,
+            rock_colors=rock_colors
         )
         self.heuristic_thread.progress.connect(self.update_progress)
         self.heuristic_thread.finished.connect(self.heuristics_finished)

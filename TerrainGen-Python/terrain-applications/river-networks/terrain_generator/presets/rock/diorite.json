@@ -11,5 +11,6 @@
   "erosion_gravity": 10.3,
   "erosion_max_lifetime": 60,
   "erosion_step_size": 0.29,
-  "erosion_blur_iterations": 1
+  "erosion_blur_iterations": 1,
+  "base_albedo_rgb": [117, 110, 102]
 }

@@ -115,6 +115,8 @@ class TerrainData:
     deposition_map: np.ndarray
     rock_map: Optional[np.ndarray]
     triangulation: Any
+    rock_types: Optional[List[str]] = field(default=None)
+    rock_albedo: Optional[List[Optional[Tuple[int, int, int]]]] = field(default=None)
     points: np.ndarray = field(default=None)
     neighbors: List[np.ndarray] = field(default=None)
 
@@ -188,7 +190,7 @@ class TerrainGenerator:
         # Normalize points_height back to [0,1] for river network computation
         points_height_normalized = normalize(points_height, bounds=(0, 1))
 
-        rock_layers, resolved_layer_params = self._resolve_rock_layers()
+        rock_layers, resolved_layer_params, rock_colors = self._resolve_rock_layers()
         stack_shift_field = self._compute_rock_stack_shift(target_shape)
         stack_shifts = stack_shift_field[coords[:, 0], coords[:, 1]]
         rock_assignments = self._assign_rock_layers(
@@ -324,6 +326,8 @@ class TerrainGenerator:
             deposition_map=self.deposition_map,
             rock_map=rock_map_grid,
             triangulation=tri,
+            rock_types=[layer.name for layer in rock_layers],
+            rock_albedo=rock_colors,
             points=points,
             neighbors=neighbors
         )
@@ -775,11 +779,12 @@ class TerrainGenerator:
             'erosion_blur_iterations': float(self.params.erosion_blur_iterations),
         }
 
-    def _resolve_rock_layers(self) -> Tuple[List[RockLayerConfig], List[Dict[str, float]]]:
-        """Resolve layer list and their erosion parameters."""
+    def _resolve_rock_layers(self) -> Tuple[List[RockLayerConfig], List[Dict[str, float]], List[Optional[Tuple[int, int, int]]]]:
+        """Resolve layer list, their erosion parameters, and material colors."""
         layers = self.params.rock_layers or [RockLayerConfig(name='Default', thickness=float('inf'))]
         defaults = self._default_erosion_settings()
         resolved_layers: List[Dict[str, float]] = []
+        albedo_colors: List[Optional[Tuple[int, int, int]]] = []
 
         for layer in layers:
             try:
@@ -791,10 +796,12 @@ class TerrainGenerator:
 
             if param_set is None:
                 resolved_layers.append(dict(defaults))
+                albedo_colors.append(None)
             else:
                 resolved_layers.append(param_set.resolve(defaults))
+                albedo_colors.append(param_set.base_albedo_rgb)
 
-        return layers, resolved_layers
+        return layers, resolved_layers, albedo_colors
 
     @staticmethod
     def _assign_rock_layers(normalized_heights: np.ndarray,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Union
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Union
 
 
 NUMBER_FIELDS = {
@@ -31,6 +31,7 @@ class ErosionParameterSet:
     name: str = 'Unnamed Erosion Set'
     values: Dict[str, Union[int, float]] = field(default_factory=dict)
     source_path: Optional[Path] = None
+    base_albedo_rgb: Optional[Tuple[int, int, int]] = None
 
     def resolve(self, defaults: Mapping[str, Union[int, float]]) -> Dict[str, Union[int, float]]:
         """Return a mapping containing values with defaults filled in."""
@@ -46,6 +47,8 @@ class ErosionParameterSet:
         """Serialize to a JSON-compatible mapping."""
         payload: Dict[str, Any] = {'name': self.name}
         payload.update(self.values)
+        if self.base_albedo_rgb is not None:
+            payload['base_albedo_rgb'] = list(self.base_albedo_rgb)
         return payload
 
     @classmethod
@@ -60,7 +63,20 @@ class ErosionParameterSet:
                 values[key] = caster(raw_value)
             except (TypeError, ValueError):
                 continue
-        return cls(name=name, values=values)
+        base_albedo: Optional[Tuple[int, int, int]] = None
+        color_payload: Optional[Sequence[Any]] = None
+        if 'base_albedo_rgb' in payload:
+            color_payload = payload['base_albedo_rgb']
+        elif 'albedo_rgb' in payload:
+            color_payload = payload['albedo_rgb']
+        if color_payload is not None:
+            try:
+                components = [int(float(c)) for c in color_payload]
+                if len(components) >= 3:
+                    base_albedo = tuple(max(0, min(255, comp)) for comp in components[:3])  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                base_albedo = None
+        return cls(name=name, values=values, base_albedo_rgb=base_albedo)
 
     @classmethod
     def from_defaults(cls, defaults: Mapping[str, Union[int, float]], *, name: str = 'Current Erosion Settings') -> 'ErosionParameterSet':

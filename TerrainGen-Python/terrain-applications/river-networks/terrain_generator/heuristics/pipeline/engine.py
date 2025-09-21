@@ -1,6 +1,7 @@
 """Core terrain heuristics engine integrated with the river-networks app."""
 
 import os
+from typing import Iterable, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -87,6 +88,9 @@ class TerrainEngine(QObject):
         self.elev = None
         self.h = self.w = None
         self.lat1d = None
+        self.rock_map = None
+        self.rock_types = None
+        self.rock_colors: Optional[Tuple[Optional[Tuple[int, int, int]], ...]] = None
 
         # settings
         self.params = dict(
@@ -213,6 +217,50 @@ class TerrainEngine(QObject):
             self.cache["deposition"] = np.asarray(deposition_map, dtype=np.float32)
             # Clear albedo cache to force recomputation
             self.cache.pop("albedo_rgb", None)
+
+    def inject_rock_map(
+        self,
+        rock_map: Optional[np.ndarray],
+        rock_types: Optional[Iterable[str]] = None,
+        rock_colors: Optional[Sequence[Optional[Sequence[int]]]] = None,
+    ):
+        """Inject a rock type map used for material-aware albedo."""
+        if rock_map is None:
+            self.rock_map = None
+            self.rock_types = None
+            self.rock_colors = None
+            self.cache.pop("albedo_rgb", None)
+            return
+
+        arr = np.asarray(rock_map, dtype=np.int32)
+        if self.elev is not None and arr.shape != self.elev.shape:
+            raise ValueError("Rock map must match the elevation grid shape.")
+
+        self.rock_map = np.ascontiguousarray(arr)
+        if rock_types is not None:
+            self.rock_types = tuple(str(name) for name in rock_types)
+        else:
+            self.rock_types = None
+
+        if rock_colors is not None:
+            normalized: list[Optional[Tuple[int, int, int]]] = []
+            for entry in rock_colors:
+                if entry is None:
+                    normalized.append(None)
+                    continue
+                try:
+                    color_tuple = tuple(int(max(0, min(255, float(c)))) for c in entry[:3])  # type: ignore[arg-type]
+                    if len(color_tuple) == 3:
+                        normalized.append(color_tuple)  # type: ignore[list-item]
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                normalized.append(None)
+            self.rock_colors = tuple(normalized)
+        else:
+            self.rock_colors = None
+
+        self.cache.pop("albedo_rgb", None)
 
     # ---- on-demand compute primitives ----
     def _need(self, key, fn):
@@ -397,6 +445,9 @@ class TerrainEngine(QObject):
                 groundcover_density=groundcover_density,
                 foliage_rgb=foliage_rgb,
                 ocean_mask=ocean,
+                rock_map=self.rock_map,
+                rock_types=self.rock_types,
+                rock_colors=self.rock_colors,
                 angle_of_repose=35.0,
                 cliff_threshold=45.0,
             ))
@@ -572,4 +623,3 @@ class TerrainEngine(QObject):
 # -----------------------
 # Worker for thread pool
 # -----------------------
-
