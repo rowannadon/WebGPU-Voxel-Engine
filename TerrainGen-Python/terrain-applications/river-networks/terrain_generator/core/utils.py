@@ -4,7 +4,7 @@ import numpy as np
 import collections
 import scipy.spatial
 from typing import Tuple, List, Optional
-from numba import njit
+from numba import njit, prange
 
 def normalize(x: np.ndarray, bounds: Tuple[float, float] = (0, 1)) -> np.ndarray:
     """Renormalizes the values of x to bounds."""
@@ -393,3 +393,152 @@ def connect_inland_seas(heightmap: np.ndarray, land_mask: np.ndarray,
     modified_heightmap = np.where(new_land_mask, modified_heightmap, 0)
     
     return modified_heightmap, new_land_mask
+
+@njit(cache=True)
+def _finite_min_max(a: np.ndarray) -> tuple:
+    """Return (min, max) over finite values of a 2D float array."""
+    h, w = a.shape
+    mn = np.inf
+    mx = -np.inf
+    for y in range(h):
+        for x in range(w):
+            v = a[y, x]
+            if np.isfinite(v):
+                if v < mn:
+                    mn = v
+                if v > mx:
+                    mx = v
+    if not np.isfinite(mn) or not np.isfinite(mx):
+        mn = 0.0
+        mx = 0.0
+    return mn, mx
+
+@njit(cache=True, parallel=True)
+def _gray_to_rgba_norm(src: np.ndarray, land: np.ndarray, out_rgba: np.ndarray):
+    """
+    Normalize float32 src to [0,255] and write as grayscale RGBA.
+    Alpha=255 on land, 0 off land.
+    """
+    h, w = src.shape
+    mn, mx = _finite_min_max(src)
+    scale = 0.0
+    if mx > mn:
+        scale = 255.0 / (mx - mn)
+
+    for y in prange(h):
+        for x in range(w):
+            v = src[y, x]
+            if np.isfinite(v) and mx > mn:
+                g = int((v - mn) * scale + 0.5)  # round
+            else:
+                g = 0
+            if g < 0: g = 0
+            if g > 255: g = 255
+            a = 255 if land[y, x] else 0
+            i = (y * w + x) * 4
+            out_rgba.flat[i + 0] = g
+            out_rgba.flat[i + 1] = g
+            out_rgba.flat[i + 2] = g
+            out_rgba.flat[i + 3] = a
+            
+@njit(cache=True, parallel=True)
+def _deposition_to_rgba(src: np.ndarray, land: np.ndarray, out_rgba: np.ndarray):
+    """
+    Map deposition/erosion to grayscale:
+      negative (erosion) -> darker than 128
+      positive (deposition) -> brighter than 128
+      neutral -> 128
+    Alpha=255 on land, 0 off.
+    """
+    h, w = src.shape
+    # symmetric normalization around 0
+    mn, mx = _finite_min_max(src)
+    rng = mx
+    if -mn > rng:
+        rng = -mn
+    scale = 0.0
+    if rng > 0.0:
+        scale = 127.0 / rng
+
+    for y in prange(h):
+        for x in range(w):
+            v = src[y, x]
+            if np.isfinite(v) and rng > 0.0:
+                g = int(128.0 + v * scale + (0.5 if v >= 0 else -0.5))
+            else:
+                g = 128
+            if g < 0: g = 0
+            if g > 255: g = 255
+            a = 255 if land[y, x] else 0
+            i = (y * w + x) * 4
+            out_rgba.flat[i + 0] = g
+            out_rgba.flat[i + 1] = g
+            out_rgba.flat[i + 2] = g
+            out_rgba.flat[i + 3] = a
+
+@njit(cache=True)
+def _hsv_to_rgb_u8(h: float, s: float, v: float) -> tuple:
+    # h in [0,1), s,v in [0,1]
+    h = h - np.floor(h)
+    s = 0.0 if s < 0.0 else (1.0 if s > 1.0 else s)
+    v = 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
+    i = int(h * 6.0)
+    f = (h * 6.0) - i
+    p = v * (1.0 - s)
+    q = v * (1.0 - f * s)
+    t = v * (1.0 - (1.0 - f) * s)
+    i = i % 6
+    if i == 0:
+        r, g, b = v, t, p
+    elif i == 1:
+        r, g, b = q, v, p
+    elif i == 2:
+        r, g, b = p, v, t
+    elif i == 3:
+        r, g, b = p, q, v
+    elif i == 4:
+        r, g, b = t, p, v
+    else:
+        r, g, b = v, p, q
+    return int(r * 255.0 + 0.5), int(g * 255.0 + 0.5), int(b * 255.0 + 0.5)
+
+@njit(cache=True)
+def _index_to_rgb_u8(idx: int) -> tuple:
+    # Deterministic, well-distributed palette similar in spirit
+    # to the exporter’s HSV-based mapping.
+    hue = (idx * 0.61803398875) % 1.0
+    sat = 0.55 + 0.35 * (((idx * 0.37) % 1.0))
+    val = 0.70 + 0.25 * (((idx * 0.23) % 1.0))
+    return _hsv_to_rgb_u8(hue, sat, val)
+
+@njit(cache=True)
+def _build_palette_u8(n: int) -> np.ndarray:
+    if n <= 0:
+        n = 1
+    pal = np.zeros((n, 3), np.uint8)
+    for i in range(n):
+        r, g, b = _index_to_rgb_u8(i)
+        pal[i, 0] = r
+        pal[i, 1] = g
+        pal[i, 2] = b
+    return pal
+
+@njit(cache=True, parallel=True)
+def _labels_to_rgba(labels: np.ndarray, land: np.ndarray, palette: np.ndarray, out_rgba: np.ndarray):
+    h, w = labels.shape
+    for y in prange(h):
+        for x in range(w):
+            idx = labels[y, x]
+            if idx < 0:
+                idx = 0
+            if idx >= palette.shape[0]:
+                idx = (idx % palette.shape[0]) if palette.shape[0] > 0 else 0
+            r = palette[idx, 0]
+            g = palette[idx, 1]
+            b = palette[idx, 2]
+            a = 255 if land[y, x] else 0
+            i = (y * w + x) * 4
+            out_rgba.flat[i + 0] = r
+            out_rgba.flat[i + 1] = g
+            out_rgba.flat[i + 2] = b
+            out_rgba.flat[i + 3] = a

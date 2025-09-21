@@ -8,6 +8,17 @@ from scipy.interpolate import NearestNDInterpolator
 from typing import Optional, Tuple, Any, List, Dict
 from dataclasses import dataclass, field
 from scipy.ndimage import zoom
+try:
+    from numba import njit, prange
+    _NUMBA = True
+except Exception:
+    _NUMBA = False
+    def njit(*args, **kwargs):
+        # graceful no-op decorator if numba isn't present
+        def wrap(f): return f
+        return wrap
+    def prange(*args):
+        return range(*args)
 
 from .rivers import RiverGenerator, RiverNetwork
 from ..io import HeightmapImporter
@@ -19,6 +30,96 @@ from .utils import (normalize, gaussian_blur, gaussian_gradient, bump,
                    dist_to_mask, poisson_disc_sampling, connect_inland_seas,
                    render_triangulation, lerp)
 from .particle_erosion import ParticleErosion
+
+
+@njit(parallel=True, fastmath=True)
+def _bilinear_sample_numba(a, off_r, off_i, out):
+    H, W = a.shape
+    for y in prange(H):
+        for x in range(W):
+            fx = x - off_r[y, x]
+            fy = y - off_i[y, x]
+
+            fx_floor = np.floor(fx)
+            fy_floor = np.floor(fy)
+
+            x0 = int(fx_floor) % W
+            y0 = int(fy_floor) % H
+            x1 = (x0 + 1) % W
+            y1 = (y0 + 1) % H
+
+            tx = fx - fx_floor
+            ty = fy - fy_floor
+
+            s00 = a[y0, x0]; s10 = a[y0, x1]
+            s01 = a[y1, x0]; s11 = a[y1, x1]
+
+            a0 = s00 + (s10 - s00) * tx
+            a1 = s01 + (s11 - s01) * tx
+            out[y, x] = a0 + (a1 - a0) * ty
+
+@njit(parallel=True, fastmath=True)
+def _compute_edge_weights_from_csr_numba(points, indptr, indices, distance_normalizer):
+    n_edges = indices.size
+    out = np.empty(n_edges, dtype=np.float64)
+    for src in prange(indptr.size - 1):
+        start = indptr[src]
+        end = indptr[src + 1]
+        px0 = points[src, 0]
+        py0 = points[src, 1]
+        for e in range(start, end):
+            dst = indices[e]
+            dx = points[dst, 0] - px0
+            dy = points[dst, 1] - py0
+            dist = (np.sqrt(dx*dx + dy*dy)) * distance_normalizer
+            out[e] = dist
+    return out
+
+@njit(parallel=True, fastmath=True)
+def _edge_costs_simple_numba(deltas, indices, weights, max_delta):
+    # edge_cost = deltas[dst] * max_delta * weight
+    m = weights.size
+    out = np.empty(m, dtype=np.float64)
+    for e in prange(m):
+        dst = indices[e]
+        out[e] = deltas[dst] * max_delta * weights[e]
+    return out
+
+@njit(parallel=True, fastmath=True)
+def _edge_costs_with_rivers_numba(deltas, indices, weights,
+                                  node_max_delta, volume, downcut_power,
+                                  upstream_mask):
+    m = weights.size
+    out = np.empty(m, dtype=np.float64)
+    for e in prange(m):
+        dst = indices[e]
+        v = volume[dst] if upstream_mask[e] else 0.0
+        # downcut = 1 / (1 + v ** power)
+        p = downcut_power[dst]
+        downcut = 1.0 / (1.0 + (v ** p)) if p != 0.0 else 1.0
+        a = node_max_delta[dst] * weights[e]
+        b = deltas[dst] * downcut * weights[e]
+        out[e] = a if a < b else b
+    return out
+
+@njit(parallel=True, fastmath=True)
+def _variable_max_delta_kernel(points_height, terrace_count, terrace_thickness,
+                               flat_delta, steep_delta, base_max_delta,
+                               terrace_strength, out):
+    n = points_height.size
+    inv_count = 1.0 / terrace_count if terrace_count > 0 else 0.0
+    for i in prange(n):
+        h = points_height[i]
+        band_index = int(h * terrace_count)
+        if band_index >= terrace_count:
+            band_index = terrace_count - 1
+        band_start = band_index * inv_count
+        pos = (h - band_start) / inv_count if terrace_count > 0 else 0.0
+        if pos < 0.0: pos = 0.0
+        if pos > 1.0: pos = 1.0
+        terrace_delta = flat_delta if pos < terrace_thickness else steep_delta
+        s = terrace_strength[i]
+        out[i] = base_max_delta + (terrace_delta - base_max_delta) * s
 
 @dataclass
 class TerrainParameters:
@@ -416,7 +517,12 @@ class TerrainGenerator:
         return result
     
     def _sample(self, a: np.ndarray, offset: np.ndarray) -> np.ndarray:
-        """Sample array with domain warping."""
+        """Sample array with domain warping (Numba-accelerated bilinear sampler)."""
+        out = np.empty_like(a)
+        if _NUMBA:
+            _bilinear_sample_numba(a, offset.real, offset.imag, out)
+            return out
+        # Fallback: original vectorized version
         shape = np.array(a.shape)
         delta = np.array((offset.real, offset.imag))
         coords = np.array(np.meshgrid(*map(range, shape))) - delta
@@ -425,14 +531,13 @@ class TerrainGenerator:
         coord_offsets = coords - lower_coords 
         lower_coords %= shape[:, np.newaxis, np.newaxis]
         upper_coords %= shape[:, np.newaxis, np.newaxis]
-        result = lerp(lerp(a[lower_coords[1], lower_coords[0]],
-                          a[lower_coords[1], upper_coords[0]],
-                          coord_offsets[0]),
-                     lerp(a[upper_coords[1], lower_coords[0]],
-                          a[upper_coords[1], upper_coords[0]],
-                          coord_offsets[0]),
-                     coord_offsets[1])
-        return result
+        return lerp(lerp(a[lower_coords[1], lower_coords[0]],
+                        a[lower_coords[1], upper_coords[0]],
+                        coord_offsets[0]),
+                    lerp(a[upper_coords[1], lower_coords[0]],
+                        a[upper_coords[1], upper_coords[0]],
+                        coord_offsets[0]),
+                    coord_offsets[1])
     
     def _generate_gaussian_falloff(self, shape: Tuple[int, int]) -> np.ndarray:
         """Generate gaussian falloff that's higher in center, lower at edges."""
@@ -642,24 +747,30 @@ class TerrainGenerator:
             self.imported_land_mask = None
     
     def _create_triangulation(self, shape: Tuple[int, int]) -> Tuple[np.ndarray, Any, List, List]:
-        """Create point sampling and Delaunay triangulation with distance weights."""
+        """Create point sampling and Delaunay triangulation with distance weights (Numba-accelerated)."""
         points = poisson_disc_sampling(shape, self.params.disc_radius)
         tri = scipy.spatial.Delaunay(points)
-        (indices, indptr) = tri.vertex_neighbor_vertices
-        neighbors = [indptr[indices[k]:indices[k + 1]] for k in range(len(points))]
-        
+
+        # SciPy returns (indptr, indices); neighbors of k are indices[indptr[k]:indptr[k+1]]
+        indptr, indices = tri.vertex_neighbor_vertices
+
+        # Build neighbors list in the format your pipeline expects
+        neighbors = [indices[indptr[k]:indptr[k + 1]] for k in range(len(points))]
+
         dim_scale = self.params.dimension / 256.0
         distance_normalizer = 1.0 / dim_scale
-        
-        edge_weights = []
-        for i, point in enumerate(points):
-            weights = []
-            for j in neighbors[i]:
-                dist = np.linalg.norm(points[j] - point)
-                weight = dist * distance_normalizer
-                weights.append(weight)
-            edge_weights.append(np.array(weights))
-        
+
+        # Compute edge weights flat, then slice per vertex
+        if _NUMBA:
+            weights_flat = _compute_edge_weights_from_csr_numba(points.astype(np.float64), indptr, indices, distance_normalizer)
+        else:
+            # safe fallback (vectorized but not parallel)
+            src = np.repeat(np.arange(len(points)), np.diff(indptr))
+            dst = indices
+            diffs = points[dst] - points[src]
+            weights_flat = np.linalg.norm(diffs, axis=1) * distance_normalizer
+
+        edge_weights = [weights_flat[indptr[k]:indptr[k + 1]].copy() for k in range(len(points))]
         return points, tri, neighbors, edge_weights
     
     def _prepare_graph(self, neighbors: List[np.ndarray],
@@ -730,37 +841,86 @@ class TerrainGenerator:
         return result
 
     def _compute_final_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                              edge_weights: List[np.ndarray], deltas: np.ndarray,
-                              river_network: RiverNetwork,
-                              variable_max_delta: Optional[np.ndarray] = None,
-                              rock_assignments: Optional[np.ndarray] = None,
-                              rock_parameters: Optional[List[Dict[str, float]]] = None
-                              ) -> np.ndarray:
-        """Compute final height with river downcutting."""
+                          edge_weights: List[np.ndarray], deltas: np.ndarray,
+                          river_network: RiverNetwork,
+                          variable_max_delta: Optional[np.ndarray] = None,
+                          rock_assignments: Optional[np.ndarray] = None,
+                          rock_parameters: Optional[List[Dict[str, float]]] = None
+                          ) -> np.ndarray:
+        """Compute final height with river downcutting (Numba-accelerated edge costs)."""
 
-        def get_delta(src, dst, weight):
-            v = river_network.volume[dst] if (dst in river_network.upstream[src]) else 0.0
+        # Flatten to CSR once
+        indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
+        dim = len(points)
 
-            if rock_assignments is not None and rock_parameters:
+        # Per-node max_delta and downcut power (layer-aware)
+        node_max_delta = np.full(dim, float(self.params.max_delta), dtype=np.float64)
+        downcut_power = np.full(dim, float(self.params.river_downcutting), dtype=np.float64)
+
+        if rock_assignments is not None and rock_parameters:
+            # Map per-node parameters from assigned layer
+            # (use dst's layer for both parameters, consistent with your original code)
+            for dst in range(dim):
                 layer_idx = int(rock_assignments[dst])
-                layer_idx = max(0, min(layer_idx, len(rock_parameters) - 1))
+                if layer_idx < 0: layer_idx = 0
+                if layer_idx >= len(rock_parameters): layer_idx = len(rock_parameters)-1
                 layer_params = rock_parameters[layer_idx]
+                node_max_delta[dst] = float(layer_params.get('max_delta', self.params.max_delta))
+                downcut_power[dst] = float(layer_params.get('river_downcutting', self.params.river_downcutting))
+
+        # Apply variable max delta (min with per-node)
+        if variable_max_delta is not None:
+            np.minimum(node_max_delta, variable_max_delta, out=node_max_delta)
+
+        # Precompute upstream mask per edge (True if (src->dst) lies along upstream list)
+        upstream_mask = np.zeros(indices.size, dtype=np.bool_)
+        # upstream likely is a list[set] or list[list] indexed by src
+        for src in range(dim):
+            ups = river_network.upstream[src]
+            if ups is None:
+                continue
+            start = indptr[src]
+            end = indptr[src + 1]
+            if hasattr(ups, "__contains__"):
+                # set or list — membership test
+                for e in range(start, end):
+                    upstream_mask[e] = (indices[e] in ups)
             else:
-                layer_params = self._default_erosion_settings()
+                # fallback: build a set
+                ups_set = set(ups)
+                for e in range(start, end):
+                    upstream_mask[e] = (indices[e] in ups_set)
 
-            downcut_power = float(layer_params.get('river_downcutting', self.params.river_downcutting))
-            downcut = 1.0 / (1.0 + v ** downcut_power)
+        # Compute edge costs in parallel
+        if _NUMBA:
+            edge_costs = _edge_costs_with_rivers_numba(
+                deltas.astype(np.float64, copy=False),
+                indices,
+                weights,
+                node_max_delta,
+                river_network.volume.astype(np.float64, copy=False),
+                downcut_power,
+                upstream_mask
+            )
+        else:
+            # vectorized fallback (no per-edge python generator)
+            v = river_network.volume[indices]
+            downcut = np.ones_like(weights, dtype=np.float64)
+            # only where upstream
+            mask = upstream_mask
+            downcut[mask] = 1.0 / (1.0 + np.power(v[mask], downcut_power[indices[mask]]))
+            edge_costs = np.minimum(node_max_delta[indices] * weights,
+                                    deltas[indices] * downcut * weights)
 
-            current_max_delta = float(layer_params.get('max_delta', self.params.max_delta))
-            if variable_max_delta is not None:
-                current_max_delta = min(current_max_delta, float(variable_max_delta[dst]))
+        # Run Dijkstra (SciPy – compiled/fast)
+        seed_idx = int(np.argmin(points.sum(axis=1)))
+        result = self._run_dijkstra(indptr, indices, edge_costs, dim, seed_idx)
 
-            return min(current_max_delta * weight,
-                      deltas[dst] * downcut * weight)
-
-        heights = self._compute_height(points, neighbors, edge_weights, deltas, 
-                                      get_delta_fn=get_delta)
-        return heights
+        # Scale and rebase exactly like your original
+        height_scale = self.params.dimension / 256.0
+        result = result * height_scale
+        result = result - result.min()
+        return result
 
     def _default_erosion_settings(self) -> Dict[str, float]:
         """Return the baseline erosion parameters as a mapping."""
@@ -894,51 +1054,49 @@ class TerrainGenerator:
         return parameter_maps
 
     def _generate_variable_max_delta(self, shape: Tuple[int, int], 
-                                    coords: np.ndarray,
-                                    points_height: np.ndarray) -> np.ndarray:
+                                 coords: np.ndarray,
+                                 points_height: np.ndarray) -> np.ndarray:
         """Generate variable max delta field with terrace effects."""
-        # Generate at base resolution then resample
         base_shape = (self.BASE_RESOLUTION, self.BASE_RESOLUTION)
         strength_field = self._fbm(base_shape, self.params.terrace_strength_scale,
-                                  lower=1.0, upper=np.inf)
-        
-        # Resample if needed
+                                lower=1.0, upper=np.inf)
         if base_shape != shape:
             zoom_factors = (shape[0] / base_shape[0], shape[1] / base_shape[1])
             strength_field = zoom(strength_field, zoom_factors, order=3)
-        
+
         strength_field = normalize(strength_field, bounds=(0, 1))
         strength_values = strength_field[coords[:, 0], coords[:, 1]]
-        
-        terrace_strength = (
-            self.params.terrace_min_strength + 
-            (self.params.terrace_max_strength - self.params.terrace_min_strength) * strength_values
-        )
-        
-        variable_max_delta = np.zeros_like(points_height)
-        
-        for i, height in enumerate(points_height):
-            band_index = int(height * self.params.terrace_count)
-            band_index = min(band_index, self.params.terrace_count - 1)
-            
-            band_size = 1.0 / self.params.terrace_count
-            band_start = band_index * band_size
-            position_in_band = (height - band_start) / band_size if band_size > 0 else 0
-            position_in_band = np.clip(position_in_band, 0, 1)
-            
-            if position_in_band < self.params.terrace_thickness:
-                terrace_delta = self.params.terrace_flat_delta
-            else:
-                terrace_delta = self.params.terrace_steep_delta
-            
-            strength = terrace_strength[i]
-            variable_max_delta[i] = lerp(
-                self.params.max_delta,
-                terrace_delta,
-                strength
+
+        variable_max_delta = np.empty_like(points_height, dtype=np.float64)
+        if _NUMBA:
+            _variable_max_delta_kernel(
+                points_height.astype(np.float64, copy=False),
+                int(self.params.terrace_count),
+                float(self.params.terrace_thickness),
+                float(self.params.terrace_flat_delta),
+                float(self.params.terrace_steep_delta),
+                float(self.params.max_delta),
+                strength_values.astype(np.float64, copy=False),
+                variable_max_delta
             )
-        
+        else:
+            # original python loop fallback
+            for i, height in enumerate(points_height):
+                band_index = int(height * self.params.terrace_count)
+                band_index = min(band_index, self.params.terrace_count - 1)
+                band_size = 1.0 / self.params.terrace_count
+                band_start = band_index * band_size
+                position_in_band = (height - band_start) / band_size if band_size > 0 else 0
+                position_in_band = np.clip(position_in_band, 0, 1)
+                if position_in_band < self.params.terrace_thickness:
+                    terrace_delta = self.params.terrace_flat_delta
+                else:
+                    terrace_delta = self.params.terrace_steep_delta
+                s = strength_values[i]
+                variable_max_delta[i] = lerp(self.params.max_delta, terrace_delta, s)
+
         return variable_max_delta
+
 
     @staticmethod
     def _evaluate_curve(control_points: List[Tuple[float, float]],

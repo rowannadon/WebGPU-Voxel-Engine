@@ -3,6 +3,7 @@
 import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+from numba import njit, prange
 
 import numpy as np
 from PIL import Image
@@ -13,7 +14,10 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
 
 from ..config import PresetError
-from ..core import TerrainGenerator, TerrainParameters, TerrainData, normalize
+from ..core import (
+    TerrainGenerator, TerrainParameters, TerrainData, 
+    normalize, _labels_to_rgba, _build_palette_u8, 
+    _deposition_to_rgba, _gray_to_rgba_norm)
 from ..visualization import TerrainViewport
 from ..io import TerrainExporter
 from ..heuristics import HeuristicEngine, HeuristicSettings, qimage_to_rgba
@@ -72,6 +76,7 @@ class TerrainPreviewThread(QThread):
             import traceback
             error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
             self.error.emit(error_msg)
+
 
 
 class HeuristicComputationThread(QThread):
@@ -329,64 +334,50 @@ class TerrainGeneratorWindow(QMainWindow):
 
     def _build_generated_texture_overlays(self, td: TerrainData) -> dict:
         """Return a dict[name]->RGBA uint8 for the core simulation textures."""
-        overlays = {}
+        hmap = np.ascontiguousarray(td.heightmap, dtype=np.float32)
+        land = np.ascontiguousarray(td.land_mask, dtype=np.bool_)
+        flow = np.ascontiguousarray(td.river_volume, dtype=np.float32) if getattr(td, 'river_volume', None) is not None else None
+        wshd = np.ascontiguousarray(td.watershed_mask, dtype=np.int32) if getattr(td, 'watershed_mask', None) is not None else None
+        depo = np.ascontiguousarray(td.deposition_map, dtype=np.float32) if getattr(td, 'deposition_map', None) is not None else None
+        rock = np.ascontiguousarray(td.rock_map, dtype=np.int32) if getattr(td, 'rock_map', None) is not None else None
+
+        H, W = hmap.shape
+        overlays: dict[str, np.ndarray] = {}
 
         # 1) Heightmap (grayscale)
-        hm_u8 = self._normalize_to_uint8(td.heightmap)
-        overlays['heightmap'] = self._gray_to_rgba(hm_u8)
+        out = np.zeros((H, W, 4), dtype=np.uint8)
+        _gray_to_rgba_norm(hmap, land, out)
+        overlays['heightmap'] = out
 
         # 2) Flow mask (river_volume) – grayscale, land only
-        flow = np.asarray(td.river_volume, dtype=np.float32)
-        if flow.size and np.any(flow > 0):
-            if td.land_mask is not None:
-                flow = np.where(td.land_mask, flow, 0.0)
-            fmax = float(flow.max())
-            flow_u8 = np.zeros_like(hm_u8, dtype=np.uint8) if fmax <= 0 else np.clip(
-                np.rint(flow / fmax * 255.0), 0, 255
-            ).astype(np.uint8)
-            overlays['flow_mask'] = self._gray_to_rgba(flow_u8)
+        # Flow mask (grayscale)
+        if flow is not None and flow.shape == hmap.shape:
+            out = np.zeros((H, W, 4), dtype=np.uint8)
+            _gray_to_rgba_norm(flow, land, out)
+            overlays['flow_mask'] = out
 
-        # 3) Watershed mask – categorical (stable palette), land only
-        ws = np.asarray(td.watershed_mask)
-        if ws.ndim == 2 and np.max(ws) > 0:
-            labels = ws.astype(np.int64)
-            max_label = int(labels.max())
-            # reuse exporter's palette (also accepts optional overrides)
-            palette = TerrainExporter._rock_color_palette(max_label + 1)
-            h, w = labels.shape
-            rgba = np.zeros((h, w, 4), dtype=np.uint8)
-            for idx in range(max_label + 1):
-                rgba[labels == idx, :3] = palette[idx]
-            if td.land_mask is not None:
-                rgba[~td.land_mask, :3] = 0
-            rgba[..., 3] = 255
-            overlays['watershed'] = rgba
+        # 3) Deposition map – grayscale with 0.5 neutral
+        if depo is not None and depo.shape == hmap.shape:
+            out = np.zeros((H, W, 4), dtype=np.uint8)
+            _deposition_to_rgba(depo, land, out)
+            overlays['deposition_mask'] = out
 
-        # 4) Deposition map – grayscale with 0.5 neutral
-        dep = np.asarray(td.deposition_map, dtype=np.float32)
-        if dep.size:
-            max_change = max(float(np.max(np.abs(dep))), 1e-12)
-            dep_norm = np.clip(dep / (2.0 * max_change) + 0.5, 0.0, 1.0)
-            dep_u8 = np.clip(np.rint(dep_norm * 255.0), 0, 255).astype(np.uint8)
-        else:
-            dep_u8 = np.full_like(hm_u8, 128, dtype=np.uint8)
-        overlays['deposition'] = self._gray_to_rgba(dep_u8)
+        # 4) Watershed mask – categorical (stable palette), land only
+        if wshd is not None and wshd.shape == hmap.shape:
+            max_lbl = int(np.max(wshd)) if wshd.size else 0
+            palette = _build_palette_u8(max_lbl + 1)
+            out = np.zeros((H, W, 4), dtype=np.uint8)
+            _labels_to_rgba(wshd, land, palette, out)
+            overlays['watershed_mask'] = out
 
         # 5) Rock map – categorical color (honors configured albedo if available), land only
-        if td.rock_map is not None:
-            indices = np.asarray(td.rock_map, dtype=np.int64)
-            max_index = int(max(0, indices.max()))
-            colors_override = getattr(td, 'rock_albedo', None)
-            palette = TerrainExporter._rock_color_palette(max_index + 1, overrides=colors_override)
-            h, w = indices.shape
-            rgba = np.zeros((h, w, 4), dtype=np.uint8)
-            clipped = np.clip(indices, 0, max_index)
-            for idx in range(max_index + 1):
-                rgba[clipped == idx, :3] = palette[idx]
-            if td.land_mask is not None:
-                rgba[~td.land_mask, :3] = (0, 0, 0)
-            rgba[..., 3] = 255
-            overlays['rock_map'] = rgba
+        if rock is not None and rock.shape == hmap.shape:
+            max_idx = int(np.max(rock)) if rock.size else 0
+            # If user supplied rock colors exist, you can pass them here; for speed we build palette.
+            palette = _build_palette_u8(max_idx + 1)
+            out = np.zeros((H, W, 4), dtype=np.uint8)
+            _labels_to_rgba(rock, land, palette, out)
+            overlays['rock_map'] = out
 
         return overlays
 
@@ -547,6 +538,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.current_terrain_data = terrain_data
         self.terrain_viewport.set_terrain(terrain_data)
         self.reset_computed_overlays()
+        self.status_label.setText("Generating overlays...")
         self._ingest_generated_overlays()
 
         if self.current_overlay_source and self.terrain_viewport.renderer.overlay_image is None:
