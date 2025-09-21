@@ -96,6 +96,10 @@ class TerrainParameters:
 
     # Rock layer configuration
     rock_layers: List[RockLayerConfig] = field(default_factory=list)
+    rock_warp_strength: float = 0.0
+    rock_warp_scale: float = -2.0
+    rock_warp_lower: float = 1.0
+    rock_warp_upper: float = np.inf
 
     def __post_init__(self):
         if self.rock_layers:
@@ -185,7 +189,13 @@ class TerrainGenerator:
         points_height_normalized = normalize(points_height, bounds=(0, 1))
 
         rock_layers, resolved_layer_params = self._resolve_rock_layers()
-        rock_assignments = self._assign_rock_layers(points_height_normalized, rock_layers)
+        stack_shift_field = self._compute_rock_stack_shift(target_shape)
+        stack_shifts = stack_shift_field[coords[:, 0], coords[:, 1]]
+        rock_assignments = self._assign_rock_layers(
+            points_height_normalized,
+            rock_layers,
+            stack_shifts
+        )
 
         if progress_callback:
             progress_callback(70, "Computing river network...")
@@ -788,7 +798,8 @@ class TerrainGenerator:
 
     @staticmethod
     def _assign_rock_layers(normalized_heights: np.ndarray,
-                            layers: List[RockLayerConfig]) -> np.ndarray:
+                            layers: List[RockLayerConfig],
+                            stack_shifts: Optional[np.ndarray] = None) -> np.ndarray:
         """Assign each point to a rock layer based on normalized height."""
         if not layers:
             return np.zeros_like(normalized_heights, dtype=np.int32)
@@ -806,12 +817,39 @@ class TerrainGenerator:
             cumulative += max(0.0, thickness_value)
             thresholds[idx] = cumulative
 
-        if not np.isfinite(thresholds[-1]) or thresholds[-1] <= 0.0:
+        max_threshold = thresholds[-1]
+        if not np.isfinite(max_threshold) or max_threshold <= 0.0:
+            max_threshold = 1.0
             thresholds[-1] = np.inf
 
-        indices = np.searchsorted(thresholds, normalized_heights, side='right')
+        if stack_shifts is None:
+            effective_heights = normalized_heights
+        else:
+            if stack_shifts.shape != normalized_heights.shape:
+                raise ValueError("Rock stack shifts must match the number of samples.")
+            effective_heights = normalized_heights - stack_shifts
+
+        effective_heights = np.clip(effective_heights, 0.0, max_threshold)
+
+        indices = np.searchsorted(thresholds, effective_heights, side='right')
         np.clip(indices, 0, len(layers) - 1, out=indices)
         return indices.astype(np.int32)
+
+    def _compute_rock_stack_shift(self, shape: Tuple[int, int]) -> np.ndarray:
+        """Compute per-cell rock stack offsets using FBM."""
+        strength = float(self.params.rock_warp_strength)
+        if strength <= 0.0:
+            return np.zeros(shape, dtype=np.float32)
+
+        fbm_field = self._fbm(
+            shape,
+            self.params.rock_warp_scale,
+            lower=self.params.rock_warp_lower,
+            upper=self.params.rock_warp_upper
+        )
+        # Convert to [-1, 1]
+        warped = (fbm_field * 2.0) - 1.0
+        return (warped * strength).astype(np.float32)
 
     def _render_rock_map(self, points: np.ndarray, assignments: np.ndarray,
                          target_shape: Tuple[int, int]) -> np.ndarray:

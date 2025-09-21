@@ -565,6 +565,32 @@ class ControlPanel(QWidget):
         description.setStyleSheet("color: #888; font-size: 10px;")
         layout.addWidget(description)
 
+        warp_label = QLabel("<b>Rock Stack Warp:</b>")
+        layout.addWidget(warp_label)
+
+        strength_control = ParameterControl("Warp Strength", 0.0, 1.0, 0.0, 0.01, 2)
+        self.controls['rock_warp_strength'] = strength_control
+        layout.addWidget(strength_control)
+
+        scale_control = ParameterControl("FBM Scale", -5.0, 0.0, -2.0, 0.1, 1)
+        self.controls['rock_warp_scale'] = scale_control
+        layout.addWidget(scale_control)
+
+        lower_control = ParameterControl("FBM Lower Bound", 0.0, 10.0, 1.0, 0.1, 1)
+        self.controls['rock_warp_lower'] = lower_control
+        layout.addWidget(lower_control)
+
+        upper_control = ParameterControl("FBM Upper Bound", 0.0, 10.0, 10.0, 0.5, 1)
+        self.controls['rock_warp_upper'] = upper_control
+        layout.addWidget(upper_control)
+
+        warp_info = QLabel(
+            "Strength shifts the rock stack up/down; bounds clamp participating frequencies."
+        )
+        warp_info.setWordWrap(True)
+        warp_info.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(warp_info)
+
         self.rock_layers_widget = QWidget()
         self.rock_layers_layout = QVBoxLayout(self.rock_layers_widget)
         self.rock_layers_layout.setContentsMargins(0, 0, 0, 0)
@@ -1081,6 +1107,15 @@ class ControlPanel(QWidget):
                 ParameterControl("", 0, 0, 0.0)).value(),
             terrace_max_strength=self.controls.get('terrace_max_strength',
                 ParameterControl("", 0, 0, 0.8)).value(),
+
+            rock_warp_strength=self.controls['rock_warp_strength'].value(),
+            rock_warp_scale=self.controls['rock_warp_scale'].value(),
+            rock_warp_lower=self.controls['rock_warp_lower'].value(),
+            rock_warp_upper=(
+                np.inf if self.controls['rock_warp_upper'].value() >=
+                self.controls['rock_warp_upper'].spinbox.maximum() else
+                self.controls['rock_warp_upper'].value()
+            ),
 
             rock_layers=self.collect_rock_layer_states(),
 
