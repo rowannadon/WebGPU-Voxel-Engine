@@ -26,7 +26,7 @@ bool Application::Initialize() {
 
     textureManagerCPU->loadTexture("height", RESOURCE_DIR "/heightmap19_16bit.png");
     textureManagerCPU->loadTexture("biome", RESOURCE_DIR "/terrain/biome_id.png");
-    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask19.png");
+    textureManagerCPU->loadTexture("flow", RESOURCE_DIR "/flow_mask19_16bit.png");
     textureManagerCPU->loadTexture("svf", RESOURCE_DIR "/terrain/svf.png");
     textureManagerCPU->loadTexture("tpi", RESOURCE_DIR "/terrain/tpi_r100m.png");
     textureManagerCPU->loadTexture("twi", RESOURCE_DIR "/terrain/twi.png");
