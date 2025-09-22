@@ -421,13 +421,7 @@ class PixelCanvas(QGLWidget):
     
     def set_tiles_x(self, tiles: int):
         """Set horizontal tile count."""
-        old_total = self.tile_manager.tiles_x * self.tile_manager.tiles_y
         self.tile_manager.set_tiles(tiles, self.tile_manager.tiles_y)
-        new_total = tiles * self.tile_manager.tiles_y
-        
-        # Preserve variant percentages when changing tile counts
-        if old_total != new_total:
-            self.variant_manager.rebalance_tile_counts(new_total)
         
         if self.use_variants:
             self.variant_manager.assign_variants_to_tiles(tiles, self.tile_manager.tiles_y)
@@ -437,13 +431,7 @@ class PixelCanvas(QGLWidget):
 
     def set_tiles_y(self, tiles: int):
         """Set vertical tile count."""
-        old_total = self.tile_manager.tiles_x * self.tile_manager.tiles_y
         self.tile_manager.set_tiles(self.tile_manager.tiles_x, tiles)
-        new_total = self.tile_manager.tiles_x * tiles
-        
-        # Preserve variant percentages when changing tile counts
-        if old_total != new_total:
-            self.variant_manager.rebalance_tile_counts(new_total)
         
         if self.use_variants:
             self.variant_manager.assign_variants_to_tiles(self.tile_manager.tiles_x, tiles)
