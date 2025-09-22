@@ -263,20 +263,21 @@ class VariantsPanel(QWidget):
                 widget.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
     
     def on_weight_changed(self, index, change):
-        """Handle weight change from scroll wheel."""
-        current_weight = self.canvas.variant_manager.weights[index]
+        """Handle tile count change from scroll wheel."""
+        current_count = self.canvas.variant_manager.tile_counts[index]
         
-        # Calculate new weight (minimum is 1)
-        new_weight = max(1, current_weight + change)
+        # Calculate new count
+        new_count = max(0, current_count + change)
         
-        if new_weight != current_weight:
-            self.canvas.variant_manager.set_weight(index, new_weight)
+        if new_count != current_count:
+            self.canvas.variant_manager.set_tile_count(index, new_count)
             
-            # Update the preview widget
-            if index < len(self.preview_widgets):
-                self.preview_widgets[index].set_weight(new_weight)
+            # Update all preview widgets with new counts
+            for i, widget in enumerate(self.preview_widgets):
+                if i < len(self.canvas.variant_manager.tile_counts):
+                    widget.set_tile_count(self.canvas.variant_manager.tile_counts[i])
             
-            # Reassign tiles with new weights
+            # Reassign tiles with new counts
             self.canvas.variant_manager.assign_variants_to_tiles(
                 self.canvas.tile_manager.tiles_x,
                 self.canvas.tile_manager.tiles_y

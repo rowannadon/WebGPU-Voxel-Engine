@@ -76,10 +76,14 @@ class TilePreview(QWidget):
             self.grid_size = pixel_data.grid_size
         self.update()
     
-    def set_weight(self, weight):
-        """Set the weight to display."""
-        self.weight = weight
+    def set_tile_count(self, count):
+        """Set the tile count to display."""
+        self.tile_count = count
         self.update()
+    
+    def set_weight(self, weight):
+        """Compatibility method - calls set_tile_count."""
+        self.set_tile_count(weight)
     
     def set_selected(self, selected):
         """Set selection state."""
@@ -210,7 +214,7 @@ class TilePreview(QWidget):
                         available_size + 1, available_size + 1)
         
         # Draw weight in upper right corner (changed from percentage)
-        text = f"{self.weight}"  # Just show the weight number
+        text = str(self.tile_count) if hasattr(self, 'tile_count') else str(self.weight)
         font = QFont("Arial", 11, QFont.Bold)
         painter.setFont(font)
         
