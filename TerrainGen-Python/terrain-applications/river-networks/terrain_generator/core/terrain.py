@@ -245,6 +245,14 @@ class TerrainGenerator:
         self.imported_land_mask = None
         if params.use_imported_heightmap and params.imported_heightmap_path:
             self._load_imported_heightmap()
+            
+    def _points_to_indices(self, points: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+        """Convert float sample coordinates to safe integer grid indices."""
+        h, w = shape
+        coords = np.floor(points).astype(np.int64)
+        np.clip(coords[:, 0], 0, h - 1, out=coords[:, 0])  # row / y
+        np.clip(coords[:, 1], 0, w - 1, out=coords[:, 1])  # col / x
+        return coords
     
     def generate(self, progress_callback=None) -> TerrainData:
         """Generate complete terrain with rivers."""
@@ -277,7 +285,7 @@ class TerrainGenerator:
         points, tri, neighbors, edge_weights = self._create_triangulation(target_shape)
         
         # Sample values at points
-        coords = np.floor(points).astype(int)
+        coords = self._points_to_indices(points, target_shape)
         points_land = land_mask[coords[:, 0], coords[:, 1]]
         points_deltas = deltas[coords[:, 0], coords[:, 1]]
         
