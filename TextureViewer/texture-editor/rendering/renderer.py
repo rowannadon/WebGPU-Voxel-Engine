@@ -125,16 +125,31 @@ class PixelRenderer:
         offset_x = -total_width / 2
         offset_y = -total_height / 2
         
+        # Group tiles by variant to minimize texture switches
+        tiles_by_variant = {}
         for tile_x in range(tiles_x):
             for tile_y in range(tiles_y):
-                variant = variant_manager.get_variant_for_tile(tile_x, tile_y)
-                self.texture_manager.update_texture(variant.to_numpy())
-                
+                variant_idx = variant_manager.tile_assignments[tile_x, tile_y]
+                if variant_idx not in tiles_by_variant:
+                    tiles_by_variant[variant_idx] = []
+                tiles_by_variant[variant_idx].append((tile_x, tile_y))
+        
+        # Render all tiles of each variant together
+        for variant_idx, tile_positions in tiles_by_variant.items():
+            variant = variant_manager.variants[variant_idx]
+            
+            # Get or create texture for this variant
+            texture_id = self.texture_manager.get_or_create_variant_texture(
+                variant_idx, variant.to_numpy()
+            )
+            glBindTexture(GL_TEXTURE_2D, texture_id)
+            
+            # Render all tiles using this variant
+            for tile_x, tile_y in tile_positions:
                 x = offset_x + tile_x * CANVAS_SIZE
                 y = offset_y + tile_y * CANVAS_SIZE
                 
                 rotation = tile_manager.get_rotation(tile_x, tile_y) if tile_manager else 0
-                
                 self.render_single_tile(x, y, CANVAS_SIZE, rotation)
         
         glDisable(GL_TEXTURE_2D)

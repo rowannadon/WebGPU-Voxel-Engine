@@ -91,6 +91,12 @@ class PixelCanvas(QGLWidget):
             self.viewport.pan_y
         )
     
+    def update_variant_texture(self, variant_index: int):
+        """Update texture for a specific variant when it changes."""
+        if 0 <= variant_index < len(self.variant_manager.variants):
+            variant = self.variant_manager.variants[variant_index]
+            self.texture_manager.update_variant_texture(variant_index, variant.to_numpy())
+
     def paintGL(self):
         """Render the scene."""
         # Rebuild VBOs if needed
@@ -195,6 +201,7 @@ class PixelCanvas(QGLWidget):
     
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse movement."""
+        old_pos = self.mouse_pos
         self.mouse_pos = (event.x(), event.y())
         
         # Check if mouse is over drawable area
@@ -209,8 +216,25 @@ class PixelCanvas(QGLWidget):
             self.viewport.update_pan(event.x(), event.y(), 
                                     self.width(), self.height())
             self.update_projection()
-        
-        self.update()
+            self.update()  # <-- ADD THIS LINE to update canvas during panning
+        else:
+            # Only update if cursor moved to a different pixel cell (optimization for cursor movement)
+            if old_pos:
+                old_world = self.viewport.screen_to_world(
+                    old_pos[0], old_pos[1], self.width(), self.height()
+                )
+                new_world = self.viewport.screen_to_world(
+                    event.x(), event.y(), self.width(), self.height()
+                )
+                
+                pixel_size = CANVAS_SIZE / self.pixel_data.grid_size
+                old_pixel = (int(old_world[0] / pixel_size), int(old_world[1] / pixel_size))
+                new_pixel = (int(new_world[0] / pixel_size), int(new_world[1] / pixel_size))
+                
+                if old_pixel != new_pixel:
+                    self.update()
+            else:
+                self.update()
     
     def is_over_canvas(self, mouse_x: int, mouse_y: int) -> bool:
         """Check if mouse position is over the drawable canvas area."""
@@ -277,13 +301,11 @@ class PixelCanvas(QGLWidget):
     def perform_undo(self):
         """Perform undo operation."""
         if self.undo_manager.undo(self.variant_manager):
+            # Clear texture cache since variants changed
+            self.texture_manager.clear_variant_textures()
+            
             # Update current pixel data reference
             self.pixel_data = self.variant_manager.get_current_variant()
-            # Update texture
-            self.texture_manager.update_texture(self.pixel_data.to_numpy())
-            # Rebuild tiles if using variants
-            if self.use_variants:
-                self.needs_tile_rebuild = True
             
             # Emit signal to notify of changes
             self.variantsChanged.emit()
@@ -293,13 +315,11 @@ class PixelCanvas(QGLWidget):
     def perform_redo(self):
         """Perform redo operation."""
         if self.undo_manager.redo(self.variant_manager):
+            # Clear texture cache since variants changed
+            self.texture_manager.clear_variant_textures()
+            
             # Update current pixel data reference
             self.pixel_data = self.variant_manager.get_current_variant()
-            # Update texture
-            self.texture_manager.update_texture(self.pixel_data.to_numpy())
-            # Rebuild tiles if using variants
-            if self.use_variants:
-                self.needs_tile_rebuild = True
             
             # Emit signal to notify of changes
             self.variantsChanged.emit()
@@ -341,21 +361,13 @@ class PixelCanvas(QGLWidget):
                 row, col, rotation, self.pixel_data.grid_size
             )
         
-        # Ensure tile assignments exist
-        if self.variant_manager.tile_assignments is None:
-            # Initialize tile assignments on first paint
-            self.variant_manager.assign_variants_to_tiles(
-                self.tile_manager.tiles_x,
-                self.tile_manager.tiles_y
-            )
-        
-        # Now always use variants
-        variant = self.variant_manager.get_variant_for_tile(tile_x, tile_y)
+        # Get variant for this tile
+        variant_idx = self.variant_manager.tile_assignments[tile_x, tile_y]
+        variant = self.variant_manager.variants[variant_idx]
         variant.set_pixel(row, col, self.brush.color)
         
-        # Update texture for current variant
-        if variant == self.variant_manager.get_current_variant():
-            self.texture_manager.update_texture(variant.to_numpy())
+        # Update only the specific variant's texture
+        self.texture_manager.update_variant_texture(variant_idx, variant.to_numpy())
         
         # Mark that changes have been made
         self.undo_manager.mark_changed()
@@ -512,6 +524,9 @@ class PixelCanvas(QGLWidget):
         # Begin undo operation
         self.undo_manager.begin_operation(self.variant_manager)
         self.undo_manager.mark_changed()
+        
+        # Clear variant texture cache since resolution is changing
+        self.texture_manager.clear_variant_textures()
         
         # Update all variants
         for i, variant in enumerate(self.variant_manager.variants):
