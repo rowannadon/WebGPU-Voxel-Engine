@@ -187,6 +187,14 @@ class SwatchesPanel(QWidget):
     def on_picker_color_changed(self, original_color: tuple, new_color: tuple):
         """Handle color change from picker."""
         if self.active_original_color:
+            # Track which variants are affected
+            affected_variants = set()
+            
+            # Get the positions that will be updated
+            if self.active_original_color in self.color_manager.color_positions:
+                for variant_idx, row, col in self.color_manager.color_positions[self.active_original_color]:
+                    affected_variants.add(variant_idx)
+            
             # Update all pixels of this swatch
             self.color_manager.update_color(
                 self.active_original_color, new_color,
@@ -197,9 +205,17 @@ class SwatchesPanel(QWidget):
             if self.active_swatch:
                 self.active_swatch.update_color(new_color)
             
-            # Update canvas texture for current variant
-            current_variant = self.canvas.variant_manager.get_current_variant()
-            self.canvas.texture_manager.update_texture(current_variant.to_numpy())
+            # Update textures for ALL affected variants
+            for variant_idx in affected_variants:
+                if variant_idx < len(self.canvas.variant_manager.variants):
+                    variant = self.canvas.variant_manager.variants[variant_idx]
+                    self.canvas.texture_manager.update_variant_texture(variant_idx, variant.to_numpy())
+                    
+                    # If this is the current variant, also update the main texture
+                    if variant_idx == self.canvas.variant_manager.current_variant_index:
+                        self.canvas.texture_manager.update_texture(variant.to_numpy())
+            
+            # Update canvas
             self.canvas.update()
     
     def on_picker_closed(self):

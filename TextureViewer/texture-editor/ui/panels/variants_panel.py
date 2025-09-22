@@ -171,7 +171,7 @@ class VariantsPanel(QWidget):
         layout.addWidget(self.randomize_button)
         
         # Info label
-        self.info_label = QLabel("Shift+Scroll on tiles to adjust weight")
+        self.info_label = QLabel("Shift+Scroll: adjust weight | Click bucket: fill variant")
         self.info_label.setStyleSheet("""
             QLabel {
                 color: #888;
@@ -226,7 +226,7 @@ class VariantsPanel(QWidget):
             weight = self.canvas.variant_manager.weights[i] if i < len(self.canvas.variant_manager.weights) else 1
             
             # Create preview widget
-            preview = TilePreview(size=80)
+            preview = TilePreview(size=100)
             preview.set_pixel_data(variant_data)
             preview.set_weight(weight)  # Use set_weight instead of set_percentage
             preview.set_selected(i == self.selected_index)
@@ -236,6 +236,7 @@ class VariantsPanel(QWidget):
             preview.clicked.connect(lambda idx=i: self.on_variant_selected(idx))
             preview.weightChanged.connect(lambda change, idx=i: self.on_weight_changed(idx, change))
             preview.visibilityToggled.connect(lambda visible, idx=i: self.on_visibility_toggled(idx, visible))
+            preview.fillRequested.connect(lambda idx=i: self.on_fill_variant(idx))
             
             self.preview_widgets.append(preview)
             self.grid_layout.addWidget(preview, row, col)
@@ -248,6 +249,46 @@ class VariantsPanel(QWidget):
         # Force immediate refresh of all previews
         QApplication.processEvents()  # Process any pending deletions
         self.refresh_previews()
+    
+    def on_fill_variant(self, index):
+        """Fill the variant with the current brush color."""
+        if 0 <= index < len(self.canvas.variant_manager.variants):
+            # Begin undo operation
+            self.canvas.undo_manager.begin_operation(self.canvas.variant_manager)
+            
+            # Get current brush color from canvas
+            current_color = self.canvas.brush.color
+            
+            # Get the variant
+            variant = self.canvas.variant_manager.variants[index]
+            
+            # Fill all pixels with the current color
+            for row in range(variant.grid_size):
+                for col in range(variant.grid_size):
+                    variant.set_pixel(row, col, current_color)
+            
+            # Mark as changed
+            self.canvas.undo_manager.mark_changed()
+            
+            # Update the variant's texture
+            self.canvas.texture_manager.update_variant_texture(index, variant.to_numpy())
+            
+            # If this is the current variant, update the main pixel data reference
+            if index == self.canvas.variant_manager.current_variant_index:
+                self.canvas.pixel_data = variant
+                self.canvas.texture_manager.update_texture(variant.to_numpy())
+            
+            # End undo operation
+            self.canvas.undo_manager.end_operation(self.canvas.variant_manager)
+            
+            # Update canvas
+            self.canvas.update()
+            
+            # Refresh color swatches if the panel exists
+            if hasattr(self.canvas, 'window') and hasattr(self.canvas.window(), 'color_panel'):
+                color_panel = self.canvas.window().color_panel
+                if hasattr(color_panel, 'swatches_panel'):
+                    color_panel.swatches_panel.refresh_swatches(preserve_selection=False)
     
     def refresh_previews(self):
         """Refresh all variant previews."""

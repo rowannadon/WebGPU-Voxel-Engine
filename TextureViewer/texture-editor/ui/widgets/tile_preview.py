@@ -12,20 +12,28 @@ class TilePreview(QWidget):
     weightChanged = pyqtSignal(int)  # Emits weight change (±1)
     clicked = pyqtSignal()  # Emits when clicked
     visibilityToggled = pyqtSignal(bool)  # Emits when visibility is toggled
+    fillRequested = pyqtSignal()  # Emits when fill bucket is clicked
     
     def __init__(self, size=80, parent=None):
         super().__init__(parent)
         self.preview_size = size
         self.pixel_data = None
         self.grid_size = 8
-        self.weight = 1  # Changed from percentage to weight
+        self.weight = 1
         self.is_hovered = False
         self.is_selected = False
         self.is_visible = True
         self.setFixedSize(size, size)
         self.setMouseTracking(True)
         
-        # Load eye icons
+        # Icon and display constants
+        self.icon_size = 16
+        self.icon_bg_padding = 2  # Padding around icons for background
+        self.icon_bg_size = self.icon_size + (self.icon_bg_padding * 2)  # 20x20
+        self.right_margin = 3  # Distance from right edge
+        self.vertical_spacing = 3  # Space between icons
+        
+        # Load icons
         self.load_icons()
         
         # Setup update timer for live refresh
@@ -33,24 +41,25 @@ class TilePreview(QWidget):
         self.update_timer.timeout.connect(self.update)
         self.update_timer.start(100)  # Update every 100ms
         
-        # Define clickable area for visibility toggle
+        # Define clickable areas for icons
         self.visibility_rect = QRect()
+        self.bucket_rect = QRect()
         
     def load_icons(self):
-        """Load the eye icons."""
-        icon_size = 16
-        
+        """Load the eye and bucket icons."""
         # Try to load icons from assets folder
         assets_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'assets')
         eye_open_path = os.path.join(assets_dir, 'eye_open.png')
         eye_closed_path = os.path.join(assets_dir, 'eye_closed.png')
+        bucket_path = os.path.join(assets_dir, 'bucket.png')
         
+        # Load eye icons
         if os.path.exists(eye_open_path) and os.path.exists(eye_closed_path):
-            self.eye_open_icon = QPixmap(eye_open_path).scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.eye_closed_icon = QPixmap(eye_closed_path).scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.eye_open_icon = QPixmap(eye_open_path).scaled(self.icon_size, self.icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.eye_closed_icon = QPixmap(eye_closed_path).scaled(self.icon_size, self.icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         else:
             # Create simple placeholder icons if files don't exist
-            self.eye_open_icon = QPixmap(icon_size, icon_size)
+            self.eye_open_icon = QPixmap(self.icon_size, self.icon_size)
             self.eye_open_icon.fill(Qt.transparent)
             painter = QPainter(self.eye_open_icon)
             painter.setPen(QColor(220, 220, 220))
@@ -60,13 +69,39 @@ class TilePreview(QWidget):
             painter.drawEllipse(6, 6, 4, 4)
             painter.end()
             
-            self.eye_closed_icon = QPixmap(icon_size, icon_size)
+            self.eye_closed_icon = QPixmap(self.icon_size, self.icon_size)
             self.eye_closed_icon.fill(Qt.transparent)
             painter = QPainter(self.eye_closed_icon)
             painter.setPen(QColor(180, 180, 180))
             painter.drawLine(2, 8, 14, 8)
             painter.drawLine(2, 5, 14, 11)
             painter.drawLine(2, 11, 14, 5)
+            painter.end()
+        
+        # Load or create bucket icon
+        if os.path.exists(bucket_path):
+            self.bucket_icon = QPixmap(bucket_path).scaled(self.icon_size, self.icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        else:
+            # Create simple placeholder bucket icon if file doesn't exist
+            self.bucket_icon = QPixmap(self.icon_size, self.icon_size)
+            self.bucket_icon.fill(Qt.transparent)
+            painter = QPainter(self.bucket_icon)
+            painter.setPen(QColor(220, 220, 220))
+            painter.setBrush(QColor(220, 220, 220))
+            # Draw a simple bucket shape
+            painter.drawPolygon([
+                QPoint(4, 6),
+                QPoint(12, 6),
+                QPoint(11, 12),
+                QPoint(5, 12)
+            ])
+            # Draw handle
+            painter.setPen(QColor(200, 200, 200))
+            painter.drawArc(3, 2, 10, 8, 30 * 16, 120 * 16)
+            # Draw paint drip
+            painter.setPen(QColor(74, 144, 226))
+            painter.setBrush(QColor(74, 144, 226))
+            painter.drawEllipse(10, 9, 3, 4)
             painter.end()
         
     def set_pixel_data(self, pixel_data):
@@ -115,6 +150,9 @@ class TilePreview(QWidget):
                 self.is_visible = not self.is_visible
                 self.visibilityToggled.emit(self.is_visible)
                 self.update()
+            # Check if click is on bucket icon
+            elif self.bucket_rect.contains(event.pos()):
+                self.fillRequested.emit()
             else:
                 self.clicked.emit()
         super().mousePressEvent(event)
@@ -213,43 +251,62 @@ class TilePreview(QWidget):
         painter.drawRect(padding - 1, padding - 1, 
                         available_size + 1, available_size + 1)
         
-        # Draw weight in upper right corner (changed from percentage)
+        # Calculate positions for all controls (aligned vertically on the right)
+        # All controls have the same background size
+        control_x = self.preview_size - self.icon_bg_size - self.right_margin + self.icon_bg_padding
+        
+        # Position for tile count (top)
+        count_y = 6
+        count_bg_rect = QRect(control_x - self.icon_bg_padding, count_y,
+                             self.icon_bg_size, self.icon_bg_size)
+        
+        # Position for visibility icon (middle)
+        visibility_y = count_y + self.icon_bg_size + self.vertical_spacing
+        visibility_bg_rect = QRect(control_x - self.icon_bg_padding, visibility_y,
+                                  self.icon_bg_size, self.icon_bg_size)
+        self.visibility_rect = visibility_bg_rect
+        
+        # Position for bucket icon (bottom)
+        bucket_y = visibility_y + self.icon_bg_size + self.vertical_spacing
+        bucket_bg_rect = QRect(control_x - self.icon_bg_padding, bucket_y,
+                              self.icon_bg_size, self.icon_bg_size)
+        self.bucket_rect = bucket_bg_rect
+        
+        # Draw tile count with standardized background
         text = str(self.tile_count) if hasattr(self, 'tile_count') else str(self.weight)
-        font = QFont("Arial", 11, QFont.Bold)
-        painter.setFont(font)
         
-        # Calculate text position (upper right with padding)
-        text_rect = painter.fontMetrics().boundingRect(text)
-        text_x = self.preview_size - text_rect.width() - 6
-        text_y = 6 + text_rect.height()
-        
-        # Draw background
-        bg_rect = text_rect.adjusted(-4, -2, 4, 2)
-        bg_rect.moveTopLeft(painter.fontMetrics().boundingRect(text).topLeft())
-        bg_rect.moveTop(text_y - text_rect.height())
-        bg_rect.moveLeft(text_x - 4)
-        
-        painter.fillRect(bg_rect, QColor(30, 30, 30, 220))
+        # Draw background for count
+        painter.fillRect(count_bg_rect, QColor(30, 30, 30, 220))
         painter.setPen(QColor(60, 60, 60))
-        painter.drawRect(bg_rect)
+        painter.drawRect(count_bg_rect)
         
-        # Draw text
+        # Draw text centered in the background
+        font = QFont("Arial", 10, QFont.Bold)
+        painter.setFont(font)
         text_color = QColor(255, 255, 255) if self.is_visible else QColor(150, 150, 150)
         painter.setPen(text_color)
-        painter.drawText(text_x, text_y, text)
         
-        # Draw visibility icon below weight
+        # Center the text in the background rect
+        painter.drawText(count_bg_rect, Qt.AlignCenter, text)
+        
+        # Draw visibility icon with standardized background
+        painter.fillRect(visibility_bg_rect, QColor(30, 30, 30, 180))
+        
+        # Draw the visibility icon centered in background
         icon = self.eye_open_icon if self.is_visible else self.eye_closed_icon
-        icon_x = self.preview_size - icon.width() - 6
-        icon_y = 26  # Position below weight
-        
-        # Update clickable area
-        self.visibility_rect = QRect(icon_x - 2, icon_y - 2, 
-                                     icon.width() + 4, icon.height() + 4)
-        
-        # Draw a subtle background for the icon
-        icon_bg_rect = QRect(icon_x - 2, icon_y - 2, icon.width() + 4, icon.height() + 4)
-        painter.fillRect(icon_bg_rect, QColor(30, 30, 30, 180))
-        
-        # Draw the icon
+        icon_x = control_x
+        icon_y = visibility_y + self.icon_bg_padding
         painter.drawPixmap(icon_x, icon_y, icon)
+        
+        # Draw bucket icon with standardized background (only if visible)
+        if self.is_visible:
+            # Highlight background if hovering over bucket area
+            if self.is_hovered and self.bucket_rect.contains(self.mapFromGlobal(self.cursor().pos())):
+                painter.fillRect(bucket_bg_rect, QColor(74, 144, 226, 100))
+            else:
+                painter.fillRect(bucket_bg_rect, QColor(30, 30, 30, 180))
+            
+            # Draw the bucket icon centered in background
+            bucket_icon_x = control_x
+            bucket_icon_y = bucket_y + self.icon_bg_padding
+            painter.drawPixmap(bucket_icon_x, bucket_icon_y, self.bucket_icon)
