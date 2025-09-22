@@ -209,11 +209,11 @@ class VariantsPanel(QWidget):
                 item.widget().setParent(None)
                 item.widget().deleteLater()
         
-        total_tiles = self.get_total_tiles()
-        
-        # Ensure tile counts are initialized
-        if len(self.canvas.variant_manager.tile_counts) != len(self.canvas.variant_manager.variants):
-            self.canvas.variant_manager.rebalance_tile_counts(total_tiles)
+        # Ensure weights are initialized
+        if len(self.canvas.variant_manager.weights) != len(self.canvas.variant_manager.variants):
+            # Initialize with weight 1 for any missing
+            while len(self.canvas.variant_manager.weights) < len(self.canvas.variant_manager.variants):
+                self.canvas.variant_manager.weights.append(1)
         
         # Create preview widgets in a 3-column grid
         columns = 3
@@ -223,19 +223,18 @@ class VariantsPanel(QWidget):
             
             # Get the actual variant data
             variant_data = self.canvas.variant_manager.variants[i]
-            tile_count = self.canvas.variant_manager.tile_counts[i] if i < len(self.canvas.variant_manager.tile_counts) else 0
-            percentage = int((tile_count / total_tiles * 100)) if total_tiles > 0 else 0
+            weight = self.canvas.variant_manager.weights[i] if i < len(self.canvas.variant_manager.weights) else 1
             
             # Create preview widget
             preview = TilePreview(size=80)
             preview.set_pixel_data(variant_data)
-            preview.set_percentage(percentage)
+            preview.set_weight(weight)  # Use set_weight instead of set_percentage
             preview.set_selected(i == self.selected_index)
             preview.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
             
             # Connect signals
             preview.clicked.connect(lambda idx=i: self.on_variant_selected(idx))
-            preview.percentageChanged.connect(lambda change, idx=i: self.on_percentage_changed(idx, change))
+            preview.weightChanged.connect(lambda change, idx=i: self.on_weight_changed(idx, change))
             preview.visibilityToggled.connect(lambda visible, idx=i: self.on_visibility_toggled(idx, visible))
             
             self.preview_widgets.append(preview)
@@ -250,6 +249,40 @@ class VariantsPanel(QWidget):
         QApplication.processEvents()  # Process any pending deletions
         self.refresh_previews()
     
+    def refresh_previews(self):
+        """Refresh all variant previews."""
+        for i, widget in enumerate(self.preview_widgets):
+            if i < len(self.canvas.variant_manager.variants):
+                # Always pass the original unrotated variant data
+                variant_data = self.canvas.variant_manager.variants[i]
+                widget.set_pixel_data(variant_data)
+                if i < len(self.canvas.variant_manager.weights):
+                    weight = self.canvas.variant_manager.weights[i]
+                    widget.set_weight(weight)
+                # Update visibility state
+                widget.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
+    
+    def on_weight_changed(self, index, change):
+        """Handle weight change from scroll wheel."""
+        current_weight = self.canvas.variant_manager.weights[index]
+        
+        # Calculate new weight (minimum is 1)
+        new_weight = max(1, current_weight + change)
+        
+        if new_weight != current_weight:
+            self.canvas.variant_manager.set_weight(index, new_weight)
+            
+            # Update the preview widget
+            if index < len(self.preview_widgets):
+                self.preview_widgets[index].set_weight(new_weight)
+            
+            # Reassign tiles with new weights
+            self.canvas.variant_manager.assign_variants_to_tiles(
+                self.canvas.tile_manager.tiles_x,
+                self.canvas.tile_manager.tiles_y
+            )
+            self.canvas.update()
+    
     def on_variants_changed(self):
         """Handle variants changed from undo/redo or import."""
         # Store the current selection
@@ -263,51 +296,10 @@ class VariantsPanel(QWidget):
             self.selected_index = current_selection
             self.on_variant_selected(current_selection)
 
-    def refresh_previews(self):
-        """Refresh all variant previews."""
-        total_tiles = self.get_total_tiles()
-        for i, widget in enumerate(self.preview_widgets):
-            if i < len(self.canvas.variant_manager.variants):
-                # Always pass the original unrotated variant data
-                variant_data = self.canvas.variant_manager.variants[i]
-                widget.set_pixel_data(variant_data)
-                if i < len(self.canvas.variant_manager.tile_counts):
-                    tile_count = self.canvas.variant_manager.tile_counts[i]
-                    percentage = int((tile_count / total_tiles * 100)) if total_tiles > 0 else 0
-                    widget.set_percentage(percentage)
-                # Update visibility state
-                widget.set_visible_state(self.canvas.variant_manager.get_variant_visibility(i))
-    
     def update_button_states(self):
         """Update button enabled states."""
         has_variants = len(self.canvas.variant_manager.variants) > 1
         self.remove_button.setEnabled(has_variants)
-    
-    def on_percentage_changed(self, index, change):
-        """Handle percentage change from scroll wheel."""
-        total_tiles = self.get_total_tiles()
-        current_count = self.canvas.variant_manager.tile_counts[index]
-        
-        # Calculate new count (change by 1 tile at a time)
-        new_count = current_count + change
-        new_count = max(0, min(total_tiles, new_count))
-        
-        if new_count != current_count:
-            self.canvas.variant_manager.set_tile_count(index, new_count, total_tiles)
-            
-            # Update all percentages
-            for i, widget in enumerate(self.preview_widgets):
-                if i < len(self.canvas.variant_manager.tile_counts):
-                    tile_count = self.canvas.variant_manager.tile_counts[i]
-                    percentage = int((tile_count / total_tiles * 100)) if total_tiles > 0 else 0
-                    widget.set_percentage(percentage)
-            
-            # Reassign tiles
-            self.canvas.variant_manager.assign_variants_to_tiles(
-                self.canvas.tile_manager.tiles_x,
-                self.canvas.tile_manager.tiles_y
-            )
-            self.canvas.update()
     
     def on_variant_selected(self, index):
         """Handle variant selection."""

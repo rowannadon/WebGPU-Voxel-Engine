@@ -367,7 +367,11 @@ class ColorPanel(QWidget):
                     self.canvas.texture_manager.grid_size = tile_resolution
                     
                 self.canvas.variant_manager.variants = variants
-                self.canvas.variant_manager.tile_counts = variant_counts  # Keep imported counts
+                
+                # Convert tile counts to weights for the new system
+                total_tiles = sum(variant_counts)
+                self.canvas.variant_manager.set_weights_from_tile_counts(variant_counts, total_tiles)
+                
                 self.canvas.variant_manager.current_variant_index = 0
                 self.canvas.variant_manager.tile_assignments = tile_assignments
                 

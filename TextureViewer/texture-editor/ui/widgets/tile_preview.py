@@ -9,7 +9,7 @@ import os
 class TilePreview(QWidget):
     """Widget that displays a live preview of a tile variant."""
     
-    percentageChanged = pyqtSignal(int)  # Emits change in percentage points
+    weightChanged = pyqtSignal(int)  # Emits weight change (±1)
     clicked = pyqtSignal()  # Emits when clicked
     visibilityToggled = pyqtSignal(bool)  # Emits when visibility is toggled
     
@@ -18,7 +18,7 @@ class TilePreview(QWidget):
         self.preview_size = size
         self.pixel_data = None
         self.grid_size = 8
-        self.percentage = 0
+        self.weight = 1  # Changed from percentage to weight
         self.is_hovered = False
         self.is_selected = False
         self.is_visible = True
@@ -76,9 +76,9 @@ class TilePreview(QWidget):
             self.grid_size = pixel_data.grid_size
         self.update()
     
-    def set_percentage(self, percentage):
-        """Set the percentage to display."""
-        self.percentage = percentage
+    def set_weight(self, weight):
+        """Set the weight to display."""
+        self.weight = weight
         self.update()
     
     def set_selected(self, selected):
@@ -116,11 +116,11 @@ class TilePreview(QWidget):
         super().mousePressEvent(event)
     
     def wheelEvent(self, event: QWheelEvent):
-        """Handle mouse wheel with Shift for percentage adjustment."""
+        """Handle mouse wheel with Shift for weight adjustment."""
         if event.modifiers() & Qt.ShiftModifier:
             delta = event.angleDelta().y()
             change = 1 if delta > 0 else -1
-            self.percentageChanged.emit(change)
+            self.weightChanged.emit(change)
             event.accept()
         else:
             event.ignore()
@@ -209,36 +209,35 @@ class TilePreview(QWidget):
         painter.drawRect(padding - 1, padding - 1, 
                         available_size + 1, available_size + 1)
         
-        # Draw percentage in upper right corner
-        if self.percentage >= 0:
-            text = f"{self.percentage}%"
-            font = QFont("Arial", 10, QFont.Bold)
-            painter.setFont(font)
-            
-            # Calculate text position (upper right with padding)
-            text_rect = painter.fontMetrics().boundingRect(text)
-            text_x = self.preview_size - text_rect.width() - 6
-            text_y = 6 + text_rect.height()
-            
-            # Draw background
-            bg_rect = text_rect.adjusted(-4, -2, 4, 2)
-            bg_rect.moveTopLeft(painter.fontMetrics().boundingRect(text).topLeft())
-            bg_rect.moveTop(text_y - text_rect.height())
-            bg_rect.moveLeft(text_x - 4)
-            
-            painter.fillRect(bg_rect, QColor(30, 30, 30, 220))
-            painter.setPen(QColor(60, 60, 60))
-            painter.drawRect(bg_rect)
-            
-            # Draw text
-            text_color = QColor(255, 255, 255) if self.is_visible else QColor(150, 150, 150)
-            painter.setPen(text_color)
-            painter.drawText(text_x, text_y, text)
+        # Draw weight in upper right corner (changed from percentage)
+        text = f"{self.weight}"  # Just show the weight number
+        font = QFont("Arial", 11, QFont.Bold)
+        painter.setFont(font)
         
-        # Draw visibility icon below percentage
+        # Calculate text position (upper right with padding)
+        text_rect = painter.fontMetrics().boundingRect(text)
+        text_x = self.preview_size - text_rect.width() - 6
+        text_y = 6 + text_rect.height()
+        
+        # Draw background
+        bg_rect = text_rect.adjusted(-4, -2, 4, 2)
+        bg_rect.moveTopLeft(painter.fontMetrics().boundingRect(text).topLeft())
+        bg_rect.moveTop(text_y - text_rect.height())
+        bg_rect.moveLeft(text_x - 4)
+        
+        painter.fillRect(bg_rect, QColor(30, 30, 30, 220))
+        painter.setPen(QColor(60, 60, 60))
+        painter.drawRect(bg_rect)
+        
+        # Draw text
+        text_color = QColor(255, 255, 255) if self.is_visible else QColor(150, 150, 150)
+        painter.setPen(text_color)
+        painter.drawText(text_x, text_y, text)
+        
+        # Draw visibility icon below weight
         icon = self.eye_open_icon if self.is_visible else self.eye_closed_icon
         icon_x = self.preview_size - icon.width() - 6
-        icon_y = 26  # Position below percentage
+        icon_y = 26  # Position below weight
         
         # Update clickable area
         self.visibility_rect = QRect(icon_x - 2, icon_y - 2, 

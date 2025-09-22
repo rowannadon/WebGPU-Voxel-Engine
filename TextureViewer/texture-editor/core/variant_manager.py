@@ -1,3 +1,4 @@
+# core/variant_manager.py
 """Variant system logic."""
 import numpy as np
 from typing import List, Optional, Tuple
@@ -9,7 +10,7 @@ class VariantManager:
     
     def __init__(self):
         self.variants: List[PixelData] = []
-        self.tile_counts: List[int] = []  # Number of tiles for each variant
+        self.weights: List[int] = []  # Integer weights for each variant
         self.variant_visibility: List[bool] = []  # Visibility state for each variant
         self.current_variant_index = 0
         self.tile_assignments: Optional[np.ndarray] = None
@@ -18,64 +19,25 @@ class VariantManager:
         default_variant = PixelData()
         self.add_variant(default_variant)
     
-    def add_variant(self, pixel_data: PixelData, initial_count: Optional[int] = None) -> int:
-        """Add a new variant with an initial tile count."""
+    def add_variant(self, pixel_data: PixelData, initial_weight: Optional[int] = None) -> int:
+        """Add a new variant with an initial weight."""
         self.variants.append(pixel_data)
         self.variant_visibility.append(True)  # New variants are visible by default
         
-        # If no initial count provided, calculate a balanced distribution
-        if initial_count is None:
-            # Try to maintain balance when adding new variant
-            if self.tile_counts:
-                # Get total tiles that should be allocated
-                total_tiles = sum(self.tile_counts)
-                if total_tiles == 0:
-                    total_tiles = 64  # Default total
-                
-                # Calculate new distribution
-                num_variants = len(self.variants)
-                base_count = total_tiles // num_variants
-                remainder = total_tiles % num_variants
-                
-                # Redistribute counts
-                new_counts = [base_count] * num_variants
-                for i in range(remainder):
-                    new_counts[i] += 1
-                
-                self.tile_counts = new_counts
-            else:
-                # First variant gets all tiles by default
-                self.tile_counts.append(64)
-        else:
-            self.tile_counts.append(initial_count)
+        # Default weight is 1
+        if initial_weight is None:
+            initial_weight = 1
+        
+        self.weights.append(initial_weight)
         
         return len(self.variants) - 1
     
     def remove_variant(self, index: int) -> bool:
         """Remove a variant if more than one exists."""
         if len(self.variants) > 1 and 0 <= index < len(self.variants):
-            removed_count = self.tile_counts[index]
-            
             self.variants.pop(index)
-            self.tile_counts.pop(index)
-            self.variant_visibility.pop(index)  # Remove visibility state too
-            
-            # Redistribute the removed variant's tiles to remaining variants
-            if self.tile_counts and removed_count > 0:
-                # Add tiles proportionally to existing counts
-                total_remaining = sum(self.tile_counts)
-                if total_remaining > 0:
-                    for i in range(len(self.tile_counts)):
-                        proportion = self.tile_counts[i] / total_remaining
-                        self.tile_counts[i] += int(removed_count * proportion)
-                    
-                    # Handle any remainder
-                    remainder = removed_count - sum(self.tile_counts) + total_remaining
-                    if remainder > 0:
-                        self.tile_counts[0] += remainder
-                else:
-                    # All tiles go to first variant
-                    self.tile_counts[0] = removed_count
+            self.weights.pop(index)
+            self.variant_visibility.pop(index)
             
             if self.current_variant_index >= len(self.variants):
                 self.current_variant_index = len(self.variants) - 1
@@ -86,102 +48,86 @@ class VariantManager:
         """Duplicate a variant."""
         if 0 <= index < len(self.variants):
             new_variant = self.variants[index].copy()
-            # Give the duplicate a fair share of tiles
-            total_tiles = sum(self.tile_counts)
-            new_count = max(1, total_tiles // (len(self.variants) + 1))
-            new_index = self.add_variant(new_variant, new_count)
+            # New variant gets weight of 1 by default
+            new_index = self.add_variant(new_variant, 1)
             
             # Copy visibility state from original
             self.variant_visibility[new_index] = self.variant_visibility[index]
             
-            # Rebalance if needed
-            self.rebalance_tile_counts(total_tiles)
             return new_index
         return -1
     
-    def get_effective_tile_count(self, index: int) -> int:
-        """Get the effective tile count (0 if not visible)."""
-        if 0 <= index < len(self.tile_counts):
+    def get_effective_weight(self, index: int) -> int:
+        """Get the effective weight (0 if not visible)."""
+        if 0 <= index < len(self.weights):
             if self.get_variant_visibility(index):
-                return self.tile_counts[index]
+                return self.weights[index]
         return 0
-
-    def set_tile_count(self, index: int, count: int, total_tiles: int):
-        """Set the tile count for a variant."""
-        if 0 <= index < len(self.tile_counts):
-            old_count = self.tile_counts[index]
-            new_count = max(0, min(total_tiles, count))
-            self.tile_counts[index] = new_count
-            
-            # Adjust other variants to maintain total
-            difference = new_count - old_count
-            if difference != 0:
-                self.adjust_other_counts(index, difference, total_tiles)
     
-    def adjust_other_counts(self, changed_index: int, difference: int, total_tiles: int):
-        """Adjust other variant counts when one changes."""
-        # Calculate how much we need to redistribute
-        current_total = sum(self.tile_counts)
-        excess = current_total - total_tiles
-        
-        if excess == 0:
-            return
-        
-        # Get indices of other variants that can be adjusted
-        other_indices = [i for i in range(len(self.tile_counts)) 
-                        if i != changed_index and self.tile_counts[i] > 0]
-        
-        if not other_indices:
-            # If no other variants have tiles, give excess back to changed variant
-            self.tile_counts[changed_index] = total_tiles
-            return
-        
-        # Distribute the excess evenly among other variants
-        per_variant = excess // len(other_indices)
-        remainder = excess % len(other_indices)
-        
-        for i in other_indices:
-            adjustment = per_variant
-            if remainder > 0:
-                adjustment += 1
-                remainder -= 1
-            
-            self.tile_counts[i] = max(0, self.tile_counts[i] - adjustment)
+    def set_weight(self, index: int, weight: int):
+        """Set the weight for a variant."""
+        if 0 <= index < len(self.weights):
+            self.weights[index] = max(1, weight)  # Minimum weight is 1
     
-    def rebalance_tile_counts(self, total_tiles: int):
-        """Rebalance tile counts to match total tiles while preserving percentages."""
-        if not self.tile_counts:
+    def get_tile_counts_from_weights(self, total_tiles: int) -> List[int]:
+        """Convert weights to actual tile counts for assignment."""
+        if not self.weights:
+            return []
+        
+        # Calculate effective weights (considering visibility)
+        effective_weights = [self.get_effective_weight(i) for i in range(len(self.weights))]
+        total_weight = sum(effective_weights)
+        
+        if total_weight == 0:
+            # All variants are hidden, give all tiles to first variant
+            counts = [0] * len(self.weights)
+            counts[0] = total_tiles
+            return counts
+        
+        # Convert weights to tile counts
+        counts = []
+        allocated = 0
+        
+        for i, weight in enumerate(effective_weights):
+            if i == len(effective_weights) - 1:
+                # Last variant gets remaining tiles to avoid rounding errors
+                count = total_tiles - allocated
+            else:
+                # Allocate proportionally
+                count = round(weight * total_tiles / total_weight)
+                allocated += count
+            counts.append(count)
+        
+        return counts
+    
+    def set_weights_from_tile_counts(self, tile_counts: List[int], total_tiles: int):
+        """Convert tile counts to weights (used for imports)."""
+        if not tile_counts or total_tiles == 0:
             return
         
-        # Calculate current percentages
-        current_total = sum(self.tile_counts)
-        if current_total == 0:
-            # If no tiles assigned, distribute evenly
-            num_variants = len(self.tile_counts)
-            base_count = total_tiles // num_variants
-            remainder = total_tiles % num_variants
-            
-            self.tile_counts = [base_count] * num_variants
-            for i in range(remainder):
-                self.tile_counts[i] += 1
-        else:
-            # Preserve existing percentages
-            percentages = [count / current_total for count in self.tile_counts]
-            
-            # Calculate new counts based on percentages
-            new_counts = []
-            allocated = 0
-            
-            for i, percentage in enumerate(percentages):
-                if i == len(percentages) - 1:
-                    # Last variant gets remaining tiles to avoid rounding errors
-                    count = total_tiles - allocated
-                else:
-                    count = round(percentage * total_tiles)
-                    allocated += count
-                new_counts.append(count)
-            
-            self.tile_counts = new_counts
+        # Find the GCD of all counts to simplify weights
+        from math import gcd
+        from functools import reduce
+        
+        # Filter out zeros for GCD calculation
+        non_zero_counts = [c for c in tile_counts if c > 0]
+        
+        if not non_zero_counts:
+            # All zeros, set all weights to 1
+            self.weights = [1] * len(tile_counts)
+            return
+        
+        # Calculate GCD of all counts
+        common_divisor = reduce(gcd, non_zero_counts)
+        
+        # Convert to simplified weights
+        self.weights = []
+        for count in tile_counts:
+            if count == 0:
+                weight = 1  # Minimum weight is 1
+            else:
+                weight = max(1, count // common_divisor)
+            self.weights.append(weight)
     
     def get_current_variant(self) -> PixelData:
         """Get the currently selected variant."""
@@ -206,12 +152,15 @@ class VariantManager:
             self.variant_visibility[index] = visible
     
     def assign_variants_to_tiles(self, tiles_x: int, tiles_y: int) -> np.ndarray:
-        """Assign variants to tiles based on tile counts and visibility."""
+        """Assign variants to tiles based on weights and visibility."""
         total_tiles = tiles_x * tiles_y
+        
+        # Convert weights to tile counts
+        tile_counts = self.get_tile_counts_from_weights(total_tiles)
         
         # Build assignment array based on tile counts and visibility
         indices = []
-        for variant_idx, count in enumerate(self.tile_counts):
+        for variant_idx, count in enumerate(tile_counts):
             # Only include visible variants
             if self.get_variant_visibility(variant_idx):
                 indices.extend([variant_idx] * min(count, total_tiles - len(indices)))
@@ -246,6 +195,24 @@ class VariantManager:
                 if 0 <= variant_idx < len(self.variants):
                     return self.variants[variant_idx]
         return self.get_current_variant()
+    
+    # Keep tile_counts property for backward compatibility with imports/exports
+    @property
+    def tile_counts(self):
+        """Get tile counts from weights (for compatibility)."""
+        # Return a default based on weights
+        if not self.weights:
+            return []
+        # Use a reasonable total (like 64) for conversion
+        return self.get_tile_counts_from_weights(64)
+    
+    @tile_counts.setter
+    def tile_counts(self, counts: List[int]):
+        """Set weights from tile counts (for compatibility)."""
+        if counts:
+            total = sum(counts)
+            if total > 0:
+                self.set_weights_from_tile_counts(counts, total)
     
     def find_unique_variants(self, tiles: List[np.ndarray], tolerance: float = 0.001) -> Tuple[List[PixelData], np.ndarray, List[int]]:
         """Find unique tile variants from a list of tiles, accounting for rotations."""
