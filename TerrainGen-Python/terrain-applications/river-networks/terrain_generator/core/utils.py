@@ -5,6 +5,8 @@ import collections
 import scipy.spatial
 from typing import Tuple, List, Optional
 from numba import njit, prange
+import matplotlib.tri as mtri
+from functools import lru_cache
 
 def normalize(x: np.ndarray, bounds: Tuple[float, float] = (0, 1)) -> np.ndarray:
     """Renormalizes the values of x to bounds."""
@@ -170,14 +172,40 @@ def remove_lakes(mask: np.ndarray) -> np.ndarray:
     new_mask[labels != labels[0, 0]] = True
     return new_mask
 
-def render_triangulation(shape: Tuple[int, int], tri, values: np.ndarray) -> np.ndarray:
-    """Renders values for each triangle on an array."""
-    import matplotlib.tri
-    points = make_grid_points(shape)
-    triangulation = matplotlib.tri.Triangulation(
-        tri.points[:,0], tri.points[:,1], tri.simplices)
-    interp = matplotlib.tri.LinearTriInterpolator(triangulation, values)
-    return interp(points[:,0], points[:,1]).reshape(shape).filled(0.0)
+# def render_triangulation(shape: Tuple[int, int], tri, values: np.ndarray) -> np.ndarray:
+#     """Renders values for each triangle on an array."""
+#     import matplotlib.tri
+#     points = make_grid_points(shape)
+#     triangulation = matplotlib.tri.Triangulation(
+#         tri.points[:,0], tri.points[:,1], tri.simplices)
+#     interp = matplotlib.tri.LinearTriInterpolator(triangulation, values)
+#     return interp(points[:,0], points[:,1]).reshape(shape).filled(0.0)
+
+@lru_cache(maxsize=8)
+def _grid_xy(shape):
+    """Cached X,Y for the given (rows, cols) shape."""
+    nrows, ncols = shape
+    # Use sparse=True to avoid allocating full X/Y until needed by broadcasting
+    X, Y = np.meshgrid(np.arange(ncols), np.arange(nrows), indexing="xy")
+    return X, Y
+
+def render_triangulation(shape, tri, values, *, triangulation=None, fill_value=0.0):
+    """
+    Faster renderer:
+      - avoids Nx2 point stack
+      - reuses cached grid
+      - can reuse a prebuilt Triangulation
+    """
+    if triangulation is None:
+        # Accept either a ready Triangulation or a (points,simplices)-like object
+        if isinstance(tri, mtri.Triangulation):
+            triangulation = tri
+        else:
+            triangulation = mtri.Triangulation(tri.points[:, 0], tri.points[:, 1], tri.simplices)
+
+    X, Y = _grid_xy(shape)                # shapes ~ (rows,1) and (1,cols) due to sparse=True
+    zi = mtri.LinearTriInterpolator(triangulation, values)(X, Y)  # returns (rows, cols)
+    return zi.filled(fill_value)
 
 def identify_inland_seas(land_mask: np.ndarray) -> Tuple[np.ndarray, List[np.ndarray]]:
     """

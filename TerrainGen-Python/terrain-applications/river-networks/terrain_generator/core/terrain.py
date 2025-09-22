@@ -7,7 +7,9 @@ from scipy.sparse.csgraph import dijkstra
 from scipy.interpolate import NearestNDInterpolator
 from typing import Optional, Tuple, Any, List, Dict
 from dataclasses import dataclass, field
+import matplotlib.tri as mtri
 from scipy.ndimage import zoom
+
 try:
     from numba import njit, prange
     _NUMBA = True
@@ -347,10 +349,21 @@ class TerrainGenerator:
             resolved_layer_params
         )
         
+        tri = mtri.Triangulation(tri.points[:, 0], tri.points[:, 1], tri.simplices)
+        
+        if progress_callback:
+            progress_callback(86, "Rendering terrain to grid...")
         # Render to grid
-        terrain_height = render_triangulation(target_shape, tri, final_height)
-        river_volume = render_triangulation(target_shape, tri, river_network.volume)
+        terrain_height = render_triangulation(target_shape, tri, final_height, triangulation=tri)
+        
+        if progress_callback:
+            progress_callback(86, "Rendering rivers to grid...")
+        
+        river_volume = render_triangulation(target_shape, tri, river_network.volume, triangulation=tri)
         rock_map_grid = self._render_rock_map(points, rock_assignments, target_shape)
+        
+        if progress_callback:
+            progress_callback(88, "Rendering watersheds...")
 
         # Render watershed identifiers to regular grid using nearest-neighbor sampling
         watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
