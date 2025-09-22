@@ -57,7 +57,10 @@ class VariantManager:
             # Remove the variant
             self.variants.pop(index)
             self.tile_counts.pop(index)
-            self.variant_visibility.pop(index)
+            
+            # Safely remove from visibility list if it exists
+            if index < len(self.variant_visibility):
+                self.variant_visibility.pop(index)
             
             # Distribute removed tiles proportionally to remaining variants
             if tiles_to_distribute > 0 and len(self.tile_counts) > 0:
@@ -91,6 +94,22 @@ class VariantManager:
             return new_index
         return -1
     
+    def ensure_lists_synchronized(self):
+        """Ensure all internal lists have the same length as variants."""
+        num_variants = len(self.variants)
+        
+        # Ensure tile_counts matches
+        while len(self.tile_counts) < num_variants:
+            self.tile_counts.append(1)
+        while len(self.tile_counts) > num_variants:
+            self.tile_counts.pop()
+        
+        # Ensure variant_visibility matches
+        while len(self.variant_visibility) < num_variants:
+            self.variant_visibility.append(True)
+        while len(self.variant_visibility) > num_variants:
+            self.variant_visibility.pop()
+
     def set_tile_count(self, index: int, new_count: int):
         """Set the tile count for a variant and rebalance others."""
         if not (0 <= index < len(self.tile_counts)):

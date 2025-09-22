@@ -112,6 +112,20 @@ class TextureManager:
         if hasattr(self, 'variant_texture_sizes'):
             self.variant_texture_sizes.clear()
 
+    def clear_variant_texture(self, variant_index: int):
+        """Clear texture cache for a specific variant."""
+        if variant_index in self.variant_textures:
+            glDeleteTextures([self.variant_textures[variant_index]])
+            del self.variant_textures[variant_index]
+            if hasattr(self, 'variant_texture_sizes') and variant_index in self.variant_texture_sizes:
+                del self.variant_texture_sizes[variant_index]
+
+    def clear_variant_textures_above_index(self, index: int):
+        """Clear all variant textures with index greater than specified."""
+        indices_to_clear = [i for i in self.variant_textures.keys() if i > index]
+        for variant_index in indices_to_clear:
+            self.clear_variant_texture(variant_index)
+
     def create_checker_texture(self, size: int = 32):
         """Create a checker pattern texture for transparency background."""
         if self.checker_texture_id is None:

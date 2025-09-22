@@ -362,11 +362,19 @@ class ColorPanel(QWidget):
                 # Update canvas with imported data
                 variants, tiles_x, tiles_y, tile_assignments, variant_counts, tile_resolution = data
                 
+                # Clear the variant texture cache since we're replacing all variants
+                self.canvas.texture_manager.clear_variant_textures()
+                
                 # Update tile resolution if different
                 if tile_resolution != self.canvas.pixel_data.grid_size:
                     self.canvas.texture_manager.grid_size = tile_resolution
                     
                 self.canvas.variant_manager.variants = variants
+                
+                # Initialize visibility list to match variants
+                self.canvas.variant_manager.variant_visibility = [True] * len(variants)
+                self.canvas.variant_manager.tile_counts = variant_counts.copy()
+                self.canvas.variant_manager.ensure_lists_synchronized()  # Ensure everything matches
                 
                 # Convert tile counts to weights for the new system
                 total_tiles = sum(variant_counts)
@@ -385,7 +393,10 @@ class ColorPanel(QWidget):
                 self.canvas.needs_tile_rebuild = True
                 self.canvas.needs_grid_rebuild = True
                 
-                self.canvas.texture_manager.update_texture(self.canvas.pixel_data.to_numpy())
+                # Don't update the single texture - it's not used with variants
+                # self.canvas.texture_manager.update_texture(self.canvas.pixel_data.to_numpy())
+                
+                # Force a full redraw
                 self.canvas.update()
                 
                 # Update variants panel - use the stored reference in canvas

@@ -201,7 +201,6 @@ class PixelCanvas(QGLWidget):
     
     def mouseMoveEvent(self, event: QMouseEvent):
         """Handle mouse movement."""
-        old_pos = self.mouse_pos
         self.mouse_pos = (event.x(), event.y())
         
         # Check if mouse is over drawable area
@@ -216,25 +215,8 @@ class PixelCanvas(QGLWidget):
             self.viewport.update_pan(event.x(), event.y(), 
                                     self.width(), self.height())
             self.update_projection()
-            self.update()  # <-- ADD THIS LINE to update canvas during panning
-        else:
-            # Only update if cursor moved to a different pixel cell (optimization for cursor movement)
-            if old_pos:
-                old_world = self.viewport.screen_to_world(
-                    old_pos[0], old_pos[1], self.width(), self.height()
-                )
-                new_world = self.viewport.screen_to_world(
-                    event.x(), event.y(), self.width(), self.height()
-                )
-                
-                pixel_size = CANVAS_SIZE / self.pixel_data.grid_size
-                old_pixel = (int(old_world[0] / pixel_size), int(old_world[1] / pixel_size))
-                new_pixel = (int(new_world[0] / pixel_size), int(new_world[1] / pixel_size))
-                
-                if old_pixel != new_pixel:
-                    self.update()
-            else:
-                self.update()
+        
+        self.update()
     
     def is_over_canvas(self, mouse_x: int, mouse_y: int) -> bool:
         """Check if mouse position is over the drawable canvas area."""
@@ -470,6 +452,10 @@ class PixelCanvas(QGLWidget):
         """Add a new variant."""
         new_variant = self.pixel_data.copy()
         index = self.variant_manager.add_variant(new_variant)
+        
+        # Clear any stale cached texture at this index
+        self.texture_manager.clear_variant_texture(index)
+        
         self.variant_manager.set_current_variant(index)
         self.pixel_data = self.variant_manager.get_current_variant()
         self.texture_manager.update_texture(self.pixel_data.to_numpy())
@@ -484,6 +470,11 @@ class PixelCanvas(QGLWidget):
     def remove_variant(self, index: int):
         """Remove a variant."""
         if self.variant_manager.remove_variant(index):
+            # Clear the texture for the removed variant and all higher indices
+            # (since they will shift down)
+            self.texture_manager.clear_variant_texture(index)
+            self.texture_manager.clear_variant_textures_above_index(index)
+            
             self.pixel_data = self.variant_manager.get_current_variant()
             self.texture_manager.update_texture(self.pixel_data.to_numpy())
             if self.use_variants:
@@ -493,6 +484,24 @@ class PixelCanvas(QGLWidget):
                 )
             self.update()
     
+    def duplicate_variant(self, source_index: int):
+        """Duplicate a variant."""
+        new_index = self.variant_manager.duplicate_variant(source_index)
+        if new_index >= 0:
+            # Clear any stale cached texture at this index
+            self.texture_manager.clear_variant_texture(new_index)
+            
+            self.variant_manager.set_current_variant(new_index)
+            self.pixel_data = self.variant_manager.get_current_variant()
+            self.texture_manager.update_texture(self.pixel_data.to_numpy())
+            if self.use_variants:
+                self.variant_manager.assign_variants_to_tiles(
+                    self.tile_manager.tiles_x,
+                    self.tile_manager.tiles_y
+                )
+            self.update()
+        return new_index
+
     def select_variant(self, index: int):
         """Select a variant for editing."""
         self.variant_manager.set_current_variant(index)

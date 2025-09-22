@@ -215,6 +215,9 @@ class PixelArtEditor(QMainWindow):
     
     def new_project(self):
         """Create a new project."""
+        # Clear variant texture cache
+        self.canvas.texture_manager.clear_variant_textures()
+        
         # Reset canvas to default state
         self.canvas.pixel_data.clear()
         self.canvas.variant_manager = VariantManager()
