@@ -521,7 +521,7 @@ class TerrainGeneratorWindow(QMainWindow):
 
         # Re-enable ALL controls properly
         self.control_panel.set_generation_enabled(True)  # This re-enables the main generate button
-        self.control_panel.set_export_enabled(False)  # Keep export disabled for preview
+        self.control_panel.set_export_enabled(False, heightmap_only=True)  # Allow heightmap export after preview
         self.progress_bar.setVisible(False)
         self.status_label.setText("Preview generated (no rivers). Generate full terrain for complete features.")
 
