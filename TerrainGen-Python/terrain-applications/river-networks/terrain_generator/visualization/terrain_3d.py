@@ -36,12 +36,12 @@ class Camera:
     def zoom_in(self, factor: float = 0.9):
         """Zoom in by factor."""
         self.zoom *= factor
-        self.zoom = max(5.0, min(1000.0, self.zoom))
+        self.zoom = max(1.0, min(4000.0, self.zoom))
     
     def zoom_out(self, factor: float = 1.1):
         """Zoom out by factor."""
         self.zoom *= factor
-        self.zoom = max(5.0, min(1000.0, self.zoom))
+        self.zoom = max(1.0, min(4000.0, self.zoom))
 
 class Terrain3DRenderer:
     """Handles 3D rendering logic for terrain."""
@@ -568,9 +568,9 @@ class TerrainViewport(QOpenGLWidget):
         zoom = self.camera.zoom
         
         if aspect >= 1:
-            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -3000, 3000)
+            glOrtho(-zoom * aspect, zoom * aspect, -zoom, zoom, -6000, 6000)
         else:
-            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -3000, 3000)
+            glOrtho(-zoom, zoom, -zoom / aspect, zoom / aspect, -6000, 6000)
         
         # Set modelview
         glMatrixMode(GL_MODELVIEW)

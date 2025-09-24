@@ -360,16 +360,13 @@ class TerrainGenerator:
             progress_callback(86, "Rendering rivers to grid...")
         
         river_volume = render_triangulation(target_shape, tri, river_network.volume, triangulation=tri)
-        rock_map_grid = self._render_rock_map(points, rock_assignments, target_shape)
+        rock_map_grid = self._render_map(points, rock_assignments, target_shape)
         
         if progress_callback:
             progress_callback(88, "Rendering watersheds...")
 
-        # Render watershed identifiers to regular grid using nearest-neighbor sampling
-        watershed_interp = NearestNDInterpolator(points, river_network.watershed.astype(np.float32))
-        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
-        watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
-        watershed_mask[~land_mask] = 0
+
+        watershed_mask = self._render_map(points, river_network.watershed, target_shape)
 
         if self.params.use_erosion:
             if progress_callback:
@@ -1039,12 +1036,16 @@ class TerrainGenerator:
         warped = (fbm_field * 2.0) - 1.0
         return (warped * strength).astype(np.float32)
 
-    def _render_rock_map(self, points: np.ndarray, assignments: np.ndarray,
-                         target_shape: Tuple[int, int]) -> np.ndarray:
-        """Render discrete rock layer assignments onto the output grid."""
-        interpolator = NearestNDInterpolator(points, assignments.astype(np.float32))
-        grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
-        rendered = interpolator(grid_y, grid_x)
+    def _render_map(self, points: np.ndarray, assignments: np.ndarray,
+                     target_shape: Tuple[int, int]) -> np.ndarray:
+        # Build interpolator in (x, y) coordinate space
+        interp = NearestNDInterpolator(points, assignments.astype(np.float32))
+
+        # Query on a regular grid using 'xy' indexing so we pass (x, y) in the right order
+        H, W = target_shape
+        grid_x, grid_y = np.meshgrid(np.arange(W), np.arange(H), indexing='xy')
+        rendered = interp(grid_x, grid_y)
+
         return rendered.astype(np.int32)
 
     @staticmethod
