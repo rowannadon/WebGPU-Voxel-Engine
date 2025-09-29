@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QProgressBar, QLabel, QPushButton,
-                            QMessageBox, QFileDialog, QSizePolicy)
+                            QMessageBox, QFileDialog, QSizePolicy, QTabWidget)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QSurfaceFormat
 
@@ -22,6 +22,7 @@ from ..visualization import TerrainViewport
 from ..io import TerrainExporter
 from ..heuristics import HeuristicEngine, HeuristicSettings, qimage_to_rgba
 from .controls import ControlPanel, AnalysisPanel
+from .node_editor import NodeEditorWidget
 
 try:
     import qdarktheme
@@ -232,37 +233,60 @@ class TerrainGeneratorWindow(QMainWindow):
         # Create central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
+        
+        # Create the traditional terrain view tab
+        self.terrain_tab = self.create_terrain_tab()
+        self.tab_widget.addTab(self.terrain_tab, "Terrain View")
+        
+        # Create the node editor tab
+        self.node_editor_tab = NodeEditorWidget()
+        self.tab_widget.addTab(self.node_editor_tab, "Node Editor")
+        
+        # Apply theme if available
+        if DARK_THEME_AVAILABLE:
+            self.setStyleSheet(qdarktheme.load_stylesheet())
 
+    def create_terrain_tab(self) -> QWidget:
+        """Create the traditional terrain generation view."""
+        terrain_widget = QWidget()
+        terrain_layout = QHBoxLayout(terrain_widget)
+        terrain_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Left control panel
         self.control_panel = ControlPanel()
         self.control_panel.setMaximumWidth(650)
         self.control_panel.setMinimumWidth(650)
         self.control_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        main_layout.addWidget(self.control_panel)
-
+        terrain_layout.addWidget(self.control_panel)
+        
         # Center visualization stack
         center_layout = QVBoxLayout()
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(4)
-
+        
         self.terrain_viewport = TerrainViewport()
         self.terrain_viewport.setMinimumHeight(800)
         center_layout.addWidget(self.terrain_viewport)
-
+        
         status_container = QWidget()
         status_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         status_container.setMaximumHeight(28)
         status_row = QHBoxLayout(status_container)
         status_row.setContentsMargins(0, 0, 0, 0)
         status_row.setSpacing(8)
-
+        
         self.status_label = QLabel("Ready")
         self.status_label.setWordWrap(False)
         self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.status_label.setMinimumHeight(18)
         status_row.addWidget(self.status_label)
-
+        
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setFixedHeight(18)
@@ -270,26 +294,24 @@ class TerrainGeneratorWindow(QMainWindow):
         self.progress_bar.setMaximumWidth(400)
         self.progress_bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         status_row.addWidget(self.progress_bar)
-
+        
         center_layout.addWidget(status_container)
-
-        main_layout.addLayout(center_layout, stretch=1)
-
+        
+        terrain_layout.addLayout(center_layout, stretch=1)
+        
         # Right analysis panel
         self.analysis_panel = AnalysisPanel()
         self.analysis_panel.setMaximumWidth(450)
         self.analysis_panel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        main_layout.addWidget(self.analysis_panel)
-
+        terrain_layout.addWidget(self.analysis_panel)
+        
         # Initialize visualization settings from analysis panel defaults
         height_control = self.analysis_panel.visual_controls['height_scale']
         sun_control = self.analysis_panel.visual_controls['sun_altitude']
         self.terrain_viewport.set_height_scale(height_control.value())
         self.terrain_viewport.set_sun_altitude(sun_control.value())
-
-        # Apply theme if available
-        if DARK_THEME_AVAILABLE:
-            self.setStyleSheet(qdarktheme.load_stylesheet())
+        
+        return terrain_widget
     
     def setup_connections(self):
         """Setup signal/slot connections."""
@@ -314,6 +336,23 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.computed_overlay_requested.connect(self.apply_computed_overlay)
         self.analysis_panel.export_computed_overlay_requested.connect(self.export_computed_overlay)
         self.analysis_panel.export_all_computed_requested.connect(self.export_all_computed_overlays)
+
+        # Node editor connections
+        self.node_editor_tab.set_terrain_viewport(self.terrain_viewport)
+        self.node_editor_tab.set_main_window(self)
+        self.node_editor_tab.node_visualized.connect(self.on_node_visualized)
+
+    def on_node_executed(self, node):
+        """Handle node execution."""
+        # Switch to terrain view tab to see results if it's a visualization node
+        from .nodes import VisualizationNode
+        if isinstance(node, VisualizationNode):
+            self.tab_widget.setCurrentIndex(0)  # Switch to Terrain View tab
+    
+    def on_node_visualized(self, node_name):
+        """Handle node visualization."""
+        # Update status
+        self.status_label.setText(f"Visualized: {node_name}")
 
     def _normalize_to_uint8(self, arr: np.ndarray, land_mask: np.ndarray = None) -> np.ndarray:
         arr = np.asarray(arr, dtype=np.float32)

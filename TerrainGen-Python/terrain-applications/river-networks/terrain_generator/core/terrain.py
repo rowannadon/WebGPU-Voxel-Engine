@@ -9,6 +9,8 @@ from typing import Optional, Tuple, Any, List, Dict
 from dataclasses import dataclass, field
 import matplotlib.tri as mtri
 from scipy.ndimage import zoom
+from scipy import ndimage
+from skimage import measure, morphology, filters
 
 try:
     from numba import njit, prange
@@ -370,6 +372,18 @@ class TerrainGenerator:
         grid_y, grid_x = np.mgrid[0:target_shape[0], 0:target_shape[1]]
         watershed_mask = watershed_interp(grid_y, grid_x).astype(np.int32)
         watershed_mask[~land_mask] = 0
+
+        # # Add canyon carving step here, before erosion
+        # if progress_callback:
+        #     progress_callback(89, "Carving canyons...")
+
+        # # Apply canyon carving to major rivers
+        # terrain_height = self.carve_canyons(
+        #     terrain_height, 
+        #     river_volume,
+        #     land_mask,
+        #     progress_callback
+        # )
 
         if self.params.use_erosion:
             if progress_callback:
@@ -1180,6 +1194,314 @@ class TerrainGenerator:
         adjusted = np.clip(adjusted, 0, 1)
         return adjusted * (hmax - hmin) + hmin
     
+    def carve_canyons(self, terrain_height: np.ndarray, 
+                    river_volume: np.ndarray, 
+                    land_mask: np.ndarray,
+                    progress_callback=None) -> np.ndarray:
+        """
+        Carve canyons along major river channels after rasterization but before particle erosion.
+        Uses resolution-independent parameters based on physical units.
+        
+        Args:
+            terrain_height: Current terrain heightmap
+            river_volume: River flow volume grid  
+            land_mask: Boolean mask of land areas
+            progress_callback: Optional progress reporting function
+            
+        Returns:
+            Modified terrain heightmap with carved canyons
+        """
+        print("\n=== CANYON CARVING DEBUG ===")
+        
+        # Get terrain dimensions for scaling
+        terrain_size = terrain_height.shape[0]  # Assume square terrain
+        
+        # FIXED: Define canyon width in "base pixels" at reference base resolution
+        # These represent fixed physical distances, not fractions
+        BASE_RESOLUTION = 1024
+        pixels_per_unit = terrain_size / BASE_RESOLUTION  # How many pixels per "base unit"
+        
+        # Resolution-independent parameters
+        river_threshold_percentile = 95.0  # Percentile threshold for candidate rivers
+        num_canyons = 3  # Number of longest rivers to carve
+        
+        # Depth parameters (already resolution-independent as they're in terrain height units)
+        canyon_depth_coast = 0.3  # Maximum canyon depth at coast
+        canyon_depth_inland = 0.15  # Minimum canyon depth at furthest inland
+        canyon_depth_decay = 0.5  # Power factor for depth decay
+        
+        # Width parameters - defined in "base pixels" (physical units)
+        canyon_width_coast_base = 12  # 8 pixels at base resolution
+        canyon_width_inland_base = 1  # 1 pixel at base resolution
+        
+        # Convert to current resolution
+        canyon_width_coast = canyon_width_coast_base * pixels_per_unit
+        canyon_width_inland = canyon_width_inland_base * pixels_per_unit
+        
+        # Smoothing and morphological parameters - scale with resolution
+        canyon_smoothing = 1.0 * pixels_per_unit  # Gaussian smoothing sigma
+        min_component_size = int(10 * pixels_per_unit)  # Minimum river component size
+        skeleton_dilation_radius = max(1, int(2 * pixels_per_unit))  # For tributary detection
+        ocean_dilation_radius = max(1, int(3 * np.sqrt(pixels_per_unit)))  # For ocean border detection
+        
+        # Algorithm parameters (resolution-independent)
+        tributary_threshold = 0.1  # Minimum relative flow to keep tributaries
+        width_flow_factor = 0.5  # How much flow volume affects width
+        
+        print(f"Terrain size: {terrain_size}x{terrain_size}")
+        print(f"Resolution scale factor: {pixels_per_unit:.2f}")
+        print(f"Canyon width at coast: {canyon_width_coast:.1f} pixels (base: {canyon_width_coast_base})")
+        print(f"Canyon width inland: {canyon_width_inland:.1f} pixels (base: {canyon_width_inland_base})")
+        
+        # Step 1: Find candidate rivers using threshold
+        non_zero = river_volume > 0
+        if not np.any(non_zero):
+            print("No rivers found, skipping canyon carving")
+            return terrain_height
+            
+        volume_threshold = np.percentile(river_volume[non_zero], river_threshold_percentile)
+        river_candidates = river_volume > volume_threshold
+        print(f"River volume threshold ({river_threshold_percentile}%): {volume_threshold:.3f}")
+        print(f"Candidate river pixels: {np.sum(river_candidates)}")
+        
+        # Step 2: Extract river centerlines using skeletonization
+        river_cleaned = morphology.remove_small_objects(river_candidates, min_size=min_component_size)
+        river_cleaned = morphology.binary_closing(river_cleaned, morphology.disk(1))
+        river_skeleton = morphology.skeletonize(river_cleaned)
+        print(f"Skeleton pixels: {np.sum(river_skeleton)}")
+        
+        # Step 3: Find ocean-connected components of the skeleton
+        ocean_mask = ~land_mask
+        
+        # Create structuring element scaled to resolution
+        if ocean_dilation_radius > 1:
+            selem = morphology.disk(ocean_dilation_radius)
+        else:
+            selem = morphology.square(3)
+        
+        ocean_border = morphology.binary_dilation(ocean_mask, selem)
+        
+        skeleton_labels = measure.label(river_skeleton, connectivity=2)
+        print(f"Total skeleton components: {skeleton_labels.max()}")
+        
+        if skeleton_labels.max() == 0:
+            print("No skeleton components found")
+            return terrain_height
+        
+        touching_labels = np.unique(skeleton_labels[(skeleton_labels > 0) & ocean_border])
+        print(f"Ocean-connected skeleton components: {len(touching_labels)}")
+        
+        if len(touching_labels) == 0:
+            print("No skeleton rivers connect to ocean")
+            return terrain_height
+        
+        # Step 4: Select the longest rivers by flow
+        selected_skeletons = []
+        
+        for label in touching_labels:
+            component_mask = (skeleton_labels == label)
+            total_flow = np.sum(river_volume[component_mask])
+            skeleton_length = np.sum(component_mask)
+            
+            selected_skeletons.append({
+                'label': label,
+                'mask': component_mask,
+                'total_flow': total_flow,
+                'length': skeleton_length,
+                'mean_flow': total_flow / max(skeleton_length, 1)
+            })
+        
+        selected_skeletons.sort(key=lambda x: x['total_flow'], reverse=True)
+        selected_skeletons = selected_skeletons[:num_canyons]
+        
+        print(f"Selected {len(selected_skeletons)} rivers:")
+        for skel in selected_skeletons:
+            print(f"  River {skel['label']}: length={skel['length']}, total_flow={skel['total_flow']:.1f}")
+        
+        # Step 5: Build centerlines with tributaries
+        canyon_centerlines = np.zeros_like(river_skeleton, dtype=bool)
+        
+        for skel in selected_skeletons:
+            river_mask = skel['mask'].copy()
+            
+            # Find significant tributaries - scale dilation with resolution
+            dilated = morphology.binary_dilation(river_mask, morphology.disk(skeleton_dilation_radius))
+            nearby_high_flow = dilated & river_candidates
+            tributary_labels = measure.label(nearby_high_flow, connectivity=2)
+            
+            for trib_label in range(1, tributary_labels.max() + 1):
+                trib_mask = (tributary_labels == trib_label)
+                max_trib_flow = np.max(river_volume[trib_mask])
+                main_flow = np.mean(river_volume[river_mask])
+                
+                if max_trib_flow > main_flow * tributary_threshold:
+                    trib_skeleton = morphology.skeletonize(trib_mask)
+                    river_mask |= trib_skeleton
+            
+            canyon_centerlines |= river_mask
+        
+        print(f"Total centerline pixels to carve: {np.sum(canyon_centerlines)}")
+        
+        # Step 6: Compute distance from coast and normalize flow
+        distance_from_coast = ndimage.distance_transform_edt(land_mask)
+        max_distance = distance_from_coast.max()
+        
+        if max_distance > 0:
+            normalized_distance = distance_from_coast / max_distance
+        else:
+            normalized_distance = np.zeros_like(distance_from_coast)
+        
+        # Normalize river flow for width calculation
+        max_flow = np.max(river_volume[canyon_centerlines]) if np.any(canyon_centerlines) else 1.0
+        normalized_flow = river_volume / max(max_flow, 1e-6)
+        
+        # Step 7: Create precise carving map
+        carved_terrain = terrain_height.copy()
+        carve_mask = np.zeros_like(terrain_height, dtype=bool)
+        
+        # Process each centerline pixel individually
+        canyon_coords = np.where(canyon_centerlines)
+        
+        # First pass: determine exact carving depths and widths
+        carve_targets = {}
+        carve_widths = {}
+        
+        # Track statistics
+        min_depth_applied = float('inf')
+        max_depth_applied = 0
+        depths_at_coast = []
+        depths_inland = []
+        
+        for y, x in zip(*canyon_coords):
+            dist_norm = normalized_distance[y, x]
+            flow_norm = normalized_flow[y, x]
+            
+            # Calculate canyon depth based on distance from coast
+            depth_factor = 1.0 - (dist_norm ** canyon_depth_decay)
+            canyon_depth = canyon_depth_coast * depth_factor + canyon_depth_inland * (1 - depth_factor)
+            
+            # Modulate depth by flow volume
+            flow_depth_modifier = 0.8 + 0.4 * flow_norm
+            canyon_depth *= flow_depth_modifier
+            
+            # Calculate base elevation
+            local_height = terrain_height[y, x]
+            base_elevation = local_height - canyon_depth
+            
+            # Never carve below sea level
+            base_elevation = max(base_elevation, 0.001)
+            
+            # Only carve if we're actually going down
+            if base_elevation < local_height:
+                carve_targets[(y, x)] = base_elevation
+                
+                # Track actual depth
+                actual_depth = local_height - base_elevation
+                min_depth_applied = min(min_depth_applied, actual_depth)
+                max_depth_applied = max(max_depth_applied, actual_depth)
+                
+                if dist_norm < 0.1:
+                    depths_at_coast.append(actual_depth)
+                elif dist_norm > 0.9:
+                    depths_inland.append(actual_depth)
+                
+                # Calculate width (already scaled to current resolution)
+                flow_influence = width_flow_factor * (1 - dist_norm * 0.5)
+                base_width = canyon_width_coast + (canyon_width_inland - canyon_width_coast) * dist_norm
+                width_modifier = 1.0 + flow_norm * flow_influence
+                width = base_width * width_modifier
+                
+                # Enforce minimum width at inland locations
+                if dist_norm > 0.7:
+                    max_inland_width = canyon_width_inland + pixels_per_unit
+                    width = min(width, max_inland_width)
+                
+                carve_widths[(y, x)] = width
+        
+        # Print depth statistics
+        print(f"Canyon depth range: {min_depth_applied:.4f} to {max_depth_applied:.4f}")
+        if depths_at_coast:
+            print(f"Average depth at coast: {np.mean(depths_at_coast):.4f}")
+        if depths_inland:
+            print(f"Average depth inland: {np.mean(depths_inland):.4f}")
+        
+        # Second pass: apply carving with appropriate profiles
+        for (y, x), base_elevation in carve_targets.items():
+            canyon_width = carve_widths[(y, x)]
+            canyon_radius = canyon_width / 2
+            
+            # Profile sharpness based on width in base units
+            width_in_base_pixels = canyon_width / pixels_per_unit
+            if width_in_base_pixels <= 3:
+                profile_sharpness = 3.0  # Sharp V-shape
+            else:
+                profile_sharpness = 1.5  # Gentler profile
+            
+            # Define carving region
+            y_min = max(0, int(y - canyon_radius * 2))
+            y_max = min(terrain_height.shape[0], int(y + canyon_radius * 2 + 1))
+            x_min = max(0, int(x - canyon_radius * 2))
+            x_max = min(terrain_height.shape[1], int(x + canyon_radius * 2 + 1))
+            
+            yy, xx = np.mgrid[y_min:y_max, x_min:x_max]
+            distances = np.sqrt((yy - y)**2 + (xx - x)**2)
+            
+            # Canyon profile using power function
+            influence = np.maximum(0, 1 - (distances / max(canyon_radius, 0.5)) ** profile_sharpness)
+            
+            # Apply carving
+            region_slice = (slice(y_min, y_max), slice(x_min, x_max))
+            region_heights = carved_terrain[region_slice]
+            
+            # Calculate target heights
+            target_heights = region_heights * (1 - influence) + base_elevation * influence
+            
+            # Only carve down, never raise
+            carved_terrain[region_slice] = np.minimum(region_heights, target_heights)
+            carve_mask[region_slice] |= (influence > 0.01)
+        
+        # Step 8: Resolution-scaled selective smoothing
+        if canyon_smoothing > 0:
+            # Identify narrow vs wide canyon regions
+            narrow_threshold = 3 * pixels_per_unit
+            narrow_mask = np.zeros_like(terrain_height, dtype=bool)
+            wide_mask = np.zeros_like(terrain_height, dtype=bool)
+            
+            for (y, x), width in carve_widths.items():
+                r = int(width)
+                y_min, y_max = max(0, y-r), min(terrain_height.shape[0], y+r+1)
+                x_min, x_max = max(0, x-r), min(terrain_height.shape[1], x+r+1)
+                
+                if width <= narrow_threshold:
+                    narrow_mask[y_min:y_max, x_min:x_max] = True
+                else:
+                    wide_mask[y_min:y_max, x_min:x_max] = True
+            
+            smoothed_terrain = carved_terrain.copy()
+            
+            if np.any(narrow_mask):
+                # Light smoothing for narrow channels
+                narrow_smoothed = ndimage.gaussian_filter(carved_terrain, sigma=canyon_smoothing * 0.3)
+                smoothed_terrain = np.where(narrow_mask, narrow_smoothed, smoothed_terrain)
+            
+            if np.any(wide_mask):
+                # Normal smoothing for wide sections
+                wide_smoothed = ndimage.gaussian_filter(carved_terrain, sigma=canyon_smoothing)
+                smoothed_terrain = np.where(wide_mask & ~narrow_mask, wide_smoothed, smoothed_terrain)
+            
+            carved_terrain = np.where(carve_mask, smoothed_terrain, terrain_height)
+        
+        # Final statistics
+        final_carve_depth = terrain_height - carved_terrain
+        max_carve = np.max(final_carve_depth)
+        mean_carve = np.mean(final_carve_depth[final_carve_depth > 0.001]) if np.any(final_carve_depth > 0.001) else 0
+        print(f"Final max carve depth: {max_carve:.4f}")
+        print(f"Final mean carve depth: {mean_carve:.4f}")
+        print(f"Modified pixels: {np.sum(final_carve_depth > 0.001)}")
+        print("=== CANYON CARVING COMPLETE ===\n")
+        
+        return carved_terrain
+
     @staticmethod
     def _min_index(values: List) -> int:
         """Returns the index of the smallest value."""
