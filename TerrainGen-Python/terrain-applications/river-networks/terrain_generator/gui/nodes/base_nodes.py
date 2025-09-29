@@ -151,7 +151,7 @@ class FBMNode(TerrainBaseNode):
         self.add_output('heightfield', color=(150, 200, 150))
         
         # Add FBM parameters
-        self.add_text_input('scale', 'Scale', text='-2.0')
+        self.add_text_input('scale', 'Scale', text='-6.0')
         self.add_text_input('octaves', 'Octaves', text='6')
         self.add_text_input('persistence', 'Persistence', text='0.5')
         self.add_text_input('lacunarity', 'Lacunarity', text='2.0')
@@ -288,7 +288,7 @@ class DomainWarpNode(TerrainBaseNode):
         self.add_output('heightfield', color=(150, 200, 150))
         
         # Add domain warp parameters
-        self.add_text_input('offset_scale', 'Offset Scale', text='-2.0')
+        self.add_text_input('offset_scale', 'Offset Scale', text='-5.0')
         self.add_text_input('offset_lower', 'Offset Lower', text='1.5')
         self.add_text_input('offset_upper', 'Offset Upper', text='inf')
         self.add_text_input('offset_amplitude', 'Warp Strength', text='150.0')
@@ -340,7 +340,7 @@ class DomainWarpNode(TerrainBaseNode):
                   f"offset_amplitude={offset_amplitude}, seed={seed}")
             
             # Import the FBM noise generator
-            from ...core import ConsistentFBMNoise
+            from terrain_generator.core import ConsistentFBMNoise
             
             # Generate offset noise fields
             print(f"{self.name()}: Generating offset noise fields...")
