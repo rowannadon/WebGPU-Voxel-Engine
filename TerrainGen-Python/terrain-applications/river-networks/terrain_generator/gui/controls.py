@@ -345,7 +345,7 @@ class ControlPanel(QWidget):
         
         # Dimension control
         dim_control = ParameterControl(
-            "Dimension", 64, 4096, 1024, step=64, decimals=0
+            "Dimension", 64, 8192, 1024, step=64, decimals=0
         )
         self.controls['dimension'] = dim_control
         layout.addWidget(dim_control)
@@ -377,27 +377,12 @@ class ControlPanel(QWidget):
         self.fbm_widget.parametersChanged.connect(lambda: None)  # Connect if needed
         layout.addWidget(self.fbm_widget)
         
-        # Preview checkbox and button
+        # Preview checkbox (button lives near the main generate action)
         preview_layout = QHBoxLayout()
         self.preview_checkbox = QCheckBox("Quick Preview (no rivers)")
         self.preview_checkbox.stateChanged.connect(self.toggle_preview_mode)
         preview_layout.addWidget(self.preview_checkbox)
-        
-        self.preview_button = QPushButton("Generate Preview")
-        self.preview_button.setVisible(False)
-        self.preview_button.setStyleSheet("""
-            QPushButton { 
-                background-color: #FF9800; 
-                color: white; 
-                font-weight: bold; 
-                padding: 8px;
-                border-radius: 5px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-        """)
-        preview_layout.addWidget(self.preview_button)
+        preview_layout.addStretch()
         layout.addLayout(preview_layout)
         
         layout.setContentsMargins(12, 12, 12, 12)
@@ -957,6 +942,25 @@ class ControlPanel(QWidget):
     
     def create_generation_buttons(self, parent_layout):
         """Create generation buttons."""
+        button_row = QHBoxLayout()
+
+        self.preview_button = QPushButton("Generate Preview")
+        self.preview_button.setEnabled(True)
+        self.preview_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.preview_button.setStyleSheet("""
+            QPushButton { 
+                background-color: #FF9800; 
+                color: white; 
+                font-weight: bold; 
+                padding: 10px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+        """)
+        button_row.addWidget(self.preview_button)
+
         self.generate_button = QPushButton("Generate Terrain")
         self.generate_button.setEnabled(True)
         self.generate_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -972,7 +976,9 @@ class ControlPanel(QWidget):
                 background-color: #45a049;
             }
         """)
-        parent_layout.addWidget(self.generate_button)
+        button_row.addWidget(self.generate_button)
+
+        parent_layout.addLayout(button_row)
 
     def add_instructions(self, parent_layout):
         """Add instructions label."""
@@ -1008,14 +1014,13 @@ class ControlPanel(QWidget):
     
     def toggle_preview_mode(self, state):
         """Toggle preview mode."""
-        preview_enabled = (state == 2)
-        self.preview_button.setVisible(preview_enabled)
-        
+        preview_enabled = (state == Qt.Checked)
+
         if preview_enabled:
             self.generate_button.setText("Generate Full Terrain")
         else:
             self.generate_button.setText("Generate Terrain")
-    
+
     def toggle_variable_max_delta(self, state):
         """Toggle variable max delta controls."""
         show_controls = (state == 2)
@@ -1305,18 +1310,18 @@ class ControlPanel(QWidget):
         """Enable/disable generation controls during generation."""
         self.generate_button.setEnabled(enabled)
         if hasattr(self, 'preview_button'):
-            if self.preview_checkbox.isChecked():
-                self.preview_button.setEnabled(enabled)
-        
+            self.preview_button.setEnabled(enabled)
+
         if enabled:
             if hasattr(self, 'preview_checkbox') and self.preview_checkbox.isChecked():
                 self.generate_button.setText("Generate Full Terrain")
             else:
                 self.generate_button.setText("Generate Terrain")
-    
-    def set_export_enabled(self, enabled: bool):
+
+    def set_export_enabled(self, enabled: bool, *, heightmap_only: bool = False):
         """Enable/disable export controls."""
-        self.export_button.setEnabled(enabled)
+        allow_heightmap = enabled or heightmap_only
+        self.export_button.setEnabled(allow_heightmap)
         self.export_flow_button.setEnabled(enabled)
         self.export_watershed_button.setEnabled(enabled)
         self.export_deposition_button.setEnabled(enabled)
