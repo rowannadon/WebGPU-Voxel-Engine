@@ -338,7 +338,7 @@ class TerrainGeneratorWindow(QMainWindow):
         self.analysis_panel.export_all_computed_requested.connect(self.export_all_computed_overlays)
 
         # Node editor connections
-        self.node_editor_tab.set_terrain_viewport(self.terrain_viewport)
+        self.node_editor_tab.set_main_terrain_viewport(self.terrain_viewport)
         self.node_editor_tab.set_main_window(self)
         self.node_editor_tab.node_visualized.connect(self.on_node_visualized)
 

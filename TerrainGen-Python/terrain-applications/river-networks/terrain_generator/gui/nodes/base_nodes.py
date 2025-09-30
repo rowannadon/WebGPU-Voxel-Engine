@@ -41,8 +41,10 @@ class TerrainBaseNode(BaseNode):
         # Set the new value using parent's implementation with all kwargs
         super().set_property(name, value, **kwargs)
         
-        # Mark dirty if value actually changed (but not for internal properties like 'selected')
-        if old_value != value and not name.startswith('_'):
+        # Mark dirty if value actually changed
+        # IMPORTANT: Ignore UI/internal properties that don't affect computation
+        ui_properties = {'name', 'selected', 'pos', 'disabled', 'visible', 'color'}
+        if old_value != value and not name.startswith('_') and name not in ui_properties:
             self.mark_dirty()
     
     def mark_dirty(self):
