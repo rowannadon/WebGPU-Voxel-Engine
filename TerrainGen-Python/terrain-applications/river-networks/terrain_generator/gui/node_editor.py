@@ -1,7 +1,7 @@
 """Node editor widget for procedural terrain generation."""
 
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QMessageBox
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import pyqtSignal, QEvent, Qt
 from NodeGraphQt import NodeGraph
 from NodeGraphQt.constants import PipeLayoutEnum
 import numpy as np
@@ -77,6 +77,7 @@ class NodeEditorWidget(QWidget):
         
         # Set the graph widget as a child of our container
         graph_widget = self.node_graph.widget
+        graph_widget.installEventFilter(self)
         self.graph_layout.addWidget(graph_widget)
         
         # Configure the node graph appearance
@@ -247,7 +248,39 @@ class NodeEditorWidget(QWidget):
         """Handle node execution completion."""
         # Node execution finished - nothing special to do here
         pass
-    
+
+    def eventFilter(self, obj, event):
+        """Handle key events from the node graph widget."""
+        if self.node_graph and obj is self.node_graph.widget:
+            if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Delete:
+                self._delete_selected_nodes()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _delete_selected_nodes(self):
+        """Delete currently selected nodes, skipping protected ones."""
+        if not self.node_graph:
+            return
+
+        selected_nodes = list(self.node_graph.selected_nodes()) if hasattr(self.node_graph, 'selected_nodes') else []
+
+        # Fall back to older API naming if needed
+        if not selected_nodes and hasattr(self.node_graph, 'get_selected_nodes'):
+            selected_nodes = list(self.node_graph.get_selected_nodes())
+
+        if not selected_nodes:
+            return
+
+        for node in selected_nodes:
+            if hasattr(node, 'get_property'):
+                try:
+                    if node.get_property('_is_global'):
+                        continue
+                except Exception:
+                    # Ignore issues with property access, treat as deletable
+                    pass
+            self.node_graph.delete_node(node)
+
     def _on_nodes_deleted(self, nodes):
         """Prevent deletion of Map Properties node."""
         for node in nodes:
