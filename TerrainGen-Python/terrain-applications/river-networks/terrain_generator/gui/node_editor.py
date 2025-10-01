@@ -9,7 +9,7 @@ import numpy as np
 import time
 
 from ..visualization import TerrainViewport
-from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode
+from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode
 from .nodes.execution_widgets import NodeProgressBar, NodeExecutionLabel
 
 
@@ -82,6 +82,10 @@ class NodeEditorWidget(QWidget):
         self.add_domain_warp_btn = QPushButton("Add Domain Warp")
         self.add_domain_warp_btn.clicked.connect(self.add_domain_warp_node)
         toolbar_layout.addWidget(self.add_domain_warp_btn)
+
+        self.add_shape_btn = QPushButton("Add Shape")
+        self.add_shape_btn.clicked.connect(self.add_shape_node)
+        toolbar_layout.addWidget(self.add_shape_btn)
         
         toolbar_layout.addStretch()
         
@@ -158,6 +162,7 @@ class NodeEditorWidget(QWidget):
         self.node_graph.register_node(FBMNode)
         self.node_graph.register_node(CombineNode)
         self.node_graph.register_node(DomainWarpNode)
+        self.node_graph.register_node(ShapeNode)
     
     def create_map_properties_node(self):
         """Create the global Map Properties node."""
@@ -213,6 +218,16 @@ class NodeEditorWidget(QWidget):
             'terrain.DomainWarpNode',
             name='Domain Warp',
             pos=[200, 0]
+        )
+        self._setup_node_execution(node)
+        self._update_node_visual_state(node)
+
+    def add_shape_node(self):
+        """Add a Shape node to the graph."""
+        node = self.node_graph.create_node(
+            'terrain.ShapeNode',
+            name='Shape',
+            pos=[0, 0]
         )
         self._setup_node_execution(node)
         self._update_node_visual_state(node)
@@ -462,9 +477,8 @@ class NodeEditorWidget(QWidget):
     def _show_progress_bar(self, node):
         """Show progress bar for a node."""
         if node not in self.active_progress_bars:
+            # Progress bar is created as child of node.view
             progress_bar = NodeProgressBar(node.view)
-            scene = self.node_graph.scene()
-            scene.addItem(progress_bar)
             self.active_progress_bars[node] = progress_bar
             # Start as indeterminate (animated)
             progress_bar.set_indeterminate(True)
@@ -473,9 +487,10 @@ class NodeEditorWidget(QWidget):
         """Hide progress bar and optionally show execution time."""
         if node in self.active_progress_bars:
             progress_bar = self.active_progress_bars[node]
-            scene = progress_bar.scene()
-            if scene:
-                scene.removeItem(progress_bar)
+            # No need to manually remove from scene - it's a child of node_view
+            # Just clean up our reference and stop timers
+            if hasattr(progress_bar, 'animation_timer'):
+                progress_bar.animation_timer.stop()
             del self.active_progress_bars[node]
         
         # Show execution time label if provided
@@ -483,15 +498,11 @@ class NodeEditorWidget(QWidget):
             # Remove old label if exists for this specific node
             if node in self.active_execution_labels:
                 old_label = self.active_execution_labels[node]
-                scene = old_label.scene()
-                if scene:
-                    scene.removeItem(old_label)
+                # No need to manually remove - it's a child of node_view
                 del self.active_execution_labels[node]
             
-            # Create new label for this node
+            # Create new label as child of node_view
             label = NodeExecutionLabel(node.view, execution_time)
-            scene = self.node_graph.scene()
-            scene.addItem(label)
             self.active_execution_labels[node] = label
 
     def _execute_node_with_deps(self, node):
@@ -617,6 +628,18 @@ class NodeEditorWidget(QWidget):
     def _on_nodes_deleted(self, nodes):
         """Handle node deletion."""
         for node in nodes:
+            # Clean up our tracking dictionaries
+            # (The widgets themselves are children of node_view and will be auto-deleted)
+            if node in self.active_execution_labels:
+                del self.active_execution_labels[node]
+            
+            if node in self.active_progress_bars:
+                progress_bar = self.active_progress_bars[node]
+                if hasattr(progress_bar, 'animation_timer'):
+                    progress_bar.animation_timer.stop()
+                del self.active_progress_bars[node]
+            
+            # Handle special nodes
             if node == self.pinned_node:
                 self.pinned_node = None
                 self.unpin_btn.setEnabled(False)

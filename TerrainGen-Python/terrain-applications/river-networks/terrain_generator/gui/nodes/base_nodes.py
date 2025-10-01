@@ -281,6 +281,150 @@ class ConstantNode(TerrainBaseNode):
             raise
 
 
+class ShapeNode(TerrainBaseNode):
+    """Node that generates geometric shapes for use as masks."""
+    
+    # Node metadata
+    NODE_NAME = 'Shape'
+    
+    def __init__(self):
+        super().__init__()
+        self.set_name(self.NODE_NAME)
+        self.set_color(180, 120, 90)  # Orange/tan color for mask nodes
+        
+        # Add output port for heightfield/mask
+        self.add_output('heightfield', color=(150, 200, 150))
+        
+        # Shape type selector
+        self.add_combo_menu('shape_type', 'Shape', items=[
+            'Circle', 'Square', 'Triangle', 'Rounded Square'
+        ])
+        self.set_property('shape_type', 'Circle')
+        
+        # Position and scale parameters
+        self.add_text_input('scale', 'Scale', text='1.0')
+        self.add_text_input('offset_x', 'Offset X', text='0.0')
+        self.add_text_input('offset_y', 'Offset Y', text='0.0')
+        self.add_text_input('falloff', 'Falloff', text='0.1')
+    
+    def execute(self) -> Optional[np.ndarray]:
+        """Execute: generate shape mask."""
+        try:
+            print(f"{self.name()}: Starting execution")
+            
+            # Get dimension from global context
+            dim = self.context.get_resolution()
+            print(f"{self.name()}: Using global dimension: {dim}")
+            
+            # Parse parameters
+            shape_type = (self.get_property('shape_type') or 'Circle').strip().lower()
+            scale = float(self.get_property('scale'))
+            offset_x = float(self.get_property('offset_x'))
+            offset_y = float(self.get_property('offset_y'))
+            falloff = max(float(self.get_property('falloff')), 0.001)  # Avoid divide by zero
+            
+            print(f"{self.name()}: Parameters - shape={shape_type}, scale={scale}, "
+                  f"offset=({offset_x}, {offset_y}), falloff={falloff}")
+            
+            # Generate shape
+            print(f"{self.name()}: Generating shape...")
+            heightfield = self._generate_shape(
+                dim, shape_type, scale, offset_x, offset_y, falloff
+            )
+            
+            print(f"{self.name()}: Generated {dim}x{dim} shape mask, "
+                  f"range=[{heightfield.min():.3f}, {heightfield.max():.3f}]")
+            
+            self.set_output_data(heightfield)
+            self.signals.execution_finished.emit(self)
+            return heightfield
+            
+        except Exception as e:
+            print(f"{self.name()}: ERROR - {e}")
+            traceback.print_exc()
+            raise
+    
+    def _generate_shape(self, dim: int, shape_type: str, scale: float, 
+                       offset_x: float, offset_y: float, falloff: float) -> np.ndarray:
+        """Generate the specified shape with falloff."""
+        # Create coordinate grid centered at (0, 0)
+        # Scale coordinates so that the map spans [-1, 1] in both dimensions
+        y, x = np.meshgrid(
+            np.linspace(-1, 1, dim),
+            np.linspace(-1, 1, dim),
+            indexing='ij'
+        )
+        
+        # Apply offset (normalized coordinates, so offset of 1.0 moves by map width)
+        x = x - offset_x
+        y = y - offset_y
+        
+        # Generate distance field based on shape type
+        if shape_type == 'circle':
+            # Euclidean distance from center
+            dist = np.sqrt(x**2 + y**2)
+            # Radius in normalized coordinates (scale=1.0 means radius=1.0, touching edges)
+            radius = scale
+            
+        elif shape_type == 'square':
+            # Chebyshev distance (max of abs values)
+            dist = np.maximum(np.abs(x), np.abs(y))
+            radius = scale
+            
+        elif shape_type == 'triangle':
+            # Equilateral triangle pointing up
+            # Define three edges and take intersection
+            # Edge 1: bottom edge at y = -scale
+            # Edge 2: right diagonal
+            # Edge 3: left diagonal
+            
+            # Height of equilateral triangle with side 2*scale
+            height = scale * np.sqrt(3)
+            
+            # Distance from bottom edge
+            d1 = y + scale
+            
+            # Distance from right edge (normal: (-sqrt(3)/2, -1/2), passes through (scale, -scale))
+            # Distance = (normal . (point - point_on_line)) / |normal|
+            d2 = (-np.sqrt(3) * (x - scale) - (y + scale)) / 2.0
+            
+            # Distance from left edge (normal: (sqrt(3)/2, -1/2), passes through (-scale, -scale))
+            d3 = (np.sqrt(3) * (x + scale) - (y + scale)) / 2.0
+            
+            # Inside triangle when all distances are positive
+            # Distance to triangle is negative of minimum distance when inside
+            dist = -np.minimum(np.minimum(d1, d2), d3)
+            radius = 0  # Triangle has exact edges
+            
+        elif shape_type == 'rounded square':
+            # Square with rounded corners (superellipse)
+            # Use smooth approximation: (|x|^p + |y|^p)^(1/p) with p=4
+            p = 4.0
+            dist = (np.abs(x)**p + np.abs(y)**p)**(1.0/p)
+            radius = scale
+            
+        else:
+            raise ValueError(f"Unknown shape type: {shape_type}")
+        
+        # Convert distance field to mask with falloff
+        # Inside shape (dist < radius): value = 1.0
+        # At boundary (dist = radius): value = 0.5
+        # Outside shape (dist > radius + falloff): value = 0.0
+        
+        # Smooth transition using smoothstep function
+        # smoothstep(x) = 3x^2 - 2x^3 for x in [0, 1]
+        edge_dist = (dist - radius) / falloff
+        
+        # Clamp to [0, 1] range
+        edge_dist = np.clip(edge_dist, 0.0, 1.0)
+        
+        # Apply smoothstep for smooth falloff
+        # We want 1.0 inside and 0.0 outside, so invert the distance
+        mask = 1.0 - (3.0 * edge_dist**2 - 2.0 * edge_dist**3)
+        
+        return mask.astype(np.float32)
+
+
 class CombineNode(TerrainBaseNode):
     """Node that combines two heightfields using blend operations."""
 

@@ -10,7 +10,8 @@ from .base_nodes import (
     ConstantNode,
     FBMNode,
     CombineNode,
-    DomainWarpNode
+    DomainWarpNode,
+    ShapeNode  # Add this
 )
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     'FBMNode',
     'CombineNode',
     'DomainWarpNode',
+    'ShapeNode',  # Add this
 ]
