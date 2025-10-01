@@ -13,6 +13,7 @@ from .custom_node_view import CustomNodeItem
 class NodeSignals(QObject):
     """Signals for node execution."""
     execution_finished = pyqtSignal(object)  # Emits the node that finished
+    progress_updated = pyqtSignal(object, float)  # Emits (node, progress 0-1)
 
 
 class TerrainBaseNode(BaseNode):
@@ -34,6 +35,10 @@ class TerrainBaseNode(BaseNode):
         
         # Style the node
         self.set_color(80, 80, 120)
+    
+    def emit_progress(self, progress):
+        """Emit progress update (0.0 to 1.0)."""
+        self.signals.progress_updated.emit(self, progress)
     
     def set_property(self, name: str, value: Any, **kwargs):
         """Override to mark node as dirty when properties change."""

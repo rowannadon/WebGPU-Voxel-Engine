@@ -6,9 +6,11 @@ from PyQt5.QtCore import pyqtSignal, QEvent, Qt, QTimer
 from NodeGraphQt import NodeGraph
 from NodeGraphQt.constants import PipeLayoutEnum
 import numpy as np
+import time
 
 from ..visualization import TerrainViewport
 from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode
+from .nodes.execution_widgets import NodeProgressBar, NodeExecutionLabel
 
 
 class NodeEditorWidget(QWidget):
@@ -37,14 +39,18 @@ class NodeEditorWidget(QWidget):
         # Pin and auto-update system
         self.pinned_node = None
         self.auto_update_enabled = True
-        self.is_generating = False  # Spam protection
-        self.pending_update = False  # Track if update is queued
+        self.is_generating = False
+        self.pending_update = False
+        
+        # Progress tracking
+        self.active_progress_bars = {}  # node -> progress bar widget
+        self.active_execution_labels = {}  # node -> execution label widget
         
         # Debounce timer for parameter changes
         self.update_timer = QTimer()
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self._execute_pinned_node)
-        self.update_cooldown_ms = 500  # 500ms cooldown
+        self.update_cooldown_ms = 500
         
         self.setup_ui()
         self.setup_node_graph()
@@ -216,6 +222,7 @@ class NodeEditorWidget(QWidget):
         # Connect signals
         if hasattr(node, 'signals'):
             node.signals.execution_finished.connect(self._on_node_executed)
+            node.signals.progress_updated.connect(self._on_node_progress_updated)
         
         # Store the original name without any indicators
         if not hasattr(node, '_base_name'):
@@ -223,15 +230,10 @@ class NodeEditorWidget(QWidget):
         
         # Monitor property changes for auto-update
         if hasattr(node, 'set_property'):
-            # Store original set_property method
             original_set_property = node.set_property
             
-            # Wrap it to detect changes
             def wrapped_set_property(name, value, **kwargs):
                 result = original_set_property(name, value, **kwargs)
-                # Trigger auto-update if this node is upstream of pinned node
-                # IMPORTANT: Ignore 'name' property to avoid circular recursion
-                # Also ignore 'selected' and other internal properties
                 if not name.startswith('_') and name not in ('name', 'selected', 'pos'):
                     self._on_node_property_changed(node)
                 return result
@@ -452,6 +454,46 @@ class NodeEditorWidget(QWidget):
         
         return False
     
+    def _on_node_progress_updated(self, node, progress):
+        """Handle progress update from a node."""
+        if node in self.active_progress_bars:
+            self.active_progress_bars[node].set_progress(progress)
+    
+    def _show_progress_bar(self, node):
+        """Show progress bar for a node."""
+        if node not in self.active_progress_bars:
+            progress_bar = NodeProgressBar(node.view)
+            scene = self.node_graph.scene()
+            scene.addItem(progress_bar)
+            self.active_progress_bars[node] = progress_bar
+            # Start as indeterminate (animated)
+            progress_bar.set_indeterminate(True)
+    
+    def _hide_progress_bar(self, node, execution_time=None):
+        """Hide progress bar and optionally show execution time."""
+        if node in self.active_progress_bars:
+            progress_bar = self.active_progress_bars[node]
+            scene = progress_bar.scene()
+            if scene:
+                scene.removeItem(progress_bar)
+            del self.active_progress_bars[node]
+        
+        # Show execution time label if provided
+        if execution_time is not None and execution_time > 0.01:  # Only show if >10ms
+            # Remove old label if exists for this specific node
+            if node in self.active_execution_labels:
+                old_label = self.active_execution_labels[node]
+                scene = old_label.scene()
+                if scene:
+                    scene.removeItem(old_label)
+                del self.active_execution_labels[node]
+            
+            # Create new label for this node
+            label = NodeExecutionLabel(node.view, execution_time)
+            scene = self.node_graph.scene()
+            scene.addItem(label)
+            self.active_execution_labels[node] = label
+
     def _execute_node_with_deps(self, node):
         """Execute a node and all its dependencies recursively."""
         if not hasattr(node, '_is_dirty'):
@@ -478,14 +520,30 @@ class NodeEditorWidget(QWidget):
         print(f"Executing: {node._base_name}")
         self._update_node_visual_state(node, 'executing')
         
+        # Show progress bar
+        self._show_progress_bar(node)
+        
         try:
+            # Time the execution
+            start_time = time.time()
+            
             node.execute()
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
             output = node.get_output_data()
-            print(f"Executed {node._base_name}, output type: {type(output)}, "
+            print(f"Executed {node._base_name} in {execution_time:.3f}s, output type: {type(output)}, "
                 f"output shape: {output.shape if hasattr(output, 'shape') else 'N/A'}")
+            
+            # Hide progress bar and show execution time
+            self._hide_progress_bar(node, execution_time)
+            
             self._update_node_visual_state(node, 'cached')
+            
         except Exception as e:
             print(f"Error executing {node._base_name}: {e}")
+            self._hide_progress_bar(node)
             self._update_node_visual_state(node, 'error')
             raise
     
