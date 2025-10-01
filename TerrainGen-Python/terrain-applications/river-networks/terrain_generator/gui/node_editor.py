@@ -16,14 +16,14 @@ class NodeEditorWidget(QWidget):
     
     node_visualized = pyqtSignal(object)
     
-    # Cache state indicators (unicode symbols)
-    STATE_SYMBOLS = {
-        'clean': '⚪',      # Never executed
-        'cached': '🟢',    # Has cached result
-        'dirty': '🟡',     # Needs recompute
-        'executing': '🔵', # Currently executing
-        'error': '🔴',     # Error state
-        'pinned': '📍'     # Pinned for display
+    # Border colors for different node states (R, G, B)
+    BORDER_COLORS = {
+        'clean': (80, 80, 80),      # Default gray - never executed
+        'cached': (0, 200, 0),       # Green - has cached result
+        'dirty': (255, 200, 0),      # Yellow/amber - needs recompute
+        'executing': (100, 150, 255), # Light blue - currently executing
+        'error': (255, 50, 50),      # Red - error state
+        'pinned': (0, 150, 255),     # Blue - pinned for display (takes precedence)
     }
     
     def __init__(self, parent=None):
@@ -55,36 +55,10 @@ class NodeEditorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # Toolbar at the top
+        # Toolbar
         toolbar = QWidget()
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(8, 8, 8, 8)
-        
-        title_label = QLabel("<b>Terrain Node Graph</b>")
-        toolbar_layout.addWidget(title_label)
-        
-        # Auto-update toggle
-        self.auto_update_checkbox = QCheckBox("Auto-Update")
-        self.auto_update_checkbox.setChecked(True)
-        self.auto_update_checkbox.setToolTip(
-            "Automatically update visualization when pinned node or upstream changes"
-        )
-        self.auto_update_checkbox.stateChanged.connect(self._on_auto_update_toggled)
-        toolbar_layout.addWidget(self.auto_update_checkbox)
-        
-        # Unpin button
-        self.unpin_btn = QPushButton("Unpin")
-        self.unpin_btn.setEnabled(False)
-        self.unpin_btn.clicked.connect(self._unpin_node)
-        self.unpin_btn.setToolTip("Unpin current display node")
-        toolbar_layout.addWidget(self.unpin_btn)
-        
-        # Clear cache button
-        self.clear_cache_btn = QPushButton("Clear Cache")
-        self.clear_cache_btn.clicked.connect(self._clear_all_caches)
-        toolbar_layout.addWidget(self.clear_cache_btn)
-        
-        toolbar_layout.addStretch()
+        toolbar_layout.setContentsMargins(5, 5, 5, 5)
         
         # Add node buttons
         self.add_fbm_btn = QPushButton("Add FBM")
@@ -99,12 +73,32 @@ class NodeEditorWidget(QWidget):
         self.add_combine_btn.clicked.connect(self.add_combine_node)
         toolbar_layout.addWidget(self.add_combine_btn)
 
-        self.add_warp_btn = QPushButton("Add Domain Warp")
-        self.add_warp_btn.clicked.connect(self.add_domain_warp_node)
-        toolbar_layout.addWidget(self.add_warp_btn)
+        self.add_domain_warp_btn = QPushButton("Add Domain Warp")
+        self.add_domain_warp_btn.clicked.connect(self.add_domain_warp_node)
+        toolbar_layout.addWidget(self.add_domain_warp_btn)
         
-        self.clear_btn = QPushButton("Clear Graph")
-        self.clear_btn.clicked.connect(self.clear_graph)
+        toolbar_layout.addStretch()
+        
+        # Auto-update checkbox
+        self.auto_update_checkbox = QCheckBox("Auto-Update")
+        self.auto_update_checkbox.setChecked(True)
+        self.auto_update_checkbox.stateChanged.connect(self._on_auto_update_toggled)
+        toolbar_layout.addWidget(self.auto_update_checkbox)
+        
+        # Unpin button
+        self.unpin_btn = QPushButton("Unpin Display")
+        self.unpin_btn.clicked.connect(self._unpin_node)
+        self.unpin_btn.setEnabled(False)
+        toolbar_layout.addWidget(self.unpin_btn)
+        
+        # Clear cache button
+        self.clear_btn = QPushButton("Clear All Caches")
+        self.clear_btn.clicked.connect(self._clear_all_caches)
+        toolbar_layout.addWidget(self.clear_btn)
+        
+        # Clear graph button
+        self.clear_graph_btn = QPushButton("Clear Graph")
+        self.clear_graph_btn.clicked.connect(self.clear_graph)
         toolbar_layout.addWidget(self.clear_btn)
         
         layout.addWidget(toolbar)
@@ -147,9 +141,6 @@ class NodeEditorWidget(QWidget):
         self.node_graph.node_double_clicked.connect(self._on_node_double_clicked)
         self.node_graph.nodes_deleted.connect(self._on_nodes_deleted)
         
-        # Property changed signal requires connection at node level
-        # We'll set this up when nodes are created
-        
         # Register and create nodes
         self.register_nodes()
         self.create_map_properties_node()
@@ -170,7 +161,7 @@ class NodeEditorWidget(QWidget):
             pos=[-300, 0]
         )
         self._setup_node_execution(self.map_properties_node)
-        self._update_node_cache_indicator(self.map_properties_node)
+        self._update_node_visual_state(self.map_properties_node)
     
     def set_main_terrain_viewport(self, viewport):
         """Set reference to the main terrain viewport for syncing."""
@@ -188,7 +179,7 @@ class NodeEditorWidget(QWidget):
             pos=[0, 0]
         )
         self._setup_node_execution(node)
-        self._update_node_cache_indicator(node)
+        self._update_node_visual_state(node)
     
     def add_constant_node(self):
         """Add a Constant node to the graph."""
@@ -198,7 +189,7 @@ class NodeEditorWidget(QWidget):
             pos=[0, 0]
         )
         self._setup_node_execution(node)
-        self._update_node_cache_indicator(node)
+        self._update_node_visual_state(node)
 
     def add_combine_node(self):
         """Add a Combine node to the graph."""
@@ -208,7 +199,7 @@ class NodeEditorWidget(QWidget):
             pos=[100, 0]
         )
         self._setup_node_execution(node)
-        self._update_node_cache_indicator(node)
+        self._update_node_visual_state(node)
 
     def add_domain_warp_node(self):
         """Add a Domain Warp node to the graph."""
@@ -218,13 +209,17 @@ class NodeEditorWidget(QWidget):
             pos=[200, 0]
         )
         self._setup_node_execution(node)
-        self._update_node_cache_indicator(node)
+        self._update_node_visual_state(node)
     
     def _setup_node_execution(self, node):
         """Setup execution for a node."""
         # Connect signals
         if hasattr(node, 'signals'):
             node.signals.execution_finished.connect(self._on_node_executed)
+        
+        # Store the original name without any indicators
+        if not hasattr(node, '_base_name'):
+            node._base_name = node.name()
         
         # Monitor property changes for auto-update
         if hasattr(node, 'set_property'):
@@ -263,11 +258,11 @@ class NodeEditorWidget(QWidget):
             # Visualize result
             output_data = node.get_output_data()
             if output_data is not None and isinstance(output_data, np.ndarray):
-                self._visualize_heightfield(output_data, node.name())
+                self._visualize_heightfield(output_data, node._base_name)
                 QMessageBox.information(
                     self,
                     "Node Pinned",
-                    f"Node '{node.name()}' pinned and visualized!\n"
+                    f"Node '{node._base_name}' pinned and visualized!\n"
                     f"Output shape: {output_data.shape}\n"
                     f"Range: [{output_data.min():.3f}, {output_data.max():.3f}]"
                 )
@@ -276,16 +271,16 @@ class NodeEditorWidget(QWidget):
                 QMessageBox.information(
                     self,
                     "Node Pinned",
-                    f"Node '{node.name()}' pinned!\n"
+                    f"Node '{node._base_name}' pinned!\n"
                     f"(No heightfield output to visualize)"
                 )
                 
         except Exception as e:
-            self._update_node_cache_indicator(node, 'error')
+            self._update_node_visual_state(node, 'error')
             QMessageBox.critical(
                 self,
                 "Execution Error",
-                f"Error executing node '{node.name()}':\n{str(e)}"
+                f"Error executing node '{node._base_name}':\n{str(e)}"
             )
         finally:
             self.is_generating = False
@@ -294,41 +289,82 @@ class NodeEditorWidget(QWidget):
         """Pin a node for display."""
         # Unpin previous node
         if self.pinned_node is not None:
-            self._update_node_cache_indicator(self.pinned_node)
+            self._update_node_visual_state(self.pinned_node)
         
         # Pin new node
         self.pinned_node = node
-        self._update_node_cache_indicator(node)
+        self._update_node_visual_state(node)
         
         # Update UI
         self.unpin_btn.setEnabled(True)
         self._update_status_bar()
         
-        print(f"Pinned node: {node.name()}")
+        print(f"Pinned node: {node._base_name}")
 
     def _unpin_node(self):
         """Unpin the current node."""
         if self.pinned_node is not None:
-            self._update_node_cache_indicator(self.pinned_node)
-            print(f"Unpinned node: {self.pinned_node.name()}")
+            self._update_node_visual_state(self.pinned_node)
+            print(f"Unpinned node: {self.pinned_node._base_name}")
             self.pinned_node = None
         
         self.unpin_btn.setEnabled(False)
         self._update_status_bar()
 
-    def _set_node_border(self, node, color):
-        """Set node border color (placeholder - NodeGraphQt doesn't support this easily)."""
-        # This method can be removed, or kept as a placeholder for future implementation
-        pass
-    
-    def _set_node_border(self, node, color):
-        """Set node border color (red outline for pinned)."""
-        if color is not None:
-            r, g, b = color
-            node.set_border_color(r, g, b, 255)
+    def _update_node_visual_state(self, node, cache_state=None):
+        """
+        Update the visual state of a node (border color and width).
+        Pinned state takes precedence over cache state.
+        
+        Args:
+            node: The node to update
+            cache_state: Optional explicit cache state ('cached', 'dirty', 'error', etc.)
+                        If None, infer from node properties
+        """
+        # Check if this is the pinned node - pinned state has highest priority
+        is_pinned = (node == self.pinned_node)
+        
+        if is_pinned:
+            color = self.BORDER_COLORS['pinned']
+            border_width = 4.0  # Extra thick for pinned
         else:
-            # Reset to default border
-            node.set_border_color(80, 80, 80, 255)
+            # Determine cache state if not provided
+            if cache_state is None:
+                if hasattr(node, '_cached_output'):
+                    if node._cached_output is not None and not node._is_dirty:
+                        cache_state = 'cached'
+                    elif node._is_dirty:
+                        cache_state = 'dirty'
+                    else:
+                        cache_state = 'clean'
+                else:
+                    cache_state = 'clean'
+            
+            # Get border color based on cache state
+            color = self.BORDER_COLORS.get(cache_state, self.BORDER_COLORS['clean'])
+            
+            # Set border width based on state
+            if cache_state == 'error':
+                border_width = 3.0  # Thick for errors
+            elif cache_state == 'executing':
+                border_width = 2.5  # Medium-thick for executing
+            elif cache_state in ['cached', 'dirty']:
+                border_width = 2.0  # Visible for active states
+            else:
+                border_width = 1.2  # Default for clean
+        
+        # Set the border color and width on the view
+        r, g, b = color
+        if hasattr(node, 'view'):
+            # Set border color on view with full alpha
+            node.view.border_color = (r, g, b, 255)
+            # Set custom border width
+            if hasattr(node.view, 'set_border_width'):
+                node.view.set_border_width(border_width)
+            # Also set on model to keep them in sync
+            node.model.border_color = (r, g, b, 255)
+            # Force the view to redraw
+            node.view.update()
     
     def _update_status_bar(self):
         """Update the status bar text."""
@@ -337,7 +373,7 @@ class NodeEditorWidget(QWidget):
         else:
             auto_status = "Auto-Update ON" if self.auto_update_enabled else "Auto-Update OFF"
             self.status_bar.setText(
-                f"Display: {self.pinned_node.name()} (Pinned) - {auto_status}"
+                f"Display: {self.pinned_node._base_name} (Pinned) - {auto_status}"
             )
     
     def _on_node_property_changed(self, node):
@@ -345,7 +381,7 @@ class NodeEditorWidget(QWidget):
         # Mark node as dirty
         if hasattr(node, 'mark_dirty'):
             node.mark_dirty()
-            self._update_node_cache_indicator(node)
+            self._update_node_visual_state(node)
         
         # Check if we need to auto-update
         if self.auto_update_enabled and self.pinned_node is not None:
@@ -369,44 +405,36 @@ class NodeEditorWidget(QWidget):
     
     def _execute_pinned_node(self):
         """Execute the pinned node (called after cooldown)."""
-        if self.pinned_node is None or not self.auto_update_enabled:
+        if self.pinned_node is None or self.is_generating:
             return
-        
-        if self.is_generating:
-            # Still generating, skip this update
-            print("Update skipped: still generating")
-            self.pending_update = True
-            return
-        
-        self.pending_update = False
         
         try:
             self.is_generating = True
+            self.pending_update = False
+            
+            # Execute the pinned node
             self._execute_node_with_deps(self.pinned_node)
             
-            # Visualize result
+            # Update visualization
             output_data = self.pinned_node.get_output_data()
             if output_data is not None and isinstance(output_data, np.ndarray):
-                self._visualize_heightfield(output_data, self.pinned_node.name())
+                self._visualize_heightfield(output_data, self.pinned_node._base_name)
             
         except Exception as e:
-            self._update_node_cache_indicator(self.pinned_node, 'error')
-            print(f"Error executing pinned node: {e}")
+            print(f"Auto-update error: {e}")
+            self._update_node_visual_state(self.pinned_node, 'error')
         finally:
             self.is_generating = False
             
-            # Process pending update if one was queued
+            # Check if another update was queued during execution
             if self.pending_update:
                 self._schedule_auto_update()
     
-    def _is_upstream_of(self, source_node, target_node):
-        """Check if source_node is upstream of target_node in the dependency graph."""
-        if source_node == target_node:
-            return True
-        
-        # BFS to check if there's a path from source to target
+    def _is_upstream_of(self, node, target_node):
+        """Check if node is upstream of target_node in the graph."""
+        # BFS to check if there's a path from node to target_node
         visited = set()
-        queue = [source_node]
+        queue = [node]
         
         while queue:
             current = queue.pop(0)
@@ -414,7 +442,7 @@ class NodeEditorWidget(QWidget):
                 continue
             visited.add(current)
             
-            # Check downstream connections
+            # Check all output connections
             for output_port in current.output_ports():
                 for connected_port in output_port.connected_ports():
                     downstream_node = connected_port.node()
@@ -425,20 +453,18 @@ class NodeEditorWidget(QWidget):
         return False
     
     def _execute_node_with_deps(self, node):
-        """
-        Smart execution: only execute dirty nodes in dependency chain.
-        """
+        """Execute a node and all its dependencies recursively."""
         if not hasattr(node, '_is_dirty'):
             # Not a TerrainBaseNode, execute directly
-            print(f"Executing non-terrain node: {node.name()}")
+            print(f"Executing non-terrain node: {node._base_name}")
             node.execute()
-            self._update_node_cache_indicator(node, 'cached')
+            self._update_node_visual_state(node, 'cached')
             return
         
         # If cached and not dirty, no need to execute
         if not node._is_dirty and node._cached_output is not None:
-            print(f"Using cached result for: {node.name()}")
-            self._update_node_cache_indicator(node, 'cached')
+            print(f"Using cached result for: {node._base_name}")
+            self._update_node_visual_state(node, 'cached')
             return
         
         # Execute upstream dependencies first (only if dirty)
@@ -449,55 +475,19 @@ class NodeEditorWidget(QWidget):
                     self._execute_node_with_deps(upstream_node)
         
         # Now execute this node
-        print(f"Executing: {node.name()}")
-        self._update_node_cache_indicator(node, 'executing')
+        print(f"Executing: {node._base_name}")
+        self._update_node_visual_state(node, 'executing')
         
         try:
             node.execute()
             output = node.get_output_data()
-            print(f"Executed {node.name()}, output type: {type(output)}, "
+            print(f"Executed {node._base_name}, output type: {type(output)}, "
                 f"output shape: {output.shape if hasattr(output, 'shape') else 'N/A'}")
-            self._update_node_cache_indicator(node, 'cached')
+            self._update_node_visual_state(node, 'cached')
         except Exception as e:
-            print(f"Error executing {node.name()}: {e}")
-            self._update_node_cache_indicator(node, 'error')
+            print(f"Error executing {node._base_name}: {e}")
+            self._update_node_visual_state(node, 'error')
             raise
-    
-    def _update_node_cache_indicator(self, node, state=None):
-        """
-        Update the cache state indicator for a node.
-        If state is None, infer from node properties.
-        """
-        if not hasattr(node, 'set_name'):
-            return
-        
-        # Get base name (remove any existing indicators)
-        base_name = node.name()
-        for symbol in self.STATE_SYMBOLS.values():
-            base_name = base_name.replace(symbol, '').strip()
-        
-        # Determine state if not provided
-        if state is None:
-            if hasattr(node, '_cached_output'):
-                if node._cached_output is not None and not node._is_dirty:
-                    state = 'cached'
-                elif node._is_dirty:
-                    state = 'dirty'
-                else:
-                    state = 'clean'
-            else:
-                state = 'clean'
-        
-        # Get symbol
-        symbol = self.STATE_SYMBOLS.get(state, '⚪')
-        
-        # Add pinned indicator if this is the pinned node
-        if node == self.pinned_node:
-            symbol = f"{self.STATE_SYMBOLS['pinned']} {symbol}"
-        
-        # Update node name with indicator
-        new_name = f"{symbol} {base_name}"
-        node.set_name(new_name)
     
     def _clear_all_caches(self):
         """Clear all node caches."""
@@ -509,7 +499,7 @@ class NodeEditorWidget(QWidget):
             if hasattr(node, '_cached_output'):
                 node._cached_output = None
                 node._is_dirty = True
-                self._update_node_cache_indicator(node, 'dirty')
+                self._update_node_visual_state(node, 'dirty')
                 count += 1
         
         print(f"Cleared {count} node caches")
@@ -518,7 +508,7 @@ class NodeEditorWidget(QWidget):
     
     def _on_node_executed(self, node):
         """Handle node execution completion."""
-        self._update_node_cache_indicator(node, 'cached')
+        self._update_node_visual_state(node, 'cached')
     
     def _visualize_heightfield(self, heightfield: np.ndarray, node_name: str):
         """Visualize a heightfield in both viewports."""
@@ -566,6 +556,18 @@ class NodeEditorWidget(QWidget):
         print(f"Visualized {node_name}: {dim}x{dim}, range=[{h_min:.3f}, {h_max:.3f}]")
         self.node_visualized.emit(node_name)
     
+    def _on_nodes_deleted(self, nodes):
+        """Handle node deletion."""
+        for node in nodes:
+            if node == self.pinned_node:
+                self.pinned_node = None
+                self.unpin_btn.setEnabled(False)
+                self._update_status_bar()
+            
+            if node == self.map_properties_node:
+                print("Warning: Map Properties node was deleted!")
+                self.map_properties_node = None
+    
     def eventFilter(self, obj, event):
         """Handle key events from the node graph widget."""
         if self.node_graph and obj is self.node_graph.widget:
@@ -579,70 +581,48 @@ class NodeEditorWidget(QWidget):
         if not self.node_graph:
             return
         
-        selected_nodes = list(self.node_graph.selected_nodes()) if hasattr(self.node_graph, 'selected_nodes') else []
+        selected = self.node_graph.selected_nodes()
+        protected_nodes = [self.map_properties_node]
         
-        if not selected_nodes and hasattr(self.node_graph, 'get_selected_nodes'):
-            selected_nodes = list(self.node_graph.get_selected_nodes())
-        
-        if not selected_nodes:
-            return
-        
-        for node in selected_nodes:
-            # Check if this is the pinned node
+        for node in selected:
+            if node in protected_nodes:
+                print(f"Cannot delete protected node: {node._base_name if hasattr(node, '_base_name') else node.name()}")
+                continue
+            
+            # Check if it's the pinned node
             if node == self.pinned_node:
-                self._unpin_node()
+                self.pinned_node = None
+                self.unpin_btn.setEnabled(False)
+                self._update_status_bar()
             
-            # Check if it's a protected global node
-            if hasattr(node, 'get_property'):
-                try:
-                    if node.get_property('_is_global'):
-                        continue
-                except Exception:
-                    pass
-            
+            # Delete the node
             self.node_graph.delete_node(node)
-    
-    def _on_nodes_deleted(self, nodes):
-        """Prevent deletion of Map Properties node."""
-        for node in nodes:
-            if hasattr(node, 'get_property'):
-                try:
-                    if node.get_property('_is_global'):
-                        # Re-create the Map Properties node if it was deleted
-                        self.create_map_properties_node()
-                        QMessageBox.warning(
-                            self,
-                            "Cannot Delete",
-                            "Map Properties node cannot be deleted. It has been restored."
-                        )
-                        break
-                except:
-                    pass
     
     def clear_graph(self):
-        """Clear all nodes from the graph except Map Properties."""
-        # Unpin if pinned node is being cleared
-        if self.pinned_node is not None:
-            self._unpin_node()
+        """Clear the entire graph except the Map Properties node."""
+        if not self.node_graph:
+            return
         
-        # Get all nodes except Map Properties
-        all_nodes = self.node_graph.all_nodes()
-        nodes_to_delete = []
+        reply = QMessageBox.question(
+            self,
+            "Clear Graph",
+            "Are you sure you want to clear the entire node graph?\n"
+            "(Map Properties node will be preserved)",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
         
-        for node in all_nodes:
-            if hasattr(node, 'get_property'):
-                try:
-                    if not node.get_property('_is_global'):
-                        nodes_to_delete.append(node)
-                except:
-                    nodes_to_delete.append(node)
-            else:
-                nodes_to_delete.append(node)
-        
-        # Delete non-global nodes
-        for node in nodes_to_delete:
-            self.node_graph.delete_node(node)
-    
-    def get_graph(self):
-        """Get the node graph instance."""
-        return self.node_graph
+        if reply == QMessageBox.Yes:
+            # Get all nodes except Map Properties
+            all_nodes = self.node_graph.all_nodes()
+            for node in all_nodes:
+                if node != self.map_properties_node:
+                    # Unpin if necessary
+                    if node == self.pinned_node:
+                        self.pinned_node = None
+                        self.unpin_btn.setEnabled(False)
+                    
+                    self.node_graph.delete_node(node)
+            
+            self._update_status_bar()
+            print("Graph cleared")

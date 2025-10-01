@@ -7,6 +7,7 @@ from NodeGraphQt import BaseNode
 from PyQt5.QtCore import pyqtSignal, QObject
 
 from .context import get_global_context
+from .custom_node_view import CustomNodeItem
 
 
 class NodeSignals(QObject):
@@ -21,11 +22,15 @@ class TerrainBaseNode(BaseNode):
     __identifier__ = 'terrain'
     
     def __init__(self):
-        super().__init__()
+        # Use custom node item with dynamic border support
+        super().__init__(qgraphics_item=CustomNodeItem)
         self.signals = NodeSignals()
         self._cached_output = None
         self._is_dirty = True
         self.context = get_global_context()
+        
+        # Store the clean base name
+        self._base_name = self.NODE_NAME if hasattr(self, 'NODE_NAME') else 'Node'
         
         # Style the node
         self.set_color(80, 80, 120)
@@ -53,7 +58,6 @@ class TerrainBaseNode(BaseNode):
         self._cached_output = None
         
         # Mark all downstream nodes as dirty
-        # output_ports() returns a list of Port objects
         for output_port in self.output_ports():
             for connected_port in output_port.connected_ports():
                 connected_node = connected_port.node()
