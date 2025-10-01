@@ -5,3 +5,4 @@ build/_deps/dawn-subbuild
 .vs
 *__pycache__*
 resources/terrain
+TerrainGen-Python/terrain-applications/river-networks/.venv
