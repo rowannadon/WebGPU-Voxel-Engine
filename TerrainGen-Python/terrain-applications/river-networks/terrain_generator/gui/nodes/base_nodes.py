@@ -222,7 +222,7 @@ class FBMNode(TerrainBaseNode):
 
 class ConstantNode(TerrainBaseNode):
     """Node that creates a constant heightfield."""
-    
+
     # Node metadata
     NODE_NAME = 'Constant'
     
@@ -270,6 +270,152 @@ class ConstantNode(TerrainBaseNode):
             print(f"{self.name()}: ERROR - {e}")
             traceback.print_exc()
             raise
+
+
+class CombineNode(TerrainBaseNode):
+    """Node that combines two heightfields using blend operations."""
+
+    NODE_NAME = 'Combine'
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(self.NODE_NAME)
+        self.set_color(140, 90, 130)
+
+        # Inputs: two mandatory heightfields and optional mask
+        self.add_input('heightfield_a', color=(150, 200, 150))
+        self.add_input('heightfield_b', color=(150, 200, 150))
+        self.add_input('mask', color=(200, 200, 200))
+
+        # Output heightfield
+        self.add_output('heightfield', color=(150, 200, 150))
+
+        # Operation selector and related parameters
+        self.add_combo_menu('operation', 'Operation', items=[
+            'Fade', 'Add', 'Subtract', 'Multiply', 'Divide',
+            'Smooth Max', 'Smooth Min', 'Pow'
+        ])
+        self.set_property('operation', 'Fade')
+
+        self.add_text_input('fade_amount', 'Fade Amount', text='0.5')
+        self.add_text_input('smoothness', 'Smoothness', text='5.0')
+        self.add_text_input('divide_epsilon', 'Divide Epsilon', text='1e-5')
+
+    def execute(self) -> Optional[np.ndarray]:
+        """Execute: combine two heightfields."""
+        try:
+            print(f"{self.name()}: Starting execution")
+
+            height_a = self._get_input_array('heightfield_a', required=True)
+            height_b = self._get_input_array('heightfield_b', required=True)
+            mask = self._get_input_array('mask', required=False)
+
+            if height_a.shape != height_b.shape:
+                raise ValueError("Input heightfields must have the same shape")
+
+            height_a = height_a.astype(np.float32, copy=False)
+            height_b = height_b.astype(np.float32, copy=False)
+
+            mask_array = self._prepare_mask(mask, height_a.shape)
+
+            operation = (self.get_property('operation') or 'Fade').strip().lower()
+            combined = self._apply_operation(operation, height_a, height_b)
+
+            # Blend result based on mask intensity
+            result = height_a + mask_array * (combined - height_a)
+
+            self.set_output_data(result)
+            self.signals.execution_finished.emit(self)
+            return result
+
+        except Exception as e:
+            print(f"{self.name()}: ERROR - {e}")
+            traceback.print_exc()
+            raise
+
+    def _get_input_array(self, port_name: str, required: bool) -> Optional[np.ndarray]:
+        """Fetch input data from a port, executing upstream nodes if needed."""
+        port = self.inputs().get(port_name)
+        if port is None:
+            raise ValueError(f"Port '{port_name}' not found")
+
+        connected_ports = port.connected_ports()
+        if not connected_ports:
+            if required:
+                raise ValueError(f"Input '{port_name}' is not connected")
+            return None
+
+        source_port = connected_ports[0]
+        source_node = source_port.node()
+
+        if isinstance(source_node, TerrainBaseNode):
+            if source_node._is_dirty:
+                source_node.execute()
+            data = source_node.get_output_data()
+        else:
+            raise ValueError(f"Connected node for '{port_name}' is not a terrain node")
+
+        if data is None:
+            raise ValueError(f"No data received from '{port_name}'")
+
+        if not isinstance(data, np.ndarray):
+            raise ValueError(f"Input '{port_name}' must be a numpy array")
+
+        return data
+
+    def _prepare_mask(self, mask: Optional[np.ndarray], target_shape) -> np.ndarray:
+        """Prepare mask array ensuring correct shape and range."""
+        if mask is None:
+            return np.ones(target_shape, dtype=np.float32)
+
+        if mask.shape != target_shape:
+            raise ValueError("Mask shape must match heightfield shape")
+
+        original_dtype = mask.dtype
+        mask_array = mask.astype(np.float32, copy=False)
+
+        if np.issubdtype(original_dtype, np.integer):
+            mask_array = mask_array / 255.0
+
+        mask_array = np.clip(mask_array, 0.0, 1.0)
+        return mask_array
+
+    def _apply_operation(self, operation: str, height_a: np.ndarray, height_b: np.ndarray) -> np.ndarray:
+        """Apply combination operation between two heightfields."""
+        if operation == 'fade':
+            fade_amount = float(self.get_property('fade_amount'))
+            fade_amount = float(np.clip(fade_amount, 0.0, 1.0))
+            return (1.0 - fade_amount) * height_a + fade_amount * height_b
+
+        if operation == 'add':
+            return height_a + height_b
+
+        if operation == 'subtract':
+            return height_a - height_b
+
+        if operation == 'multiply':
+            return height_a * height_b
+
+        if operation == 'divide':
+            epsilon = abs(float(self.get_property('divide_epsilon')))
+            epsilon = epsilon if epsilon > 0 else 1e-6
+            safe_sign = np.where(height_b >= 0.0, 1.0, -1.0)
+            safe_denominator = np.where(np.abs(height_b) < epsilon, safe_sign * epsilon, height_b)
+            return height_a / safe_denominator
+
+        if operation == 'smooth max':
+            smoothness = max(abs(float(self.get_property('smoothness'))), 1e-6)
+            return np.logaddexp(smoothness * height_a, smoothness * height_b) / smoothness
+
+        if operation == 'smooth min':
+            smoothness = max(abs(float(self.get_property('smoothness'))), 1e-6)
+            return -np.logaddexp(-smoothness * height_a, -smoothness * height_b) / smoothness
+
+        if operation == 'pow':
+            safe_base = np.clip(height_a, 1e-6, None)
+            return np.power(safe_base, height_b)
+
+        raise ValueError(f"Unsupported operation '{operation}'")
 
 
 class DomainWarpNode(TerrainBaseNode):

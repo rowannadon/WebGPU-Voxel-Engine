@@ -8,7 +8,7 @@ from NodeGraphQt.constants import PipeLayoutEnum
 import numpy as np
 
 from ..visualization import TerrainViewport
-from .nodes import MapPropertiesNode, ConstantNode, FBMNode, DomainWarpNode
+from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode
 
 
 class NodeEditorWidget(QWidget):
@@ -94,7 +94,11 @@ class NodeEditorWidget(QWidget):
         self.add_constant_btn = QPushButton("Add Constant")
         self.add_constant_btn.clicked.connect(self.add_constant_node)
         toolbar_layout.addWidget(self.add_constant_btn)
-        
+
+        self.add_combine_btn = QPushButton("Add Combine")
+        self.add_combine_btn.clicked.connect(self.add_combine_node)
+        toolbar_layout.addWidget(self.add_combine_btn)
+
         self.add_warp_btn = QPushButton("Add Domain Warp")
         self.add_warp_btn.clicked.connect(self.add_domain_warp_node)
         toolbar_layout.addWidget(self.add_warp_btn)
@@ -155,6 +159,7 @@ class NodeEditorWidget(QWidget):
         self.node_graph.register_node(MapPropertiesNode)
         self.node_graph.register_node(ConstantNode)
         self.node_graph.register_node(FBMNode)
+        self.node_graph.register_node(CombineNode)
         self.node_graph.register_node(DomainWarpNode)
     
     def create_map_properties_node(self):
@@ -194,7 +199,17 @@ class NodeEditorWidget(QWidget):
         )
         self._setup_node_execution(node)
         self._update_node_cache_indicator(node)
-    
+
+    def add_combine_node(self):
+        """Add a Combine node to the graph."""
+        node = self.node_graph.create_node(
+            'terrain.CombineNode',
+            name='Combine',
+            pos=[100, 0]
+        )
+        self._setup_node_execution(node)
+        self._update_node_cache_indicator(node)
+
     def add_domain_warp_node(self):
         """Add a Domain Warp node to the graph."""
         node = self.node_graph.create_node(
