@@ -8,7 +8,8 @@ class NodeProgressBar(QtWidgets.QGraphicsRectItem):
     """Progress bar that appears above a node during execution."""
     
     def __init__(self, node_view, parent=None):
-        super().__init__(parent)
+        # CRITICAL: Make this a child of node_view so it moves with the node
+        super().__init__(node_view)
         self.node_view = node_view
         self.progress = 0.0  # 0.0 to 1.0
         
@@ -19,7 +20,7 @@ class NodeProgressBar(QtWidgets.QGraphicsRectItem):
         self.progress_color = QtGui.QColor(255, 200, 0, 255)  # Yellow
         self.border_color = QtGui.QColor(100, 100, 100, 255)
         
-        # Position above node
+        # Position above node (in LOCAL coordinates relative to parent)
         self.setZValue(1000)  # High z-value to appear on top
         self.update_position()
         
@@ -30,13 +31,12 @@ class NodeProgressBar(QtWidgets.QGraphicsRectItem):
         self.is_indeterminate = False
     
     def update_position(self):
-        """Position the bar above the node in scene coordinates."""
+        """Position the bar above the node in LOCAL coordinates."""
         if self.node_view:
             node_rect = self.node_view.boundingRect()
-            # Get the node's position in scene coordinates
-            node_scene_pos = self.node_view.scenePos()
-            x = node_scene_pos.x() + node_rect.center().x() - (self.bar_width / 2)
-            y = node_scene_pos.y() + node_rect.top() - self.bar_height - 8
+            # Use LOCAL coordinates (relative to parent node_view)
+            x = node_rect.center().x() - (self.bar_width / 2)
+            y = node_rect.top() - self.bar_height - 8
             self.setPos(x, y)
     
     def set_progress(self, progress):
@@ -130,7 +130,8 @@ class NodeExecutionLabel(QtWidgets.QGraphicsTextItem):
     """Label showing execution time after node completes - PERSISTENT."""
     
     def __init__(self, node_view, execution_time, parent=None):
-        super().__init__(parent)
+        # CRITICAL: Make this a child of node_view so it moves with the node
+        super().__init__(node_view)
         self.node_view = node_view
         self.execution_time = execution_time
         
@@ -150,23 +151,34 @@ class NodeExecutionLabel(QtWidgets.QGraphicsTextItem):
         # Add background
         self.background_color = QtGui.QColor(40, 40, 40, 220)
         self.border_color = QtGui.QColor(100, 100, 100, 255)
+        self.padding = 4  # Store padding as instance variable
         
-        # Position above node
+        # Position above node (in LOCAL coordinates relative to parent)
         self.setZValue(1000)
         self.update_position()
         
         # NO AUTO-FADE - Keep it persistent
         # User removed the fade timer entirely
     
+    def boundingRect(self):
+        """
+        CRITICAL: Override to include padding/border so Qt knows the full area to redraw.
+        Without this, moving the node leaves ghost borders behind.
+        """
+        # Get the text bounding rect from parent class
+        text_rect = super().boundingRect()
+        # Expand by padding to include the background border
+        return text_rect.adjusted(-self.padding, -self.padding, 
+                                   self.padding, self.padding)
+    
     def update_position(self):
-        """Position the label above the node in scene coordinates."""
+        """Position the label above the node in LOCAL coordinates."""
         if self.node_view:
             node_rect = self.node_view.boundingRect()
             label_rect = self.boundingRect()
-            # Get the node's position in scene coordinates
-            node_scene_pos = self.node_view.scenePos()
-            x = node_scene_pos.x() + node_rect.center().x() - (label_rect.width() / 2)
-            y = node_scene_pos.y() + node_rect.top() - label_rect.height() - 8
+            # Use LOCAL coordinates (relative to parent node_view)
+            x = node_rect.center().x() - (label_rect.width() / 2)
+            y = node_rect.top() - label_rect.height() - 8
             self.setPos(x, y)
     
     def paint(self, painter, option, widget):
@@ -174,9 +186,10 @@ class NodeExecutionLabel(QtWidgets.QGraphicsTextItem):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         
         # Draw background
-        rect = self.boundingRect()
-        padding = 4
-        bg_rect = rect.adjusted(-padding, -padding, padding, padding)
+        # Use the text rect (not the full bounding rect) for positioning
+        text_rect = super().boundingRect()
+        bg_rect = text_rect.adjusted(-self.padding, -self.padding, 
+                                      self.padding, self.padding)
         
         painter.setPen(QtGui.QPen(self.border_color, 1))
         painter.setBrush(self.background_color)
