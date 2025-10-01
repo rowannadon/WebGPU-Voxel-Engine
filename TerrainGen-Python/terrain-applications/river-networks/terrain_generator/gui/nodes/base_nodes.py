@@ -571,6 +571,92 @@ class CombineNode(TerrainBaseNode):
         raise ValueError(f"Unsupported operation '{operation}'")
 
 
+class InvertNode(TerrainBaseNode):
+    """Node that inverts a heightfield (1.0 - value)."""
+    
+    # Node metadata
+    NODE_NAME = 'Invert'
+    
+    def __init__(self):
+        super().__init__()
+        self.set_name(self.NODE_NAME)
+        self.set_color(130, 100, 140)  # Purple tone
+        
+        # Add input port for heightfield
+        self.add_input('heightfield', color=(150, 200, 150))
+        
+        # Add output port for inverted heightfield
+        self.add_output('heightfield', color=(150, 200, 150))
+        
+        # Add inversion mode option
+        self.add_combo_menu('mode', 'Mode', items=[
+            'Normalized (1 - x)',
+            'Range Flip (max - x + min)'
+        ])
+        self.set_property('mode', 'Normalized (1 - x)')
+    
+    def execute(self) -> Optional[np.ndarray]:
+        """Execute: invert heightfield."""
+        try:
+            print(f"{self.name()}: Starting execution")
+            
+            # Get heightfield from connected node
+            heightfield_port = self.inputs().get('heightfield')
+            if heightfield_port is None:
+                raise ValueError("Heightfield port not found")
+            
+            connected_ports = heightfield_port.connected_ports()
+            if not connected_ports:
+                raise ValueError("No heightfield input connected")
+            
+            # Get the connected node and execute if needed
+            source_port = connected_ports[0]
+            source_node = source_port.node()
+            
+            if isinstance(source_node, TerrainBaseNode):
+                if source_node._is_dirty:
+                    source_node.execute()
+                heightfield = source_node.get_output_data()
+            else:
+                raise ValueError("Invalid heightfield source")
+            
+            if heightfield is None:
+                raise ValueError("No heightfield data available")
+            
+            # Get mode
+            mode = self.get_property('mode') or 'Normalized (1 - x)'
+            
+            print(f"{self.name()}: Inverting with mode: {mode}")
+            
+            # Invert based on mode
+            if 'Normalized' in mode:
+                # Simple inversion: 1 - x (assumes values in [0, 1])
+                inverted = 1.0 - heightfield
+            else:
+                # Range flip: inverts within the actual data range
+                # This preserves the range but flips high/low values
+                h_min = heightfield.min()
+                h_max = heightfield.max()
+                if h_max > h_min:
+                    inverted = h_max - heightfield + h_min
+                else:
+                    # If all values are the same, just return as-is
+                    inverted = heightfield.copy()
+            
+            print(f"{self.name()}: Inverted heightfield, "
+                  f"input range=[{heightfield.min():.3f}, {heightfield.max():.3f}], "
+                  f"output range=[{inverted.min():.3f}, {inverted.max():.3f}]")
+            
+            self.set_output_data(inverted.astype(np.float32))
+            self.signals.execution_finished.emit(self)
+            return inverted
+            
+        except Exception as e:
+            print(f"{self.name()}: ERROR - {e}")
+            traceback.print_exc()
+            raise
+        
+
 class DomainWarpNode(TerrainBaseNode):
     """Node that applies domain warping to a heightfield."""
     

@@ -9,7 +9,7 @@ import numpy as np
 import time
 
 from ..visualization import TerrainViewport
-from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode
+from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode, InvertNode
 from .nodes.execution_widgets import NodeProgressBar, NodeExecutionLabel
 
 
@@ -86,6 +86,10 @@ class NodeEditorWidget(QWidget):
         self.add_shape_btn = QPushButton("Add Shape")
         self.add_shape_btn.clicked.connect(self.add_shape_node)
         toolbar_layout.addWidget(self.add_shape_btn)
+
+        self.add_invert_btn = QPushButton("Add Invert")
+        self.add_invert_btn.clicked.connect(self.add_invert_node)
+        toolbar_layout.addWidget(self.add_invert_btn)
         
         toolbar_layout.addStretch()
         
@@ -163,6 +167,7 @@ class NodeEditorWidget(QWidget):
         self.node_graph.register_node(CombineNode)
         self.node_graph.register_node(DomainWarpNode)
         self.node_graph.register_node(ShapeNode)
+        self.node_graph.register_node(InvertNode)
     
     def create_map_properties_node(self):
         """Create the global Map Properties node."""
@@ -227,6 +232,16 @@ class NodeEditorWidget(QWidget):
         node = self.node_graph.create_node(
             'terrain.ShapeNode',
             name='Shape',
+            pos=[0, 0]
+        )
+        self._setup_node_execution(node)
+        self._update_node_visual_state(node)
+
+    def add_invert_node(self):
+        """Add an Invert node to the graph."""
+        node = self.node_graph.create_node(
+            'terrain.InvertNode',
+            name='Invert',
             pos=[0, 0]
         )
         self._setup_node_execution(node)

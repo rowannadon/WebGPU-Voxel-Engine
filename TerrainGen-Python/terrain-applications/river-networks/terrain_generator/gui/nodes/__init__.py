@@ -11,7 +11,8 @@ from .base_nodes import (
     FBMNode,
     CombineNode,
     DomainWarpNode,
-    ShapeNode  # Add this
+    ShapeNode,
+    InvertNode
 )
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     'FBMNode',
     'CombineNode',
     'DomainWarpNode',
-    'ShapeNode',  # Add this
+    'ShapeNode',
+    'InvertNode',
 ]
