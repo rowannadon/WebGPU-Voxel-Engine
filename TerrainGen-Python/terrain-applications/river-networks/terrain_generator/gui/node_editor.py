@@ -9,7 +9,7 @@ import numpy as np
 import time
 
 from ..visualization import TerrainViewport
-from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode, InvertNode
+from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode, InvertNode, BuildTerrainNode, TerrainGraph
 from .nodes.execution_widgets import NodeProgressBar, NodeExecutionLabel
 
 
@@ -90,6 +90,10 @@ class NodeEditorWidget(QWidget):
         self.add_invert_btn = QPushButton("Add Invert")
         self.add_invert_btn.clicked.connect(self.add_invert_node)
         toolbar_layout.addWidget(self.add_invert_btn)
+
+        self.add_build_terrain_btn = QPushButton("Add Build Terrain")
+        self.add_build_terrain_btn.clicked.connect(self.add_build_terrain_node)
+        toolbar_layout.addWidget(self.add_build_terrain_btn)
         
         toolbar_layout.addStretch()
         
@@ -168,6 +172,7 @@ class NodeEditorWidget(QWidget):
         self.node_graph.register_node(DomainWarpNode)
         self.node_graph.register_node(ShapeNode)
         self.node_graph.register_node(InvertNode)
+        self.node_graph.register_node(BuildTerrainNode)
     
     def create_map_properties_node(self):
         """Create the global Map Properties node."""
@@ -246,6 +251,16 @@ class NodeEditorWidget(QWidget):
         )
         self._setup_node_execution(node)
         self._update_node_visual_state(node)
+
+    def add_build_terrain_node(self):
+        """Add a Build Terrain node to the graph."""
+        node = self.node_graph.create_node(
+            'terrain.BuildTerrainNode',
+            name='Build Terrain',
+            pos=[300, 0]
+        )
+        self._setup_node_execution(node)
+        self._update_node_visual_state(node)
     
     def _setup_node_execution(self, node):
         """Setup execution for a node."""
@@ -287,8 +302,18 @@ class NodeEditorWidget(QWidget):
             self.is_generating = True
             self._execute_node_with_deps(node)
             
+            # Get output for visualization
+            # For graph nodes, this might need rasterization
+            output_data = None
+            if hasattr(node, 'get_output_for_visualization'):
+                # Node provides custom visualization (e.g., graph -> heightfield)
+                print(f"Node has get_output_for_visualization, calling it...")
+                output_data = node.get_output_for_visualization()
+            else:
+                # Standard output
+                output_data = node.get_output_data()
+            
             # Visualize result
-            output_data = node.get_output_data()
             if output_data is not None and isinstance(output_data, np.ndarray):
                 self._visualize_heightfield(output_data, node._base_name)
                 QMessageBox.information(
@@ -299,11 +324,13 @@ class NodeEditorWidget(QWidget):
                     f"Range: [{output_data.min():.3f}, {output_data.max():.3f}]"
                 )
             else:
-                # Not a heightfield node
+                # Not a heightfield node or visualization failed
+                output_type = type(node.get_output_data()).__name__ if node.get_output_data() else "None"
                 QMessageBox.information(
                     self,
                     "Node Pinned",
                     f"Node '{node._base_name}' pinned!\n"
+                    f"Output type: {output_type}\n"
                     f"(No heightfield output to visualize)"
                 )
                 
@@ -314,6 +341,8 @@ class NodeEditorWidget(QWidget):
                 "Execution Error",
                 f"Error executing node '{node._base_name}':\n{str(e)}"
             )
+            import traceback
+            traceback.print_exc()
         finally:
             self.is_generating = False
     
@@ -447,13 +476,23 @@ class NodeEditorWidget(QWidget):
             # Execute the pinned node
             self._execute_node_with_deps(self.pinned_node)
             
+            # Get output for visualization
+            output_data = None
+            if hasattr(self.pinned_node, 'get_output_for_visualization'):
+                # Node provides custom visualization (e.g., graph -> heightfield)
+                output_data = self.pinned_node.get_output_for_visualization()
+            else:
+                # Standard output
+                output_data = self.pinned_node.get_output_data()
+            
             # Update visualization
-            output_data = self.pinned_node.get_output_data()
             if output_data is not None and isinstance(output_data, np.ndarray):
                 self._visualize_heightfield(output_data, self.pinned_node._base_name)
             
         except Exception as e:
             print(f"Auto-update error: {e}")
+            import traceback
+            traceback.print_exc()
             self._update_node_visual_state(self.pinned_node, 'error')
         finally:
             self.is_generating = False

@@ -14,6 +14,10 @@ from .base_nodes import (
     ShapeNode,
     InvertNode
 )
+from .graph_nodes import (
+    TerrainGraph,
+    BuildTerrainNode
+)
 
 __all__ = [
     # Context
@@ -29,7 +33,7 @@ __all__ = [
     'NodeSignals',
     'TerrainBaseNode',
     
-    # Node types
+    # Heightfield nodes
     'MapPropertiesNode',
     'ConstantNode',
     'FBMNode',
@@ -37,4 +41,8 @@ __all__ = [
     'DomainWarpNode',
     'ShapeNode',
     'InvertNode',
+    
+    # Graph nodes
+    'TerrainGraph',
+    'BuildTerrainNode',
 ]
