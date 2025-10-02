@@ -9,7 +9,18 @@ import numpy as np
 import time
 
 from ..visualization import TerrainViewport
-from .nodes import MapPropertiesNode, ConstantNode, FBMNode, CombineNode, DomainWarpNode, ShapeNode, InvertNode, BuildTerrainNode, TerrainGraph
+from .nodes import (
+    MapPropertiesNode,
+    ConstantNode,
+    FBMNode,
+    CombineNode,
+    DomainWarpNode,
+    ShapeNode,
+    InvertNode,
+    GenerateLandMaskNode,
+    BuildTerrainNode,
+    TerrainGraph,
+)
 from .nodes.execution_widgets import NodeProgressBar, NodeExecutionLabel
 
 
@@ -90,6 +101,10 @@ class NodeEditorWidget(QWidget):
         self.add_invert_btn = QPushButton("Add Invert")
         self.add_invert_btn.clicked.connect(self.add_invert_node)
         toolbar_layout.addWidget(self.add_invert_btn)
+
+        self.add_land_mask_btn = QPushButton("Add Land Mask")
+        self.add_land_mask_btn.clicked.connect(self.add_land_mask_node)
+        toolbar_layout.addWidget(self.add_land_mask_btn)
 
         self.add_build_terrain_btn = QPushButton("Add Build Terrain")
         self.add_build_terrain_btn.clicked.connect(self.add_build_terrain_node)
@@ -172,6 +187,7 @@ class NodeEditorWidget(QWidget):
         self.node_graph.register_node(DomainWarpNode)
         self.node_graph.register_node(ShapeNode)
         self.node_graph.register_node(InvertNode)
+        self.node_graph.register_node(GenerateLandMaskNode)
         self.node_graph.register_node(BuildTerrainNode)
     
     def create_map_properties_node(self):
@@ -248,6 +264,16 @@ class NodeEditorWidget(QWidget):
             'terrain.InvertNode',
             name='Invert',
             pos=[0, 0]
+        )
+        self._setup_node_execution(node)
+        self._update_node_visual_state(node)
+
+    def add_land_mask_node(self):
+        """Add a Generate Land Mask node to the graph."""
+        node = self.node_graph.create_node(
+            'terrain.GenerateLandMaskNode',
+            name='Generate Land Mask',
+            pos=[250, 0]
         )
         self._setup_node_execution(node)
         self._update_node_visual_state(node)

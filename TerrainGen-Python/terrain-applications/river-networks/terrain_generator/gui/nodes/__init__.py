@@ -16,7 +16,8 @@ from .base_nodes import (
 )
 from .graph_nodes import (
     TerrainGraph,
-    BuildTerrainNode
+    BuildTerrainNode,
+    GenerateLandMaskNode
 )
 
 __all__ = [
@@ -45,4 +46,5 @@ __all__ = [
     # Graph nodes
     'TerrainGraph',
     'BuildTerrainNode',
+    'GenerateLandMaskNode',
 ]

@@ -9,7 +9,11 @@ import matplotlib.tri as mtri
 
 from .base_nodes import TerrainBaseNode
 from terrain_generator.core.utils import (
-    normalize, gaussian_gradient, poisson_disc_sampling, render_triangulation
+    normalize,
+    gaussian_gradient,
+    poisson_disc_sampling,
+    render_triangulation,
+    connect_inland_seas,
 )
 
 try:
@@ -139,8 +143,9 @@ class BuildTerrainNode(TerrainBaseNode):
         self.set_name(self.NODE_NAME)
         self.set_color(120, 80, 150)  # Purple for graph operations
         
-        # Input port for heightfield
+        # Input ports
         self.add_input('heightfield', color=(150, 200, 150))
+        self.add_input('land_mask', color=(120, 180, 120))
         
         # Output port for terrain graph
         self.add_output('terrain_graph', color=(180, 120, 200))
@@ -157,11 +162,31 @@ class BuildTerrainNode(TerrainBaseNode):
             
             # Get input heightfield
             heightfield = self._get_input_array('heightfield', required=True)
-            
+
+            # Get land mask (required)
+            land_mask = self._get_input_array('land_mask', required=True)
+
+            if land_mask.shape != heightfield.shape:
+                raise ValueError(
+                    f"land_mask shape {land_mask.shape} does not match heightfield {heightfield.shape}"
+                )
+
+            # Ensure boolean mask
+            if land_mask.dtype != np.bool_:
+                land_mask = land_mask.astype(bool, copy=False)
+
             # Get dimension
             dim = self.context.get_resolution()
             target_shape = (dim, dim)
-            
+
+            if heightfield.shape != target_shape:
+                raise ValueError(
+                    f"heightfield shape {heightfield.shape} does not match target {target_shape}"
+                )
+
+            # Match generator behaviour: keep oceans at zero height
+            heightfield = np.where(land_mask, heightfield, 0.0)
+
             # Parse parameters
             disc_radius = float(self.get_property('disc_radius'))
             max_delta = float(self.get_property('max_delta'))
@@ -219,9 +244,6 @@ class BuildTerrainNode(TerrainBaseNode):
             print(f"{self.name()}: Sampling heightfield at points...")
             coords = self._points_to_indices(points, target_shape)
             points_deltas = deltas[coords[:, 0], coords[:, 1]]
-            
-            # Create land mask (all land for now - can be refined later)
-            land_mask = np.ones(target_shape, dtype=bool)
             points_land = land_mask[coords[:, 0], coords[:, 1]]
             
             # Step 7: Compute initial height at points using Dijkstra
@@ -393,3 +415,97 @@ class BuildTerrainNode(TerrainBaseNode):
             import traceback
             traceback.print_exc()
             return None
+
+
+class GenerateLandMaskNode(TerrainBaseNode):
+    """Node that derives a land mask from an input heightfield."""
+
+    NODE_NAME = 'Generate Land Mask'
+
+    def __init__(self):
+        super().__init__()
+        self.set_name(self.NODE_NAME)
+        self.set_color(90, 140, 90)
+
+        self.add_input('heightfield', color=(150, 200, 150))
+        self.add_output('land_mask', color=(120, 180, 120))
+
+        self.add_text_input('sea_level', 'Sea Level', text='0.0')
+
+    def execute(self) -> Optional[np.ndarray]:
+        """Generate a boolean land mask from the supplied heightfield."""
+        try:
+            print(f"{self.name()}: Generating land mask")
+
+            heightfield = self._get_input_array('heightfield', required=True)
+            sea_level = float(self.get_property('sea_level'))
+
+            dim = self.context.get_resolution()
+            target_shape = (dim, dim)
+
+            if heightfield.shape != target_shape:
+                raise ValueError(
+                    f"heightfield shape {heightfield.shape} does not match target {target_shape}"
+                )
+
+            self.emit_progress(0.2)
+
+            flooded = np.where(heightfield > sea_level, heightfield - sea_level, 0.0)
+            land_mask = flooded > 0.001
+
+            self.emit_progress(0.5)
+
+            flooded, land_mask = connect_inland_seas(
+                flooded,
+                land_mask,
+                min_sea_size=30,
+            )
+
+            flooded = flooded * land_mask
+            land_mask = (flooded > 0.001)
+
+            self.emit_progress(0.9)
+
+            land_mask = np.ascontiguousarray(land_mask, dtype=bool)
+            self.set_output_data(land_mask)
+            self.signals.execution_finished.emit(self)
+            self.emit_progress(1.0)
+
+            print(f"{self.name()}: Land mask generated (land pixels={land_mask.sum()})")
+
+            return land_mask
+
+        except Exception as e:
+            print(f"{self.name()}: ERROR - {e}")
+            traceback.print_exc()
+            raise
+
+    def _get_input_array(self, port_name: str, required: bool) -> Optional[np.ndarray]:
+        """Fetch input data from a port, executing upstream nodes if needed."""
+        port = self.inputs().get(port_name)
+        if port is None:
+            raise ValueError(f"Port '{port_name}' not found")
+
+        connected_ports = port.connected_ports()
+        if not connected_ports:
+            if required:
+                raise ValueError(f"Input '{port_name}' is not connected")
+            return None
+
+        source_port = connected_ports[0]
+        source_node = source_port.node()
+
+        if isinstance(source_node, TerrainBaseNode):
+            if source_node._is_dirty:
+                source_node.execute()
+            data = source_node.get_output_data()
+        else:
+            raise ValueError(f"Connected node for '{port_name}' is not a terrain node")
+
+        if data is None:
+            raise ValueError(f"No data received from '{port_name}'")
+
+        if not isinstance(data, np.ndarray):
+            raise ValueError(f"Input '{port_name}' must be a numpy array")
+
+        return data
