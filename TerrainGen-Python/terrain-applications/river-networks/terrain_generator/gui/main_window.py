@@ -370,14 +370,34 @@ class TerrainGeneratorWindow(QMainWindow):
             _labels_to_rgba(wshd, land, palette, out)
             overlays['watershed_mask'] = out
 
-        # 5) Rock map – categorical color (honors configured albedo if available), land only
+        # 5) Rock map – use modulated colors if available, otherwise categorical palette
         if rock is not None and rock.shape == hmap.shape:
-            max_idx = int(np.max(rock)) if rock.size else 0
-            # If user supplied rock colors exist, you can pass them here; for speed we build palette.
-            palette = _build_palette_u8(max_idx + 1)
-            out = np.zeros((H, W, 4), dtype=np.uint8)
-            _labels_to_rgba(rock, land, palette, out)
-            overlays['rock_map'] = out
+            print(f"\n=== ROCK MAP VISUALIZATION ===")
+            print(f"  hasattr rock_modulated_colors: {hasattr(td, 'rock_modulated_colors')}")
+            if hasattr(td, 'rock_modulated_colors'):
+                print(f"  rock_modulated_colors is not None: {td.rock_modulated_colors is not None}")
+                if td.rock_modulated_colors is not None:
+                    print(f"  rock_modulated_colors shape: {td.rock_modulated_colors.shape}")
+                    print(f"  rock_modulated_colors range: [{td.rock_modulated_colors.min()}, {td.rock_modulated_colors.max()}]")
+            
+            # Check if we have modulated colors
+            if hasattr(td, 'rock_modulated_colors') and td.rock_modulated_colors is not None:
+                print(f"  Using MODULATED COLORS for visualization")
+                # Use the pre-computed modulated colors
+                rgb = np.ascontiguousarray(td.rock_modulated_colors, dtype=np.uint8)
+                out = np.zeros((H, W, 4), dtype=np.uint8)
+                out[:, :, :3] = rgb
+                out[:, :, 3] = np.where(land, 255, 0).astype(np.uint8)
+                overlays['rock_map'] = out
+            else:
+                print(f"  Using CATEGORICAL PALETTE for visualization")
+                # Fall back to categorical palette
+                max_idx = int(np.max(rock)) if rock.size else 0
+                palette = _build_palette_u8(max_idx + 1)
+                out = np.zeros((H, W, 4), dtype=np.uint8)
+                _labels_to_rgba(rock, land, palette, out)
+                overlays['rock_map'] = out
+            print(f"=== END ROCK MAP VISUALIZATION ===\n")
 
         return overlays
 

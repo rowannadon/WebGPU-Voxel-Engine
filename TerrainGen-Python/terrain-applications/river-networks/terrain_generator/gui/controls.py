@@ -238,6 +238,9 @@ class ControlPanel(QWidget):
         # Terrain parameters group
         self.create_terrain_group(scroll_layout)
 
+        # 3D max delta noise group
+        self.create_3d_max_delta_noise_group(scroll_layout)
+
         # Rock layers configuration
         self.create_rock_layers_group(scroll_layout)
 
@@ -538,6 +541,69 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         parent_layout.addWidget(group)
 
+    def create_3d_max_delta_noise_group(self, parent_layout):
+        """Create 3D max delta noise modulation group."""
+        group = QGroupBox("3D Max Delta Noise Modulation")
+        layout = QVBoxLayout()
+        
+        # Enable checkbox
+        self.use_3d_max_delta_noise_checkbox = QCheckBox("Enable 3D Perlin Noise Modulation")
+        self.use_3d_max_delta_noise_checkbox.stateChanged.connect(self.toggle_3d_max_delta_noise)
+        layout.addWidget(self.use_3d_max_delta_noise_checkbox)
+        
+        # Create controls (initially hidden)
+        self.noise_3d_controls = []
+        
+        info_label = QLabel(
+            "Uses 3D Perlin noise to vary max_delta based on position and elevation. "
+            "Each rock layer can specify min/max bounds in its erosion parameter file."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #888; font-size: 10px;")
+        info_label.setVisible(False)
+        self.noise_3d_controls.append(info_label)
+        layout.addWidget(info_label)
+        
+        # Noise configuration controls
+        controls_data = [
+            ('max_delta_noise_scale_xy', "Horizontal Scale", 0.001, 1.0, 0.2, 0.001, 3),
+            ('max_delta_noise_scale_z', "Vertical Scale", 0.001, 1.0, 0.2, 0.01, 2),
+            ('max_delta_noise_octaves', "Octaves", 1, 6, 3, 1, 0),
+            ('max_delta_noise_persistence', "Persistence", 0.3, 0.7, 0.5, 0.05, 2),
+            ('max_delta_noise_seed_offset', "Seed Offset", 0, 10000, 1000, 100, 0),
+        ]
+        
+        for name, label, min_val, max_val, default, step, decimals in controls_data:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            control.setVisible(False)
+            self.controls[name] = control
+            self.noise_3d_controls.append(control)
+            layout.addWidget(control)
+        
+        # Additional info
+        usage_info = QLabel(
+            "In erosion parameter files, add:\n"
+            '  "min_max_delta": 0.02,\n'
+            '  "max_max_delta": 0.08'
+        )
+        usage_info.setWordWrap(True)
+        usage_info.setStyleSheet("color: #666; font-size: 9px; font-family: monospace;")
+        usage_info.setVisible(False)
+        self.noise_3d_controls.append(usage_info)
+        layout.addWidget(usage_info)
+        
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+    def toggle_3d_max_delta_noise(self, state):
+        """Toggle 3D max delta noise controls."""
+        enabled = (state == 2)
+        for control in self.noise_3d_controls:
+            control.setVisible(enabled)
+        self.parametersChanged.emit()
+
     def create_rock_layers_group(self, parent_layout):
         """Create rock layer configuration group."""
         group = QGroupBox("Rock Layers")
@@ -809,6 +875,9 @@ class ControlPanel(QWidget):
         snapshot['erosion_blur_iterations'] = int(self.controls['erosion_blur_iterations'].value())
         snapshot['enable_particle_erosion'] = self.enable_particle_erosion_checkbox.isChecked()
         snapshot['enable_particle_deposition'] = self.enable_particle_deposition_checkbox.isChecked()
+        base_max_delta = self.controls['max_delta'].value()
+        snapshot['min_max_delta'] = base_max_delta * 0.2  # 20% of base
+        snapshot['max_max_delta'] = base_max_delta * 4.0  # 180% of base
         return snapshot
 
     def export_erosion_parameters(self):
@@ -1132,6 +1201,19 @@ class ControlPanel(QWidget):
             terrace_max_strength=self.controls.get('terrace_max_strength',
                 ParameterControl("", 0, 0, 0.8)).value(),
 
+            # 3D Perlin noise for max_delta modulation
+            use_3d_max_delta_noise=self.use_3d_max_delta_noise_checkbox.isChecked(),
+            max_delta_noise_scale_xy=self.controls.get('max_delta_noise_scale_xy',
+                ParameterControl("", 0, 0, 0.02)).value(),
+            max_delta_noise_scale_z=self.controls.get('max_delta_noise_scale_z',
+                ParameterControl("", 0, 0, 0.1)).value(),
+            max_delta_noise_octaves=int(self.controls.get('max_delta_noise_octaves',
+                ParameterControl("", 0, 0, 3)).value()),
+            max_delta_noise_persistence=self.controls.get('max_delta_noise_persistence',
+                ParameterControl("", 0, 0, 0.5)).value(),
+            max_delta_noise_seed_offset=int(self.controls.get('max_delta_noise_seed_offset',
+                ParameterControl("", 0, 0, 1000)).value()),
+
             rock_warp_strength=self.controls['rock_warp_strength'].value(),
             rock_warp_scale=self.controls['rock_warp_scale'].value(),
             rock_warp_lower=self.controls['rock_warp_lower'].value(),
@@ -1211,6 +1293,7 @@ class ControlPanel(QWidget):
             'use_variable_max_delta': self.variable_max_delta_checkbox.isChecked(),
             'use_erosion': self.use_erosion_checkbox.isChecked(),
             'export_formats': export_formats,
+            'use_3d_max_delta_noise': self.use_3d_max_delta_noise_checkbox.isChecked(),
             'rock_layers': self.collect_rock_layer_states(),
         }
 
@@ -1266,6 +1349,8 @@ class ControlPanel(QWidget):
             self.max_delta_curves_widget.set_control_points(state['max_delta_curve_points'])
 
         self.variable_max_delta_checkbox.setChecked(bool(state.get('use_variable_max_delta', False)))
+        if 'use_3d_max_delta_noise' in state:
+            self.use_3d_max_delta_noise_checkbox.setChecked(state['use_3d_max_delta_noise'])
         self.use_erosion_checkbox.setChecked(bool(state.get('use_erosion', True)))
 
         self.apply_rock_layer_states(state.get('rock_layers'))

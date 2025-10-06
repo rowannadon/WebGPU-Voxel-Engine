@@ -11,6 +11,8 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Unio
 NUMBER_FIELDS = {
     'river_downcutting': float,
     'max_delta': float,
+    'min_max_delta': float,
+    'max_max_delta': float,
     'erosion_iterations': int,
     'erosion_inertia': float,
     'erosion_capacity': float,

@@ -23,6 +23,7 @@ except Exception:
         return range(*args)
 
 from .rivers import RiverGenerator, RiverNetwork
+from .noise import FractalPerlinNoise3D
 from ..io import HeightmapImporter
 from ..config import (
     RockLayerConfig,
@@ -184,6 +185,14 @@ class TerrainParameters:
     terrace_min_strength: float = 0.0
     terrace_max_strength: float = 1.0
 
+    # 3D Perlin noise for max_delta modulation
+    use_3d_max_delta_noise: bool = False
+    max_delta_noise_scale_xy: float = 0.02
+    max_delta_noise_scale_z: float = 0.1
+    max_delta_noise_octaves: int = 3
+    max_delta_noise_persistence: float = 0.5
+    max_delta_noise_seed_offset: int = 1000
+
     # Erosion parameters
     use_erosion: bool = True
     erosion_iterations: int = 80000
@@ -222,6 +231,7 @@ class TerrainData:
     triangulation: Any
     rock_types: Optional[List[str]] = field(default=None)
     rock_albedo: Optional[List[Optional[Tuple[int, int, int]]]] = field(default=None)
+    rock_modulated_colors: Optional[np.ndarray] = None
     points: np.ndarray = field(default=None)
     neighbors: List[np.ndarray] = field(default=None)
 
@@ -344,12 +354,56 @@ class TerrainGenerator:
             max_delta_field = max_delta_field * curve_factors
 
         # Generate final terrain
-        final_height = self._compute_final_height(
+        print(f"\n=== CALLING _compute_final_height ===")
+        print(f"  use_3d_max_delta_noise: {self.params.use_3d_max_delta_noise}")
+        print(f"  rock_assignments is not None: {rock_assignments is not None}")
+        print(f"  resolved_layer_params: {len(resolved_layer_params) if resolved_layer_params else 0}")
+
+        final_height, noise_variation = self._compute_final_height(
             points, neighbors, edge_weights, points_deltas, river_network,
             max_delta_field,
             rock_assignments,
-            resolved_layer_params
+            resolved_layer_params,
+            points_height_normalized=points_height_normalized,
+            target_shape=target_shape,
+            rock_layers=rock_layers,
+            rock_colors=rock_colors
         )
+
+        print(f"  Returned noise_variation is not None: {noise_variation is not None}")
+        if noise_variation is not None:
+            print(f"  Noise variation range: [{noise_variation.min():.3f}, {noise_variation.max():.3f}]")
+
+        # Always compute rock colors (modulated if noise enabled, base colors otherwise)
+        rock_modulated_colors_grid = None
+        if rock_assignments is not None and rock_layers:
+            print(f"\n=== COMPUTING ROCK COLORS ===")
+            print(f"  Rock assignments shape: {rock_assignments.shape}")
+            print(f"  Rock layers: {[layer.name for layer in rock_layers]}")
+            
+            # If 3D noise is enabled and available, use it for modulation
+            if self.params.use_3d_max_delta_noise and noise_variation is not None:
+                print(f"  Using MODULATED colors (3D noise enabled)")
+                point_colors = self._compute_modulated_rock_colors(
+                    points, rock_assignments, noise_variation,
+                    rock_layers, resolved_layer_params, rock_colors
+                )
+            else:
+                print(f"  Using BASE colors (3D noise disabled)")
+                point_colors = self._compute_base_rock_colors(
+                    points, rock_assignments, rock_layers, rock_colors
+                )
+            
+            print(f"  Point colors shape: {point_colors.shape}, dtype: {point_colors.dtype}")
+            print(f"  Point colors range: [{point_colors.min()}, {point_colors.max()}]")
+            
+            rock_modulated_colors_grid = self._render_colors_to_grid(
+                points, point_colors, target_shape
+            )
+            
+            print(f"  Rock color grid shape: {rock_modulated_colors_grid.shape}")
+            print(f"  Rock color grid range: [{rock_modulated_colors_grid.min()}, {rock_modulated_colors_grid.max()}]")
+            print(f"=== END ROCK COLORS ===\n")
         
         tri = mtri.Triangulation(tri.points[:, 0], tri.points[:, 1], tri.simplices)
         
@@ -362,11 +416,11 @@ class TerrainGenerator:
             progress_callback(86, "Rendering rivers to grid...")
         
         river_volume = render_triangulation(target_shape, tri, river_network.volume, triangulation=tri)
-        rock_map_grid = self._render_map(points, rock_assignments, target_shape)
+        rock_map_grid = self._render_map(
+            points, rock_assignments, target_shape)
         
         if progress_callback:
             progress_callback(88, "Rendering watersheds...")
-
 
         watershed_mask = self._render_map(points, river_network.watershed, target_shape)
 
@@ -391,8 +445,8 @@ class TerrainGenerator:
                 max_delta=float(base_params.get('max_delta', self.params.max_delta)),
                 min_slope=0.0001,
                 blur_iterations=int(base_params.get('erosion_blur_iterations', self.params.erosion_blur_iterations)),
-                enable_erosion=bool(base_params.get('enable_particle_erosion', self.params.enable_particle_erosion)),      # NEW
-                enable_deposition=bool(base_params.get('enable_particle_deposition', self.params.enable_particle_deposition))  # NEW
+                enable_erosion=bool(base_params.get('enable_particle_erosion', self.params.enable_particle_erosion)),
+                enable_deposition=bool(base_params.get('enable_particle_deposition', self.params.enable_particle_deposition))
             )
 
             # Scale erosion parameters based on dimension
@@ -451,10 +505,11 @@ class TerrainGenerator:
             triangulation=tri,
             rock_types=[layer.name for layer in rock_layers],
             rock_albedo=rock_colors,
+            rock_modulated_colors=rock_modulated_colors_grid,
             points=points,
             neighbors=neighbors
         )
-    
+
     def generate_preview(self, progress_callback=None) -> TerrainData:
         """Generate terrain preview without rivers."""
         target_shape = (self.params.dimension,) * 2
@@ -862,15 +917,23 @@ class TerrainGenerator:
         result = result - result.min()
         return result
 
-    def _compute_final_height(self, points: np.ndarray, neighbors: List[np.ndarray],
-                          edge_weights: List[np.ndarray], deltas: np.ndarray,
-                          river_network: RiverNetwork,
-                          variable_max_delta: Optional[np.ndarray] = None,
-                          rock_assignments: Optional[np.ndarray] = None,
-                          rock_parameters: Optional[List[Dict[str, float]]] = None
-                          ) -> np.ndarray:
-        """Compute final height with river downcutting (Numba-accelerated edge costs)."""
-
+    def _compute_final_height(self, points: np.ndarray, neighbors: List[List[int]], 
+                            edge_weights: List[List[float]], deltas: np.ndarray,
+                            river_network: RiverNetwork, 
+                            variable_max_delta: Optional[np.ndarray],
+                            rock_assignments: Optional[np.ndarray],
+                            rock_parameters: List[Dict[str, float]],
+                            points_height_normalized: Optional[np.ndarray] = None,
+                            target_shape: Optional[Tuple[int, int]] = None,
+                            rock_layers: Optional[List[RockLayerConfig]] = None,
+                            rock_colors: Optional[List[Optional[Tuple[int, int, int]]]] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        """
+        Compute final terrain height using Dijkstra-based downcutting with river influence.
+        Now supports 3D Perlin noise modulation of max_delta values per rock layer.
+        
+        Returns:
+            Tuple of (final_height, noise_variation) where noise_variation is used for color modulation
+        """
         # Flatten to CSR once
         indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
         dim = len(points)
@@ -879,15 +942,39 @@ class TerrainGenerator:
         node_max_delta = np.full(dim, float(self.params.max_delta), dtype=np.float64)
         downcut_power = np.full(dim, float(self.params.river_downcutting), dtype=np.float64)
 
+        # Generate 3D noise variation if enabled
+        noise_variation = None
+        if (self.params.use_3d_max_delta_noise and 
+            rock_assignments is not None and 
+            rock_parameters and 
+            points_height_normalized is not None and
+            target_shape is not None):
+            noise_variation = self._generate_3d_max_delta_variation(
+                points, points_height_normalized, target_shape
+            )
+
         if rock_assignments is not None and rock_parameters:
             # Map per-node parameters from assigned layer
-            # (use dst's layer for both parameters, consistent with your original code)
             for dst in range(dim):
                 layer_idx = int(rock_assignments[dst])
                 if layer_idx < 0: layer_idx = 0
                 if layer_idx >= len(rock_parameters): layer_idx = len(rock_parameters)-1
                 layer_params = rock_parameters[layer_idx]
-                node_max_delta[dst] = float(layer_params.get('max_delta', self.params.max_delta))
+                
+                # Get base max_delta from layer
+                base_max_delta = float(layer_params.get('max_delta', self.params.max_delta))
+                
+                # Apply 3D noise modulation if enabled
+                if noise_variation is not None:
+                    # Get min and max bounds for this layer
+                    min_delta = float(layer_params.get('min_max_delta', base_max_delta))
+                    max_delta = float(layer_params.get('max_max_delta', base_max_delta))
+                    
+                    # Lerp between min and max using noise value (0 to 1)
+                    node_max_delta[dst] = min_delta + noise_variation[dst] * (max_delta - min_delta)
+                else:
+                    node_max_delta[dst] = base_max_delta
+                
                 downcut_power[dst] = float(layer_params.get('river_downcutting', self.params.river_downcutting))
 
         # Apply variable max delta (min with per-node)
@@ -896,7 +983,6 @@ class TerrainGenerator:
 
         # Precompute upstream mask per edge (True if (src->dst) lies along upstream list)
         upstream_mask = np.zeros(indices.size, dtype=np.bool_)
-        # upstream likely is a list[set] or list[list] indexed by src
         for src in range(dim):
             ups = river_network.upstream[src]
             if ups is None:
@@ -904,16 +990,14 @@ class TerrainGenerator:
             start = indptr[src]
             end = indptr[src + 1]
             if hasattr(ups, "__contains__"):
-                # set or list — membership test
                 for e in range(start, end):
                     upstream_mask[e] = (indices[e] in ups)
             else:
-                # fallback: build a set
                 ups_set = set(ups)
                 for e in range(start, end):
                     upstream_mask[e] = (indices[e] in ups_set)
 
-        # Compute edge costs in parallel
+        # Compute edge costs
         if _NUMBA:
             edge_costs = _edge_costs_with_rivers_numba(
                 deltas.astype(np.float64, copy=False),
@@ -925,24 +1009,23 @@ class TerrainGenerator:
                 upstream_mask
             )
         else:
-            # vectorized fallback (no per-edge python generator)
             v = river_network.volume[indices]
             downcut = np.ones_like(weights, dtype=np.float64)
-            # only where upstream
             mask = upstream_mask
             downcut[mask] = 1.0 / (1.0 + np.power(v[mask], downcut_power[indices[mask]]))
             edge_costs = np.minimum(node_max_delta[indices] * weights,
                                     deltas[indices] * downcut * weights)
 
-        # Run Dijkstra (SciPy – compiled/fast)
+        # Run Dijkstra
         seed_idx = int(np.argmin(points.sum(axis=1)))
         result = self._run_dijkstra(indptr, indices, edge_costs, dim, seed_idx)
 
-        # Scale and rebase exactly like your original
+        # Scale and rebase
         height_scale = self.params.dimension / 256.0
         result = result * height_scale
         result = result - result.min()
-        return result
+        
+        return result, noise_variation  # Always return noise_variation (may be None)
 
     def _default_erosion_settings(self) -> Dict[str, float]:
         """Return the baseline erosion parameters as a mapping."""
@@ -1041,6 +1124,219 @@ class TerrainGenerator:
         # Convert to [-1, 1]
         warped = (fbm_field * 2.0) - 1.0
         return (warped * strength).astype(np.float32)
+    
+    def _generate_3d_max_delta_variation(self, points: np.ndarray, 
+                                        points_height: np.ndarray,
+                                        target_shape: Tuple[int, int]) -> np.ndarray:
+        """
+        Generate 3D Perlin noise for max_delta variation.
+        
+        Args:
+            points: Point coordinates (N, 2) in grid space
+            points_height: Normalized height values (0-1) at each point
+            target_shape: Grid dimensions for scaling coordinates
+            
+        Returns:
+            Noise values (0-1) at each point for modulating max_delta
+        """
+        print(f"\n=== _generate_3d_max_delta_variation CALLED ===")
+        print(f"  Points shape: {points.shape}")
+        print(f"  Heights shape: {points_height.shape}")
+        print(f"  Target shape: {target_shape}")
+        print(f"  Seed: {self.params.seed + self.params.max_delta_noise_seed_offset}")
+        print(f"  Scale XY: {self.params.max_delta_noise_scale_xy}")
+        print(f"  Scale Z: {self.params.max_delta_noise_scale_z}")
+        
+        # Create 3D Perlin noise generator
+        noise_gen = FractalPerlinNoise3D(
+            seed=self.params.seed + self.params.max_delta_noise_seed_offset,
+            scale_xy=self.params.max_delta_noise_scale_xy,
+            scale_z=self.params.max_delta_noise_scale_z,
+            octaves=self.params.max_delta_noise_octaves,
+            persistence=self.params.max_delta_noise_persistence,
+            lacunarity=2.0
+        )
+        
+        # Normalize point coordinates to roughly [0, 10] range for noise sampling
+        max_dim = max(target_shape)
+        x_coords = points[:, 1] / max_dim * 10.0  # columns = x
+        y_coords = points[:, 0] / max_dim * 10.0  # rows = y
+        z_coords = points_height * 10.0  # Use normalized height as z
+        
+        print(f"  X coords range: [{x_coords.min():.3f}, {x_coords.max():.3f}]")
+        print(f"  Y coords range: [{y_coords.min():.3f}, {y_coords.max():.3f}]")
+        print(f"  Z coords range: [{z_coords.min():.3f}, {z_coords.max():.3f}]")
+        
+        # Sample 3D noise at each point
+        noise_values = noise_gen.noise_array(x_coords, y_coords, z_coords)
+        
+        print(f"  Raw noise range: [{noise_values.min():.3f}, {noise_values.max():.3f}]")
+        
+        # Normalize from [-1, 1] to [0, 1]
+        noise_values = (noise_values + 1.0) * 0.5
+        
+        print(f"  Normalized noise range: [{noise_values.min():.3f}, {noise_values.max():.3f}]")
+        print(f"=== END _generate_3d_max_delta_variation ===\n")
+        
+        return noise_values
+
+    def _compute_modulated_rock_colors(self, points: np.ndarray,
+                                    rock_assignments: np.ndarray,
+                                    noise_variation: np.ndarray,
+                                    rock_layers: List[RockLayerConfig],
+                                    resolved_layer_params: List[Dict[str, float]],
+                                    rock_colors: List[Optional[Tuple[int, int, int]]]) -> np.ndarray:
+        """
+        Compute modulated rock colors at each point based on 3D noise.
+        
+        Returns RGB colors (0-255) for each point, where:
+        - White (255,255,255) = min_max_delta
+        - Base color = mid-range
+        - Black (0,0,0) = max_max_delta
+        """
+        from ..heuristics.pipeline.albedo import _rock_color_from_name, _DEFAULT_ROCK_COLOR_PALETTE
+        
+        print(f"\n=== _compute_modulated_rock_colors CALLED ===")
+        print(f"  Points: {len(points)}")
+        print(f"  Noise variation range: [{noise_variation.min():.3f}, {noise_variation.max():.3f}]")
+        print(f"  Rock layers: {len(rock_layers)}")
+        
+        num_points = len(points)
+        point_colors = np.zeros((num_points, 3), dtype=np.float32)
+        
+        modulation_count = 0
+        no_modulation_count = 0
+        
+        for i in range(num_points):
+            layer_idx = int(rock_assignments[i])
+            if layer_idx < 0:
+                layer_idx = 0
+            if layer_idx >= len(rock_layers):
+                layer_idx = len(rock_layers) - 1
+            
+            # Get base color for this layer
+            if layer_idx < len(rock_colors) and rock_colors[layer_idx] is not None:
+                base_color = np.array(rock_colors[layer_idx], dtype=np.float32) / 255.0
+            else:
+                # Use default color from albedo module
+                layer_name = rock_layers[layer_idx].name if layer_idx < len(rock_layers) else None
+                fallback = _DEFAULT_ROCK_COLOR_PALETTE[layer_idx % len(_DEFAULT_ROCK_COLOR_PALETTE)]
+                base_color = _rock_color_from_name(layer_name, fallback)
+            
+            # Get the noise variation value (0 to 1)
+            noise_val = noise_variation[i]
+            
+            # Get min/max bounds from layer params
+            if layer_idx < len(resolved_layer_params):
+                layer_params = resolved_layer_params[layer_idx]
+                base_max_delta = float(layer_params.get('max_delta', self.params.max_delta))
+                
+                # Get min/max with sensible defaults if not specified
+                # Default: min is 50% of base, max is 150% of base
+                min_delta = float(layer_params.get('min_max_delta', base_max_delta * 0.2))
+                max_delta = float(layer_params.get('max_max_delta', base_max_delta * 4.0))
+                
+                # Debug first few points
+                if i < 5:
+                    print(f"  Point {i}: layer={layer_idx}, noise={noise_val:.3f}, min_delta={min_delta:.4f}, max_delta={max_delta:.4f}, base={base_max_delta:.4f}")
+            else:
+                # No modulation if no params
+                point_colors[i] = base_color
+                no_modulation_count += 1
+                continue
+            
+            # If min == max, no modulation
+            if abs(max_delta - min_delta) < 1e-6:
+                point_colors[i] = base_color
+                no_modulation_count += 1
+                if i < 5:
+                    print(f"  Point {i}: No modulation (min == max)")
+                continue
+            
+            modulation_count += 1
+            
+            # Modulate: 
+            # noise_val=0 (min_max_delta) -> blend towards white
+            # noise_val=0.5 (mid) -> base color
+            # noise_val=1 (max_max_delta) -> blend towards black
+            
+            white = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+            black = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+            
+            if noise_val < 0.5:
+                # Blend from white to base color
+                blend_factor = noise_val * 2.0  # 0 to 1
+                modulated = white * (1.0 - blend_factor) + base_color * blend_factor
+            else:
+                # Blend from base color to black
+                blend_factor = (noise_val - 0.5) * 2.0  # 0 to 1
+                modulated = base_color * (1.0 - blend_factor) + black * blend_factor
+            
+            point_colors[i] = modulated
+        
+        print(f"  Modulated points: {modulation_count}")
+        print(f"  Non-modulated points: {no_modulation_count}")
+        print(f"  Output color range: R[{point_colors[:, 0].min():.3f}, {point_colors[:, 0].max():.3f}]")
+        print(f"=== END _compute_modulated_rock_colors ===\n")
+        
+        # Convert to uint8
+        return (np.clip(point_colors, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+    def _compute_base_rock_colors(self, points: np.ndarray,
+                                rock_assignments: np.ndarray,
+                                rock_layers: List[RockLayerConfig],
+                                rock_colors: List[Optional[Tuple[int, int, int]]]) -> np.ndarray:
+        """
+        Compute base rock colors at each point without modulation.
+        """
+        from ..heuristics.pipeline.albedo import _rock_color_from_name, _DEFAULT_ROCK_COLOR_PALETTE
+        
+        num_points = len(points)
+        point_colors = np.zeros((num_points, 3), dtype=np.float32)
+        
+        for i in range(num_points):
+            layer_idx = int(rock_assignments[i])
+            if layer_idx < 0:
+                layer_idx = 0
+            if layer_idx >= len(rock_layers):
+                layer_idx = len(rock_layers) - 1
+            
+            # Get base color for this layer
+            if layer_idx < len(rock_colors) and rock_colors[layer_idx] is not None:
+                base_color = np.array(rock_colors[layer_idx], dtype=np.float32) / 255.0
+            else:
+                # Use default color from albedo module
+                layer_name = rock_layers[layer_idx].name if layer_idx < len(rock_layers) else None
+                fallback = _DEFAULT_ROCK_COLOR_PALETTE[layer_idx % len(_DEFAULT_ROCK_COLOR_PALETTE)]
+                base_color = _rock_color_from_name(layer_name, fallback)
+            
+            point_colors[i] = base_color
+        
+        # Convert to uint8
+        return (np.clip(point_colors, 0.0, 1.0) * 255.0).astype(np.uint8)
+
+    def _render_colors_to_grid(self, points: np.ndarray, point_colors: np.ndarray,
+                            target_shape: Tuple[int, int]) -> np.ndarray:
+        """Render per-point RGB colors to a regular grid."""
+        from scipy.interpolate import NearestNDInterpolator
+        
+        H, W = target_shape
+        
+        # Create interpolators for each color channel
+        interp_r = NearestNDInterpolator(points, point_colors[:, 0])
+        interp_g = NearestNDInterpolator(points, point_colors[:, 1])
+        interp_b = NearestNDInterpolator(points, point_colors[:, 2])
+        
+        # Create grid coordinates
+        grid_x, grid_y = np.meshgrid(np.arange(W), np.arange(H), indexing='xy')
+        
+        # Interpolate each channel
+        r_grid = interp_r(grid_x, grid_y).astype(np.uint8)
+        g_grid = interp_g(grid_x, grid_y).astype(np.uint8)
+        b_grid = interp_b(grid_x, grid_y).astype(np.uint8)
+        
+        # Stack into RGB image
+        return np.stack([r_grid, g_grid, b_grid], axis=-1)
 
     def _render_map(self, points: np.ndarray, assignments: np.ndarray,
                      target_shape: Tuple[int, int]) -> np.ndarray:
