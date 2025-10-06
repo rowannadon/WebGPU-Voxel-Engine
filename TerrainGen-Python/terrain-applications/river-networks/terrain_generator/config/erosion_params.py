@@ -21,6 +21,8 @@ NUMBER_FIELDS = {
     'erosion_max_lifetime': int,
     'erosion_step_size': float,
     'erosion_blur_iterations': int,
+    'enable_particle_erosion': bool,
+    'enable_particle_deposition': bool,
 }
 
 

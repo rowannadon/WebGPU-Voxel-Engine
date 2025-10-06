@@ -687,14 +687,31 @@ class ControlPanel(QWidget):
         group = QGroupBox("Particle Erosion")
         layout = QVBoxLayout()
         
+        # Separator
+        layout.addWidget(QLabel(""))
+        
+        # Erosion controls
+        self.erosion_controls = []
+
         # Enable erosion checkbox
         self.use_erosion_checkbox = QCheckBox("Enable Particle Erosion")
         self.use_erosion_checkbox.setChecked(True)
         self.use_erosion_checkbox.stateChanged.connect(self.toggle_erosion)
         layout.addWidget(self.use_erosion_checkbox)
-        
-        # Erosion controls
-        self.erosion_controls = []
+
+        # NEW: Independent enable/disable controls
+        enable_label = QLabel("<b>Enable/Disable Processes:</b>")
+        layout.addWidget(enable_label)
+
+        self.enable_particle_erosion_checkbox = QCheckBox("Enable Downcutting")
+        self.enable_particle_erosion_checkbox.setChecked(True)
+        self.erosion_controls.append(self.enable_particle_erosion_checkbox)
+        layout.addWidget(self.enable_particle_erosion_checkbox)
+
+        self.enable_particle_deposition_checkbox = QCheckBox("Enable Deposition")
+        self.enable_particle_deposition_checkbox.setChecked(True)
+        self.erosion_controls.append(self.enable_particle_deposition_checkbox)
+        layout.addWidget(self.enable_particle_deposition_checkbox)
         
         # Basic erosion parameters
         basic_label = QLabel("<b>Basic Settings:</b>")
@@ -790,6 +807,8 @@ class ControlPanel(QWidget):
         snapshot['erosion_max_lifetime'] = int(self.controls['erosion_max_lifetime'].value())
         snapshot['erosion_step_size'] = self.controls['erosion_step_size'].value()
         snapshot['erosion_blur_iterations'] = int(self.controls['erosion_blur_iterations'].value())
+        snapshot['enable_particle_erosion'] = self.enable_particle_erosion_checkbox.isChecked()
+        snapshot['enable_particle_deposition'] = self.enable_particle_deposition_checkbox.isChecked()
         return snapshot
 
     def export_erosion_parameters(self):
@@ -1146,6 +1165,8 @@ class ControlPanel(QWidget):
                 ParameterControl("", 0, 0, 0.3)).value(),
             erosion_blur_iterations=int(self.controls.get('erosion_blur_iterations',
                 ParameterControl("", 0, 0, 1)).value()),
+            enable_particle_erosion=self.enable_particle_erosion_checkbox.isChecked(),
+            enable_particle_deposition=self.enable_particle_deposition_checkbox.isChecked(),
         )
 
     def get_state(self) -> Dict[str, Any]:

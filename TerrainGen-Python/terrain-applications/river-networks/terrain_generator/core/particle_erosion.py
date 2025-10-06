@@ -91,20 +91,24 @@ def deposit_at_position(heightmap: np.ndarray, x: float, y: float, amount: float
                     weight = max(0.0, 1.0 - t * t * (3.0 - 2.0 * t))
                     heightmap[yi, xi] += amount * weight / total_weight
 
-@njit(cache=True)
-def simulate_single_droplet(heightmap: np.ndarray,
-                           start_x: float,
-                           start_y: float,
-                           inertia_map: np.ndarray,
-                           capacity_map: np.ndarray,
-                           deposition_map: np.ndarray,
-                           erosion_map: np.ndarray,
-                           evaporation_map: np.ndarray,
-                           gravity_map: np.ndarray,
-                           step_map: np.ndarray,
-                           max_delta_map: np.ndarray,
-                           max_steps: int,
-                           min_slope: float) -> float:
+@njit(fastmath=True)
+def simulate_single_droplet(
+    heightmap: np.ndarray,
+    start_x: float,
+    start_y: float,
+    inertia_map: np.ndarray,
+    capacity_map: np.ndarray,
+    deposition_map: np.ndarray,
+    erosion_map: np.ndarray,
+    evaporation_map: np.ndarray,
+    gravity_map: np.ndarray,
+    step_map: np.ndarray,
+    max_delta_map: np.ndarray,
+    max_steps: int,
+    min_slope: float,
+    enable_erosion: bool,      # NEW
+    enable_deposition: bool    # NEW
+) -> float:
     """Simulate a single water droplet with spatially varying parameters."""
     h, w = heightmap.shape
 
@@ -187,18 +191,26 @@ def simulate_single_droplet(heightmap: np.ndarray,
         else:
             capacity = max(0.0, h_diff) * vel * water * capacity_const
         
-        # Erosion or deposition
-        if capacity > sediment and old_height > 0.01:  # Only erode on land
-            # Erosion (only on land, not ocean floor)
-            erode_amount = min((capacity - sediment) * erosion_const, h_diff * 0.5)
+        # Sediment acquisition and deposition
+        if capacity > sediment and old_height > 0.01:
+            # Calculate how much sediment could be picked up
+            pickup_amount = min((capacity - sediment) * erosion_const, h_diff * 0.5)
             
-            # Don't erode below sea level
-            if erode_amount > 0:
-                erode_amount = min(erode_amount, old_height, max_delta)
-                deposit_at_position(heightmap, x, y, -erode_amount, radius=1.2)
-                sediment += erode_amount
-                total_change -= erode_amount
-        elif sediment > capacity:
+            if pickup_amount > 0:
+                pickup_amount = min(pickup_amount, old_height, max_delta)
+                
+                if enable_erosion:
+                    # Normal erosion: remove from terrain and add to sediment
+                    deposit_at_position(heightmap, x, y, -pickup_amount, radius=1.2)
+                    sediment += pickup_amount
+                    total_change -= pickup_amount
+                else:
+                    # Erosion disabled: duplicate sediment without removing from terrain
+                    # This breaks conservation of mass but allows deposition-only behavior
+                    sediment += pickup_amount
+                    # Note: total_change not modified, no terrain change
+                    
+        if enable_deposition and sediment > capacity:
             # Deposition (can happen anywhere, including ocean)
             deposit_amount = (sediment - capacity) * deposition_const
             
@@ -241,7 +253,9 @@ class ParticleErosion:
                  step_size: float = 0.3,  # Smaller steps for smoother flow
                  max_delta: float = 0.05,  # Maximum erosion per step
                  min_slope: float = 0.0001,
-                 blur_iterations: int = 1):  # Post-process smoothing
+                 blur_iterations: int = 1,  # Post-process smoothing
+                 enable_erosion: bool = True,
+                 enable_deposition: bool = True):
         """
         Initialize erosion parameters with improved defaults.
         """
@@ -257,6 +271,8 @@ class ParticleErosion:
         self.max_delta = max_delta
         self.min_slope = min_slope
         self.blur_iterations = blur_iterations
+        self.enable_erosion = enable_erosion
+        self.enable_deposition = enable_deposition
     
     def erode(self, heightmap: np.ndarray,
             parameter_maps: Optional[Dict[str, np.ndarray]] = None,
@@ -351,7 +367,9 @@ class ParticleErosion:
                     step_map,
                     max_delta_map,
                     self.max_lifetime,
-                    self.min_slope
+                    self.min_slope,
+                    self.enable_erosion,
+                    self.enable_deposition
                 )
         
         # Post-processing: smooth to reduce noise while preserving features

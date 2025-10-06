@@ -196,6 +196,8 @@ class TerrainParameters:
     erosion_max_lifetime: int = 60
     erosion_step_size: float = 0.3
     erosion_blur_iterations: int = 1
+    enable_particle_erosion: bool = True
+    enable_particle_deposition: bool = True
 
     # Rock layer configuration
     rock_layers: List[RockLayerConfig] = field(default_factory=list)
@@ -388,7 +390,9 @@ class TerrainGenerator:
                 step_size=float(base_params.get('erosion_step_size', self.params.erosion_step_size)),
                 max_delta=float(base_params.get('max_delta', self.params.max_delta)),
                 min_slope=0.0001,
-                blur_iterations=int(base_params.get('erosion_blur_iterations', self.params.erosion_blur_iterations))
+                blur_iterations=int(base_params.get('erosion_blur_iterations', self.params.erosion_blur_iterations)),
+                enable_erosion=bool(base_params.get('enable_particle_erosion', self.params.enable_particle_erosion)),      # NEW
+                enable_deposition=bool(base_params.get('enable_particle_deposition', self.params.enable_particle_deposition))  # NEW
             )
 
             # Scale erosion parameters based on dimension
@@ -955,6 +959,8 @@ class TerrainGenerator:
             'erosion_max_lifetime': float(self.params.erosion_max_lifetime),
             'erosion_step_size': float(self.params.erosion_step_size),
             'erosion_blur_iterations': float(self.params.erosion_blur_iterations),
+            'enable_particle_erosion': bool(self.params.enable_particle_erosion),      # NEW
+            'enable_particle_deposition': bool(self.params.enable_particle_deposition),  # NEW
         }
 
     def _resolve_rock_layers(self) -> Tuple[List[RockLayerConfig], List[Dict[str, float]], List[Optional[Tuple[int, int, int]]]]:
