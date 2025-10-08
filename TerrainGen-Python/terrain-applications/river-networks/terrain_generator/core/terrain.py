@@ -106,6 +106,73 @@ def _edge_costs_with_rivers_numba(deltas, indices, weights,
     return out
 
 @njit(parallel=True, fastmath=True)
+def _edge_costs_directional_numba(points, row_indices, indices, weights,
+                                   deltas, node_max_delta, direction_field,
+                                   max_delta_steep, max_delta_gentle, 
+                                   anisotropy_power,
+                                   volume, downcut_power, upstream_mask):
+    """
+    Compute edge costs with directional anisotropy and river downcutting.
+    
+    Edges aligned with the direction field use max_delta_steep.
+    Edges perpendicular to the direction field use max_delta_gentle.
+    """
+    m = weights.size
+    out = np.empty(m, dtype=np.float64)
+    
+    for e in prange(m):
+        src = row_indices[e]
+        dst = indices[e]
+        
+        # Compute edge direction vector
+        dx = points[dst, 0] - points[src, 0]
+        dy = points[dst, 1] - points[src, 1]
+        edge_angle = np.arctan2(dy, dx)
+        
+        # Get preferred direction at destination
+        preferred_angle = direction_field[dst]
+        
+        # Compute angular difference (normalized to [0, π/2])
+        angle_diff = edge_angle - preferred_angle
+        # Normalize to [-π, π]
+        while angle_diff > np.pi:
+            angle_diff -= 2.0 * np.pi
+        while angle_diff < -np.pi:
+            angle_diff += 2.0 * np.pi
+        # Take absolute value and map to [0, π/2]
+        angle_diff = abs(angle_diff)
+        if angle_diff > np.pi / 2.0:
+            angle_diff = np.pi - angle_diff
+        
+        # Compute anisotropic factor
+        # 0 = aligned (use steep), π/2 = perpendicular (use gentle)
+        cos_factor = np.cos(angle_diff)
+        cos_factor_pow = cos_factor ** anisotropy_power
+        
+        # Interpolate between gentle and steep based on alignment
+        anisotropic_max_delta = (
+            max_delta_gentle * (1.0 - cos_factor_pow) +
+            max_delta_steep * cos_factor_pow
+        )
+        
+        # USE ANISOTROPIC VALUE DIRECTLY (don't cap with node_max_delta)
+        effective_max_delta = anisotropic_max_delta
+        
+        # Apply river downcutting if on upstream edge
+        v = volume[dst] if upstream_mask[e] else 0.0
+        p = downcut_power[dst]
+        downcut = 1.0 / (1.0 + (v ** p)) if p != 0.0 else 1.0
+        
+        # Compute final edge cost
+        base_cost = deltas[dst] * effective_max_delta * weights[e]
+        river_cost = deltas[dst] * downcut * weights[e]
+        
+        # Take minimum (rivers can still cut through)
+        out[e] = base_cost if base_cost < river_cost else river_cost
+    
+    return out
+
+@njit(parallel=True, fastmath=True)
 def _variable_max_delta_kernel(points_height, terrace_count, terrace_thickness,
                                flat_delta, steep_delta, base_max_delta,
                                terrace_strength, out):
@@ -192,6 +259,14 @@ class TerrainParameters:
     max_delta_noise_octaves: int = 3
     max_delta_noise_persistence: float = 0.5
     max_delta_noise_seed_offset: int = 1000
+
+    # Directional anisotropy parameters
+    use_directional_max_delta: bool = False
+    directional_angle: float = 0.0
+    directional_mode: str = "post_process"
+    cliff_amplification: float = 1.5  # Lower default
+    anisotropy_power: float = 2.0
+    min_gradient_percentile: float = 25.0  # Which slopes to affect
 
     # Erosion parameters
     use_erosion: bool = True
@@ -411,6 +486,15 @@ class TerrainGenerator:
             progress_callback(86, "Rendering terrain to grid...")
         # Render to grid
         terrain_height = render_triangulation(target_shape, tri, final_height, triangulation=tri)
+
+        # Apply directional slope adjustment if enabled
+        if self.params.use_directional_max_delta and self.params.directional_mode == "post_process":
+            if progress_callback:
+                progress_callback(88, "Applying directional slope adjustment...")
+            terrain_height = self._apply_directional_slope_adjustment(
+                terrain_height, 
+                self.params.directional_angle
+            )
         
         if progress_callback:
             progress_callback(86, "Rendering rivers to grid...")
@@ -929,18 +1013,10 @@ class TerrainGenerator:
                             rock_colors: Optional[List[Optional[Tuple[int, int, int]]]] = None) -> Tuple[np.ndarray, Optional[np.ndarray]]:
         """
         Compute final terrain height using Dijkstra-based downcutting with river influence.
-        Now supports 3D Perlin noise modulation of max_delta values per rock layer.
-        
-        Returns:
-            Tuple of (final_height, noise_variation) where noise_variation is used for color modulation
+        Now supports directional anisotropy for asymmetric features.
         """
-        # Flatten to CSR once
         indptr, indices, row_indices, weights = self._prepare_graph(neighbors, edge_weights)
         dim = len(points)
-
-        # Per-node max_delta and downcut power (layer-aware)
-        node_max_delta = np.full(dim, float(self.params.max_delta), dtype=np.float64)
-        downcut_power = np.full(dim, float(self.params.river_downcutting), dtype=np.float64)
 
         # Generate 3D noise variation if enabled
         noise_variation = None
@@ -952,6 +1028,10 @@ class TerrainGenerator:
             noise_variation = self._generate_3d_max_delta_variation(
                 points, points_height_normalized, target_shape
             )
+
+        # Compute per-node max_delta and downcutting power
+        node_max_delta = np.empty(dim, dtype=np.float64)
+        downcut_power = np.empty(dim, dtype=np.float64)
 
         if rock_assignments is not None and rock_parameters:
             # Map per-node parameters from assigned layer
@@ -973,15 +1053,33 @@ class TerrainGenerator:
                     # Lerp between min and max using noise value (0 to 1)
                     node_max_delta[dst] = min_delta + noise_variation[dst] * (max_delta - min_delta)
                 else:
-                    node_max_delta[dst] = base_max_delta
+                    node_max_delta[dst] = base_max_delta # ERROR ON THIS LINE
                 
                 downcut_power[dst] = float(layer_params.get('river_downcutting', self.params.river_downcutting))
 
-        # Apply variable max delta (min with per-node)
+        for dst in range(dim):
+            if rock_assignments is not None and rock_parameters:
+                layer_idx = min(int(rock_assignments[dst]), len(rock_parameters) - 1)
+                layer_params = rock_parameters[layer_idx]
+                base_max_delta = float(layer_params.get('max_delta', self.params.max_delta))
+                
+                if noise_variation is not None:
+                    min_delta = float(layer_params.get('min_max_delta', base_max_delta))
+                    max_delta = float(layer_params.get('max_max_delta', base_max_delta))
+                    node_max_delta[dst] = min_delta + noise_variation[dst] * (max_delta - min_delta)
+                else:
+                    node_max_delta[dst] = base_max_delta
+                
+                downcut_power[dst] = float(layer_params.get('river_downcutting', self.params.river_downcutting))
+            else:
+                node_max_delta[dst] = self.params.max_delta
+                downcut_power[dst] = self.params.river_downcutting
+
+        # Apply variable max delta (minimum with per-node)
         if variable_max_delta is not None:
             np.minimum(node_max_delta, variable_max_delta, out=node_max_delta)
 
-        # Precompute upstream mask per edge (True if (src->dst) lies along upstream list)
+        # Precompute upstream mask
         upstream_mask = np.zeros(indices.size, dtype=np.bool_)
         for src in range(dim):
             ups = river_network.upstream[src]
@@ -997,24 +1095,54 @@ class TerrainGenerator:
                 for e in range(start, end):
                     upstream_mask[e] = (indices[e] in ups_set)
 
+        # Determine if we should use directional edge costs or post-processing
+        use_directional_edges = (self.params.use_directional_max_delta and 
+                                self.params.directional_mode == "edge_costs")
+        use_directional_postprocess = (self.params.use_directional_max_delta and 
+                                    self.params.directional_mode == "post_process")
+
+        # Generate direction field for anisotropy
+        direction_field = None
+        if use_directional_edges:
+            direction_field = self._generate_direction_field(points)
+
         # Compute edge costs
-        if _NUMBA:
-            edge_costs = _edge_costs_with_rivers_numba(
-                deltas.astype(np.float64, copy=False),
+        if direction_field is not None and _NUMBA:
+            # Use directional edge costs (original approach)
+            edge_costs = _edge_costs_directional_numba(
+                points.astype(np.float64, copy=False),
+                row_indices,
                 indices,
                 weights,
+                deltas.astype(np.float64, copy=False),
                 node_max_delta,
+                direction_field,
+                float(self.params.max_delta_steep),
+                float(self.params.max_delta_gentle),
+                float(self.params.anisotropy_power),
                 river_network.volume.astype(np.float64, copy=False),
                 downcut_power,
                 upstream_mask
             )
         else:
-            v = river_network.volume[indices]
-            downcut = np.ones_like(weights, dtype=np.float64)
-            mask = upstream_mask
-            downcut[mask] = 1.0 / (1.0 + np.power(v[mask], downcut_power[indices[mask]]))
-            edge_costs = np.minimum(node_max_delta[indices] * weights,
-                                    deltas[indices] * downcut * weights)
+            # Standard edge costs (no directionality, or directionality via post-process)
+            if _NUMBA:
+                edge_costs = _edge_costs_with_rivers_numba(
+                    deltas.astype(np.float64, copy=False),
+                    indices,
+                    weights,
+                    node_max_delta,
+                    river_network.volume.astype(np.float64, copy=False),
+                    downcut_power,
+                    upstream_mask
+                )
+            else:
+                v = river_network.volume[indices]
+                downcut = np.ones_like(weights, dtype=np.float64)
+                mask = upstream_mask
+                downcut[mask] = 1.0 / (1.0 + np.power(v[mask], downcut_power[indices[mask]]))
+                edge_costs = np.minimum(node_max_delta[indices] * weights,
+                                        deltas[indices] * downcut * weights)
 
         # Run Dijkstra
         seed_idx = int(np.argmin(points.sum(axis=1)))
@@ -1025,7 +1153,7 @@ class TerrainGenerator:
         result = result * height_scale
         result = result - result.min()
         
-        return result, noise_variation  # Always return noise_variation (may be None)
+        return result, noise_variation
 
     def _default_erosion_settings(self) -> Dict[str, float]:
         """Return the baseline erosion parameters as a mapping."""
@@ -1179,6 +1307,90 @@ class TerrainGenerator:
         print(f"=== END _generate_3d_max_delta_variation ===\n")
         
         return noise_values
+    
+    def _generate_direction_field(self, points: np.ndarray) -> np.ndarray:
+        """
+        Generate direction field for anisotropic terrain generation.
+        For now, returns uniform direction, but can be extended with noise.
+        
+        Args:
+            points: Point coordinates
+            
+        Returns:
+            Array of angles (in radians) for each point
+        """
+        # Simple uniform direction field
+        if not self.params.use_directional_max_delta:
+            return None
+        
+        # Return uniform angle for all points
+        direction_field = np.full(len(points), self.params.directional_angle, dtype=np.float64)
+        
+        # Future: Add noise-based variation
+        # if self.params.use_direction_noise:
+        #     noise = self._fbm(shape, scale=-2.0, lower=1.0, upper=np.inf)
+        #     direction_field += noise * self.params.direction_noise_strength
+        
+        return direction_field
+
+    def _apply_directional_slope_adjustment(self, heightmap: np.ndarray, 
+                                        direction_field_angle: float) -> np.ndarray:
+        """
+        Apply directional slope adjustment to create asymmetric cliffs.
+        Uses a multi-scale approach to avoid artifacts.
+        """
+        from scipy.ndimage import sobel, gaussian_filter, shift
+        
+        # Multi-scale approach: work on smoothed terrain, then add back details
+        smooth_base = gaussian_filter(heightmap, sigma=2.0)
+        details = heightmap - smooth_base
+        
+        # Compute gradients on the smooth base
+        grad_y = sobel(smooth_base, axis=0, mode='nearest')
+        grad_x = sobel(smooth_base, axis=1, mode='nearest')
+        
+        gradient_mag = np.sqrt(grad_x**2 + grad_y**2)
+        gradient_angle = np.arctan2(grad_y, grad_x)
+        
+        # Compute alignment with direction
+        angle_diff = gradient_angle - direction_field_angle
+        angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
+        alignment = np.cos(angle_diff)
+        
+        # Only work on significant slopes
+        min_gradient = np.percentile(gradient_mag[gradient_mag > 0], 25)
+        slope_mask = gradient_mag > min_gradient
+        
+        # Compute adjustment factor (smooth field)
+        adjustment = np.zeros_like(heightmap)
+        
+        # Cliff side: steepen (positive adjustment)
+        cliff_mask = slope_mask & (alignment > 0.2)
+        cliff_strength = np.clip((alignment - 0.2) / 0.8, 0, 1) ** self.params.anisotropy_power
+        cliff_strength *= np.clip(gradient_mag / (min_gradient * 3), 0, 1)
+        adjustment[cliff_mask] = cliff_strength[cliff_mask]
+        
+        # Smooth adjustment field heavily
+        adjustment = gaussian_filter(adjustment, sigma=3.0)
+        
+        # Apply adjustment using height displacement
+        # Shift terrain "up" in cliff direction proportional to local gradient
+        displacement = adjustment * gradient_mag * self.params.cliff_amplification * 0.5
+        
+        # Apply displacement
+        modified_base = smooth_base + displacement
+        
+        # Add details back
+        result = modified_base + details * 0.7  # Slightly dampen detail to avoid spikes
+        
+        # Clean up with gentle smoothing
+        result = gaussian_filter(result, sigma=0.5)
+        
+        # Preserve height range
+        result = np.clip(result, 0, None)
+        
+        return result
+
 
     def _compute_modulated_rock_colors(self, points: np.ndarray,
                                     rock_assignments: np.ndarray,

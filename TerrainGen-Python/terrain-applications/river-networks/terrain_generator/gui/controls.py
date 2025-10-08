@@ -240,6 +240,8 @@ class ControlPanel(QWidget):
 
         # 3D max delta noise group
         self.create_3d_max_delta_noise_group(scroll_layout)
+        # 3D max delta noise group
+        self.create_directional_group(scroll_layout)
 
         # Rock layers configuration
         self.create_rock_layers_group(scroll_layout)
@@ -603,6 +605,67 @@ class ControlPanel(QWidget):
         for control in self.noise_3d_controls:
             control.setVisible(enabled)
         self.parametersChanged.emit()
+
+    def create_directional_group(self, parent_layout):
+        """Create directional anisotropy controls for asymmetric terrain."""
+        group = QGroupBox("Directional Anisotropy (Cliffs/Mesas)")
+        layout = QVBoxLayout()
+        
+        # Enable checkbox
+        self.use_directional_checkbox = QCheckBox("Enable Directional Terrain")
+        self.use_directional_checkbox.setChecked(False)
+        self.use_directional_checkbox.stateChanged.connect(self.toggle_directional_anisotropy)
+        layout.addWidget(self.use_directional_checkbox)
+        
+        self.directional_controls = []
+        
+        # Mode selector
+        mode_label = QLabel("Mode:")
+        self.directional_controls.append(mode_label)
+        layout.addWidget(mode_label)
+        
+        self.directional_mode_combo = QComboBox()
+        self.directional_mode_combo.addItems(["Post-Process (Asymmetric)", "Edge Costs (Symmetric)"])
+        self.directional_mode_combo.setCurrentIndex(0)  # Default to post-process
+        self.directional_controls.append(self.directional_mode_combo)
+        layout.addWidget(self.directional_mode_combo)
+        
+        # Parameter controls
+        controls_data = [
+            ('directional_angle', "Direction (degrees)", 0, 360, 0, 1, 0),
+            ('cliff_amplification', "Cliff Amplification", 0.5, 5.0, 1.5, 0.1, 1),
+            ('anisotropy_power', "Transition Sharpness", 1.0, 10.0, 2.0, 0.1, 1),
+            ('min_gradient_percentile', "Min Gradient % (affects which slopes)", 0, 50, 25, 1, 0),
+        ]
+        
+        for name, label, min_val, max_val, default, step, decimals in controls_data:
+            control = ParameterControl(label, min_val, max_val, default, step, decimals)
+            self.controls[name] = control
+            self.directional_controls.append(control)
+            layout.addWidget(control)
+        
+        # Add helpful text
+        help_text = QLabel(
+            "<i>Direction: 0°=East, 90°=North. Cliffs face this direction.<br>"
+            "Higher amplification = steeper cliffs. Lower percentile = affects more slopes.</i>"
+        )
+        help_text.setWordWrap(True)
+        help_text.setStyleSheet("color: gray; font-size: 9pt;")
+        self.directional_controls.append(help_text)
+        layout.addWidget(help_text)
+        
+        # Initially hide controls
+        for control in self.directional_controls:
+            control.setVisible(False)
+        
+        group.setLayout(layout)
+        parent_layout.addWidget(group)
+
+    def toggle_directional_anisotropy(self, state):
+        """Toggle directional anisotropy controls visibility."""
+        show_controls = (state == 2)  # Qt.Checked
+        for control in self.directional_controls:
+            control.setVisible(show_controls)
 
     def create_rock_layers_group(self, parent_layout):
         """Create rock layer configuration group."""
@@ -1213,6 +1276,15 @@ class ControlPanel(QWidget):
                 ParameterControl("", 0, 0, 0.5)).value(),
             max_delta_noise_seed_offset=int(self.controls.get('max_delta_noise_seed_offset',
                 ParameterControl("", 0, 0, 1000)).value()),
+            
+            # Directional anisotropy parameters
+            use_directional_max_delta=self.use_directional_checkbox.isChecked() if hasattr(self, 'use_directional_checkbox') else False,
+            directional_angle=np.radians(self.controls.get('directional_angle', ParameterControl("", 0, 0, 0)).value()),
+            directional_mode="post_process" if (hasattr(self, 'directional_mode_combo') and 
+                                            self.directional_mode_combo.currentIndex() == 0) else "edge_costs",
+            cliff_amplification=self.controls.get('cliff_amplification', ParameterControl("", 0, 0, 1.5)).value(),
+            anisotropy_power=self.controls.get('anisotropy_power', ParameterControl("", 0, 0, 2.0)).value(),
+            min_gradient_percentile=self.controls.get('min_gradient_percentile', ParameterControl("", 0, 0, 25.0)).value(),
 
             rock_warp_strength=self.controls['rock_warp_strength'].value(),
             rock_warp_scale=self.controls['rock_warp_scale'].value(),
@@ -1295,6 +1367,8 @@ class ControlPanel(QWidget):
             'export_formats': export_formats,
             'use_3d_max_delta_noise': self.use_3d_max_delta_noise_checkbox.isChecked(),
             'rock_layers': self.collect_rock_layer_states(),
+            'use_directional_max_delta': self.use_directional_checkbox.isChecked() if hasattr(self, 'use_directional_checkbox') else False,
+            'directional_mode_index': self.directional_mode_combo.currentIndex() if hasattr(self, 'directional_mode_combo') else 0,
         }
 
     def apply_state(self, state: Optional[Dict[str, Any]]):
@@ -1352,6 +1426,17 @@ class ControlPanel(QWidget):
         if 'use_3d_max_delta_noise' in state:
             self.use_3d_max_delta_noise_checkbox.setChecked(state['use_3d_max_delta_noise'])
         self.use_erosion_checkbox.setChecked(bool(state.get('use_erosion', True)))
+
+        # Directional anisotropy state
+        if hasattr(self, 'use_directional_checkbox'):
+            self.use_directional_checkbox.setChecked(
+                state.get('use_directional_max_delta', False)
+            )
+        
+        if hasattr(self, 'directional_mode_combo'):
+            self.directional_mode_combo.setCurrentIndex(
+                state.get('directional_mode_index', 0)
+            )
 
         self.apply_rock_layer_states(state.get('rock_layers'))
 
