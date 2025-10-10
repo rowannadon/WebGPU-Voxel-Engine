@@ -25,6 +25,12 @@ NUMBER_FIELDS = {
     'erosion_blur_iterations': int,
     'enable_particle_erosion': bool,
     'enable_particle_deposition': bool,
+    
+    # Directional anisotropy parameters
+    'directional_angle': float,  # Angle in degrees (0-360)
+    'cliff_steepness': float,
+    'anisotropy_power': float,
+    'use_directional': bool,  # Whether this layer uses directional anisotropy
 }
 
 

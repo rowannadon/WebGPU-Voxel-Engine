@@ -633,9 +633,10 @@ class ControlPanel(QWidget):
         # Parameter controls
         controls_data = [
             ('directional_angle', "Direction (degrees)", 0, 360, 0, 1, 0),
-            ('cliff_amplification', "Cliff Amplification", 0.5, 5.0, 1.5, 0.1, 1),
+            ('cliff_steepness', "Cliff Steepness", 1.0, 10.0, 3.0, 0.1, 1),
             ('anisotropy_power', "Transition Sharpness", 1.0, 10.0, 2.0, 0.1, 1),
-            ('min_gradient_percentile', "Min Gradient % (affects which slopes)", 0, 50, 25, 1, 0),
+            ('adjustment_radius', "Smoothing Radius", 0.5, 5.0, 2.0, 0.1, 1),
+            ('preserve_detail_scale', "Detail Preservation", 0.5, 5.0, 1.5, 0.1, 1),
         ]
         
         for name, label, min_val, max_val, default, step, decimals in controls_data:
@@ -646,8 +647,9 @@ class ControlPanel(QWidget):
         
         # Add helpful text
         help_text = QLabel(
-            "<i>Direction: 0°=East, 90°=North. Cliffs face this direction.<br>"
-            "Higher amplification = steeper cliffs. Lower percentile = affects more slopes.</i>"
+            "<i>Steepness: How steep cliffs become (1=unchanged, 10=vertical).<br>"
+            "Higher detail preservation = keeps more small features.<br>"
+            "Lower smoothing radius = sharper transitions but possible artifacts.</i>"
         )
         help_text.setWordWrap(True)
         help_text.setStyleSheet("color: gray; font-size: 9pt;")
@@ -938,9 +940,21 @@ class ControlPanel(QWidget):
         snapshot['erosion_blur_iterations'] = int(self.controls['erosion_blur_iterations'].value())
         snapshot['enable_particle_erosion'] = self.enable_particle_erosion_checkbox.isChecked()
         snapshot['enable_particle_deposition'] = self.enable_particle_deposition_checkbox.isChecked()
+        
         base_max_delta = self.controls['max_delta'].value()
-        snapshot['min_max_delta'] = base_max_delta * 0.2  # 20% of base
-        snapshot['max_max_delta'] = base_max_delta * 4.0  # 180% of base
+        snapshot['min_max_delta'] = base_max_delta * 0.2
+        snapshot['max_max_delta'] = base_max_delta * 4.0
+        
+        # Add directional anisotropy parameters
+        if hasattr(self, 'use_directional_checkbox'):
+            snapshot['use_directional'] = self.use_directional_checkbox.isChecked()
+            snapshot['directional_angle'] = self.controls.get('directional_angle', 
+                                                            ParameterControl("", 0, 0, 0)).value()
+            snapshot['cliff_steepness'] = self.controls.get('cliff_steepness',
+                                                            ParameterControl("", 0, 0, 3.0)).value()
+            snapshot['anisotropy_power'] = self.controls.get('anisotropy_power',
+                                                            ParameterControl("", 0, 0, 2.0)).value()
+        
         return snapshot
 
     def export_erosion_parameters(self):
@@ -1282,9 +1296,9 @@ class ControlPanel(QWidget):
             directional_angle=np.radians(self.controls.get('directional_angle', ParameterControl("", 0, 0, 0)).value()),
             directional_mode="post_process" if (hasattr(self, 'directional_mode_combo') and 
                                             self.directional_mode_combo.currentIndex() == 0) else "edge_costs",
-            cliff_amplification=self.controls.get('cliff_amplification', ParameterControl("", 0, 0, 1.5)).value(),
-            anisotropy_power=self.controls.get('anisotropy_power', ParameterControl("", 0, 0, 2.0)).value(),
-            min_gradient_percentile=self.controls.get('min_gradient_percentile', ParameterControl("", 0, 0, 25.0)).value(),
+            cliff_steepness=self.controls.get('cliff_steepness', ParameterControl("", 0, 0, 3.0)).value(),
+            adjustment_radius=self.controls.get('adjustment_radius', ParameterControl("", 0, 0, 2.0)).value(),
+            preserve_detail_scale=self.controls.get('preserve_detail_scale', ParameterControl("", 0, 0, 1.5)).value(),
 
             rock_warp_strength=self.controls['rock_warp_strength'].value(),
             rock_warp_scale=self.controls['rock_warp_scale'].value(),

@@ -264,9 +264,10 @@ class TerrainParameters:
     use_directional_max_delta: bool = False
     directional_angle: float = 0.0
     directional_mode: str = "post_process"
-    cliff_amplification: float = 1.5  # Lower default
+    cliff_steepness: float = 3.0  # How much steeper (1.0 = no change, 5.0 = very steep)
     anisotropy_power: float = 2.0
-    min_gradient_percentile: float = 25.0  # Which slopes to affect
+    adjustment_radius: float = 2.0  # Radius for smoothing adjustments (not terrain)
+    preserve_detail_scale: float = 1.5  # Below this scale, preserve all detail
 
     # Erosion parameters
     use_erosion: bool = True
@@ -484,29 +485,42 @@ class TerrainGenerator:
         
         if progress_callback:
             progress_callback(86, "Rendering terrain to grid...")
-        # Render to grid
-        terrain_height = render_triangulation(target_shape, tri, final_height, triangulation=tri)
 
-        # Apply directional slope adjustment if enabled
-        if self.params.use_directional_max_delta and self.params.directional_mode == "post_process":
-            if progress_callback:
-                progress_callback(88, "Applying directional slope adjustment...")
-            terrain_height = self._apply_directional_slope_adjustment(
-                terrain_height, 
-                self.params.directional_angle
-            )
-        
+        # Render terrain to grid
         if progress_callback:
-            progress_callback(86, "Rendering rivers to grid...")
-        
+            progress_callback(87, "Rendering terrain to grid...")
+
+        final_terrain = render_triangulation(target_shape, tri, final_height, triangulation=tri)
+
+        # Render rock map and other data
         river_volume = render_triangulation(target_shape, tri, river_network.volume, triangulation=tri)
-        rock_map_grid = self._render_map(
-            points, rock_assignments, target_shape)
-        
+        rock_map_grid = self._render_map(points, rock_assignments, target_shape)
+
         if progress_callback:
             progress_callback(88, "Rendering watersheds...")
 
         watershed_mask = self._render_map(points, river_network.watershed, target_shape)
+
+        # Apply directional slope adjustment AFTER rock_map_grid is created
+        if self.params.use_directional_max_delta and self.params.directional_mode == "post_process":
+            if progress_callback:
+                progress_callback(89, "Applying directional slope adjustment...")
+            
+            # Check if using per-layer or global settings
+            if rock_map_grid is not None and resolved_layer_params:
+                # Use per-layer directional settings
+                final_terrain = self._apply_directional_slope_adjustment(
+                    final_terrain,
+                    rock_map_grid,
+                    resolved_layer_params
+                )
+            else:
+                # Use global directional settings
+                final_terrain = self._apply_directional_slope_adjustment(
+                    final_terrain,
+                    None,
+                    []
+                )
 
         if self.params.use_erosion:
             if progress_callback:
@@ -546,14 +560,14 @@ class TerrainGenerator:
                     )
 
             # Preserve the original height scale
-            max_height = terrain_height.max()
+            max_height = final_terrain.max()
 
             if max_height <= 0:
                 # No land above sea level, skip erosion
-                self.deposition_map = np.zeros_like(terrain_height)
+                self.deposition_map = np.zeros_like(final_terrain)
             else:
                 # Normalize for erosion
-                normalized_terrain = terrain_height / max_height
+                normalized_terrain = final_terrain / max_height
 
                 # Apply erosion
                 eroded_terrain, deposition_map = erosion.erode(
@@ -563,24 +577,24 @@ class TerrainGenerator:
                 )
                 
                 # Scale back to original height range
-                terrain_height = eroded_terrain * max_height
+                final_terrain = eroded_terrain * max_height
                 
                 # Update land mask to include new land formed by deposition
                 new_land_threshold = 0.001 * max_height
-                updated_land_mask = terrain_height > new_land_threshold
+                updated_land_mask = final_terrain > new_land_threshold
                 land_mask = land_mask | updated_land_mask
                 
                 # Store deposition map for export
                 self.deposition_map = deposition_map * max_height
         else:
             # No erosion, no deposition
-            self.deposition_map = np.zeros_like(terrain_height)
+            self.deposition_map = np.zeros_like(final_terrain)
 
         if progress_callback:
             progress_callback(100, "Complete!")
 
         return TerrainData(
-            heightmap=terrain_height,
+            heightmap=final_terrain,
             land_mask=land_mask,
             river_volume=river_volume,
             watershed_mask=watershed_mask,
@@ -1334,63 +1348,125 @@ class TerrainGenerator:
         return direction_field
 
     def _apply_directional_slope_adjustment(self, heightmap: np.ndarray, 
-                                        direction_field_angle: float) -> np.ndarray:
+                                        rock_map: Optional[np.ndarray],
+                                        rock_parameters: List[Dict[str, float]]) -> np.ndarray:
         """
-        Apply directional slope adjustment to create asymmetric cliffs.
-        Uses a multi-scale approach to avoid artifacts.
+        Apply directional slope adjustment by reshaping slope profiles.
+        Can use per-layer directional settings from rock parameters.
+        
+        Args:
+            heightmap: Input heightmap from Dijkstra
+            rock_map: Optional rock type assignment map
+            rock_parameters: List of parameter dicts per rock layer
+            
+        Returns:
+            Modified heightmap with asymmetric slopes
         """
-        from scipy.ndimage import sobel, gaussian_filter, shift
+        from scipy.ndimage import sobel, gaussian_filter, minimum_filter, maximum_filter, median_filter
         
-        # Multi-scale approach: work on smoothed terrain, then add back details
-        smooth_base = gaussian_filter(heightmap, sigma=2.0)
-        details = heightmap - smooth_base
+        h, w = heightmap.shape
         
-        # Compute gradients on the smooth base
-        grad_y = sobel(smooth_base, axis=0, mode='nearest')
-        grad_x = sobel(smooth_base, axis=1, mode='nearest')
+        # Check if we should use per-layer directions or global
+        use_per_layer = rock_map is not None and rock_parameters
         
+        if use_per_layer:
+            # Create direction field from rock map
+            direction_field = np.zeros_like(heightmap)
+            steepness_field = np.ones_like(heightmap)
+            anisotropy_field = np.ones_like(heightmap) * 2.0
+            use_directional_mask = np.zeros_like(heightmap, dtype=bool)
+            
+            for layer_idx, layer_params in enumerate(rock_parameters):
+                layer_mask = (rock_map == layer_idx)
+                if not np.any(layer_mask):
+                    continue
+                
+                # Check if this layer uses directional anisotropy
+                if layer_params.get('use_directional', False):
+                    use_directional_mask[layer_mask] = True
+                    # Convert degrees to radians
+                    angle_deg = float(layer_params.get('directional_angle', 0.0))
+                    direction_field[layer_mask] = np.radians(angle_deg)
+                    steepness_field[layer_mask] = float(layer_params.get('cliff_steepness', 3.0))
+                    anisotropy_field[layer_mask] = float(layer_params.get('anisotropy_power', 2.0))
+            
+            # If no layers use directional, return unchanged
+            if not np.any(use_directional_mask):
+                return heightmap
+        else:
+            # Use global parameters
+            direction_field = np.full_like(heightmap, self.params.directional_angle)
+            steepness_field = np.full_like(heightmap, self.params.cliff_steepness)
+            anisotropy_field = np.full_like(heightmap, self.params.anisotropy_power)
+            use_directional_mask = np.ones_like(heightmap, dtype=bool)
+        
+        # Identify features to preserve (local extrema)
+        feature_radius = max(1, int(self.params.preserve_detail_scale))
+        local_min = minimum_filter(heightmap, size=feature_radius)
+        local_max = maximum_filter(heightmap, size=feature_radius)
+        is_feature = (heightmap == local_min) | (heightmap == local_max)
+        
+        # Compute gradients
+        grad_y = sobel(heightmap, axis=0, mode='nearest')
+        grad_x = sobel(heightmap, axis=1, mode='nearest')
         gradient_mag = np.sqrt(grad_x**2 + grad_y**2)
         gradient_angle = np.arctan2(grad_y, grad_x)
         
-        # Compute alignment with direction
-        angle_diff = gradient_angle - direction_field_angle
+        # Compute alignment with direction field
+        angle_diff = gradient_angle - direction_field
         angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
         alignment = np.cos(angle_diff)
         
-        # Only work on significant slopes
-        min_gradient = np.percentile(gradient_mag[gradient_mag > 0], 25)
-        slope_mask = gradient_mag > min_gradient
+        # Compute steepness adjustment field
+        min_gradient = 0.005
+        is_slope = (gradient_mag > min_gradient) & ~is_feature & use_directional_mask
         
-        # Compute adjustment factor (smooth field)
         adjustment = np.zeros_like(heightmap)
         
-        # Cliff side: steepen (positive adjustment)
-        cliff_mask = slope_mask & (alignment > 0.2)
-        cliff_strength = np.clip((alignment - 0.2) / 0.8, 0, 1) ** self.params.anisotropy_power
-        cliff_strength *= np.clip(gradient_mag / (min_gradient * 3), 0, 1)
-        adjustment[cliff_mask] = cliff_strength[cliff_mask]
+        # Cliff-facing slopes
+        cliff_mask = is_slope & (alignment > 0.2)
+        if np.any(cliff_mask):
+            strength = np.clip((alignment[cliff_mask] - 0.2) / 0.8, 0, 1)
+            # Use per-pixel anisotropy power
+            strength = strength ** anisotropy_field[cliff_mask]
+            # Use per-pixel steepness
+            adjustment[cliff_mask] = strength * (steepness_field[cliff_mask] - 1.0)
         
-        # Smooth adjustment field heavily
-        adjustment = gaussian_filter(adjustment, sigma=3.0)
+        # Smooth only the adjustment field
+        smooth_adjustment = gaussian_filter(adjustment, sigma=self.params.adjustment_radius)
         
-        # Apply adjustment using height displacement
-        # Shift terrain "up" in cliff direction proportional to local gradient
-        displacement = adjustment * gradient_mag * self.params.cliff_amplification * 0.5
+        # Apply steepness transformation using local min/max
+        # Compute position along slope (normalized)
+        position = np.clip((heightmap - local_min) / (local_max - local_min + 1e-6), 0, 1)
         
-        # Apply displacement
-        modified_base = smooth_base + displacement
+        # Apply steepness transformation
+        power = 1.0 + smooth_adjustment
+        new_position = np.where(
+            power > 1.0,
+            position ** (1.0 / power),  # Steepen
+            position  # No change
+        )
         
-        # Add details back
-        result = modified_base + details * 0.7  # Slightly dampen detail to avoid spikes
+        # Compute new heights
+        new_height = local_min + new_position * (local_max - local_min)
         
-        # Clean up with gentle smoothing
-        result = gaussian_filter(result, sigma=0.5)
+        # Blend based on adjustment strength and slope mask
+        blend = np.clip(np.abs(smooth_adjustment), 0, 1) * is_slope.astype(float)
+        result = heightmap * (1 - blend) + new_height * blend
         
-        # Preserve height range
-        result = np.clip(result, 0, None)
+        # Minimal cleanup: fix extreme outliers only
+        median_terrain = median_filter(result, size=3)
+        outlier_threshold = np.percentile(gradient_mag[gradient_mag > 0], 95) * 3.0
+        outlier_mask = np.abs(result - median_terrain) > outlier_threshold
+        result[outlier_mask] = median_terrain[outlier_mask]
+        
+        # Ensure boundaries stay unchanged
+        result[0, :] = heightmap[0, :]
+        result[-1, :] = heightmap[-1, :]
+        result[:, 0] = heightmap[:, 0]
+        result[:, -1] = heightmap[:, -1]
         
         return result
-
 
     def _compute_modulated_rock_colors(self, points: np.ndarray,
                                     rock_assignments: np.ndarray,
