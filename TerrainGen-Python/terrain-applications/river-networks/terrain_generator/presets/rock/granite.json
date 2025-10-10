@@ -16,5 +16,9 @@
   "erosion_blur_iterations": 1,
   "enable_particle_erosion": false,
   "enable_particle_deposition": true,
+  "use_directional": true,
+  "directional_angle": 145.0,
+  "cliff_steepness": 8.0,
+  "anisotropy_power": 2.0,
   "base_albedo_rgb": [173, 155, 139]
 }

@@ -4,10 +4,10 @@
   "max_delta": 0.035,
   "min_max_delta": 0.005,
   "max_max_delta": 0.05,
-  "erosion_iterations": 65000,
+  "erosion_iterations": 90000,
   "erosion_inertia": 0.3,
   "erosion_capacity": 8.0,
-  "erosion_deposition_rate": 0.6,
+  "erosion_deposition_rate": 0.8,
   "erosion_rate": 0.35,
   "erosion_evaporation": 0.98,
   "erosion_gravity": 10.0,
@@ -16,5 +16,9 @@
   "erosion_blur_iterations": 1,
   "enable_particle_erosion": false,
   "enable_particle_deposition": true,
+  "use_directional": true,
+  "directional_angle": 10.0,
+  "cliff_steepness": 4.0,
+  "anisotropy_power": 4.0,
   "base_albedo_rgb": [184, 127, 94]
 }

@@ -5,7 +5,7 @@
       "heightmap_blend_factor": 1.0,
       "dimension": 2048.0,
       "seed": 1058.0,
-      "disc_radius": 2.95,
+      "disc_radius": 3.75,
       "river_downcutting": 1.7,
       "default_water_level": 0.8,
       "evaporation_rate": 0.3,
@@ -23,8 +23,13 @@
       "max_delta_noise_octaves": 3.0,
       "max_delta_noise_persistence": 0.5,
       "max_delta_noise_seed_offset": 1000.0,
-      "rock_warp_strength": 0.0,
-      "rock_warp_scale": -2.0,
+      "directional_angle": 0.0,
+      "cliff_steepness": 3.0,
+      "anisotropy_power": 2.0,
+      "adjustment_radius": 2.0,
+      "preserve_detail_scale": 1.5,
+      "rock_warp_strength": 0.3,
+      "rock_warp_scale": -1.4,
       "rock_warp_lower": 1.0,
       "rock_warp_upper": 10.0,
       "erosion_iterations": 65000.0,
@@ -39,15 +44,15 @@
       "erosion_blur_iterations": 1.0
     },
     "fbm": {
-      "fbm_scale": -2.0,
+      "fbm_scale": -1.8,
       "fbm_lower": 2.0,
       "fbm_upper": "inf",
-      "offset_scale": -2.0,
+      "offset_scale": -1.5,
       "offset_lower": 1.5,
       "offset_upper": "inf",
       "offset_amplitude": 150.0,
-      "land_threshold": 0.3,
-      "blur_distance": 2.5,
+      "land_threshold": 0.27,
+      "blur_distance": 2.0,
       "edge_falloff_distance": 200.0,
       "edge_falloff_rate": 1.5,
       "edge_smoothness": 0.2
@@ -71,14 +76,9 @@
     "use_3d_max_delta_noise": true,
     "rock_layers": [
       {
-        "name": "Layer 4",
-        "thickness": 0.2,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/sandstone.json"
-      },
-      {
-        "name": "Layer 3",
-        "thickness": 0.15000000000000002,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/basalt.json"
+        "name": "Layer 5",
+        "thickness": 0.05000000000000002,
+        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/granite.json"
       },
       {
         "name": "Layer 2",
@@ -86,11 +86,23 @@
         "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/sandstone.json"
       },
       {
+        "name": "Layer 4",
+        "thickness": 0.15000000000000002,
+        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/basalt.json"
+      },
+      {
+        "name": "Layer 5",
+        "thickness": 0.2,
+        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/limestone.json"
+      },
+      {
         "name": "Layer 1",
-        "thickness": 0.39999999999999997,
+        "thickness": 0.35000000000000003,
         "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/granite.json"
       }
-    ]
+    ],
+    "use_directional_max_delta": true,
+    "directional_mode_index": 0
   },
   "heuristics": {
     "heuristic_checkboxes": {
@@ -121,7 +133,7 @@
       "svf": 10.0,
       "climate": 0.0,
       "biome": 0.0,
-      "albedo": 75.0,
+      "albedo": 60.0,
       "foliage": 0.0,
       "forest_density": 0.0,
       "groundcover_density": 0.0,
@@ -156,7 +168,7 @@
     "constant_wind_azimuth_deg": 25.0
   },
   "metadata": {
-    "saved_at": "2025-10-06T20:37:39.218435+00:00",
+    "saved_at": "2025-10-10T21:34:45.580954+00:00",
     "preset_version": 1,
     "terrain_dimension": 2048,
     "seed": 1058
