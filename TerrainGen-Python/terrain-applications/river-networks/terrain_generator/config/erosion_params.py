@@ -8,6 +8,15 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Union
 
 
+BASE_PATH = Path(__file__).resolve().parent.parent
+PRESET_ROOT = BASE_PATH / 'presets'
+GENERAL_PRESET_DIR = PRESET_ROOT / 'general'
+ROCK_LAYER_PRESET_DIR = PRESET_ROOT / 'rock_layers'
+
+ROCK_LAYER_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+GENERAL_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+
+
 NUMBER_FIELDS = {
     'river_downcutting': float,
     'max_delta': float,
@@ -104,6 +113,8 @@ class ErosionParameterSet:
 def load_erosion_parameters(path: Union[str, Path]) -> ErosionParameterSet:
     """Load erosion parameters from a JSON file."""
     target = Path(path)
+    if not target.is_absolute():
+        target = BASE_PATH / target
     with target.open('r', encoding='utf-8') as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
@@ -141,9 +152,10 @@ class RockLayerConfig:
         except (TypeError, ValueError):
             thickness = 0.25
         path = payload.get('erosion_params_path') or payload.get('parameters_path')
-        if path is not None:
-            path = str(path)
-        return cls(name=name, thickness=thickness, erosion_params_path=path)
+        normalized_path: Optional[str] = None
+        if path:
+            normalized_path = normalize_rock_layer_path(path)
+        return cls(name=name, thickness=thickness, erosion_params_path=normalized_path)
 
     def to_mapping(self) -> Dict[str, Any]:
         """Convert to a JSON-compatible mapping."""
@@ -152,14 +164,15 @@ class RockLayerConfig:
             'thickness': float(self.thickness),
         }
         if self.erosion_params_path:
-            result['erosion_params_path'] = self.erosion_params_path
+            result['erosion_params_path'] = normalize_rock_layer_path(self.erosion_params_path)
         return result
 
     def load_parameter_set(self) -> Optional[ErosionParameterSet]:
         """Load the erosion parameter set referenced by this layer, if any."""
         if not self.erosion_params_path:
             return None
-        return load_erosion_parameters(self.erosion_params_path)
+        resolved_path = resolve_rock_layer_path(self.erosion_params_path)
+        return load_erosion_parameters(resolved_path)
 
 
 def normalize_layer_inputs(layers: Iterable[Union[RockLayerConfig, Mapping[str, Any]]]) -> list:
@@ -171,3 +184,50 @@ def normalize_layer_inputs(layers: Iterable[Union[RockLayerConfig, Mapping[str, 
         elif isinstance(item, Mapping):
             result.append(RockLayerConfig.from_mapping(item))
     return result
+
+
+def normalize_rock_layer_path(path: Union[str, Path]) -> str:
+    """Return a rock layer path relative to the presets directory when possible."""
+    if not path:
+        return ''
+
+    raw = str(path).strip()
+    if not raw:
+        return ''
+
+    segments = [segment for segment in raw.replace('\\', '/').split('/') if segment]
+    lowered = [segment.lower() for segment in segments]
+
+    if not any(
+        marker in lowered
+        for marker in ('terrain_generator', 'presets', 'rock', 'rock_layers')
+    ):
+        return raw
+
+    if 'terrain_generator' in lowered:
+        idx = lowered.index('terrain_generator')
+        segments = segments[idx + 1 :]
+        lowered = lowered[idx + 1 :]
+
+    if segments and lowered[0] == 'presets':
+        segments = segments[1:]
+        lowered = lowered[1:]
+
+    if segments and lowered[0] in {'rock', 'rock_layers'}:
+        segments = segments[1:]
+        lowered = lowered[1:]
+
+    normalized = Path('presets', 'rock_layers', *segments)
+    return normalized.as_posix()
+
+
+def resolve_rock_layer_path(path: Union[str, Path]) -> Path:
+    """Resolve a rock layer preset path to an absolute location."""
+    normalized = normalize_rock_layer_path(path)
+    if not normalized:
+        return ROCK_LAYER_PRESET_DIR
+
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return candidate
+    return (BASE_PATH / candidate)

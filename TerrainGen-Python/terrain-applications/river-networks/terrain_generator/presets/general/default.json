@@ -78,27 +78,27 @@
       {
         "name": "Layer 5",
         "thickness": 0.05000000000000002,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/granite.json"
+        "erosion_params_path": "presets/rock_layers/granite.json"
       },
       {
         "name": "Layer 2",
         "thickness": 0.25,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/sandstone.json"
+        "erosion_params_path": "presets/rock_layers/sandstone.json"
       },
       {
         "name": "Layer 4",
         "thickness": 0.15000000000000002,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/basalt.json"
+        "erosion_params_path": "presets/rock_layers/basalt.json"
       },
       {
         "name": "Layer 5",
         "thickness": 0.2,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/limestone.json"
+        "erosion_params_path": "presets/rock_layers/limestone.json"
       },
       {
         "name": "Layer 1",
         "thickness": 0.35000000000000003,
-        "erosion_params_path": "C:/Users/Alder.Nadon/Documents/WebGPU-Voxel-Engine/TerrainGen-Python/terrain-applications/river-networks/terrain_generator/presets/rock/granite.json"
+        "erosion_params_path": "presets/rock_layers/granite.json"
       }
     ],
     "use_directional_max_delta": true,

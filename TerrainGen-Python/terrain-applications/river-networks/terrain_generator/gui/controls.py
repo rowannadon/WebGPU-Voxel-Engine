@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from ..core import TerrainParameters
-from ..config import PresetManager, save_erosion_parameters, ErosionParameterSet
+from ..config import (
+    PresetManager,
+    save_erosion_parameters,
+    ErosionParameterSet,
+    RockLayerConfig,
+    ROCK_LAYER_PRESET_DIR,
+    normalize_rock_layer_path,
+)
 from .widgets import ParameterControl, RockLayerRow
 from .curves_widget import HeightCurvesWidget
 
@@ -735,7 +742,8 @@ class ControlPanel(QWidget):
         """Insert a new rock layer entry."""
         row = RockLayerRow()
         if state:
-            row.set_state(state)
+            normalized_state = RockLayerConfig.from_mapping(state).to_mapping()
+            row.set_state(normalized_state)
         row.moveRequested.connect(self.on_move_rock_layer)
         row.deleteRequested.connect(self.on_remove_rock_layer)
         row.browseRequested.connect(self.on_browse_rock_parameters)
@@ -781,11 +789,11 @@ class ControlPanel(QWidget):
         filename, _ = QFileDialog.getOpenFileName(
             self,
             "Select Erosion Parameter File",
-            "",
+            str(ROCK_LAYER_PRESET_DIR),
             "JSON Files (*.json);;All Files (*.*)"
         )
         if filename:
-            row.set_path(filename)
+            row.set_path(normalize_rock_layer_path(filename))
 
     def update_rock_layer_indices(self):
         """Update numbering and control states for rock layers."""
@@ -797,7 +805,11 @@ class ControlPanel(QWidget):
 
     def collect_rock_layer_states(self) -> List[Dict[str, Any]]:
         """Return the current rock layer configuration from lowest to highest."""
-        return [row.get_state() for row in reversed(self.rock_layer_rows)]
+        normalized_layers: List[Dict[str, Any]] = []
+        for row in reversed(self.rock_layer_rows):
+            layer = RockLayerConfig.from_mapping(row.get_state())
+            normalized_layers.append(layer.to_mapping())
+        return normalized_layers
 
     def apply_rock_layer_states(self, layers: Optional[List[Dict[str, Any]]]):
         """Restore rock layer rows from stored state."""

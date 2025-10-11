@@ -10,6 +10,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
+from .erosion_params import GENERAL_PRESET_DIR
+
 
 class PresetError(RuntimeError):
     """Raised when a preset file cannot be read or written."""
@@ -22,7 +24,7 @@ class PresetManager:
 
     def __init__(self, preset_directory: Optional[Union[str, Path]] = None):
         if preset_directory is None:
-            preset_directory = Path(__file__).resolve().parent.parent / 'presets'
+            preset_directory = GENERAL_PRESET_DIR
         self._preset_directory = Path(preset_directory)
         self._preset_directory.mkdir(parents=True, exist_ok=True)
 
